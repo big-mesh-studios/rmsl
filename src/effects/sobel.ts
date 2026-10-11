@@ -1,5 +1,5 @@
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
-import { add, mat3, textureSize, uv, vec2, vec3, vec4, luminance, type Node } from "../rmsl";
+import { add, mat3, textureSize, uv, vec2, vec3, vec4, luminance, type Node, texture } from "../rmsl";
 
 /**
  * Post-processing effect detecting edges with a sobel filter. A sobel filter
@@ -14,7 +14,7 @@ export const sobel = (textureNode: Sampler2D): Node<"vec4"> => {
   // One texel in UV space; the matrices are column-major, as GLSL fills them.
   const texel = vec2(1).div(textureSize(textureNode).toVec2());
   const uvNode = uv();
-  const sampleTexture = (u: Node<"vec2">): Node<"vec4"> => textureNode.texture(u);
+  const sampleTexture = (u: Node<"vec2">): Node<"vec4"> => texture(textureNode, u);
 
   const Gx = mat3(-1, -2, -1, 0, 0, 0, 1, 2, 1); // x direction kernel
   const Gy = mat3(-1, 0, 1, -2, 0, 2, -1, 0, 1); // y direction kernel

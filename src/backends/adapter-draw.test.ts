@@ -7,7 +7,7 @@ import { GL_STATE, READ_PIXEL, runInGpuPage } from "../testing/browser";
  * draws it in. Pixel (x, y) counts from the top left.
  */
 const SCENE = `
-import { Fn, attribute, builtinPosition, float, fragCoord, uint, uniform, varying, vec2, vec4, vertexIndex } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, fragCoord, texture, uint, uniform, varying, vec2, vec4, vertexIndex } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createJs, createJsGrid } from "../js";
 import { createWasm, createWasmGrid } from "../wasm";
@@ -36,7 +36,7 @@ const drawWith = (adapter) => {
   return readPixel(target, 1, 2);
 };
 const image = uniform("sampler2D");
-const texturedFragment = () => Fn(() => image.texture(vec2(0.75, 0.25)))();
+const texturedFragment = () => Fn(() => texture(image, vec2(0.75, 0.25)))();
 const drawTextured = (adapter) => {
   const target = canvas();
   adapter.attach(target);
@@ -104,7 +104,7 @@ const glslStateChanged = (preserveState) => {
   const before = glState(gl);
   const changed = new Set();
   const check = () => changedGlState(before, glState(gl)).forEach((name) => changed.add(name));
-  const adapter = createGlsl(offsetVertex(), Fn(() => image.texture(vec2(0.75, 0.25)).mul(colour))(), { preserveState });
+  const adapter = createGlsl(offsetVertex(), Fn(() => texture(image, vec2(0.75, 0.25)).mul(colour))(), { preserveState });
   adapter.attach(target);
   check();
   adapter.setAttribute(position, TRIANGLE);
@@ -151,7 +151,7 @@ afterAll(async () => {
  * it hit.
  */
 const STORAGE_SCENE = `
-import { For, Fn, attribute, builtinPosition, float, instancedArray, int, uniform, vec2, vec3, vec4 } from "../rmsl";
+import { For, Fn, attribute, builtinPosition, float, instancedArray, int, texture, uniform, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const position = attribute("vec3");
@@ -212,7 +212,7 @@ globalThis.__rmslStorageDraw = {
   },
   setUniformOnTexture: () => {
     const image = uniform("sampler2D");
-    return draw(Fn(() => image.texture(vec2(0, 0)))(), (adapter) => adapter.setUniform(image.name, 1));
+    return draw(Fn(() => texture(image, vec2(0, 0)))(), (adapter) => adapter.setUniform(image.name, 1));
   },
   // A context whose MAX_TEXTURE_SIZE is 4, where 40 texels need a texture 8 wide.
   oversize: () => {

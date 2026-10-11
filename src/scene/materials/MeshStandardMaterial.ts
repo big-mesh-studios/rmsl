@@ -73,7 +73,8 @@ export class MeshStandardMaterial extends NodeMaterial {
     const metalness = resolveSlot(this.metalnessNode, b) ?? this.metalnessUniform!;
     const emissive = resolveSlot(this.emissiveNode, b) ?? this.emissiveUniform!;
 
-    const normal = (resolveSlot(this.normalNode, b) ?? b.normalWorld).normalize().toVar();
+    const normalView = resolveSlot(this.normalNode, b);
+    const normal = (normalView ? b.normalWorldOf(normalView) : b.normalWorld).normalize().toVar();
     const viewDir = b.viewDirection.normalize().toVar();
     const f0 = vec3(0.04).mix(albedo, metalness).toVar();
 

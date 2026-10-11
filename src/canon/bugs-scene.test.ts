@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { float, vec2, vec4 } from "../rmsl";
+import { float, vec2, vec4, texture, textureLevel } from "../rmsl";
 import { compileWgsl } from "../wgsl";
 import {
   BufferAttribute,
@@ -307,12 +307,12 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     const { device, canvas, pipelines } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
-    const texture = () => new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    const image = () => new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     material.fragmentNode = (b) => {
-      b.sampler("unused", texture);
-      const first = b.sampler("first", texture);
-      const second = b.sampler("second", texture);
-      return second.texture(vec2(0.5, 0.5)).add(first.texture(vec2(0.5, 0.5)));
+      b.sampler("unused", image);
+      const first = b.sampler("first", image);
+      const second = b.sampler("second", image);
+      return texture(second, vec2(0.5, 0.5)).add(texture(first, vec2(0.5, 0.5)));
     };
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(), material));
@@ -343,30 +343,18 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const height = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     const material = new MeshBasicMaterial();
-    material.positionNode = (b) => b.position.add(b.sampler("height", () => height).textureLod(b.uv, float(0)).xyz);
+    material.positionNode = (b) =>
+      b.position.add(
+        textureLevel(
+          b.sampler("height", () => height),
+          b.uv,
+          float(0),
+        ).xyz,
+      );
     renderer.ensurePipeline(material, new Scene(), false, false);
 
     const textureLayout = layouts.find((l) => l.entries.some((e: any) => e.texture))!;
     expect(textureLayout.entries[0].visibility & 1).toBe(1);
     expect(textureLayout.entries[0].visibility & 2).toBe(2);
-  });
-
-  /**
-   * The builder's `position` and `normal` read the attributes in object space
-   * in the vertex stage, but the world-space `positionWorld` and `normalWorld`
-   * varyings in the fragment stage.
-   *
-   * @canon bug-position-and-normal-read-world-space-in-the-fragment-stage
-   */
-  it.fails("reads position and normal in object space in the fragment stage", () => {
-    const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
-    const program = material.build(new Scene());
-
-    const read = collectNodes(program.fragmentRoot).varyings;
-    const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
-    expect(names).toHaveLength(2);
-    expect(names).not.toContain("positionWorld");
-    expect(names).not.toContain("normalWorld");
   });
 });

@@ -53,7 +53,7 @@ normalize length dFdx dFdy fwidth sin cos tan asin acos atan sinh cosh tanh
 asinh acosh atanh pow pow2 pow3 pow4 min max step reflect distance difference
 dot cross mix clamp refract smoothstep faceForward all any transpose determinant
 inverse element select luminance rand interleavedGradientNoise
-premultiplyAlpha unpremultiplyAlpha textureLoad textureSize`
+premultiplyAlpha unpremultiplyAlpha texture textureLevel textureLoad textureSize`
 
 Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 `mix(a, b, t)`, `clamp(x, low, high)`, `faceForward(n, i, nref)`, `atan(y, x)`.
@@ -69,16 +69,17 @@ Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 
 ## Control flow
 
-| TSL                                                     | RMSL                                                                                                                                   |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `Fn(() => { … })`                                       | same                                                                                                                                   |
-| `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                                                                                   |
-| `Switch(x).Case(…).Default(…)`                          | same                                                                                                                                   |
-| `Loop(count, ({ i }) => …)`                             | `Loop(count, (i) => …)` — `i` is passed directly rather than destructured                                                              |
-| `While(cond, () => …)`                                  | same; a condition that makes a variable, as with `toVar()`, goes in a function, `While(() => cond, …)`, to be computed every iteration |
-| `For(…)`                                                | same                                                                                                                                   |
-| `Break()` / `Continue()`                                | same                                                                                                                                   |
-| `Discard()` / `Return()`                                | same                                                                                                                                   |
+| TSL                                                     | RMSL                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Fn(() => { … })`                                       | same                                                                                       |
+| `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                                       |
+| `Switch(x).Case(…).Default(…)`                          | same                                                                                       |
+| `Loop(count, ({ i }) => …)`                             | same                                                                                       |
+| `Loop(cond, () => …)`                                   | same                                                                                       |
+| `Loop({ start, end, type, condition, update }, …)`      | same, except that a string `update` is refused: give a number, a node or a function        |
+| —                                                       | `While(cond, () => …)` and `For(init, cond, update, body)` are rmsl's own; TSL has neither |
+| `Break()` / `Continue()`                                | same                                                                                       |
+| `Discard()` / `Return()`                                | same                                                                                       |
 
 ## Behavioural differences
 
@@ -108,9 +109,9 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   the shader compiler to refuse it. A swizzle written through names each
   component once: TSL's WebGPU backend writes `v.xx.assign(value)` component
   by component, so the last one wins; RMSL throws.
-- **`Loop`** takes `(count, (i) => …)` with `i` as a direct `int` node, not an
-  object to destructure. The `{ start, end, update }` and nested-loop forms of
-  TSL's `Loop` are not implemented; use `For`/`While` for those.
+- **`Loop`** takes each of TSL's shapes and passes `{ i }`, but refuses an
+  `update` given as a string, which TSL writes into the shader as text: give a
+  number, a node or a function.
 - **`Fn` return values** are implicit — the value the body returns is the
   result. `Return()` only emits a void early-return.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
@@ -145,7 +146,7 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   parameters, get a color node. See [effects.md](./effects.md) for the
   mapping of three.js's renderer-bound wrappers (`convertToTexture`,
   `passTexture`, `uv()`, `time`, ...) to RMSL.
-- **`textureLoad(tex, coords)` / `textureSize(tex)`** are supported as free
-  functions, and `select(cond, a, b)`, `luminance`, `rand`,
+- **`texture(tex, uv)` / `textureLevel(tex, uv, level)` / `textureLoad(tex, coords)` / `textureSize(tex)`**
+  are supported as free functions, as TSL's are, and `select(cond, a, b)`, `luminance`, `rand`,
   `interleavedGradientNoise`, `premultiplyAlpha` / `unpremultiplyAlpha` mirror
   the TSL names.

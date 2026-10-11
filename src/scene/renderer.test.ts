@@ -32,7 +32,7 @@ globalThis.__rmslRun = () => {
 const ENTRY_INT = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture } from "./index";
-import { uvec2 } from "../rmsl";
+import { uvec2, texture } from "../rmsl";
 globalThis.__rmslIntRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -44,7 +44,7 @@ globalThis.__rmslIntRun = () => {
   material.fragmentNode = (b) => {
     const tex = b.sampler("data", "usampler2D",
       () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1));
-    return tex.texture(uvec2(0, 0)).toVec4();
+    return texture(tex, uvec2(0, 0)).toVec4();
   };
   const mesh = new Mesh(new PlaneGeometry(2, 2), material);
   scene.add(mesh);
@@ -65,7 +65,7 @@ globalThis.__rmslIntRun = () => {
 const ENTRY_R8UI = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, RedIntegerFormat, UnsignedByteType } from "./index";
-import { uvec2 } from "../rmsl";
+import { uvec2, texture } from "../rmsl";
 globalThis.__rmslR8UIRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -77,7 +77,7 @@ globalThis.__rmslR8UIRun = () => {
   material.fragmentNode = (b) => {
     const tex = b.sampler("data", "usampler2D",
       () => new DataTexture(new Uint8Array([255]), 1, 1, 1, RedIntegerFormat, UnsignedByteType));
-    return tex.texture(uvec2(0, 0)).toVec4();
+    return texture(tex, uvec2(0, 0)).toVec4();
   };
   const mesh = new Mesh(new PlaneGeometry(2, 2), material);
   scene.add(mesh);
@@ -159,7 +159,7 @@ globalThis.__rmslInstancedRun = () => {
 const ENTRY_SAMPLERS = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture } from "./index";
-import { float, uvec2, vec2, vec4 } from "../rmsl";
+import { float, uvec2, vec2, vec4, texture } from "../rmsl";
 globalThis.__rmslSamplersRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -176,9 +176,9 @@ globalThis.__rmslSamplersRun = () => {
     const c = b.sampler("second", "usampler2D", () => second);
     const d = b.sampler("third", "sampler2D", () => third);
     return vec4(
-      a.texture(uvec2(0, 0)).r.toFloat().div(float(255)),
-      c.texture(uvec2(0, 0)).r.toFloat().div(float(255)),
-      d.texture(vec2(0.5, 0.5)).b,
+      texture(a, uvec2(0, 0)).r.toFloat().div(float(255)),
+      texture(c, uvec2(0, 0)).r.toFloat().div(float(255)),
+      texture(d, vec2(0.5, 0.5)).b,
       float(1),
     );
   };
@@ -234,7 +234,7 @@ globalThis.__rmslPrecisionRun = () => {
 const ENTRY_TEXTURE_DISPOSE = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture } from "./index";
-import { vec2 } from "../rmsl";
+import { vec2, texture } from "../rmsl";
 globalThis.__rmslTextureDisposeRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -242,9 +242,9 @@ globalThis.__rmslTextureDisposeRun = () => {
   const renderer = new WebGLRenderer(canvas, { antialias: false });
   renderer.setClearColor(0x000000);
   const scene = new Scene();
-  const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+  const dataTexture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
   const material = new MeshBasicMaterial();
-  material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(0.5, 0.5));
+  material.fragmentNode = (b) => texture(b.sampler("map", () => dataTexture), vec2(0.5, 0.5));
   const mesh = new Mesh(new PlaneGeometry(2, 2), material);
   scene.add(mesh);
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
@@ -253,9 +253,9 @@ globalThis.__rmslTextureDisposeRun = () => {
   renderer.render(scene, camera);
 
   const gl = renderer.gl;
-  const glTexture = renderer.textures.get(texture);
+  const glTexture = renderer.textures.get(dataTexture);
   const liveBefore = gl.isTexture(glTexture);
-  texture.dispose();
+  dataTexture.dispose();
   const liveAfter = gl.isTexture(glTexture);
   const trackedAfter = renderer.textures.size;
 
@@ -277,7 +277,7 @@ globalThis.__rmslTextureDisposeRun = () => {
 const ENTRY_SAMPLER_STATE = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, NearestFilter, RepeatWrapping } from "./index";
-import { vec2 } from "../rmsl";
+import { vec2, texture } from "../rmsl";
 globalThis.__rmslSamplerStateRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -296,25 +296,25 @@ globalThis.__rmslSamplerStateRun = () => {
     return { r: pixels[0], b: pixels[2], error: gl.getError() };
   };
 
-  const sceneAt = (texture, x) => {
+  const sceneAt = (dataTexture, x) => {
     const scene = new Scene();
     const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(x, 0.5));
+    material.fragmentNode = (b) => texture(b.sampler("map", () => dataTexture), vec2(x, 0.5));
     scene.add(new Mesh(new PlaneGeometry(2, 2), material));
     return scene;
   };
 
   // Two texels: red on the left, blue on the right.
-  const texture = new DataTexture(new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]), 2, 1);
-  texture.magFilter = NearestFilter;
-  texture.minFilter = NearestFilter;
+  const dataTexture = new DataTexture(new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]), 2, 1);
+  dataTexture.magFilter = NearestFilter;
+  dataTexture.minFilter = NearestFilter;
 
-  const clamped = read(sceneAt(texture, 1.25), 1.25);
-  texture.wrapS = RepeatWrapping;
-  texture.needsUpdate = true;
-  const repeated = read(sceneAt(texture, 1.25), 1.25);
+  const clamped = read(sceneAt(dataTexture, 1.25), 1.25);
+  dataTexture.wrapS = RepeatWrapping;
+  dataTexture.needsUpdate = true;
+  const repeated = read(sceneAt(dataTexture, 1.25), 1.25);
 
-  const nearest = read(sceneAt(texture, 0.5), 0.5);
+  const nearest = read(sceneAt(dataTexture, 0.5), 0.5);
   const smooth = new DataTexture(new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]), 2, 1);
   const linear = read(sceneAt(smooth, 0.5), 0.5);
 

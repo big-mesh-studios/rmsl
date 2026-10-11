@@ -278,7 +278,7 @@ nothing bound and the node it names was never yours to bind.
   texture of your own `channels: 1`, `magFilter: "linear"` and
   `wrapS: "repeat"` to say the same thing directly. What is missing is the mip
   chain:
-  `textureLod`'s level is ignored, and a minification filter has no footprint to
+  `textureLevel`'s level is ignored, and a minification filter has no footprint to
   be chosen by.
 - **The CPU computes f64, a GPU f32.** Results can differ in the last bits,
   which is what the tolerance is for. A test that must pin f32 behaviour still

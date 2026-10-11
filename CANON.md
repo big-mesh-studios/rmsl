@@ -105,7 +105,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-mipmapped-filter-reads-as-its-base-filter`](#exception-a-mipmapped-filter-reads-as-its-base-filter) — A minification filter that reads mipmaps reads as the filter it is based on, because no target builds a mip chain. Issue #4 asks for one.
     - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel when the host's texture names no filter. It blends neighbouring texels when the texture asks for linear filtering. A scene texture names linear filtering unless told otherwise, through the sampler rule.
     - [`@spec a-cpu-target-wraps-as-the-texture-asks`](#spec-a-cpu-target-wraps-as-the-texture-asks) — A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
-    - [`@spec a-byte-texture-reads-as-zero-to-one`](#spec-a-byte-texture-reads-as-zero-to-one) — A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
+    - [`@spec a-byte-texture-reads-as-zero-to-one`](#spec-a-byte-texture-reads-as-zero-to-one) — A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLevel` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
     - [`@spec a-texel-holds-the-channels-its-texture-stores`](#spec-a-texel-holds-the-channels-its-texture-stores) — A texel holds as many channels as its texture stores, and a filter blends each channel only with the same channel of its neighbours. A channel the texel lacks reads as 0, and a missing alpha as 1.
     - [`@spec a-3d-texture-blends-across-its-depth`](#spec-a-3d-texture-blends-across-its-depth) — A linear filter on a 3D texture blends neighbouring texels across its depth as well as its width and height.
     - [`@spec a-cube-map-is-sampled-on-the-face-its-direction-picks`](#spec-a-cube-map-is-sampled-on-the-face-its-direction-picks) — A cube map is sampled on the face its direction points to, and a filter blends within that face, never across its edge.
@@ -196,7 +196,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-generated-name-is-local-to-its-program`](#spec-a-generated-name-is-local-to-its-program) — A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
-      - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
+      - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+      - [`@spec create-glsl-checks-the-names-of-its-two-stages-together`](#spec-create-glsl-checks-the-names-of-its-two-stages-together) — `createGlsl` refuses a vertex and a fragment stage that declare one name differently: by type, or by the precision of a uniform.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
       - [`@spec screen-size-is-one-uniform-everywhere`](#spec-screen-size-is-one-uniform-everywhere) — `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
     - [`@spec a-location-is-numbered-within-its-program`](#spec-a-location-is-numbered-within-its-program) — The locations of a program's outputs, and of the values a vertex stage passes on, count from 0 within that program, each used once.
@@ -261,14 +262,20 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
-    - [`@spec loop-counts-from-zero`](#spec-loop-counts-from-zero) — `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
-      - [`@bug a-bool-count-compiles-into-a-comparison-no-driver-accepts`](#bug-a-bool-count-compiles-into-a-comparison-no-driver-accepts) — `Loop` given a `bool` as its count compiles into a comparison of an `int` with a `bool`, rather than being refused.
-      - [`@spec loop-runs-its-body-count-times`](#spec-loop-runs-its-body-count-times) — `Loop(count, body)` runs its body `count` times, with the index counting 0, 1, and so on.
-      - [`@exception loop-passes-its-index-directly`](#exception-loop-passes-its-index-directly) — `Loop` passes its index to its body as `i`, where TSL passes `{ i }`.
-      - [`@exception loop-takes-only-a-count`](#exception-loop-takes-only-a-count) — `Loop` takes only a count. It does not take TSL's `bool` condition or TSL's object of `start`, `end`, `condition` and `update`.
+    - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
+      - [`@spec loop-runs-its-body-count-times`](#spec-loop-runs-its-body-count-times) — `Loop(count, ({ i }) => …)` runs its body `count` times, with an `int` index `i` counting 0, 1, and so on.
+      - [`@spec loop-with-a-bool-runs-while-it-holds`](#spec-loop-with-a-bool-runs-while-it-holds) — `Loop(condition, body)`, with a `bool` condition, runs `body` while the condition holds when tested, and builds the condition once, before the loop.
+      - [`@spec loop-fills-in-the-range-it-is-not-given`](#spec-loop-fills-in-the-range-it-is-not-given) — Given only `end`, a range starts at 0 and runs while its index is below `end`, whatever `condition` it names. Given only `start`, it starts at `start - 1` and runs down while its index is at least 0. Given both and no `condition`, it runs up with `<`, or down with `>=` when `start` and `end` are numbers or literals, such as `int(10)`, and `start` is the greater. Its index is an `int` unless `type` names `uint` or `float`, and is named `i` unless `name` names it. A count, `start` and `end` are converted to the index's type.
+      - [`@spec loop-steps-by-its-update`](#spec-loop-steps-by-its-update) — With no `update`, a range steps by 1 in the direction of its `condition`: up for `<` or `<=`, down for `>` or `>=`. A number or a node `update` is the step in that direction. A function `update` runs as the step, given the indices.
+      - [`@spec loop-nests-a-loop-for-each-range`](#spec-loop-nests-a-loop-for-each-range) — `Loop(a, b, …, body)` nests a loop for each of `a`, `b` and on, the first outermost, and names their indices `i`, `j`, `k` and on.
+      - [`@exception a-loop-update-is-not-shader-text`](#exception-a-loop-update-is-not-shader-text) — `Loop` refuses an `update` given as a string.
+      - [`@exception loop-refuses-a-range-with-neither-start-nor-end`](#exception-loop-refuses-a-range-with-neither-start-nor-end) — `Loop` refuses a range that names neither `start` nor `end`.
+      - [`@exception loop-refuses-a-uint-range-that-never-ends`](#exception-loop-refuses-a-uint-range-that-never-ends) — `Loop` refuses a `uint` range that tests `>=` against an `end` of 0. A `uint` range given only `start` is one.
+      - [`@exception loop-refuses-a-fraction-for-an-integer-bound`](#exception-loop-refuses-a-fraction-for-an-integer-bound) — For an `int` or `uint` index, `Loop` refuses a count, `start`, `end` or `update` that is a number with a fraction. A node of another type converts to the index's type, as `int(float(2.5))` truncates to 2.
+      - [`@exception loop-refuses-two-ranges-of-one-name`](#exception-loop-refuses-two-ranges-of-one-name) — `Loop` refuses two ranges whose indices take one name, whether a range names it or `Loop` fills it in.
     - [`@spec while-runs-while-its-condition-holds`](#spec-while-runs-while-its-condition-holds) — `While(condition, body)` tests `condition` before every iteration, and runs `body` while it holds, as TSL's `Loop(condition, body)` does.
       - [`@spec a-while-loop-stops-when-its-condition-fails`](#spec-a-while-loop-stops-when-its-condition-fails) — A `While` runs its body as long as its condition holds when tested, and not at all when it fails at the start.
-      - [`@exception while-is-a-name-tsl-lacks`](#exception-while-is-a-name-tsl-lacks) — rmsl writes a while loop as `While`. TSL has no `While`, and writes it as `Loop` with a `bool` condition.
+      - [`@spec while-is-a-loop-of-rmsls-own`](#spec-while-is-a-loop-of-rmsls-own) — rmsl has `While` beside TSL's `Loop(condition, body)`. TSL has no `While`.
       - [`@spec a-while-condition-given-as-a-node-is-built-once`](#spec-a-while-condition-given-as-a-node-is-built-once) — A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
       - [`@exception a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test) — A `While` condition given as a function is computed before every test, a variable it makes included.
     - [`@spec for-runs-its-init-condition-body-and-update`](#spec-for-runs-its-init-condition-body-and-update) — `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
@@ -277,7 +284,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-variable-a-for-condition-makes-stays-in-scope`](#spec-a-variable-a-for-condition-makes-stays-in-scope) — The update of a `For`, and the code after the loop, can read a variable that its condition makes.
       - [`@spec a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test) — A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
       - [`@spec continue-in-a-for-runs-the-update`](#spec-continue-in-a-for-runs-the-update) — `Continue` in the body of a `For` runs the update, then the condition.
-      - [`@exception for-is-a-name-tsl-lacks`](#exception-for-is-a-name-tsl-lacks) — rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
+      - [`@spec for-is-a-loop-of-rmsls-own`](#spec-for-is-a-loop-of-rmsls-own) — rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
       - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
@@ -322,11 +329,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
   - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture(sampler, uv)` and `textureLevel(sampler, uv, level)` read a texture at a coordinate of its dimension.
-    - [`@bug samplers-are-sampled-by-method-where-tsl-samples-by-function`](#bug-samplers-are-sampled-by-method-where-tsl-samples-by-function) — rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, and exports no `textureLevel` function.
+    - [`@spec texture-and-texture-level-are-functions-of-the-sampler`](#spec-texture-and-texture-level-are-functions-of-the-sampler) — rmsl exports `texture` and `textureLevel` as functions that take the sampler first. A sampler node has no sampling method.
+    - [`@spec texture-refuses-a-value-that-is-not-a-texture`](#spec-texture-refuses-a-value-that-is-not-a-texture) — `texture` and `textureLevel` refuse a first argument that is not a sampler, with an error that names its type.
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-      - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — A program that reads an integer cube map, or calls `textureLoad` on a cube map, is refused.
+      - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — Every target refuses a program that reads an integer cube map. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
     - [`@spec texture-size-gives-the-dimensions`](#spec-texture-size-gives-the-dimensions) — `textureSize` gives the width and height of a 2D texture or a cube map, and the depth too of a 3D texture.
     - [`@spec texture-load-reads-one-texel-of-a-float-texture`](#spec-texture-load-reads-one-texel-of-a-float-texture) — `textureLoad` reads one texel of a float texture at an integer coordinate, with no filter, and gives a `vec4`.
   - [`@spec a-swizzle-reads-and-writes-the-components-it-names`](#spec-a-swizzle-reads-and-writes-the-components-it-names) — A swizzle reads the components it names, in its order, in any of the spellings `xyzw`, `rgba` and `stpq`. Written through, it writes the same components of the variable it reaches.
@@ -404,8 +412,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
-      - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
-        - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
+      - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give an object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+        - [`@spec the-vertex-position-and-normal-carry-the-instance-matrix`](#spec-the-vertex-position-and-normal-carry-the-instance-matrix) — On an `InstancedMesh`, the vertex stage's `position` is the geometry's, through the instance matrix. Its `normal` is the geometry's, through the inverse transpose of the matrix's upper 3×3, then normalized.
+        - [`@spec a-position-node-replaces-the-instanced-position`](#spec-a-position-node-replaces-the-instanced-position) — `positionNode` gives the object-space position the vertex stage ends with. Its `position` already carries the instance matrix, and nothing transforms its result but the model, view and projection matrices.
+        - [`@spec the-fragment-position-is-the-position-the-vertex-stage-ends-with`](#spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with) — In the fragment stage, `position` gives the object-space position the vertex stage ends with, interpolated. It carries the instance matrix and the result of `positionNode`.
+        - [`@spec the-fragment-normal-is-the-geometry-normal`](#spec-the-fragment-normal-is-the-geometry-normal) — In the fragment stage, `normal` gives the geometry's object-space normal, interpolated. It carries no instance matrix.
+      - [`@spec a-normal-node-gives-a-view-space-normal`](#spec-a-normal-node-gives-a-view-space-normal) — `normalNode` gives a view-space normal, which the fragment stage reads. `MeshLambertMaterial` and `MeshStandardMaterial` turn it into world space to light with: `normalize((vec4(n, 0) * viewMatrix).xyz)`. The vertex stage does not read it. The builder's `normalView` gives the geometry's normal in view space, for a `normalNode` to start from.
 - [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
   - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
@@ -430,6 +442,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-sampler-declares-the-asked-precision`](#spec-a-float-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each float sampler it uses.
     - [`@spec an-integer-sampler-declares-the-asked-precision`](#spec-an-integer-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each integer sampler it uses, `highp` when the caller asks for none.
     - [`@spec glsl-refuses-an-unknown-precision`](#spec-glsl-refuses-an-unknown-precision) — A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
+    - [`@spec a-uniform-can-set-a-precision-of-its-own`](#spec-a-uniform-can-set-a-precision-of-its-own) — `setPrecision(precision)` on a uniform or a uniform array takes `"low"`, `"medium"` or `"high"`, and returns the uniform. Its GLSL declaration then carries `lowp`, `mediump` or `highp`, over the shader's default. `compileGlsl` and `compileGlslFn` both declare it so. Another value is refused, and so is any precision on a `bool` or boolean vector uniform. WGSL, which has no precision, declares the uniform as it would without one.
     - [`@spec every-glsl-call-shape-takes-a-precision`](#spec-every-glsl-call-shape-takes-a-precision) — `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
     - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
@@ -677,6 +690,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
 - [`@fact a-content-security-policy-can-block-new-function`](#fact-a-content-security-policy-can-block-new-function) — A Content-Security-Policy without `unsafe-eval` stops `new Function` from compiling source.
 - [`@fact dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly) — Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
+- [`@fact tsl-to-read-only-changes-the-node-it-is-called-on`](#fact-tsl-to-read-only-changes-the-node-it-is-called-on) — TSL's `toReadOnly()` on a storage node sets the access of that node to read-only and returns the same node.
+- [`@fact tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills-in-a-loop-range-it-is-not-given) — TSL's `Loop` given only `end` starts at 0 and tests `<`, whatever condition it is given. Given only `start`, it starts at `start - 1`, ends at 0 and tests `>=`. Given both and no condition, it tests `>=` when the code built for `start` reads as the greater number, as a literal does, and `<` otherwise. It builds a count, `start` and `end` as the index's type. With no `update`, an `int` or `uint` index steps by 1 up for a condition with `<` and down otherwise, and a `float` index by `1.`. A number or a node `update` is the step in that direction, and a function `update` is built as the step. Several ranges nest, their indices named `i`, `j`, `k` and on, unless a range names its own.
+- [`@fact tsl-emits-no-bounds-for-a-range-that-names-none`](#fact-tsl-emits-no-bounds-for-a-range-that-names-none) — TSL's `Loop` given a range with neither `start` nor `end` fills in neither, and writes `undefined` as each bound of the loop it emits.
+- [`@fact tsl-names-loop-indices-without-checking-them`](#fact-tsl-names-loop-indices-without-checking-them) — TSL's `Loop` names each range's index by its `name`, or else `i`, `j`, `k` and on by its place. It does not check that two names differ, so two ranges of one name emit nested loops whose inner index hides the outer one.
+- [`@fact tsl-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-rounds-a-number-it-builds-as-an-integer) — TSL writes a number it builds as an `int` or a `uint` rounded to the nearest whole number. It writes 0 for a negative number it builds as a `uint`.
+- [`@fact tsl-writes-a-string-loop-update-as-shader-text`](#fact-tsl-writes-a-string-loop-update-as-shader-text) — TSL's `Loop` writes an `update` given as a string into the loop it emits, after the index's name, as shader text.
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
@@ -733,7 +752,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
 - [`@fact tsl-compute-takes-a-workgroup-size`](#fact-tsl-compute-takes-a-workgroup-size) — TSL's `compute(node, count, workgroupSize)` takes a workgroup size of one to three positive integers, `[64]` by default, and pads it with ones to three dimensions.
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
-- [`@fact tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages) — TSL's `positionLocal` is a varying of the geometry's position, and `normalLocal` is the geometry's `normal` attribute, which `AttributeNode` reads through a varying outside the vertex stage. Both read the same value in either stage.
+- [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
+- [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
+- [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
 - [`@fact tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node) — TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
 - [`@fact tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes) — TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
 - [`@fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter) — A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
@@ -752,6 +773,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
+- [`@fact glsl-takes-no-precision-on-a-boolean`](#fact-glsl-takes-no-precision-on-a-boolean) — GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
+- [`@fact glsl-links-a-uniform-of-both-stages-only-if-they-match`](#fact-glsl-links-a-uniform-of-both-stages-only-if-they-match) — GLSL ES 3.00 links a program only if a uniform that both of its shaders declare has one type and one precision in both.
+- [`@fact tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision) — TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
 - [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
@@ -793,14 +817,6 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 Every refusal is a plain `Error` today, and a caller can tell refusals apart only by their messages. The owner wants typed errors, which issue #43 proposes. Their shape is open: one class with a code, a class per kind, or a base class with subclasses.
 
-### Control flow
-
-Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loops of rmsl's own, is open. Issue #60 holds the question. The canon states the loops as they behave today, under [`spec-a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop), with an exception for each departure from TSL.
-
-### Precision
-
-GLSL sets precision two ways: a statement that sets the default for a type, and a qualifier on one declaration. Under [`spec-glsl-takes-a-precision`](#spec-glsl-takes-a-precision), rmsl writes only the statement, at the precision the caller asks for, as three.js's `WebGLRenderer` does. A storage sampler alone carries a qualifier, under [`spec-a-glsl-stage-reads-storage-at-highp`](#spec-a-glsl-stage-reads-storage-at-highp). TSL fixes that default at `highp` and lets a uniform lower its own precision. Issue #117 asks whether rmsl adds the qualifier as well.
-
 ### Fragment depth
 
 A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. The CPU rasterizers give such a path the interpolated depth. A read of the depth before a write gets it too, under [`spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one), where WGSL reads 0. Issue #132 holds the question.
@@ -809,11 +825,9 @@ A fragment program can write depth on one path only. What depth the other paths 
 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
-1. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
-2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
-3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
-4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-5. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
+1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+2. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
+3. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -822,9 +836,8 @@ These units hold a claim that no test checks yet.
 1. [`spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling. Issue #54.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
 3. [`exception-a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits): `src/eval.test.ts` holds the GPU targets to the CPU result in an `afterAll`, so a mismatch fails the file rather than the test that built the program. Issue #56.
-4. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test can show `Loop` declining a `bool` while it miscompiles one.
-5. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
-6. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
+4. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
+5. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
 
 ## Terms
 
@@ -1372,7 +1385,7 @@ Derives from: [`fact-a-mipmapped-texture-without-its-chain-samples-black`](#fact
 
 #### @spec a-byte-texture-reads-as-zero-to-one
 
-> A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
+> A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLevel` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
 
 #### @spec a-texel-holds-the-channels-its-texture-stores
 
@@ -1901,7 +1914,15 @@ This follows because two inputs that share a name by accident read one value, a 
 
 ##### @spec a-raw-name-names-one-type
 
-> Two inputs that share a name but not a type are refused on every target.
+> Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+
+##### @spec create-glsl-checks-the-names-of-its-two-stages-together
+
+> `createGlsl` refuses a vertex and a fragment stage that declare one name differently: by type, or by the precision of a uniform.
+
+Derives from: [`spec-a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type), [`fact-glsl-links-a-uniform-of-both-stages-only-if-they-match`](#fact-glsl-links-a-uniform-of-both-stages-only-if-they-match)
+
+This follows because each stage compiles on its own, and sees only its own nodes. Only the program that holds both can see that they differ.
 
 ##### @spec time-is-one-uniform-everywhere
 
@@ -2277,33 +2298,83 @@ A departure that serves no axiom is a matter of taste, and taste does not outwei
 
 Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes), [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
 
-This follows because a loop ported from TSL must run the same number of times in rmsl. The specs below state each loop rmsl has today, and the exceptions map where it departs from TSL. Issue #60 asks whether those departures stay.
+This follows because a loop ported from TSL must run the same number of times in rmsl. rmsl keeps `While` and `For` beside `Loop` as loops of its own, which issue #60 settled.
 
-#### @spec loop-counts-from-zero
+#### @spec loop-takes-tsls-three-shapes
 
-> `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
+> `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
 
-##### @bug a-bool-count-compiles-into-a-comparison-no-driver-accepts
+Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
 
-> `Loop` given a `bool` as its count compiles into a comparison of an `int` with a `bool`, rather than being refused.
-
-Issue: #58
+This follows because a TSL loop ports by changing its import.
 
 ##### @spec loop-runs-its-body-count-times
 
-> `Loop(count, body)` runs its body `count` times, with the index counting 0, 1, and so on.
+> `Loop(count, ({ i }) => …)` runs its body `count` times, with an `int` index `i` counting 0, 1, and so on.
 
-##### @exception loop-passes-its-index-directly
+##### @spec loop-with-a-bool-runs-while-it-holds
 
-> `Loop` passes its index to its body as `i`, where TSL passes `{ i }`.
+> `Loop(condition, body)`, with a `bool` condition, runs `body` while the condition holds when tested, and builds the condition once, before the loop.
 
-Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
 
-##### @exception loop-takes-only-a-count
+##### @spec loop-fills-in-the-range-it-is-not-given
 
-> `Loop` takes only a count. It does not take TSL's `bool` condition or TSL's object of `start`, `end`, `condition` and `update`.
+> Given only `end`, a range starts at 0 and runs while its index is below `end`, whatever `condition` it names. Given only `start`, it starts at `start - 1` and runs down while its index is at least 0. Given both and no `condition`, it runs up with `<`, or down with `>=` when `start` and `end` are numbers or literals, such as `int(10)`, and `start` is the greater. Its index is an `int` unless `type` names `uint` or `float`, and is named `i` unless `name` names it. A count, `start` and `end` are converted to the index's type.
 
-Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+Derives from: [`fact-tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills-in-a-loop-range-it-is-not-given)
+
+##### @spec loop-steps-by-its-update
+
+> With no `update`, a range steps by 1 in the direction of its `condition`: up for `<` or `<=`, down for `>` or `>=`. A number or a node `update` is the step in that direction. A function `update` runs as the step, given the indices.
+
+Derives from: [`fact-tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills-in-a-loop-range-it-is-not-given)
+
+##### @spec loop-nests-a-loop-for-each-range
+
+> `Loop(a, b, …, body)` nests a loop for each of `a`, `b` and on, the first outermost, and names their indices `i`, `j`, `k` and on.
+
+Derives from: [`fact-tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills-in-a-loop-range-it-is-not-given)
+
+##### @exception a-loop-update-is-not-shader-text
+
+> `Loop` refuses an `update` given as a string.
+
+Derives from: [`fact-tsl-writes-a-string-loop-update-as-shader-text`](#fact-tsl-writes-a-string-loop-update-as-shader-text), [`axiom-rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere)
+
+This follows because the JS and WASM targets have no shader text to write the string into.
+
+##### @exception loop-refuses-a-range-with-neither-start-nor-end
+
+> `Loop` refuses a range that names neither `start` nor `end`.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-tsl-emits-no-bounds-for-a-range-that-names-none`](#fact-tsl-emits-no-bounds-for-a-range-that-names-none)
+
+This follows because such a range has no bound to count from or to. TSL fills in neither, and emits a loop that no shader compiler takes.
+
+##### @exception loop-refuses-a-uint-range-that-never-ends
+
+> `Loop` refuses a `uint` range that tests `>=` against an `end` of 0. A `uint` range given only `start` is one.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case)
+
+This follows because every `uint` is at least 0. Past 0 the index wraps to the largest `uint`, so the loop never ends. On a CPU target it hangs the thread.
+
+##### @exception loop-refuses-a-fraction-for-an-integer-bound
+
+> For an `int` or `uint` index, `Loop` refuses a count, `start`, `end` or `update` that is a number with a fraction. A node of another type converts to the index's type, as `int(float(2.5))` truncates to 2.
+
+Derives from: [`spec-a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused), [`fact-tsl-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-rounds-a-number-it-builds-as-an-integer)
+
+This follows because TSL rounds such a number, where rmsl refuses a fraction beside an integer anywhere else.
+
+##### @exception loop-refuses-two-ranges-of-one-name
+
+> `Loop` refuses two ranges whose indices take one name, whether a range names it or `Loop` fills it in.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-tsl-names-loop-indices-without-checking-them`](#fact-tsl-names-loop-indices-without-checking-them)
+
+This follows because the body takes its indices by name, so the inner index would hide the outer one.
 
 #### @spec while-runs-while-its-condition-holds
 
@@ -2313,11 +2384,11 @@ Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-o
 
 > A `While` runs its body as long as its condition holds when tested, and not at all when it fails at the start.
 
-##### @exception while-is-a-name-tsl-lacks
+##### @spec while-is-a-loop-of-rmsls-own
 
-> rmsl writes a while loop as `While`. TSL has no `While`, and writes it as `Loop` with a `bool` condition.
+> rmsl has `While` beside TSL's `Loop(condition, body)`. TSL has no `While`.
 
-Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+This follows because the owner kept rmsl's own loops beside TSL's (issue #60).
 
 ##### @spec a-while-condition-given-as-a-node-is-built-once
 
@@ -2353,11 +2424,11 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 > `Continue` in the body of a `For` runs the update, then the condition.
 
-##### @exception for-is-a-name-tsl-lacks
+##### @spec for-is-a-loop-of-rmsls-own
 
-> rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
+> rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
 
-Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+This follows because the owner kept rmsl's own loops beside TSL's (issue #60).
 
 ##### @exception a-for-condition-is-computed-before-every-test
 
@@ -2599,11 +2670,17 @@ Derives from: [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fac
 
 This follows because a port changes its import and nothing else, so a shader that reads a texture must read it as TSL does. TSL has no sampler method and no `textureLod`, so rmsl has none.
 
-#### @bug samplers-are-sampled-by-method-where-tsl-samples-by-function
+#### @spec texture-and-texture-level-are-functions-of-the-sampler
 
-> rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, and exports no `textureLevel` function.
+> rmsl exports `texture` and `textureLevel` as functions that take the sampler first. A sampler node has no sampling method.
 
-Issue: #139
+#### @spec texture-refuses-a-value-that-is-not-a-texture
+
+> `texture` and `textureLevel` refuse a first argument that is not a sampler, with an error that names its type.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a value of another type has no texture to read. A program built without types would otherwise reach a shader compiler that refuses it in its own words.
 
 #### @spec a-float-texture-is-sampled-through-a-sampler
 
@@ -2621,7 +2698,7 @@ Derives from: [`fact-an-integer-texture-cannot-be-filtered`](#fact-an-integer-te
 
 ##### @exception an-integer-cube-map-cannot-be-fetched
 
-> A program that reads an integer cube map, or calls `textureLoad` on a cube map, is refused.
+> Every target refuses a program that reads an integer cube map. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
 
 Derives from: [`fact-a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-texel-fetch)
 
@@ -2829,7 +2906,9 @@ Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-
 
 > A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
 
-`toReadOnly()` changes the node it is called on, as TSL's does. Issue #52 asks whether to return a separate node instead.
+Derives from: [`fact-tsl-to-read-only-changes-the-node-it-is-called-on`](#fact-tsl-to-read-only-changes-the-node-it-is-called-on)
+
+This follows because a TSL shader ports by changing its import, and one that calls `toReadOnly()` for its effect on the node reads that node as read-only. A reference typed as writable before the call becomes read-only with it, so the compiler, not the type checker, refuses a write through that reference.
 
 #### @spec nodes-over-one-buffer-share-one-binding
 
@@ -3037,17 +3116,51 @@ This follows because three.js scales a light's colour by its intensity on the ho
 
 ##### @spec position-and-normal-read-object-space-in-both-stages
 
-> The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+> The builder's `position` and `normal` give an object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
 
-Derives from: [`fact-tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages)
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import)
 
-This follows because a TSL node reads the same value in either stage, and a TSL material ports to rmsl by changing its import.
+This follows because a TSL material reads `positionLocal` and `normalLocal`, and it ports to rmsl by changing its import.
 
-###### @bug position-and-normal-read-world-space-in-the-fragment-stage
+###### @spec the-vertex-position-and-normal-carry-the-instance-matrix
 
-> The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
+> On an `InstancedMesh`, the vertex stage's `position` is the geometry's, through the instance matrix. Its `normal` is the geometry's, through the inverse transpose of the matrix's upper 3×3, then normalized.
 
-Issue: #131
+Derives from: [`fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with), [`fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage)
+
+This follows because TSL applies the instance to `positionLocal` and `normalLocal` before `positionNode` runs. A normal turned by the matrix itself would lean off its surface under a scale that differs by axis.
+
+###### @spec a-position-node-replaces-the-instanced-position
+
+> `positionNode` gives the object-space position the vertex stage ends with. Its `position` already carries the instance matrix, and nothing transforms its result but the model, view and projection matrices.
+
+Derives from: [`fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with)
+
+This follows because TSL assigns `positionNode` to `positionLocal` last, after the instance.
+
+###### @spec the-fragment-position-is-the-position-the-vertex-stage-ends-with
+
+> In the fragment stage, `position` gives the object-space position the vertex stage ends with, interpolated. It carries the instance matrix and the result of `positionNode`.
+
+Derives from: [`fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with)
+
+This follows because TSL's `positionLocal` is a varying, which the fragment stage reads after the vertex stage has assigned it.
+
+###### @spec the-fragment-normal-is-the-geometry-normal
+
+> In the fragment stage, `normal` gives the geometry's object-space normal, interpolated. It carries no instance matrix.
+
+Derives from: [`fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage)
+
+This follows because TSL's `normalLocal` is a variable of each stage, and the instance changes it only in the vertex stage.
+
+##### @spec a-normal-node-gives-a-view-space-normal
+
+> `normalNode` gives a view-space normal, which the fragment stage reads. `MeshLambertMaterial` and `MeshStandardMaterial` turn it into world space to light with: `normalize((vec4(n, 0) * viewMatrix).xyz)`. The vertex stage does not read it. The builder's `normalView` gives the geometry's normal in view space, for a `normalNode` to start from.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal)
+
+This follows because a TSL material's `normalNode` is in view space, and a ported material must light as it did in TSL.
 
 ## @axiom a-program-is-typed-by-what-it-returns
 
@@ -3188,6 +3301,14 @@ This follows because three.js's `WebGLRenderer` declares its one precision for e
 #### @spec glsl-refuses-an-unknown-precision
 
 > A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
+
+#### @spec a-uniform-can-set-a-precision-of-its-own
+
+> `setPrecision(precision)` on a uniform or a uniform array takes `"low"`, `"medium"` or `"high"`, and returns the uniform. Its GLSL declaration then carries `lowp`, `mediump` or `highp`, over the shader's default. `compileGlsl` and `compileGlslFn` both declare it so. Another value is refused, and so is any precision on a `bool` or boolean vector uniform. WGSL, which has no precision, declares the uniform as it would without one.
+
+Derives from: [`fact-tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision), [`fact-glsl-takes-no-precision-on-a-boolean`](#fact-glsl-takes-no-precision-on-a-boolean)
+
+This follows because a TSL material that lowers the precision of one uniform ports by changing its import. The caller's precision stays the default for the rest, as three.js's `WebGLRenderer` sets it.
 
 #### @spec every-glsl-call-shape-takes-a-precision
 
@@ -4737,6 +4858,42 @@ This is a fact of the browser platform, not a choice.
 
 This is a fact of one driver, not a choice. It holds until Dawn fixes it.
 
+## @fact tsl-to-read-only-changes-the-node-it-is-called-on
+
+> TSL's `toReadOnly()` on a storage node sets the access of that node to read-only and returns the same node.
+
+This is how TSL behaves, read from its source: `toReadOnly()` in `src/nodes/accessors/StorageBufferNode.js` calls `setAccess(NodeAccess.READ_ONLY)`, which sets the node's access and returns it.
+
+## @fact tsl-fills-in-a-loop-range-it-is-not-given
+
+> TSL's `Loop` given only `end` starts at 0 and tests `<`, whatever condition it is given. Given only `start`, it starts at `start - 1`, ends at 0 and tests `>=`. Given both and no condition, it tests `>=` when the code built for `start` reads as the greater number, as a literal does, and `<` otherwise. It builds a count, `start` and `end` as the index's type. With no `update`, an `int` or `uint` index steps by 1 up for a condition with `<` and down otherwise, and a `float` index by `1.`. A number or a node `update` is the step in that direction, and a function `update` is built as the step. Several ranges nest, their indices named `i`, `j`, `k` and on, unless a range names its own.
+
+This is how TSL behaves, read from its source: `generate` and `getVarName` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js.
+
+## @fact tsl-emits-no-bounds-for-a-range-that-names-none
+
+> TSL's `Loop` given a range with neither `start` nor `end` fills in neither, and writes `undefined` as each bound of the loop it emits.
+
+This is how TSL behaves, read from its source: `generate` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js 0.186.
+
+## @fact tsl-names-loop-indices-without-checking-them
+
+> TSL's `Loop` names each range's index by its `name`, or else `i`, `j`, `k` and on by its place. It does not check that two names differ, so two ranges of one name emit nested loops whose inner index hides the outer one.
+
+This is how TSL behaves, read from its source: `getVarName` and `generate` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js 0.186.
+
+## @fact tsl-rounds-a-number-it-builds-as-an-integer
+
+> TSL writes a number it builds as an `int` or a `uint` rounded to the nearest whole number. It writes 0 for a negative number it builds as a `uint`.
+
+This is how TSL behaves, read from its source: `generateConst` of `NodeBuilder`, in `src/nodes/core/NodeBuilder.js` of three.js 0.186.
+
+## @fact tsl-writes-a-string-loop-update-as-shader-text
+
+> TSL's `Loop` writes an `update` given as a string into the loop it emits, after the index's name, as shader text.
+
+This is how TSL behaves, read from its source: the `string` case of `update` in `generate` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js.
+
 ## @fact tsl-has-one-loop-function-in-three-shapes
 
 > Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
@@ -5081,11 +5238,23 @@ This is how three.js's TSL behaves, read from its source (`ComputeNode`, three.j
 
 This is how three.js's TSL behaves, read from its source (`NodeBuilder`, three.js 0.186).
 
-## @fact tsl-reads-position-and-normal-local-in-both-stages
+## @fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with
 
-> TSL's `positionLocal` is a varying of the geometry's position, and `normalLocal` is the geometry's `normal` attribute, which `AttributeNode` reads through a varying outside the vertex stage. Both read the same value in either stage.
+> TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 
-This is how three.js's TSL behaves, read from its source (`Position`, `Normal` and `AttributeNode`, three.js 0.186).
+This is how three.js's TSL behaves, read from its source (`Position`, `Instance` and `NodeMaterial.setupPosition`, three.js 0.186).
+
+## @fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage
+
+> TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
+
+This is how three.js's TSL behaves, read from its source (`Normal`, `Instance` and `transformNormal`, three.js 0.186).
+
+## @fact tsl-takes-a-normal-node-as-a-view-space-normal
+
+> TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
+
+This is how three.js's TSL behaves, read from its source (`Normal`, `NodeMaterial.setupNormal` and `transformNormalByInverseViewMatrix`, three.js 0.186).
 
 ## @fact tsl-turns-a-number-into-a-constant-node
 
@@ -5194,6 +5363,24 @@ This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.18
 > three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 
 This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.186).
+
+## @fact glsl-takes-no-precision-on-a-boolean
+
+> GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
+
+This is a fact of the GLSL ES 3.00 specification, in its section on precision qualifiers.
+
+## @fact glsl-links-a-uniform-of-both-stages-only-if-they-match
+
+> GLSL ES 3.00 links a program only if a uniform that both of its shaders declare has one type and one precision in both.
+
+This is a fact of the GLSL ES 3.00 specification, in its sections on uniforms and on precision qualifiers.
+
+## @fact tsl-lets-an-input-set-its-own-precision
+
+> TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
+
+This is how TSL behaves, read from its source: `setPrecision` in `src/nodes/core/InputNode.js`, and `precisionLib` and `getUniforms` in `src/renderers/webgl-fallback/nodes/GLSLNodeBuilder.js`.
 
 ## @fact three-js-declares-one-precision-for-every-sampler
 

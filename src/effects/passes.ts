@@ -1,4 +1,15 @@
-import { Fn, float, premultiplyAlpha, textureSize, unpremultiplyAlpha, uniform, uv, vec2, type Node } from "../rmsl";
+import {
+  Fn,
+  float,
+  premultiplyAlpha,
+  textureSize,
+  unpremultiplyAlpha,
+  uniform,
+  uv,
+  vec2,
+  type Node,
+  texture,
+} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 /**
@@ -115,7 +126,7 @@ function gaussianBlurPass(
     const invSize = vec2(1).div(textureSize(inputTex).toVec2());
     const dir = vec2(direction[0], direction[1]);
     const sample = (u: Node<"vec2">): Node<"vec4"> => {
-      const s = inputTex.texture(u);
+      const s = texture(inputTex, u);
       return premultipliedAlpha ? premultiplyAlpha(s) : s;
     };
 

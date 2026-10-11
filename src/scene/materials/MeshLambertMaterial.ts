@@ -59,7 +59,8 @@ export class MeshLambertMaterial extends NodeMaterial {
     const albedo = resolveSlot(this.colorNode, b) ?? this.colorUniform!;
     const opacity = resolveSlot(this.opacityNode, b) ?? this.opacityUniform!;
     const emissive = resolveSlot(this.emissiveNode, b) ?? this.emissiveUniform!;
-    const normal = (resolveSlot(this.normalNode, b) ?? b.normalWorld).normalize().toVar();
+    const normalView = resolveSlot(this.normalNode, b);
+    const normal = (normalView ? b.normalWorldOf(normalView) : b.normalWorld).normalize().toVar();
 
     const color = vec3(0).toVar();
     color.addAssign(emissive);

@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { vec2, vec4 } from "../rmsl";
+import { someNode } from "../core";
+import { uniform, vec2, vec4, texture, type Node } from "../rmsl";
 import {
   AmbientLight,
   Blending,
@@ -16,6 +17,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  MeshStandardMaterial,
   NearestFilter,
   PerspectiveCamera,
   PlaneGeometry,
@@ -29,6 +31,7 @@ import {
   WebGPURenderer,
 } from "../scene";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
+import { collectNodes } from "../scene/materials/nodes/graph";
 import { GL_STATE, runInGpuPage } from "../testing/browser";
 import { camera, offsetOf, sampling, stubDevice, stubGl, stubWebGl } from "./scene-stubs";
 import { drawToCanvas, GlStateKeeper } from "../backends/glsl/gl-state";
@@ -54,18 +57,18 @@ afterEach(() => {
 const ENTRY_R8UI_ROWS = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, RedIntegerFormat, UnsignedByteType } from "../scene";
-import { float, uvec2, vec4 } from "../rmsl";
+import { float, uvec2, vec4, texture } from "../rmsl";
 globalThis.__rmslR8UIRowsRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
   const renderer = new WebGLRenderer(canvas, { antialias: false });
   renderer.setClearColor(0x000000);
-  const texture = new DataTexture(new Uint8Array([10, 20, 30, 40, 50, 60]), 3, 2, 1, RedIntegerFormat, UnsignedByteType);
+  const dataTexture = new DataTexture(new Uint8Array([10, 20, 30, 40, 50, 60]), 3, 2, 1, RedIntegerFormat, UnsignedByteType);
   const material = new MeshBasicMaterial();
   material.fragmentNode = (b) => {
-    const data = b.sampler("data", "usampler2D", () => texture);
-    return vec4(data.texture(uvec2(0, 1)).r.toFloat().div(float(255)), 0, 0, 1);
+    const data = b.sampler("data", "usampler2D", () => dataTexture);
+    return vec4(texture(data, uvec2(0, 1)).r.toFloat().div(float(255)), 0, 0, 1);
   };
   const scene = new Scene();
   scene.add(new Mesh(new PlaneGeometry(2, 2), material));
@@ -644,7 +647,11 @@ describe("a scene renderer manages what it uploads", () => {
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     let current = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
     const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => b.sampler("map", () => current).texture(vec2(0.5, 0.5));
+    material.fragmentNode = (b) =>
+      texture(
+        b.sampler("map", () => current),
+        vec2(0.5, 0.5),
+      );
     renderer.ensurePipeline(material, new Scene(), false, false);
     current = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
     renderer.ensurePipeline(material, new Scene(), false, false);
@@ -662,7 +669,11 @@ describe("a scene renderer manages what it uploads", () => {
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     let current = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
     const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => b.sampler("map", () => current).texture(vec2(0.5, 0.5));
+    material.fragmentNode = (b) =>
+      texture(
+        b.sampler("map", () => current),
+        vec2(0.5, 0.5),
+      );
     const first = renderer.ensurePipeline(material, new Scene(), false, false);
     const compiled = modules.length;
     current = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
@@ -679,7 +690,11 @@ describe("a scene renderer manages what it uploads", () => {
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     let current = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
     const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => b.sampler("map", () => current).texture(vec2(0.5, 0.5));
+    material.fragmentNode = (b) =>
+      texture(
+        b.sampler("map", () => current),
+        vec2(0.5, 0.5),
+      );
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(), material), new Mesh(new PlaneGeometry(), material));
     // The texture becomes one the device cannot filter between the two meshes' pipelines.
@@ -1081,7 +1096,7 @@ globalThis.__rmslDepthMaskRun = () => {
 // it must read what it reads on a renderer that drew nothing before it.
 const ENTRY_TEXTURELESS = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
-import { vec2 } from "../rmsl";
+import { vec2, texture } from "../rmsl";
 globalThis.__rmslTexturelessRun = () => {
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
@@ -1094,9 +1109,9 @@ globalThis.__rmslTexturelessRun = () => {
     renderer.setClearColor(0x000000);
     return renderer;
   };
-  const sampling = (texture) => {
+  const sampling = (dataTexture) => {
     const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => b.sampler("map", "sampler2D", () => texture).texture(vec2(0.5, 0.5));
+    material.fragmentNode = (b) => texture(b.sampler("map", "sampler2D", () => dataTexture), vec2(0.5, 0.5));
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(2, 2), material));
     return scene;
@@ -1121,7 +1136,7 @@ globalThis.__rmslTexturelessRun = () => {
 // as a float.
 const ENTRY_FLOAT_THEN_INTEGER = `
 import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
-import { float, uvec2, vec2 } from "../rmsl";
+import { float, uvec2, vec2, texture } from "../rmsl";
 globalThis.__rmslFloatThenIntegerRun = () => {
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
@@ -1134,13 +1149,13 @@ globalThis.__rmslFloatThenIntegerRun = () => {
     renderer.setClearColor(0x000000);
     return renderer;
   };
-  const reading = (texture, type) => {
+  const reading = (dataTexture, type) => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => {
-      const sampler = b.sampler("map", type, () => texture);
+      const sampler = b.sampler("map", type, () => dataTexture);
       return type === "sampler2D"
-        ? sampler.texture(vec2(0.5, 0.5))
-        : sampler.texture(uvec2(0, 0)).toVec4().div(float(255));
+        ? texture(sampler, vec2(0.5, 0.5))
+        : texture(sampler, uvec2(0, 0)).toVec4().div(float(255));
     };
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(2, 2), material));
@@ -1152,14 +1167,14 @@ globalThis.__rmslFloatThenIntegerRun = () => {
     gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     return [pixels[0], pixels[1], pixels[2]];
   };
-  const texture = () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+  const dataTexture = () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
 
-  const shared = texture();
+  const shared = dataTexture();
   const renderer = make();
   renderer.render(reading(shared, "sampler2D"), camera);
   renderer.render(reading(shared, "usampler2D"), camera);
   const fresh = make();
-  fresh.render(reading(texture(), "usampler2D"), camera);
+  fresh.render(reading(dataTexture(), "usampler2D"), camera);
   return { afterFloat: centre(renderer), fresh: centre(fresh) };
 };
 `;
@@ -1169,7 +1184,7 @@ globalThis.__rmslFloatThenIntegerRun = () => {
 // call left changed.
 const ENTRY_PRESERVE_STATE = `
 import { Color, WebGLRenderer, WebGLRenderTarget, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
-import { float, uvec2, vec2 } from "../rmsl";
+import { float, uvec2, vec2, texture } from "../rmsl";
 ${GL_STATE}
 const preserveStateRun = async (preserveState) => {
   const canvas = document.createElement("canvas");
@@ -1183,9 +1198,9 @@ const preserveStateRun = async (preserveState) => {
   const texel = () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
   const floats = new MeshBasicMaterial();
   floats.transparent = true;
-  floats.fragmentNode = (b) => b.sampler("map", "sampler2D", texel).texture(vec2(0.5, 0.5));
+  floats.fragmentNode = (b) => texture(b.sampler("map", "sampler2D", texel), vec2(0.5, 0.5));
   const integers = new MeshBasicMaterial();
-  integers.fragmentNode = (b) => b.sampler("map", "usampler2D", texel).texture(uvec2(0, 0)).toVec4().div(float(255));
+  integers.fragmentNode = (b) => texture(b.sampler("map", "usampler2D", texel), uvec2(0, 0)).toVec4().div(float(255));
   integers.positionNode = (b) => b.position.add(b.attribute("offset", "vec4").xyz);
   const scene = new Scene();
   scene.add(new Mesh(new PlaneGeometry(2, 2), integers), new Mesh(new PlaneGeometry(2, 2), floats));
@@ -1238,10 +1253,10 @@ const pixelsOver = (dirty) => {
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
   camera.lookAt(0, 0, 0);
-  const texture = new DataTexture(Uint8Array.of(255, 0, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128, 255, 255, 255, 128), 2, 2);
+  const dataTexture = new DataTexture(Uint8Array.of(255, 0, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128, 255, 255, 255, 128), 2, 2);
   const material = new MeshBasicMaterial();
   material.transparent = true;
-  material.fragmentNode = (b) => b.sampler("map", "sampler2D", () => texture).texture(vec2(0.25, 0.75));
+  material.fragmentNode = (b) => texture(b.sampler("map", "sampler2D", () => dataTexture), vec2(0.25, 0.75));
   material.positionNode = (b) => b.position.add(b.attribute("offset", "vec4").xyz.mul(8));
   const behind = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ color: 0xff00ff }));
   behind.position.z = -0.5;
@@ -1351,6 +1366,152 @@ describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a r
     expect(result.fresh).toEqual([0, 0, 0, 255]);
     expect(result.afterTextured).toEqual(result.fresh);
   }, 60_000);
+});
+
+describe("a material reads position and normal as TSL does", () => {
+  /** The node `program` binds under `name`, among its uniforms, attributes or varyings. */
+  const bound = (program: { uniforms: any[]; attributes: any[]; varyings: any[] }, name: string) =>
+    [...program.uniforms, ...program.attributes, ...program.varyings].find((binding) => binding.name === name)!.node;
+  /** The value the vertex stage assigns to `target`. */
+  const assigned = (root: unknown, target: unknown) => {
+    let value: unknown;
+    someNode(root, (node) => {
+      if (node.type === "assign" && node.params[0] === target) value = node.params[1];
+    });
+    return value;
+  };
+  const reaches = (root: unknown, target: unknown, skip: unknown[] = []) =>
+    someNode(root, (node) => node === target, skip);
+
+  /**
+   * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   */
+  it("reads position and normal in object space in the fragment stage", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
+    const program = material.build(new Scene());
+
+    const read = collectNodes(program.fragmentRoot).varyings;
+    const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
+    expect(names).toHaveLength(2);
+    expect(names).not.toContain("positionWorld");
+    expect(names).not.toContain("normalWorld");
+  });
+
+  /**
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   */
+  it("passes the object-space position and normal under a custom vertexNode too", () => {
+    const material = new MeshBasicMaterial();
+    material.vertexNode = (b) => vec4(b.position, 1);
+    material.fragmentNode = (b) => vec4(b.normal, 1);
+    const program = material.build(new Scene());
+    const written = collectNodes(program.vertexRoot).varyings;
+    const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
+    expect(names).toContain("normalLocal");
+  });
+
+  /**
+   * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   */
+  it("passes the object-space position and normal the fragment stage reads from the vertex stage", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
+    const program = material.build(new Scene());
+    const written = collectNodes(program.vertexRoot).varyings;
+    const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
+    expect(names).toEqual(expect.arrayContaining(["positionLocal", "normalLocal"]));
+  });
+
+  /**
+   * @canon spec-the-vertex-position-and-normal-carry-the-instance-matrix
+   */
+  it("gives the vertex stage of an instanced mesh its position and normal through the instance matrix", () => {
+    let position: unknown;
+    let normal: unknown;
+    const material = new MeshBasicMaterial();
+    material.vertexNode = (b) => {
+      position = b.position;
+      normal = b.normal;
+      return vec4(b.position.add(b.normal), 1);
+    };
+    const program = material.build(new Scene(), { instancing: true });
+    const instanceMatrix = bound(program, "instanceMatrix");
+    expect(reaches(position, instanceMatrix)).toBe(true);
+    expect(reaches(normal, instanceMatrix)).toBe(true);
+    expect(someNode(normal, (node) => node.type === "inverse")).toBe(true);
+    expect(someNode(normal, (node) => node.type === "transpose")).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-position-node-replaces-the-instanced-position
+   */
+  it("takes positionNode's position as the instanced one, transformed by nothing but the model, view and projection", () => {
+    let result: unknown;
+    const offset = uniform("vec3");
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => (result = b.position.add(offset));
+    const program = material.build(new Scene(), { instancing: true });
+    const instanceMatrix = bound(program, "instanceMatrix");
+    expect(reaches(result, instanceMatrix)).toBe(true);
+    const normalWorld = assigned(program.vertexRoot, bound(program, "normalWorld"));
+    expect(reaches(program.vertexRoot, instanceMatrix, [result, normalWorld])).toBe(false);
+  });
+
+  /**
+   * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
+   */
+  it("passes the fragment stage the position positionNode gives", () => {
+    let result: unknown;
+    const offset = uniform("vec3");
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => (result = b.position.add(offset));
+    material.fragmentNode = (b) => vec4(b.position, 1);
+    const program = material.build(new Scene(), { instancing: true });
+    expect(assigned(program.vertexRoot, bound(program, "positionLocal"))).toBe(result);
+  });
+
+  /**
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   */
+  it("passes the fragment stage of an instanced mesh the geometry's normal", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.normal, 1);
+    const program = material.build(new Scene(), { instancing: true });
+    expect(assigned(program.vertexRoot, bound(program, "normalLocal"))).toBe(bound(program, "normal"));
+  });
+
+  /**
+   * @canon spec-a-normal-node-gives-a-view-space-normal
+   */
+  it.each([
+    ["MeshLambertMaterial", () => new MeshLambertMaterial()],
+    ["MeshStandardMaterial", () => new MeshStandardMaterial()],
+  ])("reads normalNode in the fragment stage only, turned out of view space, on %s", (_name, make) => {
+    const normal = uniform("vec3");
+    const material = make();
+    material.normalNode = () => normal as Node<"vec3">;
+    const scene = new Scene();
+    scene.add(new DirectionalLight());
+    const program = material.build(scene);
+    expect(reaches(program.vertexRoot, normal)).toBe(false);
+    expect(reaches(program.fragmentRoot, normal)).toBe(true);
+    expect(reaches(program.fragmentRoot, bound(program, "viewMatrix"))).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-normal-node-gives-a-view-space-normal
+   */
+  it("gives a normalNode the geometry's normal in view space", () => {
+    let normalView: unknown;
+    const material = new MeshLambertMaterial();
+    material.normalNode = (b) => (normalView = b.normalView);
+    const program = material.build(new Scene());
+    expect(reaches(normalView, bound(program, "viewMatrix"))).toBe(true);
+    expect(reaches(normalView, bound(program, "normalWorld"))).toBe(true);
+  });
 });
 
 afterAll(async () => {

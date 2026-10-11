@@ -1,4 +1,20 @@
-import { clamp, dot, float, mix, mul, screenUV, select, sin, time, uv, vec2, vec3, vec4, type Node } from "../rmsl";
+import {
+  clamp,
+  dot,
+  float,
+  mix,
+  mul,
+  screenUV,
+  select,
+  sin,
+  time,
+  uv,
+  vec2,
+  vec3,
+  vec4,
+  type Node,
+  texture,
+} from "../rmsl";
 import { type FloatIn, type Sampler2D, type Vec2In } from "./util";
 import { circle } from "./shape";
 
@@ -49,10 +65,10 @@ export const barrelMask = (coord: Node<"vec2">): Node<"float"> => {
  * @return The color with bleeding applied.
  */
 export const colorBleeding = (color: Sampler2D, amount: FloatIn = 0.002): Node<"vec3"> => {
-  const original = color.texture(screenUV()).rgb;
-  const left1 = color.texture(screenUV().sub(vec2(amount, 0.0))).rgb;
-  const left2 = color.texture(screenUV().sub(vec2(mul(amount, 2.0), 0.0))).rgb;
-  const left3 = color.texture(screenUV().sub(vec2(mul(amount, 3.0), 0.0))).rgb;
+  const original = texture(color, screenUV()).rgb;
+  const left1 = texture(color, screenUV().sub(vec2(amount, 0.0))).rgb;
+  const left2 = texture(color, screenUV().sub(vec2(mul(amount, 2.0), 0.0))).rgb;
+  const left3 = texture(color, screenUV().sub(vec2(mul(amount, 3.0), 0.0))).rgb;
 
   // Red bleeds most (travels furthest in an analog signal).
   const bleedR = original.r.add(left1.r.mul(0.4)).add(left2.r.mul(0.2)).add(left3.r.mul(0.1));
@@ -144,6 +160,6 @@ export const crt = (textureNode: Sampler2D, options: CrtOptions = {}): Node<"vec
     distorted,
   );
   const vignetted = vignette(scanned, options.vignetteIntensity ?? 0.4, options.vignetteSmoothness ?? 0.5, distorted);
-  const alpha = textureNode.texture(distorted).a;
+  const alpha = texture(textureNode, distorted).a;
   return vec4(vignetted.mul(masked), alpha);
 };

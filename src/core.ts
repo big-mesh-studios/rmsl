@@ -72,6 +72,11 @@ export type Sampler2DLike = BaseNode<"sampler2D"> | Node<"sampler2D">;
 export type Sampler3DLike = BaseNode<"sampler3D"> | Node<"sampler3D">;
 export type ISampler2DLike = BaseNode<"isampler2D"> | Node<"isampler2D">;
 export type USampler3DLike = BaseNode<"usampler3D"> | Node<"usampler3D">;
+export type SamplerCubeLike = BaseNode<"samplerCube"> | Node<"samplerCube">;
+export type ISampler3DLike = BaseNode<"isampler3D"> | Node<"isampler3D">;
+export type ISamplerCubeLike = BaseNode<"isamplerCube"> | Node<"isamplerCube">;
+export type USampler2DLike = BaseNode<"usampler2D"> | Node<"usampler2D">;
+export type USamplerCubeLike = BaseNode<"usamplerCube"> | Node<"usamplerCube">;
 
 /**
  * The plain-JS shape `setUniform`/`setUniform` on a uniform array element
@@ -113,7 +118,13 @@ export type VariableNode<A extends ShaderType> = Node<A> & {
 
 // Aliases rather than interfaces: `Node<A>` resolves through an indexed access,
 // and an interface may only extend a type whose members are statically known.
-export type UniformNode<A extends ShaderType> = VariableNode<A>;
+/** The precision a uniform can ask for its GLSL declaration, as TSL's `setPrecision` takes it. */
+export type UniformPrecision = "low" | "medium" | "high";
+
+export type UniformNode<A extends ShaderType> = VariableNode<A> & {
+  /** Sets the precision of this uniform's GLSL declaration, over the shader's default, and returns it. */
+  setPrecision(precision: UniformPrecision): UniformNode<A>;
+};
 
 /**
  * A uniform array. Not a `Node<A>` itself — the array as a whole has no value,
@@ -124,6 +135,8 @@ export interface UniformArrayNode<A extends ShaderType> {
   readonly name: string;
   readonly length: number;
   element(index: IntLike | UintLike | FloatLike): Node<A>;
+  /** Sets the precision of this array's GLSL declaration, over the shader's default, and returns it. */
+  setPrecision(precision: UniformPrecision): UniformArrayNode<A>;
 }
 export type AttributeNode<A extends ShaderType> = VariableNode<A>;
 /** A varying: written by the vertex stage, read by the fragment stage. */
@@ -390,15 +403,15 @@ export interface NodeOps {
   mat4x2: RectMatOps<"mat4x2", "vec4", "vec2", "mat2x4">;
   mat4x3: RectMatOps<"mat4x3", "vec4", "vec3", "mat3x4">;
   mat4: MatOps<"mat4", "vec4", "vec3">;
-  sampler2D: SamplerOps;
-  sampler3D: Sampler3DOps;
-  samplerCube: CubeSamplerOps;
-  isampler2D: ISampler2DOps;
-  isampler3D: ISampler3DOps;
-  isamplerCube: ISamplerCubeOps;
-  usampler2D: USampler2DOps;
-  usampler3D: USampler3DOps;
-  usamplerCube: USamplerCubeOps;
+  sampler2D: {};
+  sampler3D: {};
+  samplerCube: {};
+  isampler2D: {};
+  isampler3D: {};
+  isamplerCube: {};
+  usampler2D: {};
+  usampler3D: {};
+  usamplerCube: {};
   void: {};
 }
 
@@ -638,18 +651,6 @@ export interface RectMatOps<
   transpose(): Node<Transposed>;
 }
 
-/** A cube map is sampled with a direction rather than a surface coordinate. */
-export interface CubeSamplerOps {
-  texture(coords: Vec3Like): Node<"vec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike): Node<"vec4">;
-}
-
-/** A 3D texture is sampled at its volume coordinate. */
-export interface Sampler3DOps {
-  texture(coords: Vec3Like): Node<"vec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike): Node<"vec4">;
-}
-
 export interface IntOps {
   add(other: IntLike): Node<"int">;
   sub(other: IntLike): Node<"int">;
@@ -739,52 +740,6 @@ export interface UVecOps<A extends "uvec2" | "uvec3" | "uvec4"> {
   shiftRight(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   bitNot(): Node<A>;
   element(i: IntLike): Node<"uint">;
-}
-
-export interface SamplerOps {
-  texture(coords: Vec2Like): Node<"vec4">;
-  textureLod(coords: Vec2Like, lod: FloatLike): Node<"vec4">;
-}
-
-/**
- * A signed or unsigned integer texture. Integer textures are not filterable in
- * either language, so `texture()`/`textureLod()` compile to an unfiltered
- * fetch (`texelFetch` in GLSL, `textureLoad` in WGSL — which there needs no
- * sampler) and return an integer vector. Coordinates are texel coordinates and
- * must be integers, matching how the underlying fetch is parameterised in both
- * languages, and the LOD is an int. Each is written out per dimension so a 2D
- * sampler cannot be given an `ivec3`/`uvec3` — a conditional would make the
- * checker expand the whole `Node` intersection at every use, exhausting its
- * heap.
- */
-export interface ISampler2DOps {
-  texture(coords: IVec2Like): Node<"ivec4">;
-  textureLod(coords: IVec2Like, lod: IntLike): Node<"ivec4">;
-}
-
-export interface ISampler3DOps {
-  texture(coords: IVec3Like): Node<"ivec4">;
-  textureLod(coords: IVec3Like, lod: IntLike): Node<"ivec4">;
-}
-
-export interface ISamplerCubeOps {
-  texture(coords: IVec3Like): Node<"ivec4">;
-  textureLod(coords: IVec3Like, lod: IntLike): Node<"ivec4">;
-}
-
-export interface USampler2DOps {
-  texture(coords: UVec2Like): Node<"uvec4">;
-  textureLod(coords: UVec2Like, lod: IntLike): Node<"uvec4">;
-}
-
-export interface USampler3DOps {
-  texture(coords: UVec3Like): Node<"uvec4">;
-  textureLod(coords: UVec3Like, lod: IntLike): Node<"uvec4">;
-}
-
-export interface USamplerCubeOps {
-  texture(coords: UVec3Like): Node<"uvec4">;
-  textureLod(coords: UVec3Like, lod: IntLike): Node<"uvec4">;
 }
 
 export interface BoolOps {
@@ -1332,24 +1287,24 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     });
   }
 
-  // === SamplerOps ===
-  texture(coords: any): any {
-    return node({
-      _t: textureResultType(this._t),
-      type: "texture",
-      params: [this as BaseNode<ShaderType>, wrapValue(coords) as BaseNode<ShaderType>],
-    });
-  }
-  textureLod(coords: any, lod: any): any {
-    return node({
-      _t: textureResultType(this._t),
-      type: "textureLod",
-      params: [
-        this as BaseNode<ShaderType>,
-        wrapValue(coords) as BaseNode<ShaderType>,
-        wrapValue(lod) as BaseNode<ShaderType>,
-      ],
-    });
+  // === Uniform precision ===
+  setPrecision(precision: UniformPrecision): any {
+    if (this.type !== "uniform" && this.type !== "uniformArray") {
+      throw new Error(`[RMSL] setPrecision: only a uniform has a precision of its own, not a ${this.type} node`);
+    }
+    if (precision !== "low" && precision !== "medium" && precision !== "high") {
+      throw new Error(
+        `[RMSL] setPrecision: a precision is "low", "medium" or "high", not ${JSON.stringify(precision)}`,
+      );
+    }
+    const shaderType = (this.value as { shaderType: string }).shaderType;
+    if (shaderType === "bool" || shaderType.startsWith("bvec")) {
+      throw new Error(
+        `[RMSL] setPrecision: a ${shaderType} uniform takes no precision, which GLSL gives only to numbers`,
+      );
+    }
+    (this.value as { precision?: UniformPrecision }).precision = precision;
+    return this;
   }
 
   // === BoolOps ===
@@ -2822,6 +2777,62 @@ export function unpremultiplyAlpha(color: MathLike): any {
 }
 
 /**
+ * Throws unless `value` is a sampler that `texture` and `textureLevel` can read:
+ * an integer cube map has no texel fetch on GLSL or WGSL.
+ */
+function assertSampledTexture(fn: string, value: BaseNode<ShaderType>): void {
+  const type = (value as { _t?: string } | undefined)?._t;
+  if (type === undefined || !isSamplerType(type)) {
+    const what = type === undefined ? "not a node" : `${/^[aeiou]/.test(type) ? "an" : "a"} ${type}`;
+    throw new Error(`[RMSL] ${fn}: its first argument is ${what}, not a sampler`);
+  }
+  if (type === "isamplerCube" || type === "usamplerCube") {
+    throw new Error(`[RMSL] ${fn}: an ${type} is an integer cube map, which neither GLSL nor WGSL can read a texel of`);
+  }
+}
+
+/**
+ * Samples a texture at a coordinate of its dimension, as TSL's `texture(value,
+ * uv)`. A cube map takes a direction. An integer texture cannot be filtered,
+ * so it is read unfiltered (`texelFetch` in GLSL, `textureLoad` in WGSL) at
+ * integer texel coordinates, and gives an integer vector.
+ */
+export function texture(value: Sampler2DLike, uv: Vec2Like): Node<"vec4">;
+export function texture(value: Sampler3DLike | SamplerCubeLike, uv: Vec3Like): Node<"vec4">;
+export function texture(value: ISampler2DLike, uv: IVec2Like): Node<"ivec4">;
+export function texture(value: ISampler3DLike, uv: IVec3Like): Node<"ivec4">;
+export function texture(value: USampler2DLike, uv: UVec2Like): Node<"uvec4">;
+export function texture(value: USampler3DLike, uv: UVec3Like): Node<"uvec4">;
+export function texture(value: BaseNode<ShaderType>, uv: unknown): any {
+  assertSampledTexture("texture", value);
+  return node({
+    _t: textureResultType(value._t),
+    type: "texture",
+    params: [value, wrapValue(uv as any) as BaseNode<ShaderType>],
+  });
+}
+
+/**
+ * Samples a texture at a coordinate of its dimension and at mip level `level`,
+ * as TSL's `textureLevel(value, uv, level)`. An integer texture takes an
+ * integer level.
+ */
+export function textureLevel(value: Sampler2DLike, uv: Vec2Like, level: FloatLike): Node<"vec4">;
+export function textureLevel(value: Sampler3DLike | SamplerCubeLike, uv: Vec3Like, level: FloatLike): Node<"vec4">;
+export function textureLevel(value: ISampler2DLike, uv: IVec2Like, level: IntLike): Node<"ivec4">;
+export function textureLevel(value: ISampler3DLike, uv: IVec3Like, level: IntLike): Node<"ivec4">;
+export function textureLevel(value: USampler2DLike, uv: UVec2Like, level: IntLike): Node<"uvec4">;
+export function textureLevel(value: USampler3DLike, uv: UVec3Like, level: IntLike): Node<"uvec4">;
+export function textureLevel(value: BaseNode<ShaderType>, uv: unknown, level: unknown): any {
+  assertSampledTexture("textureLevel", value);
+  return node({
+    _t: textureResultType(value._t),
+    type: "textureLod",
+    params: [value, wrapValue(uv as any) as BaseNode<ShaderType>, wrapValue(level as any) as BaseNode<ShaderType>],
+  });
+}
+
+/**
  * Fetch a single texel at integer coordinates, without filtering — TSL's
  * `textureLoad`. The float-sampler counterpart of the integer samplers' texel
  * fetch; both backends emit their unfiltered load (`texelFetch` / `textureLoad`).
@@ -3491,7 +3502,7 @@ export function assertForUpdateNode(node: { type?: string }): void {
 }
 
 /**
- * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
+ * A loop of rmsl's own, beside TSL's `Loop`: `init` makes the loop variable, `cond`
  * tests it before every iteration, `update` steps it after every one. A
  * variable `cond` makes is computed before every test, and stays in scope
  * after the loop, and in `update`. The update is the update slot of a GLSL,
@@ -3524,23 +3535,173 @@ export function For<T extends Node<ShaderType>>(
   });
 }
 
+/** The type of a `Loop` range's index. */
+export type LoopIndexType = "int" | "uint" | "float";
+
 /**
- * TSL's counting loop: `Loop(count, (i) => { ... })` iterates `count` times
- * with `i` an `int` index from 0. Lowered to the same `For` machinery.
+ * A range of TSL's object shape of `Loop`. With only `end`, it counts up from
+ * 0; with only `start`, it counts down from `start - 1` to 0. Its `update` is
+ * a step in the direction of its `condition`, or a function that steps the
+ * index itself.
  */
-export function Loop(count: IntLike | FloatLike, body: (i: Node<"int">) => void): void {
-  For(
-    () => int(0).toVar(),
-    (i) => i.lessThan(count as any),
-    (i) => {
-      i.assign(i.add(int(1)));
-    },
-    (i) => body(i),
+export type LoopRange<T extends LoopIndexType = LoopIndexType, N extends string = string> = {
+  start?: number | Node<ShaderType>;
+  end?: number | Node<ShaderType>;
+  type?: T;
+  name?: N;
+  condition?: "<" | "<=" | ">" | ">=";
+  update?: number | Node<ShaderType> | ((indices: Record<string, Node<any>>) => void);
+};
+
+/** The index a `Loop` range of type `T` gives its body. */
+type LoopIndex<T> = T extends "float" ? Var<"float"> : T extends "uint" ? Var<"uint"> : Var<"int">;
+
+/**
+ * TSL's `Loop`, in each of its shapes, with its indices passed as `{ i }`:
+ *
+ *   Loop(count, ({ i }) => { ... })                      // i from 0 while i < count
+ *   Loop(condition, () => { ... })                       // while the bool holds
+ *   Loop({ start, end, type, condition, update }, ({ i }) => { ... })
+ *   Loop(4, 2, ({ i, j }) => { ... })                    // one nested loop per range
+ *
+ * A `bool` condition is built once, before the loop, as TSL builds it.
+ */
+export function Loop(condition: Node<"bool">, body: () => void): void;
+export function Loop(count: IntLike | FloatLike, body: (indices: { i: Var<"int"> }) => void): void;
+export function Loop<T extends LoopIndexType = "int", N extends string = "i">(
+  range: LoopRange<T, N>,
+  body: (indices: { [K in N]: LoopIndex<T> }) => void,
+): void;
+export function Loop(
+  ...params: [...ranges: (IntLike | FloatLike | LoopRange)[], body: (indices: Record<string, Var<"int">>) => void]
+): void;
+export function Loop(...params: any[]): void {
+  const body = params.pop() as (indices: Record<string, Node<any>>) => void;
+  const ranges = params as (IntLike | FloatLike | Node<"bool"> | LoopRange)[];
+  const indices: Record<string, Node<any>> = {};
+  const names = ranges.map((range, depth) =>
+    isNode(range) && (range as BaseNode<ShaderType>)._t === "bool"
+      ? undefined
+      : (isLoopRange(range) && range.name) || "ijklmnopqrstuvwxyz"[depth]!,
   );
+  const named = names.filter((name) => name !== undefined);
+  const repeated = named.find((name, i) => named.indexOf(name) !== i);
+  if (repeated !== undefined) {
+    throw new Error(
+      `[RMSL] Loop: two ranges name their index "${repeated}", so the inner one hides the outer from the body`,
+    );
+  }
+  const nest = (depth: number): void => {
+    if (depth === ranges.length) return body(indices);
+    const range = ranges[depth];
+    if (isNode(range) && (range as BaseNode<ShaderType>)._t === "bool") {
+      return While(range as Node<"bool">, () => nest(depth + 1));
+    }
+    const name = names[depth]!;
+    const { start, end, condition, step } = loopBounds(range as IntLike | FloatLike | LoopRange);
+    For(
+      () => start.toVar(),
+      (index) => compare(index, condition, end),
+      (index) => {
+        // The update is built before the body, so it records the index itself.
+        indices[name] = index;
+        if (typeof step === "function") step(indices);
+        else index.assign(condition.includes("<") ? index.add(step) : index.sub(step));
+      },
+      (index) => {
+        indices[name] = index;
+        nest(depth + 1);
+      },
+    );
+  };
+  nest(0);
+}
+
+/** Whether a `Loop` param is TSL's object of `start`, `end` and the rest, rather than a count. */
+function isLoopRange(range: unknown): range is LoopRange {
+  return typeof range === "object" && range !== null && !isNode(range) && !Array.isArray(range);
+}
+
+/** The number a `Loop` bound stands for, when it is a number or a literal such as `int(10)`. */
+function constantOf(value: number | Node<ShaderType> | undefined): number | undefined {
+  if (typeof value === "number") return value;
+  const literal = value as BaseNode<ShaderType> | undefined;
+  return literal && literal.type === literal._t && typeof literal.value === "number" ? literal.value : undefined;
+}
+
+/** A comparison of a `Loop` index with its end, by TSL's operator. */
+function compare(index: Node<any>, condition: string, end: Node<any>): Node<"bool"> {
+  if (condition === "<") return index.lessThan(end);
+  if (condition === "<=") return index.lessThanEqual(end);
+  if (condition === ">") return index.greaterThan(end);
+  return index.greaterThanEqual(end);
+}
+
+/** The start, end, condition and step of a `Loop` range, with what TSL fills in where the range gives none. */
+function loopBounds(range: IntLike | FloatLike | LoopRange) {
+  if (!isLoopRange(range)) {
+    if (typeof range === "number") assertWholeBound(range, "int");
+    // A count is built as the index's type, as TSL builds it.
+    const end = isNode(range) && range._t !== "int" ? int(range as Node<"float">) : range;
+    return { start: int(0), end: end as Node<any>, condition: "<", step: int(1) as Node<any> };
+  }
+  const type = range.type ?? "int";
+  if (type !== "int" && type !== "uint" && type !== "float") {
+    throw new Error(`[RMSL] Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
+  }
+  if (range.start === undefined && range.end === undefined) {
+    throw new Error('[RMSL] Loop: a range names neither "start" nor "end", so it has nothing to count from or to');
+  }
+  // Each bound is built as the index's type, as TSL builds it.
+  const of = (value: number | Node<ShaderType>): Node<any> => {
+    if (typeof value === "number" && type !== "float") assertWholeBound(value, type);
+    if (isNode(value) && value._t === type) return value;
+    return type === "float" ? float(value as number) : type === "uint" ? uint(value as number) : int(value as number);
+  };
+  let start = range.start;
+  let end = range.end;
+  let condition: string | undefined = range.condition;
+  if (start !== undefined && end === undefined) {
+    // Only a start counts down to 0, from the value below it.
+    start = isNode(start) ? (of(start) as any).sub(1) : start - 1;
+    end = 0;
+    condition = ">=";
+  } else if (start === undefined) {
+    start = 0;
+    condition = "<";
+  }
+  const [first, last] = [constantOf(start!), constantOf(end!)];
+  condition ??= first !== undefined && last !== undefined && first > last ? ">=" : "<";
+  if (!["<", "<=", ">", ">="].includes(condition)) {
+    throw new Error(`[RMSL] Loop: a condition is "<", "<=", ">" or ">=", not ${JSON.stringify(condition)}`);
+  }
+  const update = range.update;
+  if (typeof update === "string") {
+    throw new Error(
+      "[RMSL] Loop: an update is a number, a node or a function, not a string: TSL writes a string into the shader it emits, which the JS and WASM targets have none of",
+    );
+  }
+  const step = typeof update === "function" ? update : of(update ?? 1);
+  if (type === "uint" && condition === ">=" && constantOf(end!) === 0) {
+    throw new Error(
+      '[RMSL] Loop: a uint range that tests ">=" against an end of 0 never ends, since every uint is at least 0. Give the index the type "int"',
+    );
+  }
+  return { start: of(start!), end: of(end ?? 0), condition, step };
+}
+
+/** Throws for a number with a fraction given as a bound of an integer `Loop` index, which TSL would round. */
+function assertWholeBound(value: number, type: string): void {
+  if (!Number.isInteger(value)) {
+    throw new Error(
+      `[RMSL] Loop: ${value} is not a whole number, but the index is ${type === "int" ? "an" : "a"} ${type}. Use a whole number, or a float node, which converts to the index's type`,
+    );
+  }
 }
 
 /**
- * A loop that runs `body` while `cond` holds, as TSL's `While`. A condition
+ * A loop of rmsl's own that runs `body` while `cond` holds, beside TSL's
+ * `Loop(condition, body)`. A condition
  * given as a node is built before the loop, so a variable it makes is
  * computed once; given as a function, a variable it makes is computed before
  * every test, and stays in scope after the loop.

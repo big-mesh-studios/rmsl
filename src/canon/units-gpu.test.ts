@@ -9,6 +9,7 @@ import {
   invocationIndex,
   outputStruct,
   select,
+  texture,
   uniform,
   uniformArray,
   uniformRaw,
@@ -260,8 +261,8 @@ describe("where WGSL declares a uniform or a buffer", () => {
    */
   it("lays out the uniforms a WGSL stage is given, leaving out a texture as the stage does", () => {
     const uniforms = [uniform("sampler2D"), uniform("float")];
-    const [texture, value] = uniforms as [any, any];
-    const code = compileWgslStage.fragment(texture.texture(vec2(0, 0)).add(value), { uniforms });
+    const [image, value] = uniforms as [any, any];
+    const code = compileWgslStage.fragment(texture(image, vec2(0, 0)).add(value), { uniforms });
     const layout = wgslUniformLayout(uniforms.map(wgslUniformDeclaration));
     expect(layout.members.map((member) => member.name)).toEqual(structMembers(code));
     expect(layout.members.map((member) => member.name)).toEqual([value.name]);
@@ -432,7 +433,7 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const made = [uniform("sampler2D"), uniform("sampler2D")];
     while (made.at(-1)!.name.localeCompare(made.at(-2)!.name) > 0) made.push(uniform("sampler2D"));
     const [first, second] = made.slice(-2);
-    const code = compileWgslStage.fragment(Fn(() => first!.texture(vec2(0, 0)).add(second!.texture(vec2(0, 0))))());
+    const code = compileWgslStage.fragment(Fn(() => texture(first!, vec2(0, 0)).add(texture(second!, vec2(0, 0))))());
     expect(code).toContain(`@group(1) @binding(0) var ${first!.name}:`);
     expect(code).toContain(`@group(1) @binding(1) var ${second!.name}:`);
     expect(code).toContain(`@group(2) @binding(0) var ${first!.name}_s:`);
@@ -448,7 +449,7 @@ describe("where WGSL declares a uniform or a buffer", () => {
   it("binds a WGSL function's samplers in the order of its textures", () => {
     const first = uniform("sampler2D");
     const second = uniform("sampler2D");
-    const code = compileWgslFn(() => second.texture(vec2(0, 0)).add(first.texture(vec2(0, 0))), {
+    const code = compileWgslFn(() => texture(second, vec2(0, 0)).add(texture(first, vec2(0, 0))), {
       name: "sampleBoth",
       params: [],
     });
@@ -543,7 +544,7 @@ describe("setUniform on a sampler slot of createGlsl before attach", () => {
     const position = uniform("vec4");
     const adapter = createGlsl(
       Fn(() => builtinPosition().assign(position))() as any,
-      Fn(() => vec4(colours.element(int(0)), image.texture(vec2(0, 0)).x, 0, 1))() as any,
+      Fn(() => vec4(colours.element(int(0)), texture(image, vec2(0, 0)).x, 0, 1))() as any,
     );
     expect(() => adapter.setUniform(colours.name, 1)).toThrow(/storage buffer.*setAttribute/);
     expect(() => adapter.setUniform(image.name, 1)).toThrow(/texture.*setTexture/);

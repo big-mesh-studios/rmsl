@@ -18,6 +18,7 @@ import {
   Fn,
   fragCoord,
   HALF_PI,
+  Break,
   If,
   instancedArray,
   int,
@@ -52,6 +53,7 @@ import {
   vec3,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileGlsl } from "../glsl";
@@ -645,12 +647,204 @@ describe("each leaf on every target it claims", () => {
     const build = (a: Node<"float">) =>
       Fn(() => {
         const total = a.toVar();
-        Loop(int(4), (i) => {
+        Loop(int(4), ({ i }) => {
           total.addAssign(i.toFloat());
         });
         return total;
       })();
     expect(evaluateRecording(build, [1])).toBe(7);
+  });
+
+  /**
+   * @canon spec-loop-with-a-bool-runs-while-it-holds
+   */
+  it("runs a Loop with a bool condition while it holds on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop(total.lessThan(10), () => {
+          total.addAssign(3);
+        });
+        return total;
+      })();
+    expect(evaluateRecording(build, [1])).toBe(10);
+  });
+
+  /**
+   * The condition makes a variable from `n` before the loop, so it reads 0 on
+   * every test, and only the `Break` stops the loop.
+   *
+   * @canon spec-loop-with-a-bool-runs-while-it-holds
+   */
+  it("builds the bool condition of a Loop once, before the loop, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const n = a.toVar();
+        Loop(n.toVar().lessThan(3), () => {
+          n.addAssign(1);
+          If(n.greaterThanEqual(5), () => Break());
+        });
+        return n;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(5);
+  });
+
+  /**
+   * Each index is written as a digit of the result, so the result reads the
+   * indices in the order the loop ran them.
+   *
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it.each([
+    ["only end", { end: 4 }, 123],
+    ["only start", { start: 4 }, 3210],
+    ["a start above its end", { start: 5, end: 2 }, 5432],
+    ["a condition", { start: 1, end: 3, condition: "<=" }, 123],
+  ] as const)("fills in the range of a Loop given %s on every target", (_, range, expected) => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const digits = a.toVar();
+        Loop(range, ({ i }) => {
+          digits.assign(digits.mul(10).add(i.toFloat()));
+        });
+        return digits;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(expected);
+  });
+
+  /**
+   * A literal start above its end counts down, as numbers do; a range given
+   * only an end counts up whatever condition it names; a float count is built
+   * as an int.
+   *
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it("fills in a Loop range from literals, an end alone and a float count on every target", () => {
+    const digitsOf = (loop: (digit: (i: Node<"int">) => void, a: Node<"float">) => void) => (a: Node<"float">) =>
+      Fn(() => {
+        const digits = a.toVar();
+        loop((i) => digits.assign(digits.mul(10).add(i.toFloat())), a);
+        return digits;
+      })();
+    const fromLiterals = digitsOf((digit) => Loop({ start: int(3), end: int(0) }, ({ i }) => digit(i)));
+    const fromEnd = digitsOf((digit) => Loop({ end: 3, condition: ">" }, ({ i }) => digit(i)));
+    const fromFloatCount = digitsOf((digit, a) => Loop(a.add(3), ({ i }) => digit(i)));
+    expect(evaluateRecording(fromLiterals, [0])).toBe(3210);
+    expect(evaluateRecording(fromEnd, [0])).toBe(12);
+    expect(evaluateRecording(fromFloatCount, [0])).toBe(12);
+  });
+
+  /**
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it("counts a Loop over a float index it names on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop({ start: 0, end: 1, type: "float", name: "t", update: 0.25 }, ({ t }) => {
+          total.addAssign(t);
+        });
+        return total;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(1.5);
+  });
+
+  /** Builds a program whose one loop is `loop`. */
+  const buildLoop = (loop: () => void) => () => Fn(() => (loop(), float(0)))();
+
+  /**
+   * @canon exception-loop-refuses-a-range-with-neither-start-nor-end
+   */
+  it("refuses a Loop range with neither start nor end", () => {
+    expect(buildLoop(() => Loop({ name: "t" }, () => {}))).toThrow(/neither "start" nor "end"/);
+  });
+
+  /**
+   * @canon exception-loop-refuses-a-uint-range-that-never-ends
+   */
+  it.each([
+    ["a start counting down to 0", { start: 5, end: 0, type: "uint" }],
+    ["only a start", { start: 3, type: "uint" }],
+    ["a node end of 0", { start: 5, end: uint(0), type: "uint", condition: ">=" }],
+  ] as const)("refuses a uint Loop range given %s, which never ends", (_, range) => {
+    expect(buildLoop(() => Loop(range as any, () => {}))).toThrow(/uint.*never ends/);
+  });
+
+  /**
+   * A float node converts to the index's type, and truncates.
+   *
+   * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
+   */
+  it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
+    expect(buildLoop(() => Loop(2.5, () => {}))).toThrow(/2\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrow(/2\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrow(/0\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrow(/1\.5 is not a whole number/);
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const count = a.toVar();
+        Loop(float(2.5), () => count.addAssign(1));
+        return count;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(2);
+  });
+
+  /**
+   * @canon exception-loop-refuses-two-ranges-of-one-name
+   */
+  it("refuses two Loop ranges whose indices take one name", () => {
+    expect(buildLoop(() => Loop({ end: 2, name: "j" }, 3, () => {}))).toThrow(/two ranges.*"j"/);
+    expect(buildLoop(() => Loop({ end: 2, name: "k" }, { end: 2, name: "k" }, () => {}))).toThrow(/two ranges.*"k"/);
+  });
+
+  /**
+   * @canon spec-loop-steps-by-its-update
+   */
+  it("steps a Loop by a number, a node or a function update on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop({ start: 0, end: 10, update: 3 }, ({ i }) => {
+          total.addAssign(i.toFloat());
+        });
+        Loop({ start: 10, end: 0, condition: ">", update: int(4) }, ({ i }) => {
+          total.addAssign(i.toFloat().mul(100));
+        });
+        Loop({ start: 1, end: 20, update: ({ i }) => i.mulAssign(2) }, ({ i }) => {
+          total.addAssign(i.toFloat().mul(10000));
+        });
+        return total;
+      })();
+    // 0 + 3 + 6 + 9, then (10 + 6 + 2) * 100, then (1 + 2 + 4 + 8 + 16) * 10000.
+    expect(evaluateRecording(build, [0])).toBe(18 + 1800 + 310000);
+  });
+
+  /**
+   * @canon spec-loop-nests-a-loop-for-each-range
+   */
+  it("nests a Loop for each range it is given on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop(3, 2, ({ i, j }) => {
+          total.addAssign(i.toFloat().mul(10).add(j.toFloat()));
+        });
+        return total;
+      })();
+    // i runs 0 to 2 and j 0 to 1: (0 + 1) + (10 + 11) + (20 + 21).
+    expect(evaluateRecording(build, [0])).toBe(63);
+  });
+
+  /**
+   * @canon exception-a-loop-update-is-not-shader-text
+   */
+  it("refuses a Loop update given as a string", () => {
+    const build = () =>
+      Fn(() => {
+        // @ts-expect-error: an update is a number, a node or a function
+        Loop({ end: 4, update: "+= 2" }, () => {});
+      })();
+    expect(build).toThrow(/update/);
   });
 
   /**
@@ -1090,7 +1284,7 @@ describe("each leaf on every target it claims", () => {
     ["WASM", compileWasmRoutine as typeof compileJSRoutine],
   ] as const)("fetches the texel a float coordinate truncates to from an integer texture on %s", (_, compile) => {
     const tex = uniform("isampler2D") as any;
-    const build = (x: any) => Fn(() => tex.texture(vec2(x, 0.25)).x.toVar())() as any;
+    const build = (x: any) => Fn(() => texture(tex, vec2(x, 0.25)).x.toVar())() as any;
     const run = compile(build, { name: "main", params: [{ name: "x", type: "float" }] });
     const textures = { [tex.name]: { data: Int32Array.of(10, 20, 30, 40), width: 2, height: 2, channels: 1 as const } };
     expect(run({ params: { x: 0.75 }, textures })).toBe(10);

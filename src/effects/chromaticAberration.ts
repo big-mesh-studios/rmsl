@@ -1,5 +1,5 @@
 import { f, type FloatIn, type Sampler2D, type Vec2In } from "./util";
-import { float, mul, uv, vec2, vec4, type Node } from "../rmsl";
+import { float, mul, uv, vec2, vec4, type Node, texture } from "../rmsl";
 
 /**
  * Post-processing effect simulating the color fringing that occurs in real
@@ -37,10 +37,10 @@ export const chromaticAberration = (
   const greenUV = centerNode.add(offset.mul(greenScale));
   const blueUV = centerNode.add(offset.mul(blueScale)).sub(offset.mul(aberrationStrength).mul(0.01));
 
-  const r = textureNode.texture(redUV).r;
-  const g = textureNode.texture(greenUV).g;
-  const b = textureNode.texture(blueUV).b;
-  const a = textureNode.texture(uvNode).a;
+  const r = texture(textureNode, redUV).r;
+  const g = texture(textureNode, greenUV).g;
+  const b = texture(textureNode, blueUV).b;
+  const a = texture(textureNode, uvNode).a;
 
   return vec4(r, g, b, a);
 };

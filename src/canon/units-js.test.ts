@@ -34,6 +34,7 @@ import {
   vec4,
   type Node,
   instanceIndex,
+  texture,
   vertexIndex,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
@@ -224,12 +225,12 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       let tex!: any;
       const program = Fn(() => {
         tex = uniform("sampler2D");
-        return tex.texture(vec2(0.5, 0.5));
+        return texture(tex, vec2(0.5, 0.5));
       })();
       const routine = compile(() => program, none);
-      const texture = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
+      const texels = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
       const red = (filters: { magFilter: "nearest" | "linear"; minFilter: "nearest" | "linear" }) =>
-        (routine({ textures: { [tex.name]: { ...texture, ...filters } } }) as Float64Array)[0];
+        (routine({ textures: { [tex.name]: { ...texels, ...filters } } }) as Float64Array)[0];
       expect(red({ magFilter: "nearest", minFilter: "linear" })).toBe(20);
       expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(15);
     },
@@ -791,7 +792,7 @@ describe("what a JS routine allocates per call", () => {
    */
   it("samples a cube map without allocating on JS", () => {
     const cube = uniform("samplerCube");
-    const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
+    const source = compileJSFn(() => Fn(() => texture(cube, vec3(1, 0, 0)).toVar())(), none);
     expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
   });
   /**

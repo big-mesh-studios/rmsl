@@ -88,7 +88,14 @@ export interface CompileCtx {
    */
   uniforms: Map<
     string,
-    { type: string; slot: string; length?: number; order?: number; node?: BaseNode<ShaderType>; precision?: "highp" }
+    {
+      type: string;
+      slot: string;
+      length?: number;
+      order?: number;
+      node?: BaseNode<ShaderType>;
+      precision?: "lowp" | "mediump" | "highp";
+    }
   >;
   /** The storage buffers the program reads, by slot; `order` is the creation order of the buffer. */
   storages?: Map<
@@ -992,8 +999,9 @@ export function storageNodesOf(roots: unknown): StorageNode<ShaderType>[] {
 function describeNamed(node: any): string | undefined {
   const value = node.value;
   const article = /^[aeiou]/.test(value?.shaderType ?? "") ? "an" : "a";
-  if (node.type === "uniform") return `${article} ${value.shaderType} uniform`;
-  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}`;
+  const precision = value?.precision ? ` of precision "${value.precision}"` : "";
+  if (node.type === "uniform") return `${article} ${value.shaderType} uniform${precision}`;
+  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}${precision}`;
   if (node.type === "attribute") return `${article} ${value.shaderType} attribute`;
   if (node.type === "varying") return `${article} ${value.shaderType} varying`;
   return undefined;
