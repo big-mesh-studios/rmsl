@@ -567,8 +567,12 @@ export function createGlsl(
     // The texels past `data` hold zeros, as in a texture made for it alone.
     texels.fill(0, data.length);
     const { held, reuse } = holdTexture(gl, slot, gl.TEXTURE_2D, width, height, 1, internal);
-    if (reuse) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, texels);
-    else gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, type, texels);
+    // A texture of one size keeps the filters, wrap and unit its first upload set.
+    if (reuse) {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, texels);
+      return;
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, type, texels);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);

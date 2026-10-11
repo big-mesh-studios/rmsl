@@ -616,6 +616,34 @@ describe("refilling a GLSL storage buffer", () => {
   });
 
   /**
+   * @canon spec-a-glsl-storage-refill-of-one-size-uploads-only-its-texels
+   */
+  it("sets no texture parameter or unit again for a refill of one size", () => {
+    const colours = instancedArray(4, "float");
+    const position = uniform("vec4");
+    const { gl, calls } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS ? 1 : name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+        getActiveUniform: () => ({ name: colours.name, type: gl.SAMPLER_2D, size: 1 }),
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(position))() as any,
+      Fn(() => vec4(colours.element(int(0)), 0, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    const before = calls.length;
+    adapter.setAttribute(colours.name, Float32Array.of(1, 2, 3, 4));
+    const made = calls.slice(before).map((c) => c.name);
+    expect(made).toContain("texSubImage2D");
+    expect(made).not.toContain("texParameteri");
+    expect(made).not.toContain("useProgram");
+    expect(made).not.toContain("uniform1i");
+  });
+
+  /**
    * @canon spec-a-glsl-storage-refill-of-one-size-allocates-nothing
    */
   it("lets the kept array go on destroy", () => {
