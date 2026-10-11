@@ -532,6 +532,23 @@ globalThis.__rmslUnitsWgsl = async () => {
 
 const GREEN = { r: 0, g: 255, b: 0, a: 255 };
 
+describe("setUniform on a sampler slot of createGlsl before attach", () => {
+  /**
+   * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
+   */
+  it("refuses a storage buffer's and a texture's slot at the call", () => {
+    const colours = instancedArray(4, "float");
+    const image = uniform("sampler2D");
+    const position = uniform("vec4");
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(position))() as any,
+      Fn(() => vec4(colours.element(int(0)), image.texture(vec2(0, 0)).x, 0, 1))() as any,
+    );
+    expect(() => adapter.setUniform(colours.name, 1)).toThrow(/storage buffer.*setAttribute/);
+    expect(() => adapter.setUniform(image.name, 1)).toThrow(/texture.*setTexture/);
+  });
+});
+
 describe("refilling a GLSL storage buffer", () => {
   /**
    * The stub context reports one active uniform, the buffer's sampler. Each

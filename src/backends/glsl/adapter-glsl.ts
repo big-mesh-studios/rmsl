@@ -1,5 +1,6 @@
 import {
   AttributeNode,
+  isSamplerType,
   MATRIX_DIMENSIONS,
   Node,
   ShaderType,
@@ -7,6 +8,7 @@ import {
   UniformArrayNode,
   UniformNode,
   UniformValue,
+  someNode,
 } from "../../core";
 import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
 import { storageNodesOf, VertexRoot } from "../shared";
@@ -253,19 +255,9 @@ function uniformSetter(
   }
 }
 
-/**
- * Uploads `value` to a uniform, one element after another for a uniform array, a bool as 0 or 1.
- * `storage` says whether the slot is the sampler of a storage buffer, which names the call that sets it.
- */
-function setUniformValue(
-  gl: WebGL2RenderingContext,
-  slot: string,
-  info: UniformInfo,
-  value: unknown,
-  storage: boolean,
-): void {
+/** Uploads `value` to a uniform, one element after another for a uniform array, a bool as 0 or 1. */
+function setUniformValue(gl: WebGL2RenderingContext, slot: string, info: UniformInfo, value: unknown): void {
   const set = uniformSetter(gl, info.type);
-  if (!set && storage) throw new Error(`[RMSL] setUniform: "${slot}" is a storage buffer, which setAttribute sets`);
   if (!set) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
   const values = (Array.isArray(value) ? value.flat(2) : [value]).map(Number);
   set(info.location, values);
@@ -361,12 +353,20 @@ export function createGlsl(
   const storages = new Map<string, StorageNode<ShaderType>>(
     storageNodesOf([vertexRoot, fragmentRoot]).map((node) => [node.name, node]),
   );
+  /** The slots of the textures the stages sample. */
+  const textureSlots = new Set<string>();
+  someNode([vertexRoot, fragmentRoot], (node) => {
+    if (node.type === "uniform" && isSamplerType(node.value.shaderType)) textureSlots.add(node.value.slot);
+  });
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   function setUniform(slot: string, value: number | number[]): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
     const slot = slotOf(uniform);
+    if (storages.has(slot))
+      throw new Error(`[RMSL] setUniform: "${slot}" is a storage buffer, which setAttribute sets`);
+    if (textureSlots.has(slot)) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
     const info = uniforms.get(slot);
     if (!gl || !program || !info) {
       pendingUniforms.set(slot, value as number | number[]);
@@ -379,7 +379,7 @@ export function createGlsl(
     state?.begin(GlState.program);
     try {
       gl.useProgram(program);
-      setUniformValue(gl, slot, info, value, storages.has(slot));
+      setUniformValue(gl, slot, info, value);
     } finally {
       state?.end();
     }
