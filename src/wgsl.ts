@@ -1,11 +1,5 @@
 import { storageBuffersOf } from "./backends/shared";
-import {
-  type ComputeNode,
-  type Node,
-  type ShaderType,
-  type StorageAccess,
-  type StorageBufferAttribute,
-} from "./core";
+import { type ComputeNode, type Node, type ShaderType, type StorageAccess, type StorageBufferAttribute } from "./core";
 import {
   compileWgsl,
   typeToWGSL,
