@@ -614,6 +614,32 @@ describe("refilling a GLSL storage buffer", () => {
     expect(uploads[1]).toBe(uploads[2]);
     expect(calls.filter((c) => c.name === "getParameter" && c.args[0] === gl.MAX_TEXTURE_SIZE)).toHaveLength(1);
   });
+
+  /**
+   * @canon spec-a-glsl-storage-refill-of-one-size-allocates-nothing
+   */
+  it("lets the kept array go on destroy", () => {
+    const colours = instancedArray(4, "float");
+    const position = uniform("vec4");
+    const { gl, calls } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS ? 1 : name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+        getActiveUniform: () => ({ name: colours.name, type: gl.SAMPLER_2D, size: 1 }),
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(position))() as any,
+      Fn(() => vec4(colours.element(int(0)), 0, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    adapter.destroy();
+    adapter.attach({ getContext: () => gl } as any);
+    const uploads = calls.filter((c) => c.name === "texImage2D").map((c) => c.args[8]);
+    expect(uploads).toHaveLength(2);
+    expect(uploads[1]).not.toBe(uploads[0]);
+  });
 });
 
 describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attach", () => {

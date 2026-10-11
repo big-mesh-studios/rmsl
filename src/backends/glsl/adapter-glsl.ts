@@ -722,6 +722,7 @@ export function createGlsl(
       for (const info of attributes.values()) gl.deleteBuffer(info.buffer);
       for (const held of textures.values()) gl.deleteTexture(held.texture);
       textures.clear();
+      storageTexels.clear();
       if (vao) gl.deleteVertexArray(vao);
     },
   };
