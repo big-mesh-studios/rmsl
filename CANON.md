@@ -260,7 +260,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
-- [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
+- [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
       - [`@spec loop-runs-its-body-count-times`](#spec-loop-runs-its-body-count-times) — `Loop(count, ({ i }) => …)` runs its body `count` times, with an `int` index `i` counting 0, 1, and so on.
@@ -2299,11 +2299,13 @@ This follows because a case no selector can match is a mistake in the program, a
 
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
-> rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
+> rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
 
 A user who knows TSL knows rmsl, and a shader written for Three.js moves to rmsl without a rewrite. The axiom decides between familiarity and a vocabulary designed from scratch.
 
-A departure that serves no axiom is a matter of taste, and taste does not outweigh a port that works. A departure that does serve one is stated as a spec, and the spec names the axiom on its `Derives from:` line. Before settling a question about the API, read what TSL does in its source.
+A departure that serves no axiom is a matter of taste, and taste does not outweigh a port that works. A departure that does serve one is an exception inside the spec of the TSL behaviour it departs from. It names the fact of what TSL does, and the axiom it serves, on its `Derives from:` line. A departure is TSL code that means something else in rmsl, or that rmsl refuses.
+
+An addition TSL lacks, such as `While` or `For`, changes nothing a TSL shader does. It is a spec, and it cites this axiom on its `Derives from:` line, so the canon lists what rmsl adds as well as where it departs. Before settling a question about the API, read what TSL does in its source.
 
 ### @spec a-loop-follows-tsls-loop
 
@@ -2401,7 +2403,9 @@ This follows because the body takes its indices by name, so the inner index woul
 
 > rmsl has `While` beside TSL's `Loop(condition, body)`. TSL has no `While`.
 
-This follows because the owner kept rmsl's own loops beside TSL's (issue #60).
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import)
+
+This follows because rmsl may hold what TSL lacks, and the owner kept rmsl's own loops beside TSL's (issue #60).
 
 ##### @spec a-while-condition-given-as-a-node-is-built-once
 
@@ -2441,7 +2445,9 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 > rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
 
-This follows because the owner kept rmsl's own loops beside TSL's (issue #60).
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import)
+
+This follows because rmsl may hold what TSL lacks, and the owner kept rmsl's own loops beside TSL's (issue #60).
 
 ##### @exception a-for-condition-is-computed-before-every-test
 
