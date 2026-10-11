@@ -845,12 +845,21 @@ function storageSamplerOf(elementType: string): string {
 }
 
 /**
+ * How a storage texture holds one element of `elementType`: a texel for each
+ * of its `columns`, each with a channel for each of its `components`.
+ */
+export function storageTexelsOf(elementType: string): { columns: number; components: number } {
+  let [columns, components] = MATRIX_DIMENSIONS[elementType] ?? [1, componentCountOf(elementType)];
+  return { columns, components };
+}
+
+/**
  * The function that reads element `i` of a storage texture of `elementType`, so
  * that a read is one expression. A matrix element takes a texel for each
  * column, one after another.
  */
 function storageReader(elementType: string): { name: string; source: string } {
-  let [columns, rows] = MATRIX_DIMENSIONS[elementType] ?? [1, componentCountOf(elementType)];
+  let { columns, components: rows } = storageTexelsOf(elementType);
   let name = `_rmsl_storage_${elementType}`;
   let swizzle = rows === 4 ? "" : `.${"xyzw".slice(0, rows)}`;
   let fetch = (column: number) => {

@@ -1,7 +1,6 @@
 import {
   AttributeNode,
   isSamplerType,
-  MATRIX_DIMENSIONS,
   Node,
   ShaderType,
   StorageNode,
@@ -12,9 +11,9 @@ import {
 } from "../../core";
 import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
 import { storageNodesOf, VertexRoot } from "../shared";
-import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
+import { componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
-import { compileGlsl, CompileGLSLOptions } from "./glsl";
+import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
 import {
   AttributeKind,
   drawToCanvas,
@@ -161,7 +160,7 @@ function texelFormat(gl: WebGL2RenderingContext, bits: 8 | 16 | 32, signed: bool
  * texel count wide.
  */
 function storageTextureShape(shaderType: string, values: number) {
-  const [columns, components] = MATRIX_DIMENSIONS[shaderType] ?? [1, componentCountOf(shaderType)];
+  const { columns, components } = storageTexelsOf(shaderType);
   const texels = Math.max(1, Math.ceil(values / components));
   const width = 2 ** Math.ceil(Math.log2(Math.sqrt(texels)));
   return { width, height: Math.ceil(texels / width), components, columns, kind: componentKindOf(shaderType) };
