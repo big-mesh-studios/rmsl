@@ -26,7 +26,6 @@ import {
   assertSquareMatrix,
   assertConstantIndexInRange,
   assertAssignable,
-  assignedStorageElement,
   parameterNode,
   assertStageResult,
   prepareRoots,
@@ -1136,12 +1135,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage);
-      if (assignedStorageElement(node.params![0]) && ctx.shaderStage !== "compute") {
-        throw new Error(
-          `[RMSL] storage buffers are read-only in a ${ctx.shaderStage} shader; write them from a compute program`,
-        );
-      }
+      assertAssignable(node.params![0], ctx.shaderStage, true);
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a

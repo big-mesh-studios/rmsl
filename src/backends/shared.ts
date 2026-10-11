@@ -1144,9 +1144,14 @@ function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
  * uniform, an attribute or a computed value is refused the same way on each,
  * and so is an element of a storage node made read-only, a stage output
  * written outside the stage that writes it, and a parameter of the compiled
- * function.
+ * function. With `storageWritesNeedCompute`, as on a GPU target, a storage
+ * element is written only from a compute stage.
  */
-export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): void {
+export function assertAssignable(
+  target: any,
+  stage: "vertex" | "fragment" | "compute",
+  storageWritesNeedCompute = false,
+): void {
   assertNoRepeatedSwizzle(target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
@@ -1171,6 +1176,9 @@ export function assertAssignable(target: any, stage: "vertex" | "fragment" | "co
   }
   if (root.type === "storageElement" && root.params[0].value.access === "read") {
     throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
+  }
+  if (storageWritesNeedCompute && root.type === "storageElement" && stage !== "compute") {
+    throw new Error(`[RMSL] storage buffers are read-only in a ${stage} shader; write them from a compute program`);
   }
 }
 

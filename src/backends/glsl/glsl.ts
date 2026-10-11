@@ -1,7 +1,6 @@
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   assertAssignable,
-  assignedStorageElement,
   parameterNode,
   CompileCtx,
   CompileFnOptions,
@@ -701,12 +700,7 @@ export function compileGLSLNode(
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage);
-      if (assignedStorageElement(node.params![0])) {
-        throw new Error(
-          `[RMSL] storage buffers are read-only in a ${ctx.shaderStage} shader; write them from a compute program`,
-        );
-      }
+      assertAssignable(node.params![0], ctx.shaderStage, true);
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {
