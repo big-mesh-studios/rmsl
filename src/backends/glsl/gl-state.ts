@@ -1,3 +1,5 @@
+import { componentKindOf } from "../cpu";
+
 /** The pieces of WebGL state a call can ask `GlStateKeeper` to keep, as bits of one mask. */
 export const GlState = {
   /** The draw and read framebuffers and the renderbuffer. */
@@ -90,11 +92,10 @@ export function setRasterState(gl: WebGL2RenderingContext): void {
 /** The kind of the components a vertex attribute reads. */
 export type AttributeKind = "float" | "int" | "uint";
 
-/** The kind of the components an attribute of the RMSL type `type` reads. */
+/** The kind of the components an attribute of the RMSL type `type` reads. GLSL has no boolean attribute, so a `bool` reads floats. */
 export function attributeKindOf(type: string): AttributeKind {
-  if (type === "int" || type.startsWith("ivec")) return "int";
-  if (type === "uint" || type.startsWith("uvec")) return "uint";
-  return "float";
+  const kind = componentKindOf(type);
+  return kind === "bool" ? "float" : kind;
 }
 
 /**
