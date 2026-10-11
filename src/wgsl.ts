@@ -145,12 +145,7 @@ export function compile(
 }
 
 export { compileWgsl, wgslUniformDeclaration, wgslUniformLayout };
-export type {
-  CompileWGSLOptions,
-  WgslSamplerDeclaration,
-  WgslUniformDeclaration,
-  WgslUniformMember,
-} from "./backends/wgsl/wgsl";
+export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl/wgsl";
 
 export { compileWgslFn } from "./backends/wgsl/wgsl";
 

@@ -479,7 +479,7 @@ export class WebGPURenderer {
     // alone reads a different subset of the uniforms.
     const declaredUniforms = program.uniforms.map((u) => u.node);
     const layout = wgslUniformLayout(declaredUniforms.map(wgslUniformDeclaration));
-    const declaredSamplers = program.samplers.map((s) => ({ slot: s.name, type: s.type }));
+    const declaredSamplers = program.samplers.map((s) => s.node);
 
     const vertexModule = device.createShaderModule({
       code: compileWgsl.vertex(program.vertexRoot, { uniforms: declaredUniforms, samplers: declaredSamplers }),

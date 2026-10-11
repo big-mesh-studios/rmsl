@@ -1939,20 +1939,16 @@ function storageOrder(ctx: CompileCtx, options: CompileWGSLOptions | undefined):
   return order;
 }
 
-/** A texture of the program being compiled: the name of its uniform node and its RMSL sampler type. */
-export type WgslSamplerDeclaration = { slot: string; type: string };
-
-/** The textures of a render program in binding order, as the WGSL declares them. */
+/** The textures of a render program in binding order, as the WGSL declares them: each at its index in `samplers`. */
 export function sharedSamplerDeclarations(
-  samplers: readonly WgslSamplerDeclaration[],
+  samplers: readonly UniformNode<ShaderType>[],
 ): { slot: string; shaderType: string; type: string; integer: boolean }[] {
-  return [...samplers]
-    .sort((a, b) => a.slot.localeCompare(b.slot))
-    .map((s) => {
-      if (!(s.type in typeToWGSL))
-        throw new Error(`[RMSL] "${s.slot}" has the sampler type "${s.type}", which WGSL has no texture for`);
-      return { slot: s.slot, shaderType: s.type, type: wgslType(s.type), integer: isIntegerSamplerType(s.type) };
-    });
+  return samplers.map((node) => {
+    const shaderType = node._t as string;
+    if (!(shaderType in typeToWGSL))
+      throw new Error(`[RMSL] "${node.name}" has the sampler type "${shaderType}", which WGSL has no texture for`);
+    return { slot: node.name, shaderType, type: wgslType(shaderType), integer: isIntegerSamplerType(shaderType) };
+  });
 }
 
 export type CompileWGSLOptions = {
@@ -1976,13 +1972,12 @@ export type CompileWGSLOptions = {
    */
   storages?: readonly StorageNode<ShaderType>[];
   /**
-   * Every texture of a render program, not only the ones this stage samples.
-   * Both stages number the textures of group 1, and the samplers of group 2
-   * that go with the float ones, from this whole set in the order of their
-   * names, so a texture has one binding in the pipeline. `type` is the
-   * texture's RMSL sampler type, such as `sampler2D` or `isampler2D`.
+   * Every texture of a render program, in binding order: each texture binds in
+   * group 1 at its index in the list, and the sampler of each float texture in
+   * group 2 in the order of the float textures. As with `storages`, both stages
+   * number them from the whole set, so a texture has one binding in the pipeline.
    */
-  samplers?: WgslSamplerDeclaration[];
+  samplers?: readonly UniformNode<ShaderType>[];
   workgroupSize?: number;
   /**
    * A compute stage's dispatch count: invocations at or past it return

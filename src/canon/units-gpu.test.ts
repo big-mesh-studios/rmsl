@@ -13,10 +13,12 @@ import {
   uniform,
   uniformArray,
   uniformRaw,
+  uvec2,
   vec2,
   vec3,
   vec4,
 } from "../rmsl";
+import type { UniformNode } from "../rmsl";
 import {
   compile,
   compileWgsl as compileWgslStage,
@@ -438,6 +440,45 @@ describe("where WGSL declares a uniform or a buffer", () => {
     expect(code).toContain(`@group(1) @binding(1) var ${second!.name}:`);
     expect(code).toContain(`@group(2) @binding(0) var ${first!.name}_s:`);
     expect(code).toContain(`@group(2) @binding(1) var ${second!.name}_s:`);
+  });
+
+  /**
+   * The last two of the textures made sort the other way round as strings, as
+   * `_rmsl_u10` sorts before `_rmsl_u9`, and the list names them in the order
+   * they were made.
+   *
+   * @canon spec-a-wgsl-stage-binds-its-textures-in-the-listed-order
+   * @canon spec-the-samplers-list-holds-the-texture-nodes
+   */
+  it("binds textures and their samplers at their index in the samplers list on WGSL", () => {
+    const made = [uniform("sampler2D"), uniform("sampler2D")];
+    while (made.at(-1)!.name.localeCompare(made.at(-2)!.name) > 0) made.push(uniform("sampler2D"));
+    const [first, second] = made.slice(-2) as [UniformNode<"sampler2D">, UniformNode<"sampler2D">];
+    const integer = uniform("usampler2D");
+    const fragment = () =>
+      Fn(() =>
+        texture(first, vec2(0, 0))
+          .add(texture(second, vec2(0, 0)))
+          .add(texture(integer, uvec2(0, 0)).toVec4()),
+      )();
+    const code = compileWgslStage.fragment(fragment(), { samplers: [second, integer, first] });
+    expect(code).toContain(`@group(1) @binding(0) var ${second.name}:`);
+    expect(code).toContain(`@group(1) @binding(1) var ${integer.name}:`);
+    expect(code).toContain(`@group(1) @binding(2) var ${first.name}:`);
+    expect(code).toContain(`@group(2) @binding(0) var ${second.name}_s:`);
+    expect(code).toContain(`@group(2) @binding(1) var ${first.name}_s:`);
+  });
+
+  /**
+   * @canon spec-a-wgsl-stage-refuses-a-texture-the-given-samplers-leave-out
+   */
+  it("refuses a WGSL stage that samples a texture the samplers list leaves out", () => {
+    const listed = uniform("sampler2D");
+    const missing = uniform("sampler2D");
+    const fragment = Fn(() => texture(listed, vec2(0, 0)).add(texture(missing, vec2(0, 0))))();
+    expect(() => compileWgslStage.fragment(fragment, { samplers: [listed] })).toThrow(
+      `the texture "${missing.name}" is not in the program's samplers`,
+    );
   });
 
   /**
