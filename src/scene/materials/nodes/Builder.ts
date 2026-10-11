@@ -1,8 +1,11 @@
 import {
   attribute,
+  mat3,
   uniformRaw,
   varying,
+  vec4,
   type AttributeNode,
+  type Node,
   type ShaderType,
   type UniformNode,
   type VaryingNode,
@@ -167,24 +170,55 @@ export class Builder {
     return existing.node as UniformNode<T>;
   }
 
-  /** The object-space attributes the fragment stage reads, which the vertex stage passes on as varyings. */
+  /** The object-space values the fragment stage reads, which the vertex stage passes on as varyings. */
   readonly fragmentReads = new Set<"position" | "normal">();
 
-  // Each resolves to the raw attribute in the vertex stage, and to a varying
-  // of the same object-space value in the fragment stage, which cannot read
-  // a vertex input directly, as TSL's positionLocal and normalLocal do.
-  get position(): AttributeNode<"vec3"> {
-    return this.objectSpace("position");
+  /** The vertex stage's position and normal, made once so that every read shares them. */
+  private vertexPosition?: Node<"vec3">;
+  private vertexNormal?: Node<"vec3">;
+
+  /**
+   * The object-space position, as TSL's `positionLocal`. The vertex stage reads
+   * the geometry's position, through the instance matrix of an instanced mesh.
+   * The fragment stage reads the position the vertex stage ends with.
+   */
+  get position(): Node<"vec3"> {
+    if (this.stage === "fragment") {
+      this.fragmentReads.add("position");
+      return this.varying("positionLocal", "vec3");
+    }
+    const geometry = this.attribute("position", "vec3");
+    return (this.vertexPosition ??= this.instancing ? this.instanceMatrix.mul(vec4(geometry, 1)).xyz : geometry);
   }
 
-  get normal(): AttributeNode<"vec3"> {
-    return this.objectSpace("normal");
+  /**
+   * The object-space normal, as TSL's `normalLocal`. The vertex stage reads the
+   * geometry's normal, through the instance matrix's inverse transpose of an
+   * instanced mesh. The fragment stage reads the geometry's normal.
+   */
+  get normal(): Node<"vec3"> {
+    if (this.stage === "fragment") {
+      this.fragmentReads.add("normal");
+      return this.varying("normalLocal", "vec3");
+    }
+    const geometry = this.attribute("normal", "vec3");
+    return (this.vertexNormal ??= this.instancing
+      ? mat3(this.instanceMatrix).inverse().transpose().mul(geometry).normalize()
+      : geometry);
   }
 
-  private objectSpace(name: "position" | "normal"): AttributeNode<"vec3"> {
-    if (this.stage === "vertex") return this.attribute(name, "vec3");
-    this.fragmentReads.add(name);
-    return this.varying(`${name}Local`, "vec3") as unknown as AttributeNode<"vec3">;
+  /** The geometry's normal in view space, for a `normalNode` to start from, as TSL's `normalView` inside it. */
+  get normalView(): Node<"vec3"> {
+    return this.viewMatrix.mul(vec4(this.normalWorld, 0)).xyz.normalize();
+  }
+
+  /**
+   * A view-space normal turned into world space, as TSL's
+   * `transformNormalByInverseViewMatrix`. The transpose of the view matrix is
+   * the inverse of its rotation.
+   */
+  normalWorldOf(normalView: Node<"vec3">): Node<"vec3"> {
+    return this.viewMatrix.transpose().mul(vec4(normalView, 0)).xyz.normalize();
   }
 
   get uv(): AttributeNode<"vec2"> {

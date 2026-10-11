@@ -111,7 +111,7 @@ describe("node materials", () => {
     const material = new MeshStandardMaterial();
     material.colorNode = (b) => b.uv.x.toVec3();
     material.roughnessNode = () => float(0.5);
-    material.normalNode = (b) => b.normalWorld;
+    material.normalNode = (b) => b.normalView;
     material.opacityNode = () => float(1);
     expectTypeOf(material).toMatchTypeOf<NodeMaterial>();
   });
@@ -120,8 +120,9 @@ describe("node materials", () => {
    */
   it("exposes typed accessors on the builder", () => {
     const b = new Builder();
-    expectTypeOf(b.position).toEqualTypeOf<AttributeNode<"vec3">>();
-    expectTypeOf(b.normal).toEqualTypeOf<AttributeNode<"vec3">>();
+    expectTypeOf(b.position).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(b.normal).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(b.normalView).toEqualTypeOf<Node<"vec3">>();
     expectTypeOf(b.uv).toEqualTypeOf<AttributeNode<"vec2">>();
     expectTypeOf(b.positionWorld).toEqualTypeOf<VaryingNode<"vec3">>();
     expectTypeOf(b.normalWorld).toEqualTypeOf<VaryingNode<"vec3">>();

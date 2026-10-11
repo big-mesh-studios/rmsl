@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { vec2, vec4, texture } from "../rmsl";
+import { someNode } from "../core";
+import { uniform, vec2, vec4, texture, type Node } from "../rmsl";
 import {
   AmbientLight,
   Blending,
@@ -16,6 +17,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  MeshStandardMaterial,
   NearestFilter,
   PerspectiveCamera,
   PlaneGeometry,
@@ -1367,8 +1369,23 @@ describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a r
 });
 
 describe("a material reads position and normal as TSL does", () => {
+  /** The node `program` binds under `name`, among its uniforms, attributes or varyings. */
+  const bound = (program: { uniforms: any[]; attributes: any[]; varyings: any[] }, name: string) =>
+    [...program.uniforms, ...program.attributes, ...program.varyings].find((binding) => binding.name === name)!.node;
+  /** The value the vertex stage assigns to `target`. */
+  const assigned = (root: unknown, target: unknown) => {
+    let value: unknown;
+    someNode(root, (node) => {
+      if (node.type === "assign" && node.params[0] === target) value = node.params[1];
+    });
+    return value;
+  };
+  const reaches = (root: unknown, target: unknown, skip: unknown[] = []) =>
+    someNode(root, (node) => node === target, skip);
+
   /**
-   * @canon spec-position-and-normal-read-object-space-in-both-stages
+   * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
    */
   it("reads position and normal in object space in the fragment stage", () => {
     const material = new MeshBasicMaterial();
@@ -1383,7 +1400,7 @@ describe("a material reads position and normal as TSL does", () => {
   });
 
   /**
-   * @canon spec-position-and-normal-read-object-space-in-both-stages
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
    */
   it("passes the object-space position and normal under a custom vertexNode too", () => {
     const material = new MeshBasicMaterial();
@@ -1396,7 +1413,8 @@ describe("a material reads position and normal as TSL does", () => {
   });
 
   /**
-   * @canon spec-position-and-normal-read-object-space-in-both-stages
+   * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
    */
   it("passes the object-space position and normal the fragment stage reads from the vertex stage", () => {
     const material = new MeshBasicMaterial();
@@ -1405,6 +1423,94 @@ describe("a material reads position and normal as TSL does", () => {
     const written = collectNodes(program.vertexRoot).varyings;
     const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
     expect(names).toEqual(expect.arrayContaining(["positionLocal", "normalLocal"]));
+  });
+
+  /**
+   * @canon spec-the-vertex-position-and-normal-carry-the-instance-matrix
+   */
+  it("gives the vertex stage of an instanced mesh its position and normal through the instance matrix", () => {
+    let position: unknown;
+    let normal: unknown;
+    const material = new MeshBasicMaterial();
+    material.vertexNode = (b) => {
+      position = b.position;
+      normal = b.normal;
+      return vec4(b.position.add(b.normal), 1);
+    };
+    const program = material.build(new Scene(), { instancing: true });
+    const instanceMatrix = bound(program, "instanceMatrix");
+    expect(reaches(position, instanceMatrix)).toBe(true);
+    expect(reaches(normal, instanceMatrix)).toBe(true);
+    expect(someNode(normal, (node) => node.type === "inverse")).toBe(true);
+    expect(someNode(normal, (node) => node.type === "transpose")).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-position-node-replaces-the-instanced-position
+   */
+  it("takes positionNode's position as the instanced one, transformed by nothing but the model, view and projection", () => {
+    let result: unknown;
+    const offset = uniform("vec3");
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => (result = b.position.add(offset));
+    const program = material.build(new Scene(), { instancing: true });
+    const instanceMatrix = bound(program, "instanceMatrix");
+    expect(reaches(result, instanceMatrix)).toBe(true);
+    const normalWorld = assigned(program.vertexRoot, bound(program, "normalWorld"));
+    expect(reaches(program.vertexRoot, instanceMatrix, [result, normalWorld])).toBe(false);
+  });
+
+  /**
+   * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
+   */
+  it("passes the fragment stage the position positionNode gives", () => {
+    let result: unknown;
+    const offset = uniform("vec3");
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => (result = b.position.add(offset));
+    material.fragmentNode = (b) => vec4(b.position, 1);
+    const program = material.build(new Scene(), { instancing: true });
+    expect(assigned(program.vertexRoot, bound(program, "positionLocal"))).toBe(result);
+  });
+
+  /**
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   */
+  it("passes the fragment stage of an instanced mesh the geometry's normal", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.normal, 1);
+    const program = material.build(new Scene(), { instancing: true });
+    expect(assigned(program.vertexRoot, bound(program, "normalLocal"))).toBe(bound(program, "normal"));
+  });
+
+  /**
+   * @canon spec-a-normal-node-gives-a-view-space-normal
+   */
+  it.each([
+    ["MeshLambertMaterial", () => new MeshLambertMaterial()],
+    ["MeshStandardMaterial", () => new MeshStandardMaterial()],
+  ])("reads normalNode in the fragment stage only, turned out of view space, on %s", (_name, make) => {
+    const normal = uniform("vec3");
+    const material = make();
+    material.normalNode = () => normal as Node<"vec3">;
+    const scene = new Scene();
+    scene.add(new DirectionalLight());
+    const program = material.build(scene);
+    expect(reaches(program.vertexRoot, normal)).toBe(false);
+    expect(reaches(program.fragmentRoot, normal)).toBe(true);
+    expect(reaches(program.fragmentRoot, bound(program, "viewMatrix"))).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-normal-node-gives-a-view-space-normal
+   */
+  it("gives a normalNode the geometry's normal in view space", () => {
+    let normalView: unknown;
+    const material = new MeshLambertMaterial();
+    material.normalNode = (b) => (normalView = b.normalView);
+    const program = material.build(new Scene());
+    expect(reaches(normalView, bound(program, "viewMatrix"))).toBe(true);
+    expect(reaches(normalView, bound(program, "normalWorld"))).toBe(true);
   });
 });
 

@@ -391,7 +391,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
-      - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+      - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give an object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+        - [`@spec the-vertex-position-and-normal-carry-the-instance-matrix`](#spec-the-vertex-position-and-normal-carry-the-instance-matrix) — On an `InstancedMesh`, the vertex stage's `position` is the geometry's, through the instance matrix. Its `normal` is the geometry's, through the inverse transpose of the matrix's upper 3×3, then normalized.
+        - [`@spec a-position-node-replaces-the-instanced-position`](#spec-a-position-node-replaces-the-instanced-position) — `positionNode` gives the object-space position the vertex stage ends with. Its `position` already carries the instance matrix, and nothing transforms its result but the model, view and projection matrices.
+        - [`@spec the-fragment-position-is-the-position-the-vertex-stage-ends-with`](#spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with) — In the fragment stage, `position` gives the object-space position the vertex stage ends with, interpolated. It carries the instance matrix and the result of `positionNode`.
+        - [`@spec the-fragment-normal-is-the-geometry-normal`](#spec-the-fragment-normal-is-the-geometry-normal) — In the fragment stage, `normal` gives the geometry's object-space normal, interpolated. It carries no instance matrix.
+      - [`@spec a-normal-node-gives-a-view-space-normal`](#spec-a-normal-node-gives-a-view-space-normal) — `normalNode` gives a view-space normal, which the fragment stage reads. `MeshLambertMaterial` and `MeshStandardMaterial` turn it into world space to light with: `normalize((vec4(n, 0) * viewMatrix).xyz)`. The vertex stage does not read it. The builder's `normalView` gives the geometry's normal in view space, for a `normalNode` to start from.
 - [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
   - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
@@ -711,7 +716,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
 - [`@fact tsl-compute-takes-a-workgroup-size`](#fact-tsl-compute-takes-a-workgroup-size) — TSL's `compute(node, count, workgroupSize)` takes a workgroup size of one to three positive integers, `[64]` by default, and pads it with ones to three dimensions.
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
-- [`@fact tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages) — TSL's `positionLocal` is a varying of the geometry's position, and `normalLocal` is the geometry's `normal` attribute, which `AttributeNode` reads through a varying outside the vertex stage. Both read the same value in either stage.
+- [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
+- [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
+- [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
 - [`@fact tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node) — TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
 - [`@fact tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes) — TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
 - [`@fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter) — A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
@@ -2907,11 +2914,51 @@ This follows because three.js scales a light's colour by its intensity on the ho
 
 ##### @spec position-and-normal-read-object-space-in-both-stages
 
-> The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+> The builder's `position` and `normal` give an object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
 
-Derives from: [`fact-tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages)
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import)
 
-This follows because a TSL node reads the same value in either stage, and a TSL material ports to rmsl by changing its import.
+This follows because a TSL material reads `positionLocal` and `normalLocal`, and it ports to rmsl by changing its import.
+
+###### @spec the-vertex-position-and-normal-carry-the-instance-matrix
+
+> On an `InstancedMesh`, the vertex stage's `position` is the geometry's, through the instance matrix. Its `normal` is the geometry's, through the inverse transpose of the matrix's upper 3×3, then normalized.
+
+Derives from: [`fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with), [`fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage)
+
+This follows because TSL applies the instance to `positionLocal` and `normalLocal` before `positionNode` runs. A normal turned by the matrix itself would lean off its surface under a scale that differs by axis.
+
+###### @spec a-position-node-replaces-the-instanced-position
+
+> `positionNode` gives the object-space position the vertex stage ends with. Its `position` already carries the instance matrix, and nothing transforms its result but the model, view and projection matrices.
+
+Derives from: [`fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with)
+
+This follows because TSL assigns `positionNode` to `positionLocal` last, after the instance.
+
+###### @spec the-fragment-position-is-the-position-the-vertex-stage-ends-with
+
+> In the fragment stage, `position` gives the object-space position the vertex stage ends with, interpolated. It carries the instance matrix and the result of `positionNode`.
+
+Derives from: [`fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with)
+
+This follows because TSL's `positionLocal` is a varying, which the fragment stage reads after the vertex stage has assigned it.
+
+###### @spec the-fragment-normal-is-the-geometry-normal
+
+> In the fragment stage, `normal` gives the geometry's object-space normal, interpolated. It carries no instance matrix.
+
+Derives from: [`fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage)
+
+This follows because TSL's `normalLocal` is a variable of each stage, and the instance changes it only in the vertex stage.
+
+##### @spec a-normal-node-gives-a-view-space-normal
+
+> `normalNode` gives a view-space normal, which the fragment stage reads. `MeshLambertMaterial` and `MeshStandardMaterial` turn it into world space to light with: `normalize((vec4(n, 0) * viewMatrix).xyz)`. The vertex stage does not read it. The builder's `normalView` gives the geometry's normal in view space, for a `normalNode` to start from.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal)
+
+This follows because a TSL material's `normalNode` is in view space, and a ported material must light as it did in TSL.
 
 ## @axiom a-program-is-typed-by-what-it-returns
 
@@ -4861,11 +4908,23 @@ This is how three.js's TSL behaves, read from its source (`ComputeNode`, three.j
 
 This is how three.js's TSL behaves, read from its source (`NodeBuilder`, three.js 0.186).
 
-## @fact tsl-reads-position-and-normal-local-in-both-stages
+## @fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with
 
-> TSL's `positionLocal` is a varying of the geometry's position, and `normalLocal` is the geometry's `normal` attribute, which `AttributeNode` reads through a varying outside the vertex stage. Both read the same value in either stage.
+> TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 
-This is how three.js's TSL behaves, read from its source (`Position`, `Normal` and `AttributeNode`, three.js 0.186).
+This is how three.js's TSL behaves, read from its source (`Position`, `Instance` and `NodeMaterial.setupPosition`, three.js 0.186).
+
+## @fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage
+
+> TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
+
+This is how three.js's TSL behaves, read from its source (`Normal`, `Instance` and `transformNormal`, three.js 0.186).
+
+## @fact tsl-takes-a-normal-node-as-a-view-space-normal
+
+> TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
+
+This is how three.js's TSL behaves, read from its source (`Normal`, `NodeMaterial.setupNormal` and `transformNormalByInverseViewMatrix`, three.js 0.186).
 
 ## @fact tsl-turns-a-number-into-a-constant-node
 
