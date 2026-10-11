@@ -51,7 +51,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
     - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
-    - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — An element of a storage buffer that an operation reads more than once is read once, into a variable, on every target. A later read takes the variable, until a statement changes the buffer.
+    - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
     - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
     - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
@@ -1045,7 +1045,7 @@ This follows because a variable for such a node would only rename what is alread
 
 #### @spec a-storage-element-read-more-than-once-is-read-once
 
-> An element of a storage buffer that an operation reads more than once is read once, into a variable, on every target. A later read takes the variable, until a statement changes the buffer.
+> On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
 
 Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
 
@@ -2118,7 +2118,7 @@ Derives from: [`spec-setting-one-storage-slot-keeps-the-others`](#spec-setting-o
 
 Derives from: [`spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
-This follows because a host can refill a buffer on every frame. The texture's rows are padded to a power of two, so the texels need an array of their own, and a new one for each refill would leave the collector one buffer's worth of memory per frame.
+This follows because a host can refill a buffer on every frame. The texture is a power of two wide, so the texels need an array of their own. A new array for each refill would leave the collector one buffer's worth of memory per frame.
 
 ###### @spec a-glsl-stage-reads-a-storage-element-in-one-expression
 
