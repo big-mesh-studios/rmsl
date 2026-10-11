@@ -22,7 +22,8 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
-import { shareNodes } from "../share";
+import { componentCountOf, componentKindOf } from "../cpu";
+import { SHARED_NAME_PREFIX, shareNodes } from "../share";
 
 export const typeToGLSL: Record<string, string> = {
   float: "float",
@@ -686,6 +687,11 @@ export function compileGLSLNode(
       if (vt === "float" && (rhsType === "int" || rhsType === "uint")) {
         rhsExpr = `float(${rhsExpr})`;
       }
+      // A shared node is read inline at its operands' precision, which can be
+      // above the default the stage is compiled at.
+      if (lhs.expr.startsWith(SHARED_NAME_PREFIX) && /^(float|u?int|[iu]?vec\d|mat\d(x\d)?)$/.test(t)) {
+        t = `highp ${t}`;
+      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `${t} ${lhs.expr} = ${rhsExpr};`],
@@ -699,7 +705,7 @@ export function compileGLSLNode(
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage);
+      assertAssignable(node.params![0], ctx.shaderStage, true);
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {
@@ -799,9 +805,29 @@ export function compileGLSLNode(
       return { decls: [], body: ["return;"], expr: "0.0" };
     }
 
-    case "storage":
-    case "storageElement":
-      throw new Error("[RMSL] GLSL has no storage buffers (WebGL2 doesn't support them); use the WGSL backend");
+    case "storage": {
+      // WebGL 2 has no storage buffers, so a render stage reads one through a
+      // texture of its elements, under the buffer's slot name.
+      let v = node.value as { slot: string; shaderType: string };
+      if (!ctx.uniforms.has(v.slot)) {
+        ctx.uniforms.set(v.slot, { type: storageSamplerOf(v.shaderType), slot: v.slot, precision: "highp" });
+      }
+      return { decls: [], body: [], expr: v.slot };
+    }
+
+    case "storageElement": {
+      let texture = compileGLSLStage(node.params![0], ctx);
+      let index = compileGLSLStage(node.params![1], ctx);
+      let helper = storageReader(node._t);
+      ctx.glslHelpers ??= new Map();
+      ctx.glslHelpers.set(helper.name, helper.source);
+      return {
+        decls: [...texture.decls, ...index.decls],
+        body: [...texture.body, ...index.body],
+        expr: `${helper.name}(${texture.expr}, int(${index.expr}))`,
+        prec: PREC_ATOM,
+      };
+    }
 
     default:
       // Emitting a placeholder here would silently corrupt the shader: an
@@ -810,6 +836,52 @@ export function compileGLSLNode(
       // this means the compiler lost one.
       throw new Error(`[RMSL] Unsupported node type in GLSL compiler: "${node.type}"`);
   }
+}
+
+/** The sampler type of the texture that holds a storage buffer of `elementType`. */
+function storageSamplerOf(elementType: string): string {
+  let kind = componentKindOf(elementType);
+  return kind === "float" ? "sampler2D" : `${kind[0]}sampler2D`;
+}
+
+/**
+ * How a storage texture holds one element of `elementType`: a texel for each
+ * of its `columns`, each with a channel for each of its `components`.
+ */
+export function storageTexelsOf(elementType: string): { columns: number; components: number } {
+  let [columns, components] = MATRIX_DIMENSIONS[elementType] ?? [1, componentCountOf(elementType)];
+  return { columns, components };
+}
+
+/**
+ * The function that reads element `i` of a storage texture of `elementType`, so
+ * that a read is one expression. A matrix element takes a texel for each
+ * column, one after another.
+ */
+function storageReader(elementType: string): { name: string; source: string } {
+  let { columns, components: rows } = storageTexelsOf(elementType);
+  let name = `_rmsl_storage_${elementType}`;
+  let swizzle = rows === 4 ? "" : `.${"xyzw".slice(0, rows)}`;
+  let fetch = (column: number) => {
+    let texel = column === 0 ? "t" : `(t + ${column})`;
+    return `texelFetch(s, ivec2(${texel} % w, ${texel} / w), 0)${swizzle}`;
+  };
+  let type = glslType(elementType);
+  let value = columns > 1 ? `${type}(${Array.from({ length: columns }, (_, c) => fetch(c)).join(", ")})` : fetch(0);
+  let source = [
+    `highp ${type} ${name}(highp ${storageSamplerOf(elementType)} s, highp int i) {`,
+    `  highp int w = textureSize(s, 0).x;`,
+    `  highp int t = i${columns > 1 ? ` * ${columns}` : ""};`,
+    `  return ${value};`,
+    `}`,
+  ].join("\n");
+  return { name, source };
+}
+
+/** The declaration of a uniform, with its own precision qualifier when it carries one. */
+function uniformDeclaration(info: { type: string; slot: string; length?: number; precision?: string }): string {
+  let type = info.precision ? `${info.precision} ${info.type}` : info.type;
+  return info.length !== undefined ? `uniform ${type} ${info.slot}[${info.length}];` : `uniform ${type} ${info.slot};`;
 }
 
 export function binaryGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
@@ -1025,11 +1097,7 @@ export function compileGLSLWithStage(
   lines.push("");
 
   ctx.uniforms.forEach((info) => {
-    lines.push(
-      info.length !== undefined
-        ? `uniform ${info.type} ${info.slot}[${info.length}];`
-        : `uniform ${info.type} ${info.slot};`,
-    );
+    lines.push(uniformDeclaration(info));
   });
   ctx.attributes.forEach((info) => {
     lines.push(`in ${info.type} ${info.slot};`);
@@ -1059,6 +1127,7 @@ export function compileGLSLWithStage(
   if (ctx.uniforms.size > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0 || emitImplicitColor) {
     lines.push("");
   }
+  for (let helper of ctx.glslHelpers?.values() ?? []) lines.push(helper, "");
 
   if (shaderStage === "vertex") {
     lines.push("void main(void) {");
@@ -1150,14 +1219,12 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const paramStr = options.params.map((p) => `${glslType(p.type)} ${p.name}`).join(", ");
   let code = "";
   ctx.uniforms.forEach((info) => {
-    code +=
-      info.length !== undefined
-        ? `uniform ${info.type} ${info.slot}[${info.length}];\n`
-        : `uniform ${info.type} ${info.slot};\n`;
+    code += `${uniformDeclaration(info)}\n`;
   });
   if (ctx.uniforms.size > 0) {
     code += "\n";
   }
+  for (const helper of ctx.glslHelpers?.values() ?? []) code += `${helper}\n\n`;
   code += `${returnType} ${options.name}(${paramStr}) {\n`;
   for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;

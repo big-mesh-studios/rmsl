@@ -29,10 +29,7 @@ describe("writing part of a stage output", () => {
     // one triangle overscaled past the clip-space square so every pixel is covered
     const positions = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
 
-    const routines = [
-      compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [position.name]: "vec3" } }),
-      compileWasm(vertexFn as any, fragmentFn as any),
-    ];
+    const routines = [compileJS(vertexFn as any, fragmentFn as any), compileWasm(vertexFn as any, fragmentFn as any)];
     for (const routine of routines) {
       const pixels = routine.draw({ attributes: { [position.name]: positions } }, { count: 3, width: 2, height: 2 });
       expect(Array.from(pixels.slice(0, 4)).map((v) => Math.round(v * 1000) / 1000)).toEqual([1, 0, 0.5, 1]);

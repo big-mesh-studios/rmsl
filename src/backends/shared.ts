@@ -5,6 +5,8 @@ import {
   Node,
   NodeImpl,
   ShaderType,
+  StorageAccess,
+  StorageNode,
   StorageBufferAttribute,
   TYPE_WIDTH,
   node,
@@ -81,8 +83,14 @@ export interface CompileCtx {
   /**
    * The uniforms the program reads, by name: two nodes with one name are one
    * uniform. `length` is set only for uniform arrays, and gives their element count.
+   * WGSL also records each uniform's node and its `order` of creation. GLSL
+   * sets `precision` on a uniform that carries a qualifier of its own.
    */
-  uniforms: Map<string, { type: string; slot: string; length?: number }>;
+  uniforms: Map<
+    string,
+    { type: string; slot: string; length?: number; order?: number; node?: BaseNode<ShaderType>; precision?: "highp" }
+  >;
+  /** The storage buffers the program reads, by slot; `order` is the creation order of the buffer. */
   storages?: Map<
     string,
     {
@@ -90,6 +98,7 @@ export interface CompileCtx {
       type: string;
       access: "read" | "write" | "read_write";
       wgslName: string;
+      order: number;
     }
   >;
   /**
@@ -126,6 +135,8 @@ export interface CompileCtx {
    * out on demand rather than always.
    */
   wgslHelpers: Set<string>;
+  /** GLSL helper functions the shader needs, by name, emitted ahead of `main`. */
+  glslHelpers?: Map<string, string>;
   /**
    * Whether the program assigned the position itself. A vertex stage that has
    * done so needs no implicit write, and its result is free to be anything.
@@ -133,6 +144,8 @@ export interface CompileCtx {
   positionWritten: boolean;
   inFn: boolean;
   fragDepthUsed: boolean;
+  /** Whether a fragment stage assigns its depth, where `fragDepthUsed` holds for a read too. */
+  fragDepthWritten?: boolean;
   /** Whether the shader reads the fragment's screen position. */
   fragCoordUsed: boolean;
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
@@ -954,13 +967,25 @@ export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"
   });
 }
 
-/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
-export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {
-  const attributes = new Map<string, StorageBufferAttribute>();
+/**
+ * One entry for each storage buffer reachable from the roots, in the order the
+ * program created the buffers: a node over the buffer, and the widest access
+ * any node over it needs.
+ */
+export function storageBuffersOf(roots: unknown): { node: StorageNode<ShaderType>; access: StorageAccess }[] {
+  const buffers = new Map<string, { node: StorageNode<ShaderType>; access: StorageAccess }>();
   someNode(roots, (node) => {
-    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
+    if (node.type !== "storage") return;
+    const buffer = buffers.get(node.value.slot);
+    if (!buffer) buffers.set(node.value.slot, { node: node as StorageNode<ShaderType>, access: node.value.access });
+    else if (buffer.access !== node.value.access) buffer.access = "read_write";
   });
-  return attributes;
+  return [...buffers.values()].sort((a, b) => a.node.attribute.id - b.node.attribute.id);
+}
+
+/** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
+export function storageNodesOf(roots: unknown): StorageNode<ShaderType>[] {
+  return storageBuffersOf(roots).map((buffer) => buffer.node);
 }
 
 /** What a uniform, attribute or varying node declares, in the words of an error about its name. */
@@ -1047,6 +1072,8 @@ const READ_ONLY_NAMES: Record<string, string> = {
   attribute: "an attribute",
   fragCoord: "a built-in input",
   invocationIndex: "a built-in input",
+  vertexIndex: "a built-in input",
+  instanceIndex: "a built-in input",
 };
 
 /** The stage outputs only one stage writes, which stage, and what to call them in an error. */
@@ -1120,9 +1147,14 @@ function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
  * uniform, an attribute or a computed value is refused the same way on each,
  * and so is an element of a storage node made read-only, a stage output
  * written outside the stage that writes it, and a parameter of the compiled
- * function.
+ * function. With `storageWritesNeedCompute`, as on a GPU target, a storage
+ * element is written only from a compute stage.
  */
-export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): void {
+export function assertAssignable(
+  target: any,
+  stage: "vertex" | "fragment" | "compute",
+  storageWritesNeedCompute = false,
+): void {
   assertNoRepeatedSwizzle(target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
@@ -1147,6 +1179,9 @@ export function assertAssignable(target: any, stage: "vertex" | "fragment" | "co
   }
   if (root.type === "storageElement" && root.params[0].value.access === "read") {
     throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
+  }
+  if (storageWritesNeedCompute && root.type === "storageElement" && stage !== "compute") {
+    throw new Error(`[RMSL] storage buffers are read-only in a ${stage} shader; write them from a compute program`);
   }
 }
 

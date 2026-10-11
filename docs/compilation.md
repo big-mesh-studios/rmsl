@@ -219,19 +219,15 @@ byte offset means a different value in each, and different again in the buffer
 the host packs.
 
 Pass the program's whole uniform set to both stages, and to
-`wgslUniformLayout` when packing the buffer, and all three agree:
+`wgslUniformLayout` when packing the buffer, and all three agree. A texture in
+the list is bound on its own, so the struct and the layout both leave it out:
 
 ```typescript
-const uniforms = [
-  { slot: "materialColor", type: "vec3<f32>" },
-  { slot: "modelMatrix", type: "mat4x4<f32>" },
-  { slot: "projectionMatrix", type: "mat4x4<f32>" },
-  { slot: "viewMatrix", type: "mat4x4<f32>" },
-];
+const uniforms = [materialColor, modelMatrix, projectionMatrix, viewMatrix, albedoMap];
 
 const vertex = compileWgsl.vertex(vertexRoot, { uniforms });
 const fragment = compileWgsl.fragment(fragmentRoot, { uniforms });
-const layout = wgslUniformLayout(uniforms); // the offsets to write at
+const layout = wgslUniformLayout(uniforms.map(wgslUniformDeclaration)); // the offsets to write at
 ```
 
 A member a stage never reads costs it nothing. A uniform a stage _does_ read but

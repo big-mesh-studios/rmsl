@@ -7,7 +7,7 @@ import {
   type UniformValue,
 } from "../../core";
 import { slotOf, type TypedArray } from "../adapter";
-import { assertWriteFits, storageAttributes } from "../shared";
+import { assertWriteFits, storageNodesOf } from "../shared";
 import type { CpuProgram } from "../cpu";
 import { compileWasmFn, instantiateWasmProgram } from "./wasm";
 
@@ -85,7 +85,7 @@ export function createWasmContext(): WasmContext {
     const existing = programs.get(node);
     if (existing) return existing;
 
-    const attributes = storageAttributes(node.computeNode);
+    const attributes = new Map(storageNodesOf(node.computeNode).map((n) => [n.name, n.attribute]));
     const compiled = compileWasmFn(() => node.computeNode, { name: "main", params: [], memoryBase: cursor });
     if (compiled.params.some((p) => p.kind === "textureMemory")) {
       throw new Error("[RMSL] createWasmContext: programs that sample textures aren't supported yet.");

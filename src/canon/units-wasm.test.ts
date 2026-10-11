@@ -26,6 +26,9 @@ import {
   vec3,
   vec4,
   type Node,
+  instanceIndex,
+  uint,
+  vertexIndex,
 } from "../rmsl";
 import { compileJS, compileJSFragment, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
@@ -154,7 +157,7 @@ describe("a CPU rasterizer's triangles", () => {
   const counterClockwise = new Float64Array([-1, -1, 0, 1, -1, 0, -1, 1, 0]);
   const clockwise = new Float64Array([-1, -1, 0, -1, 1, 0, 1, -1, 0]);
   const rasterizers = [
-    ["JS", () => compileJS(vertex as any, fragment as any, { attributeTypes: { [position.name]: "vec3" } })],
+    ["JS", () => compileJS(vertex as any, fragment as any)],
     ["WASM", () => compileWasm(vertex as any, fragment as any)],
   ] as const;
 
@@ -777,5 +780,75 @@ describe("the fragments the WASM rasterizer draws", () => {
     draw(lower, [0, 0, 1, 1], true);
     const lowerFirst = draw(upper, [1, 0, 0, 1], false);
     expect(upperFirst).toEqual(lowerFirst);
+  });
+});
+
+describe("the index accessors on WASM", () => {
+  /** A triangle over the pixel only when its vertices read the indices 3, 4 and 5, coloured by its instance. */
+  function indexed() {
+    const pos = attribute("vec3");
+    const instance = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        const v = vertexIndex();
+        instance.assign(instanceIndex().toFloat().add(0.5));
+        builtinPosition().assign(
+          vec4(v.equal(uint(4)).select(float(3), float(-1)), v.equal(uint(5)).select(float(3), float(-1)), 0, 1),
+        );
+      })();
+    const fragment = () => Fn(() => vec4(instance, 0, 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    return routine.draw(
+      { attributes: { [pos.name]: new Float64Array(18) } },
+      { width: 1, height: 1, first: 3, count: 3 },
+    );
+  }
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for
+   */
+  it("reads the vertex index counted from the start of the attributes on WASM", () => {
+    expect(Array.from(indexed())[3]).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-instance-zero
+   */
+  it("reads instance 0 on WASM", () => {
+    expect(Array.from(indexed())[0]).toBe(0.5);
+  });
+
+  /**
+   * @canon spec-the-index-accessors-are-read-only
+   */
+  it("refuses a write to the vertex index on WASM", () => {
+    const vertex = () =>
+      Fn(() => {
+        (vertexIndex() as any).assign(uint(1));
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+      })();
+    expect(() => compileWasm(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrow(/built-in input/);
+  });
+});
+
+describe("the count of a draw that names none on WASM", () => {
+  /**
+   * The program reads only \`pos\`, so the 12 values of \`unused\`, passed first, count for nothing.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("counts from the first attribute the program reads on WASM", () => {
+    const unused = attribute("vec2");
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const pixel = routine.draw(
+      {
+        attributes: { [unused.name]: new Float64Array(12), [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(pixel)).toEqual([0, 1, 0, 1]);
   });
 });

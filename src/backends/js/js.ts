@@ -1778,9 +1778,17 @@ export function compileJSNode(
       return { decls: [], body: [], expr: "ctx.index" };
     }
 
+    case "vertexIndex":
+    case "instanceIndex": {
+      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      // A CPU rasterizer draws one instance, instance 0.
+      return { decls: [], body: [], expr: node.type === "vertexIndex" ? "(ctx.vertexIndex ?? 0)" : "0" };
+    }
+
     case "attribute": {
       let v = node.value as any;
       assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
+      ctx.attributes.set(v.slot, { id: v.id, type: v.shaderType ?? node._t, slot: v.slot });
       return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -2291,6 +2299,7 @@ export function compileJSNode(
     case "assign": {
       let targetNode = node.params![0];
       if (targetNode?.type === "builtinPosition") ctx.positionWritten = true;
+      if (targetNode?.type === "builtinFragDepth") ctx.fragDepthWritten = true;
       assertAssignable(targetNode, ctx.shaderStage);
       let rhsNode = node.params![1];
 
@@ -2668,11 +2677,12 @@ function compileJSFnDetailed(
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
   return {
     source: parts.join("\n\n"),
-    writesDepth: ctx.fragDepthUsed,
+    writesDepth: ctx.fragDepthWritten ?? false,
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
       value: lastType as ShaderType | undefined,
+      attributes: Object.fromEntries([...ctx.attributes.values()].map((a) => [a.slot, a.type as ShaderType])),
       varyings: Object.fromEntries([...ctx.varyings.values()].map((v) => [v.slot, v.type])),
       outputs: Object.fromEntries([...ctx.outputs.values()].map((o) => [o.slot, o.type])),
       float32: ctx.jsFloat32 === true,
@@ -2694,6 +2704,8 @@ export interface JsProgram extends CpuProgram {
    * overwrites. For a caller that reads each result at once.
    */
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
+  /** The type of each attribute a vertex stage reads, by slot. */
+  readonly attributeTypes: Readonly<Record<string, ShaderType>>;
   /** The type of each varying a vertex stage writes, by slot. */
   readonly varyingTypes: Readonly<Record<string, string>>;
   /** Whether a fragment stage can write its depth, so a rasterizer tests the depth it writes. */
@@ -2703,6 +2715,7 @@ export interface JsProgram extends CpuProgram {
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
 type JsResultTypes = {
   value: ShaderType | undefined;
+  attributes: Record<string, ShaderType>;
   varyings: Record<string, string>;
   outputs: Record<string, string>;
   float32: boolean;
@@ -2883,7 +2896,16 @@ export function compileJSProgram(
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings, writesDepth };
+  return {
+    run,
+    runInPlace: runScratch,
+    draw,
+    compute,
+    storageTypes,
+    attributeTypes: resultTypes.attributes,
+    varyingTypes: resultTypes.varyings,
+    writesDepth,
+  };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */

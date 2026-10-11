@@ -1,5 +1,5 @@
 /// <reference types="@webgpu/types" />
-import { compileWgsl, wgslUniformLayout } from "../../wgsl";
+import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
 import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
 import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";
@@ -29,7 +29,6 @@ import {
   lightsSignature,
   samplerDimension,
   samplerSampleType,
-  wgslTypeName,
   toBufferView,
   rendererUniformValue,
   programSignature,
@@ -476,15 +475,10 @@ export class WebGPURenderer {
     const program = material.build(scene, { instancing, instancingColor });
     const device = this.device;
 
-    // Must match the compiler's own alphabetical member sort, or byte offsets
-    // drift from the WGSL struct. The same sorted list goes to both stages,
-    // since each stage alone reads a different subset of the uniforms.
-    const uniforms = [...program.uniforms].sort((a, b) => a.node.name.localeCompare(b.node.name));
-    const declaredUniforms = uniforms.map((u) => ({
-      slot: u.node.name,
-      type: wgslTypeName(u.node._t),
-    }));
-    const layout = wgslUniformLayout(declaredUniforms);
+    // The same list goes to both stages and to the layout, since each stage
+    // alone reads a different subset of the uniforms.
+    const declaredUniforms = program.uniforms.map((u) => u.node);
+    const layout = wgslUniformLayout(declaredUniforms.map(wgslUniformDeclaration));
     const declaredSamplers = program.samplers.map((s) => ({ slot: s.name, type: s.type }));
 
     const vertexModule = device.createShaderModule({

@@ -33,6 +33,8 @@ import {
   vec3,
   vec4,
   type Node,
+  instanceIndex,
+  vertexIndex,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { jsHelperSource } from "../backends/js/js";
@@ -282,7 +284,6 @@ describe("the JS target's internal decisions, on every target they claim", () =>
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
       () => Fn(() => vec4(1, 0, 0, 1))() as any,
-      { attributeTypes: { [pos.name]: "vec3" } },
     );
     const draw = (triangle: number[]) =>
       Array.from(
@@ -377,7 +378,6 @@ describe("a JS routine's results", () => {
             builtinPosition().assign(p);
           })() as any,
         () => Fn(() => vec4(1, 1, 1, 1).toVar())() as any,
-        { attributeTypes: { [position.name]: "vec3" } },
       );
       const image = routine.draw(
         { attributes: { [position.name]: new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]) } },
@@ -409,7 +409,6 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
   const routine = compileJS(
     () => Fn(() => builtinPosition().assign(vec4(position.x, position.y, position.z, 1)))() as any,
     () => Fn(() => (fragment ? fragment(color, drop) : color).toVar())() as any,
-    { attributeTypes: { [position.name]: "vec3" } },
   );
   const draw = (triangles: number[], rgba: number[], options: Record<string, unknown> = {}, dropped = 0) =>
     routine.draw(
@@ -515,7 +514,6 @@ describe("a varying a CPU vertex stage does not write", () => {
           builtinPosition().assign(vec4(position, 1));
         })() as any,
       () => Fn(() => vec4(select(hit, float(1), float(0)), 0, 0, 1))() as any,
-      { attributeTypes: { [position.name]: "vec3", [flag.name]: "float" } },
     );
     const ctx = {
       attributes: {
@@ -550,7 +548,7 @@ describe("a varying a CPU vertex stage does not write", () => {
       },
     };
     const options = { width: 4, height: 4 };
-    const js = compileJS(vertex, fragment, { attributeTypes: { [position.name]: "vec3", [flag.name]: "float" } });
+    const js = compileJS(vertex, fragment);
     const wasm = compileWasm(vertex, fragment);
     const drawn = Array.from(js.draw(ctx, options));
     // Only the first vertex writes the varying, so it fades from 1 there to 0 at the others.
@@ -575,7 +573,6 @@ describe("the varyings a JS rasterizer interpolates", () => {
           builtinPosition().assign(vec4(position, 1));
         })() as any,
       () => Fn(() => vec4(shade, 0, 0, 1))() as any,
-      { attributeTypes: { [position.name]: "vec3" } },
     );
     const ctx = { attributes: { [position.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
     for (let draw = 0; draw < 2; draw++) {
@@ -1400,7 +1397,6 @@ describe("the scalars and inputs of a JS function", () => {
           builtinPosition().assign(vec4(position, 1));
         })(),
       () => Fn(() => vec4(shade, 1))(),
-      { attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" } },
     );
     // Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw.
     const ctx = {
@@ -1452,7 +1448,6 @@ describe("what a JS program keeps after a call", () => {
     const raster = compileJS(
       () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
       () => Fn(() => vec4(1))(),
-      { attributeTypes: { [position.name]: "vec3" } },
     );
     const attributes = { [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0) };
     expect(
@@ -1501,7 +1496,6 @@ describe("the fragments a CPU rasterizer draws", () => {
           builtinFragDepth().assign(depth);
           return color;
         })() as any,
-      { attributeTypes: { [pos.name]: "vec3" } },
     );
     const draw = (d: number, rgba: number[], clearDepth = false) =>
       routine.draw(
@@ -1533,7 +1527,6 @@ describe("the fragments a CPU rasterizer draws", () => {
           builtinPosition().assign(vec4(pos.x, pos.y, pos.z, pos.z));
         })() as any,
       () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
-      { attributeTypes: { [pos.name]: "vec3", [id.name]: "int" } },
     );
     const reds = (positions: number[]) =>
       Array.from(
@@ -1564,7 +1557,6 @@ describe("the fragments a CPU rasterizer draws", () => {
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
       () => Fn(() => color)() as any,
-      { attributeTypes: { [pos.name]: "vec2" } },
     );
     const left = [-1, -1, 0, -1, -1, 3];
     const right = [0, -1, 2, -1, 0, 3];
@@ -1594,10 +1586,59 @@ describe("the fragments a CPU rasterizer draws", () => {
           builtinFragDepth().assign(builtinFragDepth().add(0.25));
           return vec4(builtinFragDepth(), 0, 0, 1);
         })() as any,
-      { attributeTypes: { [pos.name]: "vec3" } },
     );
     const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
     expect(Array.from(got)).toEqual([0.75, 0, 0, 1]);
+  });
+
+  /**
+   * The triangle lies at depth 0.5, and the fragment draws the depth it reads
+   * as red without writing one.
+   *
+   * @canon spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+   */
+  it.each(rasterizers)("%s: reads the interpolated depth in a fragment that never writes one", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1))() as any,
+    );
+    const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
+    expect(Array.from(got)).toEqual([0.5, 0, 0, 1]);
+  });
+
+  /**
+   * A fragment stage that reads its depth and a uniform draws a triangle at
+   * depth 0.25, then one at 0.75 behind it. The uniforms are counted as the
+   * stage reads them. The WASM rasterizer copies its uniforms into memory, so
+   * the host cannot count its reads.
+   *
+   * @canon spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects
+   */
+  it("JS: runs no fragment stage that only reads its depth for a fragment behind the depth buffer", () => {
+    const pos = attribute("vec3");
+    const tint = uniform("float");
+    const routine = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => vec4(builtinFragDepth(), tint, 0, 1))() as any,
+    );
+    let reads = 0;
+    const uniforms = new Proxy({ [tint.name]: 1 } as Record<string, unknown>, {
+      get: (target, key) => {
+        if (key === tint.name) reads++;
+        return target[key as string];
+      },
+    });
+    const draw = (z: number, clear: boolean) =>
+      routine.draw(
+        { attributes: { [pos.name]: new Float64Array(screenAt(z)) }, uniforms },
+        { width: 1, height: 1, clear, clearDepth: clear },
+      );
+    draw(0.25, true);
+    const readsInFront = reads;
+    expect(readsInFront).toBeGreaterThan(0);
+    expect(Array.from(draw(0.75, false))).toEqual([0.25, 1, 0, 1]);
+    expect(reads).toBe(readsInFront);
   });
 
   /**
@@ -1614,7 +1655,6 @@ describe("the fragments a CPU rasterizer draws", () => {
       const routine = compileRaster(
         () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
         () => Fn(() => vec4(1, 0, 0, 1))() as any,
-        { attributeTypes: { [pos.name]: "vec2" } },
       );
       /** The pattern a draw of `corners`, x and y in pixels, shades: a row of `#` and `.` for each row from the top. */
       const shaded = (corners: number[]) => {
@@ -1646,7 +1686,8 @@ describe("the fragments a CPU rasterizer draws", () => {
    * the positions, which the program reads first, two. A count taken from
    * anything but the integer attribute's components draws the second.
    *
-   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+   * @canon spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
    */
   it.each(rasterizers)("%s: counts the vertices of an integer first attribute", (_, compileRaster) => {
     const id = attribute("int");
@@ -1654,7 +1695,6 @@ describe("the fragments a CPU rasterizer draws", () => {
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos.x, pos.y, id.toFloat().mul(0), 1)))() as any,
       () => Fn(() => vec4(1, 0, 0, 1))() as any,
-      { attributeTypes: { [id.name]: "int", [pos.name]: "vec2" } },
     );
     const left = [-1, -1, 0, -1, -1, 3];
     const right = [0, -1, 2, -1, 0, 3];
@@ -1674,10 +1714,9 @@ describe("the fragments a CPU rasterizer draws", () => {
   it.each(rasterizers)("%s: leaves a pixel's colour for a fragment stage that writes none", (_, compileRaster) => {
     const pos = attribute("vec3");
     const color = uniform("vec4");
-    const options = { attributeTypes: { [pos.name]: "vec3" as const } };
     const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any;
-    const drawn = compileRaster(vertex, () => Fn(() => color)() as any, options);
-    const colourless = compileRaster(vertex, () => Fn(() => {})() as any, options);
+    const drawn = compileRaster(vertex, () => Fn(() => color)() as any);
+    const colourless = compileRaster(vertex, () => Fn(() => {})() as any);
     const ctx = {
       attributes: { [pos.name]: new Float64Array(screenAt(0.5)) },
       uniforms: { [color.name]: [1, 0, 0, 1] },
@@ -1699,7 +1738,6 @@ describe("the fragments a CPU rasterizer draws", () => {
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
       () => Fn(() => color)() as any,
-      { attributeTypes: { [pos.name]: "vec2" } },
     );
     const draw = (corners: number[], rgba: number[], options: { clear: boolean; out?: Float64Array }) =>
       Array.from(
@@ -1725,7 +1763,6 @@ describe("the fragments a CPU rasterizer draws", () => {
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
       () => Fn(() => vec4(1, 0, 0, 1))() as any,
-      { attributeTypes: { [pos.name]: "vec2" } },
     );
     const draw = (corners: number[], width: number, height: number, options: { clear: boolean; out?: Float64Array }) =>
       Array.from(
@@ -1747,7 +1784,6 @@ describe("the fragments a CPU rasterizer draws", () => {
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
       () => Fn(() => vec4(1, 0, 0, 1))() as any,
-      { attributeTypes: { [pos.name]: "vec2" } },
     );
     const draw = (corners: number[], width: number, height: number, clear: boolean) =>
       Array.from(routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, clear }));
@@ -1773,7 +1809,6 @@ describe("the fragments a CPU rasterizer draws", () => {
           builtinPosition().assign(vec4(pos, 0, 1));
         })() as any,
       () => Fn(() => vec4(shade, 1))() as any,
-      { attributeTypes: { [pos.name]: "vec2", [signed.name]: "int", [unsigned.name]: "uvec2" } },
     );
     const got = routine.draw(
       {
@@ -1799,7 +1834,6 @@ describe("the fragments a CPU rasterizer draws", () => {
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
       () => Fn(() => color)() as any,
-      { attributeTypes: { [pos.name]: "vec3" } },
     );
     const draw = (z: number, rgba: number[], width: number, height: number, clearDepth: boolean) =>
       routine.draw(
@@ -1824,7 +1858,6 @@ describe("the fragments a CPU rasterizer draws", () => {
           builtinFragDepth().assign(depth);
           return color;
         })() as any,
-      { attributeTypes: { [pos.name]: "vec3" } },
     );
     const draw = (z: number, d: number, rgba: number[], clearDepth = false) =>
       routine.draw(
@@ -1875,5 +1908,91 @@ describe("the fragments a CPU rasterizer draws", () => {
     const draw = flatRasterizer();
     const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
     expect(Array.from(image)).toEqual(new Array(16).fill(0));
+  });
+});
+
+describe("the index accessors on JS", () => {
+  /** A triangle over the pixel only when its vertices read the indices 3, 4 and 5, coloured by its instance. */
+  function indexed() {
+    const pos = attribute("vec3");
+    const instance = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        const v = vertexIndex();
+        instance.assign(instanceIndex().toFloat().add(0.5));
+        builtinPosition().assign(
+          vec4(v.equal(uint(4)).select(float(3), float(-1)), v.equal(uint(5)).select(float(3), float(-1)), 0, 1),
+        );
+      })();
+    const fragment = () => Fn(() => vec4(instance, 0, 0, 1))();
+    const routine = compileJS(vertex as any, fragment as any);
+    return routine.draw(
+      { attributes: { [pos.name]: new Float64Array(18) } },
+      { width: 1, height: 1, first: 3, count: 3 },
+    );
+  }
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for
+   */
+  it("reads the vertex index counted from the start of the attributes on JS", () => {
+    expect(Array.from(indexed())[3]).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-instance-zero
+   */
+  it("reads instance 0 on JS", () => {
+    expect(Array.from(indexed())[0]).toBe(0.5);
+  });
+
+  /**
+   * @canon spec-the-index-accessors-are-read-only
+   */
+  it("refuses a write to the vertex index on JS", () => {
+    const vertex = () =>
+      Fn(() => {
+        (vertexIndex() as any).assign(uint(1));
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+      })();
+    expect(() => compileJS(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrow(/built-in input/);
+  });
+});
+
+describe("the count of a draw that names none on JS", () => {
+  /**
+   * The program reads only \`pos\`, so the 12 values of \`unused\`, passed first, count for nothing.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+   * @canon spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
+   */
+  it("counts from the first attribute the program reads on JS", () => {
+    const unused = attribute("vec2");
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const routine = compileJS(vertex as any, fragment as any);
+    const pixel = routine.draw(
+      {
+        attributes: { [unused.name]: new Float64Array(12), [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(pixel)).toEqual([0, 1, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads
+   */
+  it("refuses a draw missing an attribute the program reads on JS and WASM", async () => {
+    const pos = attribute("vec3");
+    const tint = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos.add(tint), 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const inputs = { attributes: { [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
+    const missing = new RegExp(`missing attribute "${tint.name}"`);
+    expect(() => compileJS(vertex as any, fragment as any).draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+    const wasm = await compileWasm(vertex as any, fragment as any);
+    expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrow(missing);
   });
 });

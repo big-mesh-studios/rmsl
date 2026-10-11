@@ -31,7 +31,7 @@ for (const SIZE of [128, 512]) {
     // non-indexed list — the same TRIANGLE_STRIP_QUAD shape the demo uses.
     const QUAD = new Float64Array([-0.9, -0.9, 0.9, -0.9, -0.9, 0.9, 0.9, -0.9, -0.9, 0.9, 0.9, 0.9]);
 
-    const jsRoutine = compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [pos.name]: "vec2" } });
+    const jsRoutine = compileJS(vertexFn as any, fragmentFn as any);
     const wasmRoutine = compileWasm(vertexFn as any, fragmentFn as any);
     const ctx = { attributes: { [pos.name]: QUAD }, uniforms: { [time.name]: 0.5 } };
 

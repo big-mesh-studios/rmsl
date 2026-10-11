@@ -5,6 +5,7 @@ import {
   compileWasmFn,
   componentSizeOf,
   createWasmInputMarshaller,
+  VERTEX_INDEX_SLOT,
   WasmCompileFields,
   WasmFloatWidth,
   WasmParam,
@@ -49,6 +50,7 @@ export const RASTERIZE_PARAMS = [
   "fragCoordAddress",
   "readsFragCoord",
   "fragDepthAddress",
+  "usesDepth",
   "writesDepth",
   "discardAddress",
   "mayDiscard",
@@ -289,7 +291,8 @@ export function compileWasm(
   };
   const [fragmentValueAddress, writesColour] = fragmentInput("valueMemory");
   const [fragCoordAddress, readsFragCoord] = fragmentInput("fragCoordMemory");
-  const [fragDepthAddress, writesDepth] = fragmentInput("fragDepthMemory");
+  const [fragDepthAddress, usesDepth] = fragmentInput("fragDepthMemory");
+  const writesDepth = fragmentCompiled.params.some((p) => p.kind === "fragDepthMemory" && p.written) ? 1 : 0;
   const [discardAddress, mayDiscard] = fragmentInput("discardMemory");
 
   const missingInFragment = vertexVaryingParams.filter((v) => !fragmentVaryingParams.some((f) => f.slot === v.slot));
@@ -397,13 +400,16 @@ export function compileWasm(
   }
 
   /**
-   * The vertices from `first` on that the first attribute the host passes holds,
-   * or 0 when it passes none the program reads.
+   * The vertices from `first` on that the first attribute the program reads
+   * holds, in the order the host passes them, or 0 when it passes none the
+   * program reads.
    */
   function inferCount(attributes: WasmRasterContext["attributes"], first: number): number {
+    // An attribute the program does not read counts for nothing, as a WebGPU
+    // draw reads no buffer its shader does not declare.
     for (const slot in attributes) {
       const layout = attrLayout.find((a) => a.slot === slot);
-      return layout ? Math.floor(attributes[slot]!.length / layout.componentCount) - first : 0;
+      if (layout) return Math.floor(attributes[slot]!.length / layout.componentCount) - first;
     }
     return 0;
   }
@@ -479,6 +485,12 @@ export function compileWasm(
 
     const view = new DataView(memory.buffer);
     for (const a of attrLayout) {
+      // A vertex stage reads `vertexIndex()` as an attribute holding each vertex's index.
+      if (a.slot === VERTEX_INDEX_SLOT) {
+        for (let v = 0; v < vertexCount; v++)
+          view.setUint32(attrSrcBase + v * attrStrideBytes + a.offset, v + first, true);
+        continue;
+      }
       const src = ctx.attributes[a.slot];
       if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
       const componentCount = a.componentCount;
@@ -549,6 +561,7 @@ export function compileWasm(
       fragCoordAddress,
       readsFragCoord,
       fragDepthAddress,
+      usesDepth,
       writesDepth,
       discardAddress,
       mayDiscard,

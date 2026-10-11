@@ -367,6 +367,25 @@ describe("what a program does with a node it reads more than once", () => {
   });
 
   /**
+   * The three swizzles read one element, which GLSL fetches through a call to
+   * its storage helper.
+   *
+   * @canon spec-a-storage-element-read-more-than-once-is-read-once
+   */
+  it("reads a storage element that a stage reads three times once on GLSL, WGSL and JS", () => {
+    const colours = instancedArray(4, "vec4");
+    const build = () => {
+      const element = colours.element(int(0));
+      return Fn(() => vec4(element.x, element.y, element.z, 1))() as Node<"vec4">;
+    };
+    const { glsl, wgsl, js } = sources(build);
+    const main = glsl.slice(glsl.indexOf("void main"));
+    expect(main.match(/_rmsl_storage_vec4\(/g)).toHaveLength(1);
+    expect(wgsl).toMatch(sharedLocal);
+    expect(js).toMatch(sharedLocal);
+  });
+
+  /**
    * @canon spec-a-shared-value-gets-a-generated-name
    */
   it("names the variable of a shared node _rmsl_gen_ and a number on GLSL, WGSL and JS", () => {

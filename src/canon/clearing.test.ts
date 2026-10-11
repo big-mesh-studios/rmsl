@@ -18,9 +18,7 @@ function flat(target: "JS" | "WASM") {
   const vertex = () => Fn(() => builtinPosition().assign(vec4(position, 1)))();
   const fragment = () => Fn(() => color)();
   const routine =
-    target === "JS"
-      ? compileJS(vertex as any, fragment as any, { attributeTypes: { [position.name]: "vec3" } })
-      : compileWasm(vertex as any, fragment as any);
+    target === "JS" ? compileJS(vertex as any, fragment as any) : compileWasm(vertex as any, fragment as any);
   return (triangles: number[], rgba: number[], options: Record<string, unknown> = {}) =>
     Array.from(
       routine.draw(

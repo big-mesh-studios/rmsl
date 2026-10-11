@@ -40,7 +40,7 @@ const bindingOf = (code: string, name: string) =>
  * entry builds it. Each entry returns what it read, or the error it hit.
  */
 const GLSL_SCENE = `
-import { Fn, attribute, builtinPosition, uniform, uniformArray, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -60,37 +60,6 @@ const attempt = (run) => {
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 globalThis.__rmslBugsGlsl = {
-  uniformArray: () => attempt(() => {
-    const target = canvas();
-    const colours = uniformArray("vec4", 2);
-    const adapter = createGlsl(plainVertex(), Fn(() => colours.element(1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.setUniform(colours, [[1, 0, 0, 1], [0, 1, 0, 1]]);
-    adapter.draw({ count: 3 });
-    return readPixel(target, 1, 2);
-  }),
-  uintUniform: () => attempt(() => {
-    const target = canvas();
-    const green = uniform("uint");
-    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, green.toFloat(), 0, 1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.setUniform(green, 1);
-    adapter.draw({ count: 3 });
-    return readPixel(target, 1, 2);
-  }),
-  intAttribute: () => attempt(() => {
-    const target = canvas();
-    const shift = attribute("int");
-    const vertex = Fn(() => { builtinPosition().assign(vec4(position.x.add(shift.toFloat()), position.y, 0, 1)); })();
-    const adapter = createGlsl(vertex, Fn(() => vec4(0, 1, 0, 1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.setAttribute(shift, Int32Array.of(0, 0, 0));
-    adapter.draw({ count: 3 });
-    return readPixel(target, 1, 2);
-  }),
   firstAttributeCount: () => attempt(() => {
     const target = canvas();
     const offset = attribute("vec2");
@@ -231,100 +200,7 @@ afterAll(async () => {
   await releaseGpu();
 }, 120_000);
 
-/**
- * Two storage buffers, the second made after the first, whose slot names sort
- * the other way round as strings, as `_rmsl_b10` sorts before `_rmsl_b9`.
- */
-function buffersAcrossADigit() {
-  let first = instancedArray(2, "float");
-  let second = instancedArray(2, "float");
-  while (first.name.localeCompare(second.name) < 0) {
-    first = second;
-    second = instancedArray(2, "float");
-  }
-  return { first, second };
-}
-
-/**
- * The binding WGSL declares for the buffer the stage reads `n`th. WGSL names
- * a buffer `_rmsl_sN` by the order the stage first reads it.
- */
-const bindingOfRead = (code: string, n: number) =>
-  new RegExp(`@binding\\((\\d+)\\) var<storage, [\\w ,]+> _rmsl_s${n}:`).exec(code)?.[1];
-
 describe("known GPU bugs, each failing until its fix", () => {
-  /**
-   * @canon bug-wgsl-takes-the-storages-list-as-slot-names
-   */
-  it.fails("takes the storage nodes themselves as the storages list on WGSL", () => {
-    const first = instancedArray(2, "float");
-    const second = instancedArray(2, "float");
-    const code = compileWgsl.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1), {
-      storages: [second, first] as any,
-    });
-    expect(bindingOfRead(code, 1)).toBe("0");
-    expect(bindingOfRead(code, 0)).toBe("1");
-  });
-
-  /**
-   * @canon bug-wgsl-compute-ignores-the-storages-list
-   */
-  it.fails("binds compute storage at its index in the storages list on WGSL", () => {
-    const first = instancedArray(2, "float");
-    const second = instancedArray(2, "float");
-    const code = compileWgsl.compute(
-      Fn(() => {
-        second.element(invocationIndex()).assign(first.element(invocationIndex()));
-      })(),
-      { storages: [second.name, first.name] },
-    );
-    expect(bindingOfRead(code, 1)).toBe("0");
-    expect(bindingOfRead(code, 0)).toBe("1");
-  });
-
-  /**
-   * @canon bug-wgsl-binds-storage-in-the-string-order-of-slot-names
-   */
-  it.fails("binds storage in the order the program made it when no list is given on WGSL", () => {
-    const { first, second } = buffersAcrossADigit();
-    const compute = compileWgsl.compute(
-      Fn(() => {
-        second.element(invocationIndex()).assign(first.element(invocationIndex()));
-      })(),
-    );
-    const render = compileWgsl.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1));
-    for (const code of [compute, render]) {
-      expect(bindingOfRead(code, 0)).toBe("0");
-      expect(bindingOfRead(code, 1)).toBe("1");
-    }
-  });
-
-  /**
-   * Two uniforms of one alignment, `zeta` made first, so creation order puts
-   * it before `alpha` in the struct.
-   *
-   * @canon bug-wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names
-   */
-  it.fails("declares uniforms of one alignment in the order the program made them on WGSL", () => {
-    const zeta = uniformRaw("zeta", "float");
-    const alpha = uniformRaw("alpha", "float");
-    const code = compileWgsl.fragment(vec4(zeta, alpha, 0, 1));
-    const members = [...(/struct _RmslUniforms \{([\s\S]*?)\n\};/.exec(code)?.[1] ?? "").matchAll(/^\s*(\w+):/gm)].map(
-      (m) => m[1],
-    );
-    expect(members).toEqual(["zeta", "alpha"]);
-  });
-
-  /**
-   * @canon bug-wgsl-takes-the-uniforms-list-as-slot-declarations
-   */
-  it.fails("takes the uniform nodes themselves as the uniforms list on WGSL", () => {
-    const read = uniform("float");
-    const other = uniform("vec2");
-    const code = compileWgsl.fragment(vec4(read, 0, 0, 1), { uniforms: [read, other] as any });
-    expect(code).toMatch(new RegExp(`${other.name}: vec2<f32>`));
-  });
-
   /**
    * A compute program declares its textures in group 1 after its storage
    * buffers, so a texture and a buffer have no binding in common.
@@ -367,12 +243,13 @@ describe("known GPU bugs, each failing until its fix", () => {
   /**
    * A texture sampled in the vertex stage is read at level 0, because only a
    * fragment stage has the derivatives that pick a level, and a stage
-   * numbers the samplers of the textures it samples in the order of their
-   * names.
+   * numbers the samplers of the textures it samples in the order the program
+   * made the textures.
    *
    * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
+   * @canon spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
    */
-  it("samples a texture in the vertex stage at level 0, and numbers samplers by name on WGSL", () => {
+  it("samples a texture in the vertex stage at level 0, and numbers samplers in creation order on WGSL", () => {
     const zebra = uniformRaw("zebra", "sampler2D");
     const apple = uniformRaw("apple", "sampler2D");
     const vertex = Fn(() => {
@@ -381,8 +258,8 @@ describe("known GPU bugs, each failing until its fix", () => {
     const code = compileWgsl.vertex(vertex);
     expect(code).toContain("textureSampleLevel(");
     expect(code).not.toMatch(/textureSample\(/);
-    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:0");
-    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:1");
+    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:0");
+    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:1");
   });
 
   /**
@@ -468,51 +345,9 @@ describe.skipIf(!GPU_ENABLED)("known GPU bugs on a WebGPU device, each failing u
 
 describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
   /**
-   * WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the
-   * slot up by that name, so `setUniform` on a uniform array never applies.
-   *
-   * @canon bug-the-glsl-adapter-never-sets-a-uniform-array
-   */
-  it.fails(
-    "sets a uniform array with createGlsl",
-    async () => {
-      expect(await glslEntry("uniformArray")).toEqual(GREEN);
-    },
-    120_000,
-  );
-
-  /**
-   * `createGlsl.setUniform` uploads only float, int and bool scalars and
-   * vectors and square matrices, and throws for a `uint` uniform.
-   *
-   * @canon bug-the-glsl-adapter-refuses-a-uint-uniform
-   */
-  it.fails(
-    "sets a uint uniform with createGlsl",
-    async () => {
-      expect(await glslEntry("uintUniform")).toEqual(GREEN);
-    },
-    120_000,
-  );
-
-  /**
-   * `createGlsl` points every attribute at its buffer as floats, so an `int`
-   * attribute mismatches its declaration and the draw is refused.
-   *
-   * @canon bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats
-   */
-  it.fails(
-    "draws with an int attribute through createGlsl",
-    async () => {
-      expect(await glslEntry("intAttribute")).toEqual(GREEN);
-    },
-    120_000,
-  );
-
-  /**
    * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("counts a createGlsl draw from the first attribute, less its first vertex", async () => {
     expect(await glslEntry("firstVertex")).toEqual(GREEN);
@@ -522,7 +357,7 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
    * A `createGlsl` draw that names no count takes the first attribute's, and
    * so does not draw vertices past its end.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("takes the count of a createGlsl draw from the first attribute", async () => {
     expect(await glslEntry("firstAttributeCount")).toEqual(GREEN);
@@ -551,7 +386,7 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
   /**
    * A `createWgsl` draw that names a first vertex and no count draws the vertices after it.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("counts a createWgsl draw from the first attribute, less its first vertex", async () => {
     expect(await wgslEntry("firstVertex")).toEqual(GREEN);
@@ -561,7 +396,7 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
    * A `createWgsl` draw that names no count takes the first attribute's, and
    * so does not read past a shorter buffer.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("takes the count of a createWgsl draw from the first attribute", async () => {
     expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);

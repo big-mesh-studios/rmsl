@@ -149,6 +149,13 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
     return index;
   };
 
+  // Named nodes come first, in the order they were made, so a restored graph draws its ids in that order.
+  const named: BaseNode<ShaderType>[] = [];
+  someNode(resolved, (n) => {
+    if (NAMED[n.type]) named.push(n);
+  });
+  for (const n of named.sort((a, b) => (a.value as { id: number }).id - (b.value as { id: number }).id)) add(n);
+
   const roots = Array.isArray(resolved)
     ? resolved.map((r) => add(r as BaseNode<ShaderType>))
     : add(resolved as BaseNode<ShaderType>);

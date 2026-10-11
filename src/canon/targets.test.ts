@@ -774,7 +774,7 @@ describe("each leaf on every target it claims", () => {
     const triangle = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
     const inputs = { attributes: { [position.name]: triangle } };
     const options = { width: 1, height: 1 };
-    const js = compileJS(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } });
+    const js = compileJS(vertex, fragment);
     expect(Array.from(js.draw(inputs, options))).toEqual([1, 0, 0, 1]);
     const wasm = compileWasm(vertex, fragment);
     expect(Array.from(wasm.draw(inputs, options))).toEqual([1, 0, 0, 1]);

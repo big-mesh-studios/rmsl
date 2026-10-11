@@ -73,8 +73,9 @@ depth 0 and 1 drops. A pixel then:
 
 Each address the fragment function writes or reads besides its varyings
 comes with a flag, 1 when the function has it and 0 when it does not:
-`writesColour` for `fragmentValueAddress`, `readsFragCoord`, `writesDepth`
-and `mayDiscard`. A function that writes no colour leaves the pixel as it
+`writesColour` for `fragmentValueAddress`, `readsFragCoord`, `usesDepth`
+and `mayDiscard`. `writesDepth` is 1 when the function assigns its depth,
+and 0 when it only reads it. A function that writes no colour leaves the pixel as it
 was. The host must pre-clear `depthBufferBase` to a large value before the
 first draw over it, and again before a draw of another size.
 
