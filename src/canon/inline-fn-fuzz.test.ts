@@ -3,7 +3,7 @@ import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
-import { GPU_ENABLED, installWebGpuGlobals, releaseGpu } from "../testing/gpu";
+import { GPU_ENABLED, installWebGpuGlobals, readsStorageFromBeforeTheLoop, releaseGpu } from "../testing/gpu";
 import {
   agrees,
   build,
@@ -75,7 +75,7 @@ describe("random programs of inline Fns", () => {
    * names: on GLSL only when no `Fn` returns, since a fragment stage refuses a
    * `Return()` for a reason of its own.
    *
-   * @canon spec-random-programs-of-inline-fns-run-each-as-the-rule-says
+   * @canon spec-random-inline-fn-programs-run-as-the-rule-says-on-the-cpu-targets
    */
   it(
     `run each inline Fn as the rule says in ${SEEDS.length} programs on JS and WASM, and refuse alike on every target`,
@@ -133,12 +133,12 @@ describe.skipIf(!GPU_ENABLED)("random programs of inline Fns on WGSL compute on 
 
   /**
    * A sample of the programs the model runs, each on WGSL compute, for each
-   * pair of branches. On macOS the sample leaves out a program that holds a
-   * loop: Metal reads a storage element from before the loop in some loops,
-   * and every count of a program sits in one buffer. It also leaves out a
-   * program whose totals an f32 does not hold exactly.
+   * pair of branches. Where the probe finds that the driver reads storage
+   * from before the loop, the sample leaves out a program that holds a loop.
+   * It also leaves out a program whose totals an f32 does not hold exactly.
    *
-   * @canon spec-random-programs-of-inline-fns-run-each-as-the-rule-says
+   * @canon spec-a-sample-of-random-inline-fn-programs-runs-as-the-rule-says-on-wgsl-compute
+   * @canon exception-the-wgsl-sample-of-random-inline-fn-programs-leaves-out-loops-where-storage-reads-go-stale
    */
   it(
     `run each inline Fn as the rule says in a sample of ${SAMPLE} programs on WGSL compute`,
@@ -146,12 +146,13 @@ describe.skipIf(!GPU_ENABLED)("random programs of inline Fns on WGSL compute on 
       timeout: 3_600_000,
     },
     async () => {
+      const stale = await readsStorageFromBeforeTheLoop();
       const failures: string[] = [];
       let ran = 0;
       for (const seed of SEEDS) {
         if (ran >= SAMPLE) break;
         const program = generate(seed);
-        if (process.platform === "darwin" && holdsALoop(program)) continue;
+        if (stale && holdsALoop(program)) continue;
         const want = reference(program, UNIFORM_CASES);
         if ("refused" in want[0]!) continue;
         if (want.some((w) => "outs" in w && [...w.outs, ...w.counters].some((x) => Math.abs(x) >= 2 ** 24))) continue;
@@ -168,10 +169,7 @@ describe.skipIf(!GPU_ENABLED)("random programs of inline Fns on WGSL compute on 
   );
 });
 
-/**
- * Whether `program` holds a loop, whose storage writes Metal can count wrongly,
- * as `fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops` says.
- */
+/** Whether `program` holds a loop, where a driver that reads storage from before the loop can count wrongly. */
 function holdsALoop(program: Program): boolean {
   const inBlock = (list: Program["roots"][number]): boolean =>
     list.some((s) => {

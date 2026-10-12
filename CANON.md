@@ -417,6 +417,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when several roots read that other `Fn`.
       - [`@spec an-inline-fn-several-roots-read-runs-once-before-the-first`](#spec-an-inline-fn-several-roots-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several roots of one program read, runs once each time the program runs. It runs before the first root that reads it, when no block inside one root holds every read. This holds on every target.
       - [`@spec random-programs-of-inline-fns-run-each-as-the-rule-says`](#spec-random-programs-of-inline-fns-run-each-as-the-rule-says) — Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
+        - [`@spec random-inline-fn-programs-run-as-the-rule-says-on-the-cpu-targets`](#spec-random-inline-fn-programs-run-as-the-rule-says-on-the-cpu-targets) — On JavaScript and WASM, random programs of `Fn`s called outside the program's body run each `Fn` as the rule says. Every target refuses the programs the rule refuses, with the message it names.
+        - [`@spec a-sample-of-random-inline-fn-programs-runs-as-the-rule-says-on-wgsl-compute`](#spec-a-sample-of-random-inline-fn-programs-runs-as-the-rule-says-on-wgsl-compute) — WGSL compute on Dawn runs a sample of the random programs the rule does not refuse, each as the rule says.
+        - [`@exception the-wgsl-sample-of-random-inline-fn-programs-leaves-out-loops-where-storage-reads-go-stale`](#exception-the-wgsl-sample-of-random-inline-fn-programs-leaves-out-loops-where-storage-reads-go-stale) — Where the driver reads a storage element from before the loop, the WGSL sample leaves out every random program that holds a loop.
       - [`@spec an-inline-fn-a-loop-condition-reads-runs-at-every-test`](#spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only the condition of a loop reads, runs at every test of that condition. This holds for any number of reads there, and for a condition given as a node or as a function.
         - [`@exception dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once`](#exception-dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once) — On WGSL compute on Dawn on Metal, a storage write that a `While` or `Loop` condition makes before its test counts one run. This holds for any number of tests.
         - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
@@ -3379,6 +3382,22 @@ The programs read those `Fn`s in branches, after them and in loop bodies. They r
 Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
 This follows because the cases above meet in real programs in more ways than hand-written tests list. A reference model of the rule, run on programs a seeded generator makes, checks every combination the generator reaches.
+
+###### @spec random-inline-fn-programs-run-as-the-rule-says-on-the-cpu-targets
+
+> On JavaScript and WASM, random programs of `Fn`s called outside the program's body run each `Fn` as the rule says. Every target refuses the programs the rule refuses, with the message it names.
+
+###### @spec a-sample-of-random-inline-fn-programs-runs-as-the-rule-says-on-wgsl-compute
+
+> WGSL compute on Dawn runs a sample of the random programs the rule does not refuse, each as the rule says.
+
+###### @exception the-wgsl-sample-of-random-inline-fn-programs-leaves-out-loops-where-storage-reads-go-stale
+
+> Where the driver reads a storage element from before the loop, the WGSL sample leaves out every random program that holds a loop.
+
+Derives from: [`fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops`](#fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops)
+
+The counts of a program share one buffer, and an `Fn` reads its count back after it adds to it. So any loop of a program can meet the defect. A probe runs the smallest loop that shows it, and the sample leaves out loops only where the probe finds it.
 
 ##### @spec an-inline-fn-a-loop-condition-reads-runs-at-every-test
 
