@@ -605,9 +605,6 @@ function emitLiteralStores(node: any, addr: number): number[] {
 /** What a vector or matrix the host leaves out is read from: a zero for each component of a `mat4`. */
 const ZERO_COMPONENTS: readonly number[] = new Array(16).fill(0);
 
-/** What a uniform array the host leaves out is read from: an array with no elements, each of which is written as zero. */
-const NO_ELEMENTS: readonly unknown[] = [];
-
 /** A bool the host passes, as 1 where it converts to an `int` that is not zero, as WebGL and WGSL test it, and 0 elsewhere. */
 function hostBoolean(value: unknown): number {
   return ((value as number) | 0) !== 0 ? 1 : 0;
@@ -657,22 +654,22 @@ function writeArrayToMemory(
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  // An element the host leaves out is written as zero. A component converts as the DataView stores it.
-  const arr = (value ?? NO_ELEMENTS) as ArrayLike<any>;
+  // An array the host leaves out reads zero. Any other element, and each component of one, converts as
+  // the DataView stores it, so `undefined` stores as NaN in a float. A vector element given as nothing
+  // reads each component as `undefined`.
   for (let i = 0; i < length; i++) {
-    const el = arr[i];
+    const el = value == null ? (width === 1 ? null : ZERO_COMPONENTS) : value[i];
     const base = address + i * elementStride;
     if (width === 1) {
-      const num = typeof el === "boolean" ? (el ? 1 : 0) : ((el as number | undefined) ?? 0);
       if (kind === "float") {
-        if (narrow) view.setFloat32(base, num, true);
-        else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
+        if (narrow) view.setFloat32(base, el, true);
+        else view.setFloat64(base, round32 ? Math.fround(el) : el, true);
       } else {
-        view.setInt32(base, kind === "bool" ? hostBoolean(num) : num, true);
+        view.setInt32(base, kind === "bool" ? hostBoolean(el) : el, true);
       }
     } else {
       for (let k = 0; k < width; k++) {
-        const num = el == null ? 0 : el[k];
+        const num = el?.[k];
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);

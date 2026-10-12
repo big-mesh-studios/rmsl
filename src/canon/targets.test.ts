@@ -1260,6 +1260,44 @@ describe("each leaf on every target it claims", () => {
   );
 
   /**
+   * The element read sits between two the host set, so an element that read
+   * its neighbour, or the whole array left out, would show. A vector element
+   * given as `null` reads as one given as `undefined`, each of its components
+   * `undefined`.
+   *
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)(
+    "reads an element of a uniform array the host gives as undefined as a typed slot of its kind holds it on %s",
+    (_, compile) => {
+      const read = (type: "float" | "int" | "uint" | "bool" | "vec2" | "ivec2", width: "f32" | "f64" = "f64") => {
+        const items = uniformArray(type, 3);
+        const asNumber = (x: any) => (/bool/.test(type) ? select(x, float(1), float(0)) : x.toFloat());
+        const second = (x: any) => (/vec/.test(type) ? x.y : x);
+        const routine = compile(() => Fn(() => asNumber(second(items.element(int(1)))).toVar())() as any, {
+          name: "main",
+          params: [],
+          float: width,
+        } as any);
+        return (middle: unknown) => {
+          const set = /vec/.test(type) ? [1, 1] : 1;
+          return routine({ uniforms: { [items.name]: [set, middle, set] } } as any);
+        };
+      };
+      expect(read("float")(undefined)).toBeNaN();
+      expect(read("float", "f32")(undefined)).toBeNaN();
+      expect(read("vec2")(undefined)).toBeNaN();
+      expect(read("vec2", "f32")(undefined)).toBeNaN();
+      for (const type of ["int", "uint", "bool", "ivec2"] as const) expect(read(type)(undefined), type).toBe(0);
+      for (const type of ["float", "int", "bool", "ivec2"] as const) expect(read(type)(null), type).toBe(0);
+      expect(read("vec2")(null)).toBeNaN();
+    },
+  );
+
+  /**
    * Each of `reads` compiled into a routine of its own that returns the scalar it reads, given `value` as
    * a parameter `a` of `type`, a uniform, the second element of a uniform array and the second component
    * of a vector, all of the kind of `type`.

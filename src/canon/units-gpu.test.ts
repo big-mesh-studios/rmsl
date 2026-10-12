@@ -911,6 +911,12 @@ const uniformShapes = () => {
     expect(() => setUniform(pairs, [[1, 2], [3]])).toThrow(
       `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
     );
+    for (const nothing of [undefined, null])
+      expect(() => setUniform(pairs, [[1, 2], nothing])).toThrow(
+        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
+      );
+    expect(() => setUniform(offsets, [1, undefined])).not.toThrow();
+    expect(() => setUniform(offsets.name, [null, 2])).not.toThrow();
     expect(() => setUniform(count, 2.7)).not.toThrow();
     expect(() => setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
     expect(() => setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
@@ -922,6 +928,7 @@ const uniformShapes = () => {
 describe("the shape of a value a GPU adapter takes for a uniform", () => {
   /**
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("refuses one through setUniform on createGlsl, named by node or by slot", () => {
     const { fragment, refuses } = uniformShapes();
@@ -935,6 +942,7 @@ describe("the shape of a value a GPU adapter takes for a uniform", () => {
    * stands in for the GPU once it attaches.
    *
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("refuses one through setUniform on createWgsl, named by node or by slot", async () => {
     vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
@@ -1352,6 +1360,10 @@ globalThis.__rmslValueTypes = {
     const u = uniform("uvec3");
     const b = uniform("bvec3");
     const n = uniform("vec3");
+    const fs = uniformArray("float", 3);
+    const is = uniformArray("int", 3);
+    const bs = uniformArray("bool", 3);
+    const ns = uniformArray("float", 3);
     const isNaN = (x) => x.greaterThanEqual(0).or(x.lessThan(0)).not();
     const all = isNaN(f.y)
       .and(f.z.equal(3))
@@ -1359,7 +1371,12 @@ globalThis.__rmslValueTypes = {
       .and(i.y.toFloat().equal(0))
       .and(u.y.toFloat().equal(0))
       .and(b.y.not())
-      .and(n.y.equal(0));
+      .and(n.y.equal(0))
+      .and(isNaN(fs.element(1)))
+      .and(fs.element(2).equal(3))
+      .and(is.element(1).toFloat().equal(0))
+      .and(bs.element(1).not())
+      .and(ns.element(1).equal(0));
     const target = canvas();
     const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, select(all, float(1), float(0)), 0, 1))());
     adapter.attach(target);
@@ -1370,6 +1387,10 @@ globalThis.__rmslValueTypes = {
     adapter.setUniform(u, [1, undefined, 3]);
     adapter.setUniform(b, [true, undefined, true]);
     adapter.setUniform(n, [1, null, 3]);
+    adapter.setUniform(fs, [1, undefined, 3]);
+    adapter.setUniform(is, [1, undefined, 3]);
+    adapter.setUniform(bs, [true, undefined, true]);
+    adapter.setUniform(ns, [1, null, 3]);
     adapter.draw({ count: 3 });
     return readPixel(target, 1, 2).g === 255;
   }),
@@ -1554,6 +1575,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
    * The page tells NaN by its failing every comparison with zero.
    *
    * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("reads a component the host gives as undefined as a typed slot of its kind holds it on createGlsl", async () => {
     expect(await glslValueType("undefinedComponent")).toBe(true);
@@ -1737,6 +1759,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
 
   /**
    * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("reads a component the host gives as undefined as a typed slot of its kind holds it on createWgslCompute", async () => {
     const f = uniform("vec3");
@@ -1745,7 +1768,11 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     const u = uniform("uvec3");
     const b = uniform("bvec3");
     const n = uniform("vec3");
-    const results = instancedArray(6, "float");
+    const fs = uniformArray("float", 3);
+    const is = uniformArray("int", 3);
+    const bs = uniformArray("bool", 3);
+    const ns = uniformArray("float", 3);
+    const results = instancedArray(10, "float");
     const adapter = createWgslCompute(
       Fn(() => {
         results.element(int(0)).assign(f.y);
@@ -1754,6 +1781,10 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
         results.element(int(3)).assign(u.y.toFloat());
         results.element(int(4)).assign(select(b.y, float(1), float(0)));
         results.element(int(5)).assign(n.y);
+        results.element(int(6)).assign(fs.element(int(1)));
+        results.element(int(7)).assign(is.element(int(1)).toFloat());
+        results.element(int(8)).assign(select(bs.element(int(1)), float(1), float(0)));
+        results.element(int(9)).assign(ns.element(int(1)));
       })(),
     );
     await adapter.attach();
@@ -1763,9 +1794,13 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     adapter.setUniform(u, [1, undefined, 3] as any);
     adapter.setUniform(b, [true, undefined, true] as any);
     adapter.setUniform(n, [1, null, 3] as any);
-    const out = { [results.name]: new Float32Array(6) };
+    adapter.setUniform(fs, [1, undefined, 3] as any);
+    adapter.setUniform(is, [1, undefined, 3] as any);
+    adapter.setUniform(bs, [true, undefined, true] as any);
+    adapter.setUniform(ns, [1, null, 3] as any);
+    const out = { [results.name]: new Float32Array(10) };
     await adapter.compute(out, 1);
-    expect(Array.from(out[results.name]!)).toEqual([NaN, NaN, 0, 0, 0, 0]);
+    expect(Array.from(out[results.name]!)).toEqual([NaN, NaN, 0, 0, 0, 0, NaN, 0, 0, 0]);
     adapter.destroy();
   });
 

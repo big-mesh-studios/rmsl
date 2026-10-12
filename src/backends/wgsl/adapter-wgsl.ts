@@ -233,10 +233,11 @@ function writeUniformElement(
   view: Float32Array | Int32Array | Uint32Array,
   at: number,
   type: string,
-  value: number | ArrayLike<number>,
+  value: number | ArrayLike<number> | null,
 ): void {
-  if (typeof value !== "object") {
-    view[at] = value;
+  // A scalar converts as the typed slot stores it, so `null` reads 0.
+  if (value === null || typeof value !== "object") {
+    view[at] = value as number;
     return;
   }
   let matrix = matrixShape(type);

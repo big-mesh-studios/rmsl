@@ -377,6 +377,9 @@ export function jsHelperSource(name: string): string {
       return `const _none = {};`;
     case "zeros":
       return `const _zeros = new Float64Array(16);`;
+    // What an element of a uniform array given as nothing is read from: a component of it reads undefined.
+    case "nothing":
+      return `const _nothing = [];`;
     // A typed array's own set copies without boxing what it reads, whatever kind of array the source is.
     case "copy":
       return `function _copy(src, out) {\n  if (src.length === out.length && ArrayBuffer.isView(out)) out.set(src);\n  else for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
@@ -1429,7 +1432,8 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
   let temp = jsNewTemp(ctx, t);
   // Copied here, one line a component: this load sees only the arrays this input arrives in, so it
   // stays specialised, where one shared copy would see every kind and box what it read.
-  return { ...result, body: [...result.body, ...jsCopyInput(result.expr, temp, t, ctx)], expr: temp };
+  let element = node.type === "uniformArrayElement";
+  return { ...result, body: [...result.body, ...jsCopyInput(result.expr, temp, t, ctx, element)], expr: temp };
 }
 
 /**
@@ -1437,12 +1441,19 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
  * into `out`, one line a component, reading zeros when the host leaves it out.
  * `out` is a typed slot of the kind of `type`, which converts each component
  * as it stores it. The zeros are an array of their own, so a load that only
- * ever sees the host's arrays stays specialised to them.
+ * ever sees the host's arrays stays specialised to them. An `element` of a
+ * uniform array given as `undefined` or `null` reads each component as
+ * `undefined` instead, which the slot converts as it does a component given
+ * so. `read` gives zeros for an element of an array the host leaves out.
  */
-function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): string[] {
+function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx, element = false): string[] {
   jsRequireHelper(ctx, "zeros");
   let source = jsNewTemp(ctx, "float");
   let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
+  if (element) {
+    jsRequireHelper(ctx, "nothing");
+    lines = [`${source} = ${read} ?? _nothing;`];
+  }
   for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}];`);
   return lines;
 }
@@ -1480,9 +1491,11 @@ function jsScalarInput(read: string, type: string, ctx: CompileCtx): CompiledNod
  * `value`, a scalar the host passes, as a store into a typed slot of its kind
  * converts it: an `Int32Array` for an `int`, a `Uint32Array` for a `uint`, a
  * `Float64Array` or `Float32Array` for a float, and an `Int32Array` for a
- * `bool`, which is true where that is not zero. A value left out reads zero.
+ * `bool`, which is true where that is not zero. A value left out reads zero,
+ * unless it is not `leftOutIsZero`, as an element of a uniform array, which
+ * reads as the slot holds `undefined`.
  */
-function jsInputScalar(value: string, type: string | undefined, ctx: CompileCtx): string {
+function jsInputScalar(value: string, type: string | undefined, ctx: CompileCtx, leftOutIsZero = true): string {
   switch (componentKindOf(type)) {
     case "int":
       return `(${value} | 0)`;
@@ -1491,6 +1504,7 @@ function jsInputScalar(value: string, type: string | undefined, ctx: CompileCtx)
     case "bool":
       return `((${value} | 0) !== 0)`;
     default:
+      if (!leftOutIsZero) return ctx.jsFloat32 ? `Math.fround(${value})` : `+${value}`;
       return ctx.jsFloat32 ? `Math.fround(${value} ?? 0)` : `+(${value} ?? 0)`;
   }
 }
@@ -1752,19 +1766,20 @@ export function compileJSNode(
         at = jsNewTemp(ctx, "int");
         body.push(`${at} = ${jsBoundedIndex(idx.expr, node.params![1]._t, last + 1)};`);
       }
-      // An element of a uniform array the host leaves out reads zero.
-      jsRequireHelper(ctx, "none");
-      let element = `(${jsInputRead(arr.expr, ctx)} ?? _none)[${at}]`;
+      // An array the host leaves out reads as one of zeros: nulls for a scalar, which read zero.
+      let zero = jsIsArrayType(node._t) ? "new Float64Array(16)" : "null";
+      let absent = jsConstant(ctx, `new Array(${last + 1}).fill(${zero})`);
+      let element = `(${jsInputRead(arr.expr, ctx)} ?? ${absent})[${at}]`;
       if (!jsIsArrayType(node._t)) {
         return {
           decls: [...arr.decls, ...idx.decls],
           body,
-          expr: jsInputScalar(element, node._t, ctx),
+          expr: jsInputScalar(element, node._t, ctx, false),
           prec: PREC_ATOM,
         };
       }
       if (ctx.outTarget) {
-        body.push(...jsCopyInput(element, ctx.outTarget, node._t, ctx));
+        body.push(...jsCopyInput(element, ctx.outTarget, node._t, ctx, true));
         return { decls: [...arr.decls, ...idx.decls], body, expr: ctx.outTarget };
       }
       return { decls: [...arr.decls, ...idx.decls], body, expr: element };

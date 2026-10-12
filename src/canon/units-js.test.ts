@@ -2293,6 +2293,7 @@ const cpuAdapters: [string, (colour: Node<"vec4">) => { setUniform(uniform: any,
 describe("the shape of a value a CPU adapter takes", () => {
   /**
    * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it.each(cpuAdapters)(
     "%s refuses a uniform value of another shape through setUniform, by node or by slot",
@@ -2320,6 +2321,12 @@ describe("the shape of a value a CPU adapter takes", () => {
       expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrow(
         `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
       );
+      for (const nothing of [undefined, null])
+        expect(() => adapter.setUniform(pairs, [[1, 2], nothing])).toThrow(
+          `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
+        );
+      expect(() => adapter.setUniform(offsets, [1, undefined])).not.toThrow();
+      expect(() => adapter.setUniform(offsets.name, [null, 2])).not.toThrow();
       expect(() => adapter.setUniform(count, 2.7)).not.toThrow();
       expect(() => adapter.setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
       expect(() => adapter.setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
