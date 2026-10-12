@@ -40,10 +40,8 @@ import {
   uniformUploadValue,
   programSignature,
   geometryAttribute,
-  VERTEX_FORMATS,
-  vertexFormatOf,
-  type VertexFormatSpec,
 } from "./renderers/common";
+import { VERTEX_FORMATS, vertexFormatOf, type VertexFormatSpec } from "../backends/vertex-format";
 import { BufferAttribute } from "./geometries/BufferAttribute";
 
 describe("cameraUniformValue", () => {

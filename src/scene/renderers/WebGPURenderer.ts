@@ -35,11 +35,6 @@ import {
   programSignature,
   geometryAttribute,
   samplerState,
-  attributeShape,
-  vertexFormatOf,
-  wordFormat,
-  type VertexFormat,
-  VERTEX_FORMATS,
   textureChannels,
   type SamplerState,
   type TextureWrap,
@@ -52,6 +47,13 @@ import {
   clearUpdateRanges,
   type AttributeBuffer,
 } from "./common";
+import {
+  attributeShape,
+  vertexFormatOf,
+  wordFormat,
+  type VertexFormat,
+  VERTEX_FORMATS,
+} from "../../backends/vertex-format";
 
 interface PipelineEntry {
   program: MaterialProgram;

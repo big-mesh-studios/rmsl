@@ -248,7 +248,7 @@ export function compileGLSLNode(
     case "attribute": {
       let v = node.value as any;
       if (!ctx.attributes.has(v.slot)) {
-        ctx.attributes.set(v.slot, { id: v.id, type: glslType(v.shaderType), slot: v.slot });
+        ctx.attributes.set(v.slot, { id: v.id, type: glslType(v.shaderType), shaderType: v.shaderType, slot: v.slot });
       }
       return { decls: [], body: [], expr: v.slot };
     }

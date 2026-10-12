@@ -1,4 +1,4 @@
-import { componentKindOf } from "../cpu";
+import type { AttributeKind } from "../vertex-format";
 
 /** The pieces of WebGL state a call can ask `GlStateKeeper` to keep, as bits of one mask. */
 export const GlState = {
@@ -87,15 +87,6 @@ export function setRasterState(gl: WebGL2RenderingContext): void {
   gl.depthFunc(gl.LESS);
   gl.depthRange(0, 1);
   gl.frontFace(gl.CCW);
-}
-
-/** The kind of the components a vertex attribute reads. */
-export type AttributeKind = "float" | "int" | "uint";
-
-/** The kind of the components an attribute of the RMSL type `type` reads. GLSL has no boolean attribute, so a `bool` reads floats. */
-export function attributeKindOf(type: string): AttributeKind {
-  const kind = componentKindOf(type);
-  return kind === "bool" ? "float" : kind;
 }
 
 /**

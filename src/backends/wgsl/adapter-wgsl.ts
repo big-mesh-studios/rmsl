@@ -20,6 +20,7 @@ import {
   TypedArray,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
+import { attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { CompileCtx, storageNodesOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
@@ -32,7 +33,6 @@ import {
   type WgslTextureType,
   typeToWGSL,
   WGSL_RENDER_STORAGE_GROUP,
-  wgslMatrixColumns,
   wgslUniformLayout,
 } from "./wgsl";
 
@@ -152,7 +152,8 @@ function freshCtx(shaderStage: CompileCtx["shaderStage"]): CompileCtx {
   };
 }
 
-type ReflectedAttribute = { slot: string; type: string };
+/** An attribute a vertex stage reads: its slot and its RMSL type. */
+type ReflectedAttribute = { slot: string; shaderType: string };
 type ReflectedUniform = {
   slot: string;
   type: string;
@@ -175,7 +176,7 @@ function reflectStage(
   return {
     attributes: [...ctx.attributes.entries()]
       .sort((a, b) => a[1].id - b[1].id)
-      .map(([, info]) => ({ slot: info.slot, type: info.type })),
+      .map(([, info]) => ({ slot: info.slot, shaderType: info.shaderType })),
     uniforms: [...ctx.uniforms.values()]
       .sort((a, b) => a.order! - b.order!)
       .map((u) => ({
@@ -186,21 +187,6 @@ function reflectStage(
         node: u.node as ReflectedUniform["node"],
       })),
   };
-}
-
-/** Scalar/vector f32 only — a matrix attribute arrives as several columns
- * (see wgslMatrixColumns in wgsl.ts) with no single `GPUVertexFormat` of
- * its own, which this adapter doesn't build the multi-slot layout for. */
-const VERTEX_FORMAT: Record<string, GPUVertexFormat> = {
-  f32: "float32",
-  "vec2<f32>": "float32x2",
-  "vec3<f32>": "float32x3",
-  "vec4<f32>": "float32x4",
-};
-
-function vertexComponentCount(type: string): number {
-  let match = /^vec(\d)<f32>$/.exec(type);
-  return match ? Number(match[1]) : 1;
 }
 
 /**
@@ -459,7 +445,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let attrInfo = vertexAttributes.find((a) => a.slot === slot);
     if (attrInfo) {
-      let componentCount = vertexComponentCount(attrInfo.type);
+      let componentCount = componentCountOf(attrInfo.shaderType);
       let bytes = data.length * 4;
       let existing = vertexBuffers.get(slot);
       if (!existing || existing.buffer.size < bytes) {
@@ -509,14 +495,6 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       let fragmentReflection = reflectStage(options.fragment, "fragment");
       vertexAttributes = vertexReflection.attributes;
 
-      for (let attr of vertexAttributes) {
-        if (wgslMatrixColumns(attr.type)) {
-          throw new Error(
-            `[RMSL] createWgsl's vertex attributes don't support matrix types ("${attr.slot}": ${attr.type})`,
-          );
-        }
-      }
-
       // Vertex and fragment share one uniform struct — same reasoning
       // CompileWGSLOptions.uniforms documents on the compiler side: two
       // stages declaring only what they individually read would pack a
@@ -547,14 +525,21 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       let vertexModule = device.createShaderModule({ code: vertexCode });
       let fragmentModule = device.createShaderModule({ code: fragmentCode });
 
-      let buffers: GPUVertexBufferLayout[] = vertexAttributes.map((attr, location) => {
-        let gpuFormat = VERTEX_FORMAT[attr.type];
-        if (!gpuFormat) {
-          throw new Error(`[RMSL] unsupported vertex attribute type "${attr.type}" for slot "${attr.slot}"`);
-        }
+      // A matrix takes a location for each column, so the locations of later attributes move past it.
+      let nextLocation = 0;
+      let buffers: GPUVertexBufferLayout[] = vertexAttributes.map((attr) => {
+        let { columns, kind } = attributeShape(attr.shaderType);
+        let rows = componentCountOf(attr.shaderType) / columns;
+        let format = wordFormat(kind, rows);
+        let location = nextLocation;
+        nextLocation += columns;
         return {
-          arrayStride: vertexComponentCount(attr.type) * 4,
-          attributes: [{ shaderLocation: location, offset: 0, format: gpuFormat }],
+          arrayStride: columns * rows * 4,
+          attributes: Array.from({ length: columns }, (_, column) => ({
+            shaderLocation: location + column,
+            offset: column * rows * 4,
+            format,
+          })),
         };
       });
 

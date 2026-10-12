@@ -170,7 +170,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
   - [`@spec a-scene-renderer-reads-an-integer-attribute-as-integers`](#spec-a-scene-renderer-reads-an-integer-attribute-as-integers) — `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
   - [`@spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location`](#spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location) — `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
-  - [`@spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+  - [`@spec a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` and `createWgsl` take a matrix attribute of any shape as one flat array that holds each vertex's columns one after another. Each points the location of each column at that column, and counts a draw's vertices by the whole matrix.
   - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads an `Int32Array` for an `int` attribute, or a `Uint32Array` for a `uint` attribute, without a copy. It copies an array of another type into a new array first.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
@@ -1785,13 +1785,13 @@ Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`
 
 This follows because GLSL and WGSL both give a matrix one vertex input for each column. No vertex format holds a whole matrix.
 
-### @spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+### @spec a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
 
-> `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+> `createGlsl` and `createWgsl` take a matrix attribute of any shape as one flat array that holds each vertex's columns one after another. Each points the location of each column at that column, and counts a draw's vertices by the whole matrix.
 
-Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads)
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads), [`fact-a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column)
 
-This follows because GLSL gives a matrix attribute one location for each column, and each location reads only its own column.
+This follows because GLSL and WGSL both give a matrix attribute one location for each column, and each location reads only its own column.
 
 ### @spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given
 

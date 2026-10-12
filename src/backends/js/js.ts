@@ -1789,7 +1789,12 @@ export function compileJSNode(
     case "attribute": {
       let v = node.value as any;
       assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
-      ctx.attributes.set(v.slot, { id: v.id, type: v.shaderType ?? node._t, slot: v.slot });
+      ctx.attributes.set(v.slot, {
+        id: v.id,
+        type: v.shaderType ?? node._t,
+        shaderType: v.shaderType ?? node._t,
+        slot: v.slot,
+      });
       return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 

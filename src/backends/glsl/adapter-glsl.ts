@@ -20,17 +20,10 @@ import {
 } from "../adapter";
 import { assertOneDeclarationPerName, storageNodesOf, type StorageGraphNode, VertexRoot } from "../shared";
 import { componentKindOf, type CpuTextureData } from "../cpu";
+import type { AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
-import {
-  AttributeKind,
-  drawToCanvas,
-  GlState,
-  GlStateKeeper,
-  setAttributeValue,
-  setRasterState,
-  setUnpackState,
-} from "./gl-state";
+import { drawToCanvas, GlState, GlStateKeeper, setAttributeValue, setRasterState, setUnpackState } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */

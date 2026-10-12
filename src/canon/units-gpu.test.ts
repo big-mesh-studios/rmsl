@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   attribute,
   builtinPosition,
@@ -28,6 +28,7 @@ import {
   compile,
   compileWgsl as compileWgslStage,
   compileWgslFn,
+  createWgsl,
   createWgslCompute,
   createWgslContext,
   wgslUniformDeclaration,
@@ -41,7 +42,7 @@ import {
 import { evaluateWGSL } from "../testing/shader-eval";
 import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
-import { stubGl } from "./scene-stubs";
+import { stubDevice, stubGl } from "./scene-stubs";
 import { createGlsl } from "../glsl";
 
 const WEBGPU = await webgpuAvailable();
@@ -735,6 +736,52 @@ describe("an integer attribute of createGlsl", () => {
   });
 });
 
+describe("the vertex layout of createWgsl", () => {
+  /**
+   * A stub device records the pipeline. Each attribute takes a buffer of its
+   * own, in the order the program made them, and a matrix a location for each
+   * column, numbered as the compiled WGSL numbers them.
+   *
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   */
+  it("lays out integer attributes in integer formats and a matrix column by column", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const ids = attribute("ivec2");
+      const flags = attribute("uint");
+      const turn = attribute("mat3x2");
+      const position = attribute("vec3");
+      const { device, canvas, pipelines } = stubDevice();
+      const vertex = Fn(() => {
+        const shift = turn.mul(vec3(ids.x.toFloat(), flags.toFloat(), 1));
+        builtinPosition().assign(vec4(position.xy.add(shift), 0, 1));
+      })();
+      await createWgsl({ context: { device } as any, vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() }).attach(canvas);
+      const { buffers, module } = pipelines[0].vertex;
+      expect(buffers).toEqual([
+        { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "sint32x2" }] },
+        { arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "uint32" }] },
+        {
+          arrayStride: 24,
+          attributes: [0, 1, 2].map((column) => ({
+            shaderLocation: 2 + column,
+            offset: column * 8,
+            format: "float32x2",
+          })),
+        },
+        { arrayStride: 12, attributes: [{ shaderLocation: 5, offset: 0, format: "float32x3" }] },
+      ]);
+      expect(module.code).toMatch(/@location\(0\) \w+: vec2<i32>/);
+      expect(module.code).toMatch(/@location\(4\) \w+_2: vec2<f32>/);
+      expect(module.code).toMatch(/@location\(5\) \w+: vec3<f32>/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("refilling a GLSL storage buffer", () => {
   /**
    * The stub context reports one active uniform, the buffer's sampler. Each
@@ -850,7 +897,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
  * error it hit.
  */
 const VALUE_TYPES = `
-import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
@@ -887,6 +934,16 @@ const glsl = (fragment, set, vertex = plainVertex(), drawWith) => attempt(() => 
 const shiftedVertex = (shift) =>
   Fn(() => { builtinPosition().assign(vec4(position.x.add(shift.toFloat()), position.y, 0, 1)); })();
 const colours = () => uniformArray("vec4", 2);
+/** Draws \`vertex\` green with createWgsl, after \`set\` gives the adapter its attributes; the draw names no count. */
+const wgsl = (vertex, set, fragment = Fn(() => vec4(0, 1, 0, 1))()) => attempt(async () => {
+  const target = canvas();
+  const adapter = createWgsl({ vertex, fragment });
+  await adapter.attach(target);
+  set(adapter);
+  adapter.draw();
+  await adapter.device().queue.onSubmittedWorkDone();
+  return readPixel(target, 1, 2);
+});
 globalThis.__rmslValueTypes = {
   uniformArray: () => {
     const array = colours();
@@ -943,6 +1000,36 @@ globalThis.__rmslValueTypes = {
       adapter.draw();
     });
   },
+  wgslIntAttribute: () => {
+    // Each vertex holds (-5, 5), which sums to no shift only when read as integers.
+    const shift = attribute("ivec2");
+    return wgsl(shiftedVertex(shift.x.add(shift.y)), (adapter) => {
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.setAttribute(shift, Int32Array.of(-5, 5, -5, 5, -5, 5));
+    });
+  },
+  wgslUintAttribute: () => {
+    const shift = attribute("uint");
+    return wgsl(shiftedVertex(shift), (adapter) => {
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.setAttribute(shift, Uint32Array.of(0, 0, 0));
+    });
+  },
+  // Each vertex's matrix has the columns (0, 0, 0), (1, 0, 0) and (0, 0, 0),
+  // so only its second column gives the green. The draw counts by the matrix.
+  wgslMatrixAttribute: () => {
+    const columns = attribute("mat3");
+    const green = varying("float");
+    const vertex = Fn(() => {
+      green.assign(columns.mul(vec3(0, 1, 0)).x);
+      builtinPosition().assign(vec4(position, 1));
+    })();
+    const matrix = Float32Array.of(0, 0, 0, 1, 0, 0, 0, 0, 0);
+    return wgsl(vertex, (adapter) => {
+      adapter.setAttribute(columns, Float32Array.of(...matrix, ...matrix, ...matrix));
+      adapter.setAttribute(position, TRIANGLE);
+    }, Fn(() => vec4(0, green, 0, 1))());
+  },
   wgslUnreadFirst: () => attempt(async () => {
     const unused = attribute("vec2");
     const target = canvas();
@@ -971,6 +1058,14 @@ globalThis.__rmslValueTypes = {
 /** Runs the entry `name` of `VALUE_TYPES` in the WebGL page. */
 const glslValueType = (name: string) =>
   runInGpuPage(
+    `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.${name}();`,
+    "__rmslValueTypesRun",
+    new URL(".", import.meta.url).pathname,
+  );
+
+/** Runs the entry `name` of `VALUE_TYPES` in the WebGPU page. */
+const wgslValueType = (name: string) =>
+  runInWebGpuPage(
     `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.${name}();`,
     "__rmslValueTypesRun",
     new URL(".", import.meta.url).pathname,
@@ -1041,11 +1136,33 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   );
 
   /**
-   * @canon spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
    */
   it("draws with a mat2 attribute through createGlsl, counted by the matrix", async () => {
     expect(await glslValueType("matrixAttribute")).toEqual(GREEN);
   }, 120_000);
+
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it.skipIf(!WEBGPU).each(["wgslIntAttribute", "wgslUintAttribute"])(
+    "draws with an integer attribute through createWgsl, %s",
+    async (entry) => {
+      expect(await wgslValueType(entry)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   */
+  it.skipIf(!WEBGPU)(
+    "draws with a mat3 attribute through createWgsl, counted by the matrix",
+    async () => {
+      expect(await wgslValueType("wgslMatrixAttribute")).toEqual(GREEN);
+    },
+    120_000,
+  );
 
   /**
    * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value

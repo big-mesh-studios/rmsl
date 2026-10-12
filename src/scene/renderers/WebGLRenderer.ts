@@ -40,9 +40,6 @@ import {
   rendererUniformValue,
   programSignature,
   geometryAttribute,
-  attributeShape,
-  VERTEX_FORMATS,
-  vertexFormatOf,
   drawSlice,
   imageLoaded,
   isMirrored,
@@ -50,6 +47,7 @@ import {
   clearUpdateRanges,
   type AttributeBuffer,
 } from "./common";
+import { attributeShape, VERTEX_FORMATS, vertexFormatOf } from "../../backends/vertex-format";
 
 interface ProgramEntry {
   program: MaterialProgram;
