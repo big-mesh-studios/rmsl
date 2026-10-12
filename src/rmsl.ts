@@ -188,6 +188,8 @@ export type {
   UniformArrayNode,
   UniformNode,
   UniformPrecision,
+  UniformSlotValue,
+  UniformValue,
   USampler3DLike,
   UVec2Like,
   UVec3Like,
