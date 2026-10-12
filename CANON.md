@@ -1720,7 +1720,6 @@ This follows because both CPU targets compute in 64 bits, so nothing keeps them 
 
 > A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
 
-
 ##### @spec cpu-float-arithmetic-matches-the-gpu-targets
 
 > The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
@@ -2496,7 +2495,6 @@ This follows because no target defines the three for integers as a `float`. GLSL
 ##### @spec a-math-function-of-floats-refuses-an-integer-operand
 
 > The angle, trigonometric, exponential and rounding functions refuse an integer, unsigned or boolean operand, scalar or vector. So do the derivatives, `pow`, `mix`, `step`, `smoothstep`, `normalize`, `reflect`, `refract`, `faceForward` and `cross`, and `cbrt`, `oneMinus`, `reciprocal` and `lengthSq`, which rmsl composes from them.
-
 
 #### @spec a-signed-operation-refuses-an-unsigned-operand
 
@@ -4616,7 +4614,6 @@ This follows because a texture holds no value in the uniform buffer. The host pa
 
 > Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
 
-
 #### @spec a-gpu-uniform-layout-needs-32-bit-floats
 
 > A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
@@ -4624,7 +4621,6 @@ This follows because a texture holds no value in the uniform buffer. The host pa
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout), [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision)
 
 This follows because a layout shares its bytes with a WGSL uniform buffer, which holds 32-bit floats, while a program compiled at 64 bits asked for a precision those bytes cannot carry. A user who picks 64 bits gives up sharing the buffer with the GPU. The precision stays written at the call, rather than following from the layout without a word.
-
 
 #### @spec a-type-with-no-layout-is-refused
 
