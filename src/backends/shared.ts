@@ -2,6 +2,7 @@ import { withArticle } from "../article";
 import {
   assertForUpdateNode,
   BaseNode,
+  LOOP_JUMP_STATEMENTS,
   MATRIX_DIMENSIONS,
   Node,
   NodeImpl,
@@ -18,6 +19,7 @@ import {
   vec4,
 } from "../core";
 import { componentCountOf, componentKindOf } from "./cpu";
+import { isInlineFn } from "./share";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
  * its operator precedence (higher = tighter binding, for bracket reduction).
@@ -681,6 +683,21 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
   return lowered;
 }
 
+/** Why a `Break()` or a `Continue()` with no loop around it is refused, for each jump. */
+export const LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE: Record<"break" | "continue", string> = {
+  break: '[RMSL] "Break" outside a loop: no loop is around it for it to leave. Call it inside a loop body.',
+  continue: '[RMSL] "Continue" outside a loop: no loop is around it to start again. Call it inside a loop body.',
+};
+
+/**
+ * Whether slot `i` of `statement` is a block of the program, whose statements
+ * run where the statement puts them: an item of a `seq`, a branch of an `If`,
+ * or the init of a `For`. A loop's other slots run inside it. Any other slot
+ * holds a value, and a value with statements of its own is an inline `Fn`.
+ */
+const isBlockSlot = (statement: any, i: number) =>
+  statement.type === "seq" || (statement.type === "if" && i > 0) || (statement.type === "for" && i === 0);
+
 /** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
 function refuseWholeStorageRead(storage: any): never {
   throw new Error(`[RMSL] storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`);
@@ -692,9 +709,12 @@ function refuseWholeStorageRead(storage: any): never {
  * a storage node read as a whole rather than through `.element(i)`
  * (an assignment to one has its own refusal, in `assertAssignable`), a node of
  * a `for` update that the update slot of a `for` cannot take, and a write by
- * index through a swizzle that its read would refuse. It gives each such write
- * made a write into the vector the swizzle reads, see {@link swizzleWritePlace},
- * and whether the program holds an `outputStruct`.
+ * index through a swizzle that its read would refuse. It refuses a `Break()`
+ * or a `Continue()` outside every loop, the init of a `For` included, which
+ * runs before its loop starts. A jump in an inline `Fn` acts where the `Fn`
+ * runs, which the sharing pass decides, so `placeInlineFns` checks it. It
+ * gives each such write made a write into the vector the swizzle reads, see
+ * {@link swizzleWritePlace}, and whether the program holds an `outputStruct`.
  */
 function checkRoots(roots: readonly unknown[]): {
   swizzleWrites: Map<any, any>;
@@ -709,13 +729,18 @@ function checkRoots(roots: readonly unknown[]): {
   let holdsStageWrite = false;
   let holdsVarying = false;
   for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(root);
-  // A node is visited once outside every update and once inside one.
-  const visited = [new Set<unknown>(), new Set<unknown>()];
-  const visit = (node: any, inUpdate: boolean): void => {
-    if (!node || typeof node !== "object" || visited[+inUpdate]!.has(node)) return;
-    visited[+inUpdate]!.add(node);
-    if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
+  // A node is visited once in each place: in a loop update, elsewhere in a
+  // loop or an inline Fn, and among the statements of the program outside every loop.
+  const visited = [new Set<unknown>(), new Set<unknown>(), new Set<unknown>()];
+  const visit = (node: any, inUpdate: boolean, outsideLoops: boolean): void => {
+    if (!node || typeof node !== "object") return;
+    const seen = visited[inUpdate ? 2 : +outsideLoops]!;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate, outsideLoops));
     if (inUpdate) assertForUpdateNode(node);
+    if (outsideLoops && LOOP_JUMP_STATEMENTS.has(node.type))
+      throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[node.type as "break" | "continue"]);
     const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
     if (refusal) throw new Error(`[RMSL] ${refusal}`);
     if (node.type === "outputStruct") holdsOutputStruct = true;
@@ -736,10 +761,14 @@ function checkRoots(roots: readonly unknown[]): {
     node.params?.forEach((param: any, i: number) => {
       const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
       if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(param);
-      visit(param, inUpdate || (node.type === "for" && i === 2));
+      const outside =
+        outsideLoops &&
+        !(node.type === "while" || (node.type === "for" && i > 0)) &&
+        (isBlockSlot(node, i) || !isInlineFn(param));
+      visit(param, inUpdate || (node.type === "for" && i === 2), outside);
     });
   };
-  visit(roots, false);
+  visit(roots, false, true);
   return { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying };
 }
 

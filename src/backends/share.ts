@@ -69,7 +69,7 @@ const LITERALS = new Set(["float", "int", "uint", "bool"]);
 const isStatement = (n: any) => STATEMENTS.has(n.type);
 
 /** Whether `n` is the result of an inline `Fn` with statements of its own. */
-const isInlineFn = (n: any) => n?.type === "seq" && (n.params ?? []).some(isStatement);
+export const isInlineFn = (n: any) => n?.type === "seq" && (n.params ?? []).some(isStatement);
 
 /**
  * A read's place: a block, and the index there of the item that holds the

@@ -71,6 +71,7 @@ import {
 } from "../testing/shader-eval";
 import { CONDITION_LOOPS, CONDITION_READS } from "../testing/inline-fn-paths";
 import { INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE } from "../backends/share";
+import { LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE } from "../backends/shared";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -1668,6 +1669,87 @@ describe("each leaf on every target it claims", () => {
         expect(evaluateRecording(build, [3]), `${loop}, ${reads}`).toBe(403);
       }
     }
+  });
+
+  /**
+   * A jump the program's body holds outside every loop: alone, in a branch,
+   * after a loop that ended, or in the init of a `For`, which runs before the
+   * loop starts. The same jump in a loop body compiles.
+   *
+   * @canon spec-break-or-continue-outside-a-loop-is-refused
+   */
+  it.each([
+    ["break", Break],
+    ["continue", Continue],
+  ] as const)("refuses %s outside every loop on every target, and compiles it in one", (name, jump) => {
+    const drop = uniform("float");
+    const places: [string, () => Node<any>][] = [
+      [
+        "alone",
+        () =>
+          Fn(() => {
+            jump();
+            return vec4(1);
+          })(),
+      ],
+      [
+        "in a branch",
+        () =>
+          Fn(() => {
+            If(drop.greaterThan(0), () => jump());
+            return vec4(1);
+          })(),
+      ],
+      [
+        "after a loop",
+        () =>
+          Fn(() => {
+            const total = float(0).toVar();
+            Loop(2, () => {
+              total.addAssign(1);
+            });
+            If(drop.greaterThan(0), () => jump());
+            return vec4(total);
+          })(),
+      ],
+      [
+        "in the init of a For",
+        () =>
+          Fn(() => {
+            const total = float(0).toVar();
+            For(
+              () => {
+                If(drop.greaterThan(0), () => jump());
+                return int(0).toVar();
+              },
+              (i) => i.lessThan(2),
+              (i) => i.addAssign(1),
+              () => total.addAssign(1),
+            );
+            return vec4(total);
+          })(),
+      ],
+    ];
+    for (const [place, build] of places) {
+      try {
+        expectOnEveryTarget("fragment", build, LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[name]);
+      } catch (error) {
+        throw new Error(`${name} ${place}: ${(error as Error).message}`);
+      }
+    }
+    expectOnEveryTarget(
+      "fragment",
+      () =>
+        Fn(() => {
+          const total = float(0).toVar();
+          Loop(2, () => {
+            If(drop.greaterThan(0), () => jump());
+            total.addAssign(1);
+          });
+          return vec4(total);
+        })(),
+      false,
+    );
   });
 });
 
