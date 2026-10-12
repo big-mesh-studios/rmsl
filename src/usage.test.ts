@@ -568,6 +568,12 @@ describe("RMSL", () => {
     expect(() => textureLevel(float(1) as any, vec2(0, 0), float(0))).toThrow(
       /textureLevel: its first argument is a float, not a sampler/,
     );
+    expect(() => texture(uvec2(1, 1) as any, vec2(0, 0))).toThrow(
+      /texture: its first argument is a uvec2, not a sampler/,
+    );
+    expect(() => texture(ivec2(1, 1) as any, vec2(0, 0))).toThrow(
+      /texture: its first argument is an ivec2, not a sampler/,
+    );
   });
 
   /**
@@ -1793,6 +1799,16 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(() => compileWgslFn(build as any, options)).toThrow(message);
     expect(() => compileJSRoutine(build as any, options)).toThrow(message);
     expect(() => compileWasmRoutine(build as any, options)).toThrow(message);
+  });
+
+  /**
+   * @canon spec-a-raw-name-names-one-type
+   */
+  it("names a uint uniform with the article its sound takes", () => {
+    let build = () => Fn(() => uniformRaw("count", "uint").toFloat().add(uniformRaw("count", "int").toFloat()))();
+    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrow(
+      '[RMSL] "count" names a uint uniform and an int uniform',
+    );
   });
 
   /**

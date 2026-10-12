@@ -2,6 +2,7 @@
 import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
 import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
 import { componentCountOf } from "../../backends/cpu";
+import { assertHostShape } from "../../backends/host-shape";
 import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
@@ -433,7 +434,7 @@ export class WebGPURenderer {
     for (const binding of entry.program.uniforms) {
       const member = entry.layoutMembers.find((m) => m.name === binding.node.name);
       if (!member) continue;
-      let value: number | ArrayLike<number>;
+      let value: number | ArrayLike<number> | undefined;
       if (binding.scope === "camera") {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
@@ -441,8 +442,12 @@ export class WebGPURenderer {
       } else if (binding.scope === "renderer") {
         value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
-        value = binding.value?.({ camera, mesh }) ?? [];
+        value = binding.value?.({ camera, mesh });
+        // Only a material's value comes from the user; the renderer computes the others in their shape.
+        assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       }
+      // A name the renderer has no value for reads zero, as the scratch was cleared.
+      if (value === undefined) continue;
       writeUniformMember(scratch, member, value);
     }
     this.device.queue.writeBuffer(

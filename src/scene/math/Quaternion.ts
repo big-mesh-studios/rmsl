@@ -2,6 +2,9 @@ import type { Euler } from "./Euler";
 import type { Matrix4 } from "./Matrix4";
 import { Vector3 } from "./Vector3";
 
+/** A tuple of the four components of a `Quaternion`, `[x, y, z, w]`. */
+export type QuaternionTuple = [x: number, y: number, z: number, w: number];
+
 export class Quaternion {
   x: number;
   y: number;
@@ -269,7 +272,11 @@ export class Quaternion {
     return this;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The components as a new tuple. */
+  toArray(): QuaternionTuple;
+  /** Writes the components into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     array[offset] = this.x;
     array[offset + 1] = this.y;
     array[offset + 2] = this.z;

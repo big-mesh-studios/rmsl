@@ -1327,12 +1327,13 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     ctx.jsReadsSlot = outer || ctx.jsReadsSlot;
     return result;
   }
-  if (JS_INPUT_BY_NAME.test(result.expr) && !jsIsArrayType(node?._t) && node?.type !== "uniformArray") {
-    result = { ...result, expr: jsInputScalar(result.expr, node._t, ctx), prec: PREC_ATOM };
-  }
   let read = result.expr;
-  result = jsTypedInput(node, result, ctx);
-  if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
+  if (JS_INPUT_BY_NAME.test(read) && !jsIsArrayType(node?._t) && node?.type !== "uniformArray") {
+    result = jsScalarInput(read, node._t, ctx);
+  } else {
+    result = jsTypedInput(node, result, ctx);
+    if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
+  }
   // A copy of what the host passed by name holds through any write: nothing in a call changes it.
   if (result.expr !== read && JS_INPUT_BY_NAME.test(read)) {
     ctx.jsReadsSlot = true;
@@ -1433,16 +1434,16 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
 
 /**
  * The lines that copy `read`, a vector or matrix of `type` the host passes,
- * into `out`, one line a component, reading zeros when the host leaves it out
- * and zero for each component past the end of a shorter one. The zeros are an
- * array of their own, so a load that only ever sees the host's arrays stays
- * specialised to them.
+ * into `out`, one line a component, reading zeros when the host leaves it out.
+ * `out` is a typed slot of the kind of `type`, which converts each component
+ * as it stores it. The zeros are an array of their own, so a load that only
+ * ever sees the host's arrays stays specialised to them.
  */
 function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): string[] {
   jsRequireHelper(ctx, "zeros");
   let source = jsNewTemp(ctx, "float");
   let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
-  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}] ?? 0;`);
+  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}];`);
   return lines;
 }
 
@@ -1466,9 +1467,32 @@ function jsInputObject(kind: string): string {
   return `_rmsl_in_${kind}`;
 }
 
-/** `read`, a scalar input the host passes by name, which reads zero, or false for a bool, when the host leaves it out. */
-function jsInputScalar(read: string, type: string | undefined, ctx: CompileCtx): string {
-  return `(${jsInputRead(read, ctx)} ?? ${type === "bool" ? "false" : "0"})`;
+/**
+ * `read`, a scalar input the host passes by name, converted into a local of
+ * the function as a typed slot of its kind would convert it.
+ */
+function jsScalarInput(read: string, type: string, ctx: CompileCtx): CompiledNode {
+  let local = jsNewTemp(ctx, type);
+  return { decls: [], body: [`${local} = ${jsInputScalar(jsInputRead(read, ctx), type, ctx)};`], expr: local };
+}
+
+/**
+ * `value`, a scalar the host passes, as a store into a typed slot of its kind
+ * converts it: an `Int32Array` for an `int`, a `Uint32Array` for a `uint`, a
+ * `Float64Array` or `Float32Array` for a float, and an `Int32Array` for a
+ * `bool`, which is true where that is not zero. A value left out reads zero.
+ */
+function jsInputScalar(value: string, type: string | undefined, ctx: CompileCtx): string {
+  switch (componentKindOf(type)) {
+    case "int":
+      return `(${value} | 0)`;
+    case "uint":
+      return `(${value} >>> 0)`;
+    case "bool":
+      return `((${value} | 0) !== 0)`;
+    default:
+      return ctx.jsFloat32 ? `Math.fround(${value} ?? 0)` : `+(${value} ?? 0)`;
+  }
 }
 
 /**
@@ -1728,7 +1752,7 @@ export function compileJSNode(
         at = jsNewTemp(ctx, "int");
         body.push(`${at} = ${jsBoundedIndex(idx.expr, node.params![1]._t, last + 1)};`);
       }
-      // An element past the end of a shorter array the host passes, or of one it leaves out, reads zero.
+      // An element of a uniform array the host leaves out reads zero.
       jsRequireHelper(ctx, "none");
       let element = `(${jsInputRead(arr.expr, ctx)} ?? _none)[${at}]`;
       if (!jsIsArrayType(node._t)) {

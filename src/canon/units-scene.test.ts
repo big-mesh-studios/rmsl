@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
-import { float, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
+import { float, select, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
 import {
   AmbientLight,
   Blending,
@@ -217,6 +217,55 @@ globalThis.__rmslMissingAttribute = async (backend) => {
   return results;
 };
 `;
+
+describe("the values a scene renderer uploads", () => {
+  /**
+   * A material property of another shape than its uniform's type is refused
+   * at the draw that would upload it, on both renderers.
+   *
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
+   */
+  it("refuses a material value of another shape than its uniform's type on WebGL and WebGPU", () => {
+    const { device, canvas } = stubDevice();
+    const renderers = [new WebGPURenderer(canvas, device as any), stubWebGl().renderer];
+    for (const renderer of renderers) {
+      const material = new MeshBasicMaterial();
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(), material));
+      (material as any).opacity = [1];
+      expect(() => renderer.render(scene, camera())).toThrow(
+        '[RMSL] the float uniform "materialOpacity" takes one value, not an array of 1',
+      );
+      (material as any).opacity = 1;
+      (material.color as any).toArray = () => [1, 1];
+      expect(() => renderer.render(scene, camera())).toThrow(
+        '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 2',
+      );
+      (material.color as any).toArray = () => [];
+      expect(() => renderer.render(scene, camera())).toThrow(
+        '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 0',
+      );
+    }
+  });
+
+  /**
+   * The camera's projection is cut to fifteen elements, which a check of the
+   * values the renderer computes itself would refuse.
+   *
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
+   */
+  it("checks no camera, object or renderer value, which it computes itself", () => {
+    const { device, canvas } = stubDevice();
+    const renderers = [new WebGPURenderer(canvas, device as any), stubWebGl().renderer];
+    for (const renderer of renderers) {
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+      const view = camera();
+      (view.projectionMatrix as any).elements = view.projectionMatrix.elements.slice(0, 15);
+      expect(() => renderer.render(scene, view)).not.toThrow();
+    }
+  });
+});
 
 describe("a scene renderer manages what it uploads", () => {
   /**
@@ -1228,13 +1277,13 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
-   * The WebGPU renderer leaves a `mat3` uniform at zero when the value it
-   * takes is an empty array, as it does for a name it does not know.
+   * An empty array is a value of no components, which a `mat3` does not
+   * hold, so the WebGPU renderer refuses it rather than leave the matrix at zero.
    *
-   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
    */
-  it("writes nothing for an empty matrix value on WebGPU", () => {
-    const { device, canvas, bytesOf } = stubDevice();
+  it("refuses an empty matrix value on WebGPU", () => {
+    const { device, canvas } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) =>
@@ -1250,11 +1299,56 @@ describe("a scene renderer manages what it uploads", () => {
     const mesh = new Mesh(new PlaneGeometry(), material);
     mesh.updateMatrixWorld(true);
     const entry = renderer.ensurePipeline(material, new Scene(), false, false);
+    expect(() => renderer.packUniforms(entry, mesh, camera(), 0)).toThrow(
+      '[RMSL] the mat3 uniform "m" takes 9 components, not an array of 0',
+    );
+  });
+
+  /**
+   * Each matrix that is not square goes to the WebGL call of its shape, with its columns as they are given.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a matrix that is not square through the call of its shape on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const shapes = ["mat2x3", "mat2x4", "mat3x2", "mat3x4", "mat4x2", "mat4x3"] as const;
+    for (const type of shapes) {
+      const [columns, rows] = [Number(type[3]), Number(type[5])];
+      const value = Array.from({ length: columns * rows }, (_, i) => i + 1);
+      const before = calls.length;
+      renderer.setUniform({ name: type }, type, value);
+      expect(
+        calls.slice(before).map((c) => [c.name, c.args[1], Array.from(c.args[2])]),
+        type,
+      ).toEqual([[`uniformMatrix${columns}x${rows}fv`, false, value]]);
+    }
+  });
+
+  /**
+   * A material uniform of a matrix that is not square is written column by
+   * column, each column of three padded to 16 bytes, as WGSL reads it.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a matrix that is not square as WGSL lays it out on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const tall = b.materialUniform("tall", "mat2x3", () => [1, 2, 3, 4, 5, 6]);
+      const wide = b.materialUniform("wide", "mat3x2", () => [7, 8, 9, 10, 11, 12]);
+      return vec4(tall.element(1).x.add(wide.element(2).y), 0, 0, 1);
+    };
+    const mesh = new Mesh(new PlaneGeometry(), material);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
     renderer.packUniforms(entry, mesh, camera(), 0);
 
     const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
-    const base = offsetOf(entry, "m") / 4;
-    expect(Array.from(floats.subarray(base, base + 12))).toEqual(new Array(12).fill(0));
+    const tall = offsetOf(entry, "tall") / 4;
+    const wide = offsetOf(entry, "wide") / 4;
+    expect(Array.from(floats.subarray(tall, tall + 7))).toEqual([1, 2, 3, 0, 4, 5, 6]);
+    expect(Array.from(floats.subarray(wide, wide + 6))).toEqual([7, 8, 9, 10, 11, 12]);
   });
 
   /**
@@ -1269,6 +1363,44 @@ describe("a scene renderer manages what it uploads", () => {
     renderer.setUniform({ name: "b" }, "uvec2", [5, 6]);
     renderer.setUniform({ name: "c" }, "bvec3", [1, 0, 1]);
     expect(calls.slice(before).map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
+  });
+
+  /**
+   * A bool material value of `true`, 2 or `"x"` reaches the GPU as a `GLint`
+   * on WebGL and a `u32` on WebGPU, each the conversion of the value.
+   *
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it("uploads a bool material value as the integer it converts to on WebGL and WebGPU", () => {
+    for (const [given, integer] of [
+      [true, 1],
+      [2, 2],
+      ["x", 0],
+    ] as const) {
+      const material = () => {
+        const m = new MeshBasicMaterial();
+        m.fragmentNode = (b) => {
+          const flag = b.materialUniform("flag", "bool", () => given as any);
+          return vec4(select(flag, float(1), float(0)), 0, 0, 1);
+        };
+        return m;
+      };
+      const { renderer, calls } = stubWebGl();
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(), material()));
+      renderer.render(scene, camera());
+      const upload = calls.find((c) => c.name === "uniform1i" && c.args[0]?.name === "flag");
+      expect(upload && (upload.args[1] as number) | 0, `WebGL ${String(given)}`).toBe(integer);
+
+      const { device, canvas, bytesOf } = stubDevice();
+      const webgpu = new WebGPURenderer(canvas, device as any) as any;
+      const mesh = new Mesh(new PlaneGeometry(), material());
+      mesh.updateMatrixWorld(true);
+      const entry = webgpu.ensurePipeline(mesh.material, new Scene(), false, false);
+      webgpu.packUniforms(entry, mesh, camera(), 0);
+      const words = new Uint32Array(bytesOf(entry.ringBuffer).buffer);
+      expect(words[offsetOf(entry, "flag") / 4], `WebGPU ${String(given)}`).toBe(integer);
+    }
   });
 
   /**

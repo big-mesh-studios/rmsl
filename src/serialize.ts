@@ -1,3 +1,4 @@
+import { withArticle } from "./article";
 import {
   allocAttrId,
   allocUniformId,
@@ -187,7 +188,7 @@ export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<Sha
     const ArrayClass = ARRAY_CLASSES[b.arrayClass];
     if (!ArrayClass) {
       throw new Error(
-        `[RMSL] deserialize: buffer ${i} holds a ${b.arrayClass}, not a Float32Array, Int32Array or Uint32Array`,
+        `[RMSL] deserialize: buffer ${i} holds ${withArticle(String(b.arrayClass))}, not a Float32Array, Int32Array or Uint32Array`,
       );
     }
     return new Attribute(ArrayClass.from(b.array.map((v) => decodeNumbers(v) as number)), b.itemSize);
@@ -258,7 +259,9 @@ function deserializeNode(
   if (named) {
     const { local, slot, ...rest } = value as { local?: number; slot?: string };
     if (local === undefined && (typeof slot !== "string" || slot === "")) {
-      throw new Error(`[RMSL] deserialize: a ${entry.type} node has no name, neither a slot nor a local one`);
+      throw new Error(
+        `[RMSL] deserialize: ${withArticle(entry.type)} node has no name, neither a slot nor a local one`,
+      );
     }
     const fresh =
       local === undefined

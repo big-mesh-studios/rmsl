@@ -1,7 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
-import { assertHostArray } from "../vertex-format";
 import {
   compileWasmFn,
   componentSizeOf,
@@ -246,14 +245,27 @@ export function compileWasm(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmOptions = {},
 ): WasmRasterRoutine {
-  const vertexCompiled = compileWasmFn(vertexFn, {
+  return compileWasmRasterizer("compileWasm", vertexFn, fragmentFn, options);
+}
+
+/** {@link compileWasm} for `caller`, the call the errors of a draw name: `compileWasm` itself, or an adapter that wraps it. */
+export function compileWasmRasterizer(
+  caller: string,
+  vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmOptions,
+): WasmRasterRoutine {
+  // Each stage is built once, so the declarations below come from the graph that was compiled.
+  const vertexRoots = vertexFn();
+  const vertexCompiled = compileWasmFn(() => vertexRoots, {
     ...options,
     name: "main",
     params: [],
     stage: "vertex",
     scalarsInMemory: true,
   });
-  const fragmentCompiled = compileWasmFn(fragmentFn, {
+  const fragmentRoots = fragmentFn();
+  const fragmentCompiled = compileWasmFn(() => fragmentRoots, {
     ...options,
     name: "main",
     params: [],
@@ -495,8 +507,7 @@ export function compileWasm(
         continue;
       }
       const src = ctx.attributes[a.slot];
-      if (!src) throw missingAttributeError("compileWasm", a.slot);
-      assertHostArray("attribute", a.slot, a.shaderType, src, true);
+      if (!src) throw missingAttributeError(caller, a.slot);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;

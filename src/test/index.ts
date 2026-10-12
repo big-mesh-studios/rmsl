@@ -1,3 +1,4 @@
+import { withArticle } from "../article";
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
 import { compileJSFn, compileJSFragment, compileJSVertex, type CpuShaderContext, type CpuTextureData } from "../js";
 import { isVector, type CpuValue, type FragmentResult, type VertexResult } from "../backends/cpu";
@@ -797,7 +798,7 @@ function bound<A extends object>(kind: string, field: keyof ShaderInputs, values
         // generated name is no use to bind by: point at the node instead.
         const wanted = name
           ? `reads the ${kind} "${name}", which nothing bound. ` + `Pass it under \`${field}\`.`
-          : `reads a ${kind} nothing bound, in the slot the compiler generated ` +
+          : `reads ${withArticle(kind)} nothing bound, in the slot the compiler generated ` +
             `as "${key}". Pass its node under \`${field}\`, as [node, value].`;
         const listed = reads.named && field === "uniforms" ? " It is listed in the runner's `unbound`." : "";
         throw new Error(`[RMSL/test] the ${reads.stage} stage ${wanted}${listed}`);

@@ -1,3 +1,6 @@
+/** A tuple of the two components of a `Vector2`, `[x, y]`. */
+export type Vector2Tuple = [x: number, y: number];
+
 export class Vector2 {
   x: number;
   y: number;
@@ -93,7 +96,11 @@ export class Vector2 {
     return this;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The components as a new tuple. */
+  toArray(): Vector2Tuple;
+  /** Writes the components into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     array[offset] = this.x;
     array[offset + 1] = this.y;
     return array;

@@ -1,3 +1,4 @@
+import { withArticle } from "../../article";
 import {
   BaseNode,
   MATRIX_DIMENSIONS,
@@ -1961,7 +1962,8 @@ export function sharedSamplerDeclarations(
 ): { slot: string; shaderType: string; type: string; integer: boolean }[] {
   return samplers.map((node) => {
     const shaderType = node._t as string;
-    if (!isSamplerType(shaderType)) throw new Error(`[RMSL] "${node.name}" is a ${shaderType} uniform, not a texture`);
+    if (!isSamplerType(shaderType))
+      throw new Error(`[RMSL] "${node.name}" is ${withArticle(shaderType)} uniform, not a texture`);
     if (!(shaderType in typeToWGSL))
       throw new Error(`[RMSL] "${node.name}" has the sampler type "${shaderType}", which WGSL has no texture for`);
     return { slot: node.name, shaderType, type: wgslType(shaderType), integer: isIntegerSamplerType(shaderType) };

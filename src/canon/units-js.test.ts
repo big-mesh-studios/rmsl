@@ -28,6 +28,7 @@ import {
   uint,
   textureLoad,
   uniform,
+  uniformArray,
   varying,
   vec2,
   vec3,
@@ -72,6 +73,7 @@ import {
   evaluateRecording,
 } from "../testing/shader-eval";
 import type { ComputeStage, FragmentStage, VertexStage } from "../backends/cpu";
+import { Vector3 } from "../scene/math";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -1079,7 +1081,7 @@ describe("a JS storage access outside its buffer", () => {
     const params = [{ name: "i", type: "int" as const }];
     const build = (i: Node<"int">) =>
       Fn(() => scalars.element(i).add(pairs.element(i).y).add(pairs.element(i).x.mul(10)).toVar())() as any;
-    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: [3, 4, 5, 6] });
+    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: Float64Array.of(3, 4, 5, 6) });
     for (const i of [10, -1, 2]) {
       const ctx = { params: { i }, storages: storages() };
       expect(compileJSRoutine(build, { name: "main", params })(ctx)).toBe(0);
@@ -1130,9 +1132,10 @@ describe("a JS storage access outside its buffer", () => {
         pairs.element(int(2)).xy.assign(vec2(9, 9));
       })() as any;
     for (const compile of [compileJSCompute, compileWasmCompute]) {
-      const storages = { [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] };
+      const storages = { [scalars.name]: Float64Array.of(1, 2), [pairs.name]: Float32Array.of(3, 4, 5, 6) };
       compile(build, { name: "main", params: [] })({ storages }, 1);
-      expect(storages).toEqual({ [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] });
+      expect(Array.from(storages[scalars.name]!)).toEqual([1, 2]);
+      expect(Array.from(storages[pairs.name]!)).toEqual([3, 4, 5, 6]);
     }
   });
 });
@@ -1189,7 +1192,7 @@ describe("the element-wise operations of a JS function", () => {
     expect(source).not.toContain("typeof");
     // A scalar that is not a local is read into one once, before the components are written.
     expect(source).toMatch(
-      /(_rmsl_t\d+) = \(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
+      /(_rmsl_t\d+) = \+\(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
     );
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(
       new Float64Array([0.5, 1, 1.5]),
@@ -1276,7 +1279,7 @@ describe("the scalars and inputs of a JS function", () => {
     const source = compileJSFn(() => Fn(() => vec3(v.add(1).x, i.add(1).toFloat()).toVar())() as any, none);
     // Copied one component at a time where it is read, into a slot of the input's kind.
     expect(source).toMatch(
-      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\] \?\? 0;/,
+      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\];/,
     );
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     const run = compileJSRoutine(() => Fn(() => v.add(1).toVar())() as any, none);
@@ -1795,11 +1798,12 @@ describe("the fragments a CPU rasterizer draws", () => {
 
   /**
    * The triangle's colour is what its integer attributes read, from arrays of
-   * their kinds. An array of another kind, or a plain array, is refused.
+   * their kinds. A draw checks no array's kind: an array of another kind, or a
+   * plain array, is drawn from as it is.
    *
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-a-compiled-program-trusts-its-inputs
    */
-  it.each(rasterizers)("%s: draws with an integer attribute only from an array of its kind", (_, compileRaster) => {
+  it.each(rasterizers)("%s: draws with an integer attribute from an array of any kind", (_, compileRaster) => {
     const pos = attribute("vec2");
     const signed = attribute("int");
     const unsigned = attribute("uvec2");
@@ -1823,13 +1827,13 @@ describe("the fragments a CPU rasterizer draws", () => {
     const unsignedData = new Uint32Array(6);
     expect(() =>
       draw({ [pos.name]: corners, [signed.name]: new Float64Array(3), [unsigned.name]: unsignedData }),
-    ).toThrow(/\bint\b.*Int32Array.*Float64Array/);
+    ).not.toThrow();
     expect(() =>
       draw({ [pos.name]: corners, [signed.name]: new Int32Array(3), [unsigned.name]: new Int32Array(6) }),
-    ).toThrow(/\buvec2\b.*Uint32Array.*Int32Array/);
+    ).not.toThrow();
     expect(() =>
       draw({ [pos.name]: [-1, -1, 3, -1, -1, 3], [signed.name]: new Int32Array(3), [unsigned.name]: unsignedData }),
-    ).toThrow(/\bvec2\b.*Float32Array or a Float64Array.*number\[\]/);
+    ).not.toThrow();
   });
 
   /**
@@ -2229,5 +2233,247 @@ describe("the array a CPU adapter takes for a storage buffer", () => {
       /\buint\b storage buffer.*Uint32Array/,
     );
     expect(() => adapter.setAttribute(shades, new Uint32Array(1))).not.toThrow();
+  });
+});
+
+/** A program that reads a uniform of each shape, as one `vec4` node. */
+const cpuUniformShapes = () => {
+  const count = uniform("int");
+  const offsets = uniformArray("int", 2);
+  const tint = uniform("vec3");
+  const turn = uniform("mat2");
+  const pairs = uniformArray("vec2", 2);
+  const value = count
+    .add(offsets.element(int(1)))
+    .toFloat()
+    .add(tint.x)
+    .add(turn.element(int(1)).y)
+    .add(pairs.element(int(1)).y);
+  return { count, offsets, tint, turn, pairs, colour: Fn(() => vec4(value, 0, 0, 1))() };
+};
+
+/** Each CPU adapter over the `vec4` node `colour`, with the `setUniform` it gives. */
+const cpuAdapters: [string, (colour: Node<"vec4">) => { setUniform(uniform: any, value: unknown): void }][] = [
+  [
+    "createJs",
+    (colour) =>
+      createJs(
+        () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))(),
+        () => colour,
+      ),
+  ],
+  [
+    "createWasm",
+    (colour) =>
+      createWasm(
+        () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))(),
+        () => colour,
+      ),
+  ],
+  ["createJsGrid", (colour) => createJsGrid({ draw: colour })],
+  ["createWasmGrid", (colour) => createWasmGrid({ draw: colour })],
+  ["createJsRoutine", (colour) => createJsRoutine(colour)],
+  ["createWasmRoutine", (colour) => createWasmRoutine(colour)],
+  [
+    "createJsCompute",
+    (colour) => {
+      const out = instancedArray(1, "vec4");
+      return createJsCompute(Fn(() => out.element(invocationIndex()).assign(colour))());
+    },
+  ],
+  [
+    "createWasmCompute",
+    (colour) => {
+      const out = instancedArray(1, "vec4");
+      return createWasmCompute(Fn(() => out.element(invocationIndex()).assign(colour))());
+    },
+  ],
+];
+
+describe("the shape of a value a CPU adapter takes", () => {
+  /**
+   * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   */
+  it.each(cpuAdapters)(
+    "%s refuses a uniform value of another shape through setUniform, by node or by slot",
+    (_, create) => {
+      const { count, offsets, tint, turn, pairs, colour } = cpuUniformShapes();
+      const adapter = create(colour);
+      expect(() => adapter.setUniform(count, [2])).toThrow(
+        `[RMSL] the int uniform "${count.name}" takes one value, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(tint, [1, 2])).toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+      );
+      expect(() => adapter.setUniform(tint.name, 1)).toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not 1`,
+      );
+      expect(() =>
+        adapter.setUniform(turn.name, [
+          [1, 0],
+          [0, 1],
+        ]),
+      ).toThrow(`[RMSL] the mat2 uniform "${turn.name}" takes 4 components, not an array of 2`);
+      expect(() => adapter.setUniform(offsets.name, [1])).toThrow(
+        `[RMSL] the int uniform array "${offsets.name}" takes 2 elements, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrow(
+        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(count, 2.7)).not.toThrow();
+      expect(() => adapter.setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
+      expect(() => adapter.setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
+      expect(() => adapter.setUniform(pairs.name, [Float32Array.of(1, 2), [3, 4]])).not.toThrow();
+      expect(() => adapter.setUniform(tint, null)).not.toThrow();
+    },
+  );
+
+  /**
+   * An object that is no array is named by its class, or as an object when it has none of its own.
+   *
+   * @canon spec-a-shape-refusal-names-what-the-host-gave
+   */
+  it.each(cpuAdapters)("%s names an object given for a uniform by what it is", (_, create) => {
+    const { count, tint, colour } = cpuUniformShapes();
+    const adapter = create(colour);
+    expect(() => adapter.setUniform(tint, new Vector3(1, 2, 3))).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not a Vector3`,
+    );
+    expect(() => adapter.setUniform(count, { value: 2 })).toThrow(
+      `[RMSL] the int uniform "${count.name}" takes one value, not an object`,
+    );
+    expect(() => adapter.setUniform(tint, Object.create(null))).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an object`,
+    );
+  });
+
+  /**
+   * A value the host changes after it set it is not checked again: the run reads what the array holds.
+   *
+   * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   */
+  it.each([
+    ["createJsRoutine", createJsRoutine],
+    ["createWasmRoutine", createWasmRoutine as typeof createJsRoutine],
+  ])("%s refuses a parameter of another shape at run, and checks no uniform there", (_, create) => {
+    const tint = uniform("vec3");
+    const adapter = create(Fn(() => tint.z)(), { params: [{ name: "p", type: "vec2" }] });
+    expect(() => adapter.run({ p: [1] as any })).toThrow(
+      '[RMSL] the vec2 parameter "p" takes 2 components, not an array of 1',
+    );
+    expect(() => adapter.run({ p: 1 as any })).toThrow('[RMSL] the vec2 parameter "p" takes 2 components, not 1');
+    const value = [0, 0, 2];
+    adapter.setUniform(tint, value as [number, number, number]);
+    expect(adapter.run({ p: [0, 1] })).toBe(2);
+    value.length = 2;
+    expect(() => adapter.run({ p: [0, 1] })).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it.each([
+    ["createJsRoutine", createJsRoutine],
+    ["createWasmRoutine", createWasmRoutine as typeof createJsRoutine],
+  ])("%s reads a uniform set to null or undefined as zero", (_, create) => {
+    const k = uniform("float");
+    const v = uniform("vec3");
+    const pairs = uniformArray("vec2", 2);
+    const adapter = create(Fn(() => vec3(k, v.y, pairs.element(int(1)).y))());
+    for (const left of [null, undefined]) {
+      adapter.setUniform(k, 1);
+      adapter.setUniform(v, [0, 2, 0]);
+      adapter.setUniform(pairs, [
+        [0, 0],
+        [0, 4],
+      ]);
+      expect(Array.from(adapter.run() as Float64Array)).toEqual([1, 2, 4]);
+      for (const u of [k, v, pairs]) adapter.setUniform(u as any, left as any);
+      expect(Array.from(adapter.run() as Float64Array), String(left)).toEqual([0, 0, 0]);
+    }
+  });
+});
+
+describe("the storage arrays a CPU program takes", () => {
+  /**
+   * A routine or compute stage reads the arrays of ctx.storages as the host gives them.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it.each([
+    ["compileJSCompute", compileJSCompute],
+    ["compileWasmCompute", compileWasmCompute as typeof compileJSCompute],
+  ])("%s takes an array of another kind in ctx.storages without refusing it", (_, stage) => {
+    const counts = instancedArray(2, "int");
+    const weights = instancedArray(2, "float");
+    const compute = stage(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          weights.element(i).assign(counts.element(i).toFloat());
+        })() as any,
+      none,
+    );
+    const filled = new Float32Array(2);
+    expect(() =>
+      compute({ storages: { [counts.name]: Float32Array.of(3, 4) as any, [weights.name]: filled } }, 2),
+    ).not.toThrow();
+    expect(Array.from(filled)).toEqual([3, 4]);
+  });
+});
+
+describe("the readback array a CPU compute adapter takes", () => {
+  /**
+   * The refusal comes before the dispatch, so the storage the adapter holds keeps its values.
+   *
+   * @canon spec-a-readback-array-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an out array of another kind", (_, create) => {
+    const counts = instancedArray(2, "int");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    const held = Int32Array.of(1, 2);
+    adapter.setAttribute(counts, held);
+    expect(() => adapter.compute({ [counts.name]: new Float32Array(2) })).toThrow(
+      new RegExp(`the int storage buffer "${counts.name}" takes an Int32Array, not a Float32Array`),
+    );
+    expect(Array.from(held)).toEqual([1, 2]);
+    const out = new Int32Array(2);
+    adapter.compute({ [counts.name]: out });
+    expect(Array.from(out)).toEqual([2, 3]);
+  });
+
+  /**
+   * The refusal comes before the dispatch, so the storage the adapter holds keeps its values.
+   *
+   * @canon spec-a-readback-array-holds-at-least-the-values-of-its-slot
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an out array shorter than its slot", (_, create) => {
+    const counts = instancedArray(3, "int");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    const held = Int32Array.of(1, 2, 3);
+    adapter.setAttribute(counts, held);
+    expect(() => adapter.compute({ [counts.name]: new Int32Array(2) })).toThrow(
+      `[RMSL] out["${counts.name}"] holds 2 values, and the slot has 3`,
+    );
+    expect(Array.from(held)).toEqual([1, 2, 3]);
+    const out = new Int32Array(4);
+    adapter.compute({ [counts.name]: out });
+    expect(Array.from(out)).toEqual([2, 3, 4, 0]);
   });
 });

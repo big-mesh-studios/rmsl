@@ -218,7 +218,7 @@ describe("node materials", () => {
     scene.add(mesh);
 
     const program = (mesh.material as MeshStandardMaterial).build(scene);
-    const uniforms: Record<string, number | number[]> = {};
+    const uniforms: Record<string, number | number[] | undefined> = {};
     for (const binding of program.uniforms) {
       if (binding.scope === "camera") uniforms[binding.node.name] = cameraUniformValue(binding.name, camera);
       else if (binding.scope === "object") uniforms[binding.node.name] = objectUniformValue(binding.name, mesh);

@@ -38,6 +38,11 @@ import {
   screenSize,
   type Node,
   type UniformNode,
+  type StorageBufferAttribute,
+  type SetUniform,
+  type SetUniformByNode,
+  uniform,
+  uniformArray,
 } from "../rmsl";
 import {
   compileJSFragment,
@@ -48,9 +53,23 @@ import {
   type JsAdapter,
   type JsComputeAdapter,
 } from "../js";
-import type { CpuAdapter } from "../backends/adapter-cpu";
+import type { CpuAdapter, CpuRoutineAdapter } from "../backends/adapter-cpu";
 import type { GlslAdapter } from "../glsl";
-import type { WgslAdapter, WgslComputeAdapter } from "../wgsl";
+import type { WgslAdapter, WgslComputeAdapter, WgslContext } from "../wgsl";
+import type { WasmContext } from "../wasm";
+import type { CpuShaderContext } from "../backends/cpu";
+import {
+  Color,
+  Matrix3,
+  Matrix4,
+  PerspectiveCamera,
+  Quaternion,
+  Vector2,
+  Vector3,
+  Vector4,
+  type Matrix3Tuple,
+  type Matrix4Tuple,
+} from "../scene";
 import {
   compileWasmFragment,
   compileWasmGrid,
@@ -455,5 +474,240 @@ describe("the array setAttribute takes", () => {
       // @ts-expect-error an int storage buffer takes an Int32Array
       adapter.setAttribute(counts.toReadOnly(), new Uint32Array(2));
     }
+  });
+});
+
+describe("the arrays a CPU program and a context take for a storage buffer", () => {
+  /**
+   * @canon spec-the-type-of-a-programs-storages-admits-only-typed-arrays
+   */
+  it("takes only typed arrays in the storages of a CPU program's context", () => {
+    const ctx = (storages: CpuShaderContext["storages"]) => storages;
+    ctx({ a: new Float64Array(2), b: new Float32Array(2), c: new Int32Array(2), d: new Uint32Array(2) });
+    // @ts-expect-error a plain array holds numbers of no one kind
+    ctx({ a: [1, 2] });
+  });
+
+  /**
+   * @canon spec-a-context-write-takes-only-the-array-of-its-attributes-kind
+   */
+  it("takes only typed arrays of a component kind in a context's write", () => {
+    const write = (context: WasmContext, wgsl: WgslContext, attribute: StorageBufferAttribute) => {
+      context.write(attribute, new Float64Array(2));
+      wgsl.write(attribute, new Uint32Array(2));
+      // @ts-expect-error a plain array holds numbers of no one kind
+      context.write(attribute, [1, 2]);
+      // @ts-expect-error a WGSL context holds no 64-bit floats
+      wgsl.write(attribute, new Float64Array(2));
+      // @ts-expect-error an 8-bit array is no component kind of a storage buffer
+      wgsl.write(attribute, new Uint8Array(2));
+    };
+    void write;
+  });
+});
+
+describe("the value setUniform takes for a boolean uniform", () => {
+  let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it("takes true, false, 1 or 0", () => {
+    const flag = uniform("bool");
+    glsl.setUniform(flag, true);
+    glsl.setUniform(flag, false);
+    glsl.setUniform(flag, 1);
+    glsl.setUniform(flag, 0);
+    // @ts-expect-error a bool takes 1 or 0, not any number
+    glsl.setUniform(flag, 2);
+  });
+
+  /**
+   * @canon spec-the-types-hold-a-uniform-value-to-its-shape
+   */
+  it("takes for a boolean vector an array of them, or an integer array", () => {
+    const pair = uniform("bvec2");
+    glsl.setUniform(pair, [true, 0]);
+    glsl.setUniform(pair, Int32Array.of(1, 0));
+    glsl.setUniform(pair, Uint32Array.of(1, 0));
+    // @ts-expect-error a float array holds no boolean exactly
+    glsl.setUniform(pair, Float32Array.of(1, 0));
+    // @ts-expect-error a bvec2 takes two components
+    glsl.setUniform(pair, [true]);
+  });
+});
+
+describe("the value setUniform takes for a vector or matrix uniform", () => {
+  let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-the-types-hold-a-uniform-value-to-its-shape
+   */
+  it("takes exactly the components of the type, flat for a matrix, and any shape by slot", () => {
+    const tint = uniform("vec3");
+    const turn = uniform("mat2");
+    const frame = uniform("mat3x2");
+    const ids = uniform("ivec2");
+    glsl.setUniform(tint, [1, 0, 0]);
+    glsl.setUniform(tint, Float32Array.of(1, 0, 0));
+    // @ts-expect-error a vec3 takes three components
+    glsl.setUniform(tint, [1, 0]);
+    glsl.setUniform(turn, [1, 0, 0, 1]);
+    glsl.setUniform(turn, Float32Array.of(1, 0, 0, 1));
+    // @ts-expect-error a mat2 takes four components
+    glsl.setUniform(turn, [1, 0, 0]);
+    // @ts-expect-error a matrix takes its columns in one flat array
+    glsl.setUniform(turn, [
+      [1, 0],
+      [0, 1],
+    ]);
+    glsl.setUniform(frame, [1, 0, 0, 1, 0, 0]);
+    // @ts-expect-error a mat3x2 takes six components
+    glsl.setUniform(frame, [1, 0, 0, 1]);
+    const wide = uniform("mat4x3");
+    glsl.setUniform(wide, [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
+    // @ts-expect-error a mat4x3 takes twelve components, four columns of three
+    glsl.setUniform(wide, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    glsl.setUniform(ids, Int32Array.of(1, 2));
+    // @ts-expect-error an ivec2 takes an Int32Array, not a float array
+    glsl.setUniform(ids, Float32Array.of(1, 2));
+    glsl.setUniform(tint.name, Float32Array.of(1, 0, 0));
+    glsl.setUniform("colours", [
+      [1, 0, 0, 1],
+      [0, 1, 0, 1],
+    ]);
+  });
+});
+
+describe("the type of setUniform", () => {
+  /**
+   * @canon spec-every-adapter-shares-one-type-of-setuniform
+   */
+  it("is SetUniform on every adapter, and SetUniformByNode on a context", () => {
+    expectTypeOf<GlslAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WgslAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WgslComputeAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<JsAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WasmAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<JsComputeAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WasmComputeAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<CpuAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<CpuRoutineAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WgslContext["setUniform"]>().toEqualTypeOf<SetUniformByNode>();
+    expectTypeOf<WasmContext["setUniform"]>().toEqualTypeOf<SetUniformByNode>();
+  });
+});
+
+describe("the arrays of the scene math classes", () => {
+  let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-the-math-classes-type-their-arrays-as-tuples
+   */
+  it("set a uniform of their type with no cast, and a uniform of another shape is still refused", () => {
+    const camera = new PerspectiveCamera();
+    const mvp = uniform("mat4");
+    const normalMatrix = uniform("mat3");
+    const tint = uniform("vec3");
+    glsl.setUniform(mvp, camera.projectionMatrix.elements);
+    glsl.setUniform(mvp, new Matrix4().toArray());
+    glsl.setUniform(normalMatrix, new Matrix3().elements);
+    glsl.setUniform(normalMatrix, new Matrix3().toArray());
+    glsl.setUniform(tint, new Color(1, 0.5, 0).toArray());
+    glsl.setUniform(tint, new Vector3(1, 0.5, 0).toArray());
+    glsl.setUniform(uniform("vec2"), new Vector2(1, 0.5).toArray());
+    glsl.setUniform(uniform("vec4"), new Vector4(1, 0.5, 0, 1).toArray());
+    glsl.setUniform(uniform("vec4"), new Quaternion().toArray());
+    // @ts-expect-error a vec3 takes three components
+    glsl.setUniform(tint, [1, 0.5]);
+    // @ts-expect-error a mat4 takes sixteen components, not a mat3's nine
+    glsl.setUniform(mvp, new Matrix3().elements);
+    // @ts-expect-error a vec3 takes three components, not a vec2's two
+    glsl.setUniform(tint, new Vector2().toArray());
+  });
+
+  /**
+   * @canon spec-the-math-classes-type-their-arrays-as-tuples
+   */
+  it("type elements and toArray() as tuples of their length, and toArray(array, offset) as the array", () => {
+    expectTypeOf(new Matrix4().elements).toEqualTypeOf<Matrix4Tuple>();
+    expectTypeOf(new Matrix3().elements).toEqualTypeOf<Matrix3Tuple>();
+    expectTypeOf(new Vector3().toArray()).toEqualTypeOf<[number, number, number]>();
+    expectTypeOf(new Color().toArray()).toEqualTypeOf<[number, number, number]>();
+    expectTypeOf(new Quaternion().toArray()).toEqualTypeOf<[number, number, number, number]>();
+    const out = new Float32Array(6);
+    expectTypeOf(new Vector3().toArray(out, 3)).toEqualTypeOf(out);
+    expectTypeOf(new Matrix4().toArray([] as number[], 16)).toEqualTypeOf<number[]>();
+  });
+});
+
+describe("a uniform set to nothing", () => {
+  let glsl!: GlslAdapter;
+  let wgsl!: WgslAdapter;
+  let wgslCompute!: WgslComputeAdapter;
+  let wgslContext!: WgslContext;
+  let wasmContext!: WasmContext;
+  let js!: JsAdapter;
+  let wasm!: WasmAdapter;
+  let jsCompute!: JsComputeAdapter;
+  let wasmCompute!: WasmComputeAdapter;
+  let cpu!: CpuAdapter;
+
+  /**
+   * @canon spec-the-types-admit-a-uniform-set-to-nothing
+   */
+  it("takes null or undefined for a uniform by node, a uniform array or a slot name, on every adapter", () => {
+    const tint = uniform("vec3");
+    const items = uniformArray("float", 2);
+    for (const adapter of [glsl, wgsl, wgslCompute, wgslContext, wasmContext, js, wasm, jsCompute, wasmCompute, cpu]) {
+      adapter.setUniform(tint, null);
+      adapter.setUniform(tint, undefined);
+      adapter.setUniform(items, null);
+      adapter.setUniform(items, undefined);
+    }
+    for (const adapter of [glsl, wgsl, wgslCompute, js, wasm, jsCompute, wasmCompute, cpu]) {
+      adapter.setUniform(tint.name, null);
+      adapter.setUniform(tint.name, undefined);
+    }
+    const routine = createJsRoutine(tint);
+    routine.setUniform(tint, null);
+    routine.setUniform(items, undefined);
+    routine.setUniform(tint.name, null);
+  });
+});
+
+describe("the parameters run takes", () => {
+  /**
+   * @canon spec-the-types-hold-a-routine-parameter-to-its-shape
+   */
+  it("takes each parameter named where the routine was made in the shape of its type", () => {
+    const params = [
+      { name: "p", type: "vec2" },
+      { name: "n", type: "int" },
+    ] as const;
+    for (const routine of [createJsRoutine(float(1), { params }), createWasmRoutine(float(1), { params })]) {
+      routine.run({ p: [1, 2], n: 3 });
+      routine.run({ p: Float32Array.of(1, 2) });
+      routine.run({ p: null });
+      routine.run();
+      // @ts-expect-error a vec2 takes two components
+      routine.run({ p: [1, 2, 3] });
+      // @ts-expect-error an int takes one value
+      routine.run({ n: [1] });
+      // @ts-expect-error the routine has no parameter q
+      routine.run({ q: 1 });
+    }
+  });
+
+  /**
+   * @canon spec-the-types-hold-a-routine-parameter-to-its-shape
+   */
+  it("takes any value a parameter can hold, a typed array included, when the names are not known", () => {
+    const params: { name: string; type: "vec2" | "float" }[] = [{ name: "p", type: "vec2" }];
+    const routine = createJsRoutine(float(1), { params });
+    routine.run({ p: Float32Array.of(1, 2) });
+    routine.run({ p: [1, 2], q: 1, flag: true });
+    // @ts-expect-error a parameter holds numbers
+    routine.run({ p: "1" });
   });
 });
