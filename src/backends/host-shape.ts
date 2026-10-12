@@ -22,7 +22,7 @@ export function assertHostShape(what: string, name: string, type: string, value:
       const element = (value as any)[i];
       const fits =
         count === 1
-          ? typeof element !== "object"
+          ? element === null || typeof element !== "object"
           : typeof element === "object" && element !== null && element.length === count;
       if (!fits) {
         wrong = element;

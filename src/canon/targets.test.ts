@@ -71,6 +71,7 @@ import {
 } from "../testing/shader-eval";
 import { CONDITION_LOOPS, CONDITION_READS } from "../testing/inline-fn-paths";
 import { INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE } from "../backends/share";
+import { LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE } from "../backends/shared";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -1259,6 +1260,44 @@ describe("each leaf on every target it claims", () => {
   );
 
   /**
+   * The element read sits between two the host set, so an element that read
+   * its neighbour, or the whole array left out, would show. A vector element
+   * given as `null` reads as one given as `undefined`, each of its components
+   * `undefined`.
+   *
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)(
+    "reads an element of a uniform array the host gives as undefined as a typed slot of its kind holds it on %s",
+    (_, compile) => {
+      const read = (type: "float" | "int" | "uint" | "bool" | "vec2" | "ivec2", width: "f32" | "f64" = "f64") => {
+        const items = uniformArray(type, 3);
+        const asNumber = (x: any) => (/bool/.test(type) ? select(x, float(1), float(0)) : x.toFloat());
+        const second = (x: any) => (/vec/.test(type) ? x.y : x);
+        const routine = compile(() => Fn(() => asNumber(second(items.element(int(1)))).toVar())() as any, {
+          name: "main",
+          params: [],
+          float: width,
+        } as any);
+        return (middle: unknown) => {
+          const set = /vec/.test(type) ? [1, 1] : 1;
+          return routine({ uniforms: { [items.name]: [set, middle, set] } } as any);
+        };
+      };
+      expect(read("float")(undefined)).toBeNaN();
+      expect(read("float", "f32")(undefined)).toBeNaN();
+      expect(read("vec2")(undefined)).toBeNaN();
+      expect(read("vec2", "f32")(undefined)).toBeNaN();
+      for (const type of ["int", "uint", "bool", "ivec2"] as const) expect(read(type)(undefined), type).toBe(0);
+      for (const type of ["float", "int", "bool", "ivec2"] as const) expect(read(type)(null), type).toBe(0);
+      expect(read("vec2")(null)).toBeNaN();
+    },
+  );
+
+  /**
    * Each of `reads` compiled into a routine of its own that returns the scalar it reads, given `value` as
    * a parameter `a` of `type`, a uniform, the second element of a uniform array and the second component
    * of a vector, all of the kind of `type`.
@@ -1668,6 +1707,87 @@ describe("each leaf on every target it claims", () => {
         expect(evaluateRecording(build, [3]), `${loop}, ${reads}`).toBe(403);
       }
     }
+  });
+
+  /**
+   * A jump the program's body holds outside every loop: alone, in a branch,
+   * after a loop that ended, or in the init of a `For`, which runs before the
+   * loop starts. The same jump in a loop body compiles.
+   *
+   * @canon spec-break-or-continue-outside-a-loop-is-refused
+   */
+  it.each([
+    ["break", Break],
+    ["continue", Continue],
+  ] as const)("refuses %s outside every loop on every target, and compiles it in one", (name, jump) => {
+    const drop = uniform("float");
+    const places: [string, () => Node<any>][] = [
+      [
+        "alone",
+        () =>
+          Fn(() => {
+            jump();
+            return vec4(1);
+          })(),
+      ],
+      [
+        "in a branch",
+        () =>
+          Fn(() => {
+            If(drop.greaterThan(0), () => jump());
+            return vec4(1);
+          })(),
+      ],
+      [
+        "after a loop",
+        () =>
+          Fn(() => {
+            const total = float(0).toVar();
+            Loop(2, () => {
+              total.addAssign(1);
+            });
+            If(drop.greaterThan(0), () => jump());
+            return vec4(total);
+          })(),
+      ],
+      [
+        "in the init of a For",
+        () =>
+          Fn(() => {
+            const total = float(0).toVar();
+            For(
+              () => {
+                If(drop.greaterThan(0), () => jump());
+                return int(0).toVar();
+              },
+              (i) => i.lessThan(2),
+              (i) => i.addAssign(1),
+              () => total.addAssign(1),
+            );
+            return vec4(total);
+          })(),
+      ],
+    ];
+    for (const [place, build] of places) {
+      try {
+        expectOnEveryTarget("fragment", build, LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[name]);
+      } catch (error) {
+        throw new Error(`${name} ${place}: ${(error as Error).message}`);
+      }
+    }
+    expectOnEveryTarget(
+      "fragment",
+      () =>
+        Fn(() => {
+          const total = float(0).toVar();
+          Loop(2, () => {
+            If(drop.greaterThan(0), () => jump());
+            total.addAssign(1);
+          });
+          return vec4(total);
+        })(),
+      false,
+    );
   });
 });
 

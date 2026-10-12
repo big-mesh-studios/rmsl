@@ -922,6 +922,12 @@ const uniformShapes = () => {
     expect(() => setUniform(pairs, [[1, 2], [3]])).toThrow(
       `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
     );
+    for (const nothing of [undefined, null])
+      expect(() => setUniform(pairs, [[1, 2], nothing])).toThrow(
+        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
+      );
+    expect(() => setUniform(offsets, [1, undefined])).not.toThrow();
+    expect(() => setUniform(offsets.name, [null, 2])).not.toThrow();
     expect(() => setUniform(count, 2.7)).not.toThrow();
     expect(() => setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
     expect(() => setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
@@ -933,6 +939,7 @@ const uniformShapes = () => {
 describe("the shape of a value a GPU adapter takes for a uniform", () => {
   /**
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("refuses one through setUniform on createGlsl, named by node or by slot", () => {
     const { fragment, refuses } = uniformShapes();
@@ -946,6 +953,7 @@ describe("the shape of a value a GPU adapter takes for a uniform", () => {
    * stands in for the GPU once it attaches.
    *
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("refuses one through setUniform on createWgsl, named by node or by slot", async () => {
     vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
@@ -1195,7 +1203,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
  * error it hit.
  */
 const VALUE_TYPES = `
-import { Fn, attribute, builtinPosition, float, select, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, instancedArray, int, select, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
@@ -1363,6 +1371,10 @@ globalThis.__rmslValueTypes = {
     const u = uniform("uvec3");
     const b = uniform("bvec3");
     const n = uniform("vec3");
+    const fs = uniformArray("float", 3);
+    const is = uniformArray("int", 3);
+    const bs = uniformArray("bool", 3);
+    const ns = uniformArray("float", 3);
     const isNaN = (x) => x.greaterThanEqual(0).or(x.lessThan(0)).not();
     const all = isNaN(f.y)
       .and(f.z.equal(3))
@@ -1370,7 +1382,12 @@ globalThis.__rmslValueTypes = {
       .and(i.y.toFloat().equal(0))
       .and(u.y.toFloat().equal(0))
       .and(b.y.not())
-      .and(n.y.equal(0));
+      .and(n.y.equal(0))
+      .and(isNaN(fs.element(1)))
+      .and(fs.element(2).equal(3))
+      .and(is.element(1).toFloat().equal(0))
+      .and(bs.element(1).not())
+      .and(ns.element(1).equal(0));
     const target = canvas();
     const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, select(all, float(1), float(0)), 0, 1))());
     adapter.attach(target);
@@ -1381,6 +1398,10 @@ globalThis.__rmslValueTypes = {
     adapter.setUniform(u, [1, undefined, 3]);
     adapter.setUniform(b, [true, undefined, true]);
     adapter.setUniform(n, [1, null, 3]);
+    adapter.setUniform(fs, [1, undefined, 3]);
+    adapter.setUniform(is, [1, undefined, 3]);
+    adapter.setUniform(bs, [true, undefined, true]);
+    adapter.setUniform(ns, [1, null, 3]);
     adapter.draw({ count: 3 });
     return readPixel(target, 1, 2).g === 255;
   }),
@@ -1404,6 +1425,15 @@ globalThis.__rmslValueTypes = {
       return [set, readPixel(target, 1, 2).g === 255];
     });
   }),
+  glslUnsetStorage: () => {
+    const green = instancedArray(Float32Array.of(0, 1), "float");
+    return glsl(Fn(() => vec4(0, green.element(int(1)), 0, 1))(), () => {});
+  },
+  wgslUnsetStorage: () => {
+    const green = instancedArray(Float32Array.of(0, 1), "float");
+    const fragment = Fn(() => vec4(0, green.element(int(1)), 0, 1))();
+    return wgsl(plainVertex(), (adapter) => adapter.setAttribute(position, TRIANGLE), fragment);
+  },
   typedVector: () => {
     const colour = uniform("vec4");
     return glsl(Fn(() => colour)(), (a) => a.setUniform(colour, Float32Array.of(0, 1, 0, 1)));
@@ -1555,6 +1585,20 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   );
 
   /**
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createGlsl", () => glslValueType("glslUnsetStorage")],
+    ["createWgsl", () => wgslValueType("wgslUnsetStorage")],
+  ])(
+    "reads a storage buffer the host never set as its array in a render stage on %s",
+    async (_, drawn) => {
+      expect(await drawn()).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
    */
   it("sets a vector uniform from a typed array with createGlsl", async () => {
@@ -1565,6 +1609,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
    * The page tells NaN by its failing every comparison with zero.
    *
    * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("reads a component the host gives as undefined as a typed slot of its kind holds it on createGlsl", async () => {
     expect(await glslValueType("undefinedComponent")).toBe(true);
@@ -1748,6 +1793,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
 
   /**
    * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it("reads a component the host gives as undefined as a typed slot of its kind holds it on createWgslCompute", async () => {
     const f = uniform("vec3");
@@ -1756,7 +1802,11 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     const u = uniform("uvec3");
     const b = uniform("bvec3");
     const n = uniform("vec3");
-    const results = instancedArray(6, "float");
+    const fs = uniformArray("float", 3);
+    const is = uniformArray("int", 3);
+    const bs = uniformArray("bool", 3);
+    const ns = uniformArray("float", 3);
+    const results = instancedArray(10, "float");
     const adapter = createWgslCompute(
       Fn(() => {
         results.element(int(0)).assign(f.y);
@@ -1765,6 +1815,10 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
         results.element(int(3)).assign(u.y.toFloat());
         results.element(int(4)).assign(select(b.y, float(1), float(0)));
         results.element(int(5)).assign(n.y);
+        results.element(int(6)).assign(fs.element(int(1)));
+        results.element(int(7)).assign(is.element(int(1)).toFloat());
+        results.element(int(8)).assign(select(bs.element(int(1)), float(1), float(0)));
+        results.element(int(9)).assign(ns.element(int(1)));
       })(),
     );
     await adapter.attach();
@@ -1774,9 +1828,13 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     adapter.setUniform(u, [1, undefined, 3] as any);
     adapter.setUniform(b, [true, undefined, true] as any);
     adapter.setUniform(n, [1, null, 3] as any);
-    const out = { [results.name]: new Float32Array(6) };
+    adapter.setUniform(fs, [1, undefined, 3] as any);
+    adapter.setUniform(is, [1, undefined, 3] as any);
+    adapter.setUniform(bs, [true, undefined, true] as any);
+    adapter.setUniform(ns, [1, null, 3] as any);
+    const out = { [results.name]: new Float32Array(10) };
     await adapter.compute(out, 1);
-    expect(Array.from(out[results.name]!)).toEqual([NaN, NaN, 0, 0, 0, 0]);
+    expect(Array.from(out[results.name]!)).toEqual([NaN, NaN, 0, 0, 0, 0, NaN, 0, 0, 0]);
     adapter.destroy();
   });
 
@@ -2359,6 +2417,56 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     adapter.destroy();
     expect(Array.from(out[points.name]!)).toEqual([2, 3, 4, 5, 6, 7]);
   }, 60_000);
+
+  /**
+   * The program reads one buffer made from data and one made from a count,
+   * writes a third, and reads back all three, with no `setAttribute`.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it("starts each storage buffer the host never set as its array on createWgslCompute", async () => {
+    const given = instancedArray(Float32Array.of(1, 2), "float");
+    const zeroed = instancedArray(2, "float");
+    const out = instancedArray(2, "float");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        const i = invocationIndex();
+        out.element(i).assign(given.element(i).add(zeroed.element(i)).add(7));
+        zeroed.element(i).assign(float(3));
+      })(),
+    );
+    await adapter.attach();
+    const read = {
+      [given.name]: new Float32Array(2),
+      [zeroed.name]: new Float32Array(2),
+      [out.name]: new Float32Array(2),
+    };
+    await adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([8, 9]);
+    expect(Array.from(read[given.name]!)).toEqual([1, 2]);
+    expect(Array.from(read[zeroed.name]!)).toEqual([3, 3]);
+    expect(Array.from(zeroed.attribute.array)).toEqual([0, 0]);
+    adapter.destroy();
+  });
+
+  /**
+   * No buffer is set, so the dispatch covers the first the program declares.
+   *
+   * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+   */
+  it("given no count covers the program's first buffer before the host sets one on createWgslCompute", async () => {
+    const out = instancedArray(3, "float");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        out.element(invocationIndex()).assign(float(5));
+      })(),
+    );
+    await adapter.attach();
+    const read = { [out.name]: new Float32Array(3) };
+    await adapter.compute(read);
+    expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
+    adapter.destroy();
+  });
 
   /**
    * Setting one slot to a length of its own keeps what the other slots hold.

@@ -136,7 +136,7 @@ export function createJsCompute(
     float: options.float,
   });
 
-  return createCpuAdapter({ compute: computeRoutine, guard: hostInputGuard(compute, true) });
+  return createCpuAdapter({ compute: computeRoutine, guard: hostInputGuard(compute, true), float: options.float });
 }
 
 /**

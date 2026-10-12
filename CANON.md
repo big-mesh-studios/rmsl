@@ -186,6 +186,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-host-value-converts-to-a-number`](#spec-a-float-host-value-converts-to-a-number) — A float component the host gives as a string or a boolean reads as the number it converts to, on every target. So `"2"` reads 2 and `true` reads 1. A string that spells no number reads NaN.
     - [`@spec a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer) — A `bool` component reads true on every target where the host's value converts to an `int` that is not zero. Its value as a number is then 1. So `true`, 1, 2 and -1 read true. `false`, 0, 0.5 and a string such as `"x"` read false. The type of a `bool` value is `boolean | 0 | 1`, the values that encode one exactly.
     - [`@spec an-undefined-component-converts-as-a-typed-slot-does`](#spec-an-undefined-component-converts-as-a-typed-slot-does) — A component of a vector or matrix that the host gives as `undefined` reads as a typed slot of its kind holds it, on every target. That is NaN in a float type, 0 in an `int` or `uint` type, and false in a `bool` type. A component it gives as `null` reads 0, or false.
+    - [`@spec an-undefined-uniform-array-element-converts-as-a-typed-slot-does`](#spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does) — An element of a scalar uniform array that the host gives as `undefined` reads as a typed slot of its kind holds it, on every target. That is NaN in a `float`, 0 in an `int` or `uint`, and false in a `bool`. An element it gives as `null` reads 0, or false. A program the host calls in a context reads each component of a vector or matrix element given as `undefined` or `null` as `undefined`. Every adapter refuses such an element in `setUniform`, as a value of another shape.
   - [`@spec a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) — A vector, matrix or uniform array the host leaves out, or gives as `undefined` or `null`, reads zero in every component, on every call. That holds for a uniform, a parameter, an attribute and a varying. It holds for a uniform the host passes to any adapter's `setUniform` as `undefined` or `null` too.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
@@ -260,7 +261,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
   - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
-    - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
+    - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused on every target, with one error. The init of a `For` runs before its loop starts, so a jump in it acts outside that loop.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target, in a graph `deserialize` rebuilt too. A scalar beside a vector broadcasts instead.
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
@@ -287,7 +288,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-readback-array-takes-only-an-array-of-its-element-kind`](#spec-a-readback-array-takes-only-an-array-of-its-element-kind) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` of another kind than the element type of its slot, before it runs anything. The CPU ones take a `Float64Array` for float elements too.
     - [`@spec a-readback-array-holds-at-least-the-values-of-its-slot`](#spec-a-readback-array-holds-at-least-the-values-of-its-slot) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` that holds fewer values than its slot, before it runs anything. The error reads `out["<slot>"] holds <length> values, and the slot has <count>`.
     - [`@spec a-context-write-takes-only-the-array-of-its-attributes-kind`](#spec-a-context-write-takes-only-the-array-of-its-attributes-kind) — `write` on `createWgslContext` and `createWasmContext` refuses an array of another kind than the attribute's own array, before it writes anything. `createWasmContext` takes a `Float64Array` for a float attribute too. The type of `write` admits only those typed arrays.
-    - [`@spec a-value-takes-only-the-shape-of-its-type`](#spec-a-value-takes-only-the-shape-of-its-type) — Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type. The check is one length comparison for each value, and allocates nothing unless it refuses.
+    - [`@spec a-value-takes-only-the-shape-of-its-type`](#spec-a-value-takes-only-the-shape-of-its-type) — Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type or, in a scalar array, `undefined` or `null`. The check is one length comparison for each value, and allocates nothing unless it refuses.
       - [`@spec a-shape-refusal-names-what-the-host-gave`](#spec-a-shape-refusal-names-what-the-host-gave) — A refusal of a value of another shape names the input, its type and what the host gave. It names an array by its length, another object by its class, and a scalar by its value.
       - [`@spec a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set`](#spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set) — Each CPU adapter refuses in `setUniform` a value of another shape than the uniform's type. These are `createJs` and `createWasm`, and the grid, compute and routine adapters of both targets. A slot name is checked against the type of its slot in the program the adapter compiled. The routine adapters refuse in `run` a parameter of another shape than its type. A draw, a dispatch or a run checks no uniform again.
       - [`@spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape) — `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
@@ -456,6 +457,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
     - [`@spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes`](#spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes) — A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
     - [`@spec a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array) — A `StorageBufferAttribute` and a `StorageInstancedBufferAttribute` made from a count hold a zeroed typed array of `count * itemSize` elements, of the array class they are given, `Float32Array` by default. The array is the buffer's contents on the host, which the application fills. One made from a typed array holds that array.
+    - [`@spec a-storage-buffer-the-host-never-sets-starts-as-its-array`](#spec-a-storage-buffer-the-host-never-sets-starts-as-its-array) — Every adapter starts each storage buffer its program uses as the array of the buffer's attribute, until the host sets it with `setAttribute`. That is zeros for a buffer made from a count. A compute adapter reads such a buffer back with `compute(out)`, as it reads one the host set. A program's writes change the adapter's buffer, never the attribute's array. This holds for `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute` and `createWasmCompute`.
     - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
@@ -566,9 +568,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scene-renderer-refuses-a-material-that-reads-storage`](#spec-a-scene-renderer-refuses-a-material-that-reads-storage) — Both renderers of `./scene` refuse a [node material](#term-node-material) whose graph reads a storage buffer, as they build its program. The error names the buffer. A scene renderer binds no storage buffer.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
-    - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
+    - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer. That is the first the host passed, or the program's first before the host passes one.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
-      - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
+      - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count. Before the host passes one, the count is that of the first storage buffer the program declares.
       - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
   - [`@spec a-webgl-caller-restores-the-context-state-only-when-asked`](#spec-a-webgl-caller-restores-the-context-state-only-when-asked) — `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
@@ -850,6 +852,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-has-no-boolean-uniform`](#fact-tsl-has-no-boolean-uniform) — TSL builds no uniform of `bool` or `bvecN`. `NodeBuilder.getNodeUniform` throws `Uniform "bool" not implemented` for one.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
 - [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
+- [`@fact tsl-starts-a-storage-buffer-as-the-array-of-its-attribute`](#fact-tsl-starts-a-storage-buffer-as-the-array-of-its-attribute) — three.js's WebGPU renderer makes the GPU buffer of a storage attribute when it first binds it, and copies the attribute's `array` into it. So a storage buffer the application never writes starts as that array: zeros for one made from a count.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 - [`@fact a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location) — A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
 - [`@fact a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing) — A WGSL compute entry point returns nothing. A function that declares a return type must give that type an entry point IO attribute, and a compute entry point has none to give.
@@ -2003,6 +2006,14 @@ This follows because WebGL takes a `bool` uniform through `uniform1i`, whose arg
 
 > A component of a vector or matrix that the host gives as `undefined` reads as a typed slot of its kind holds it, on every target. That is NaN in a float type, 0 in an `int` or `uint` type, and false in a `bool` type. A component it gives as `null` reads 0, or false.
 
+#### @spec an-undefined-uniform-array-element-converts-as-a-typed-slot-does
+
+> An element of a scalar uniform array that the host gives as `undefined` reads as a typed slot of its kind holds it, on every target. That is NaN in a `float`, 0 in an `int` or `uint`, and false in a `bool`. An element it gives as `null` reads 0, or false. A program the host calls in a context reads each component of a vector or matrix element given as `undefined` or `null` as `undefined`. Every adapter refuses such an element in `setUniform`, as a value of another shape.
+
+Derives from: [`spec-an-undefined-component-converts-as-a-typed-slot-does`](#spec-an-undefined-component-converts-as-a-typed-slot-does), [`spec-a-value-takes-only-the-shape-of-its-type`](#spec-a-value-takes-only-the-shape-of-its-type)
+
+This follows because an element of a scalar array is a component of the array, which WebGL and WebGPU take through a typed array. A vector element that is not an array has no components to read, so each reads as one the host left as `undefined`. A whole array the host leaves out still reads zero, as [`spec-a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) states.
+
 ### @spec a-component-the-host-leaves-out-reads-zero
 
 > A vector, matrix or uniform array the host leaves out, or gives as `undefined` or `null`, reads zero in every component, on every call. That holds for a uniform, a parameter, an attribute and a varying. It holds for a uniform the host passes to any adapter's `setUniform` as `undefined` or `null` too.
@@ -2417,7 +2428,9 @@ This follows because a driver would reject the shader, and a CPU target would co
 
 #### @spec break-or-continue-outside-a-loop-is-refused
 
-> `Break` or `Continue` outside a loop is refused.
+> `Break` or `Continue` outside a loop is refused on every target, with one error. The init of a `For` runs before its loop starts, so a jump in it acts outside that loop.
+
+The compiler counts the loops around each jump in the one walk of the refusals every target shares. A jump in an `Fn` called outside the program's body acts where the `Fn` runs, so it is checked where the `Fn` is placed, as [`spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) states.
 
 #### @spec cross-of-a-vector-that-is-not-a-vec3-is-refused
 
@@ -2603,7 +2616,7 @@ This follows because a write fills the buffer of a storage attribute, which hold
 
 #### @spec a-value-takes-only-the-shape-of-its-type
 
-> Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type. The check is one length comparison for each value, and allocates nothing unless it refuses.
+> Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type or, in a scalar array, `undefined` or `null`. The check is one length comparison for each value, and allocates nothing unless it refuses.
 
 Derives from: [`fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves`](#fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves)
 
@@ -3637,6 +3650,14 @@ Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-s
 
 This follows because a program that fills the array of a buffer it made from a count ports from TSL by changing its import, and a graph keeps the contents of its buffers through `serialize`.
 
+#### @spec a-storage-buffer-the-host-never-sets-starts-as-its-array
+
+> Every adapter starts each storage buffer its program uses as the array of the buffer's attribute, until the host sets it with `setAttribute`. That is zeros for a buffer made from a count. A compute adapter reads such a buffer back with `compute(out)`, as it reads one the host set. A program's writes change the adapter's buffer, never the attribute's array. This holds for `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute` and `createWasmCompute`.
+
+Derives from: [`spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array), [`fact-tsl-starts-a-storage-buffer-as-the-array-of-its-attribute`](#fact-tsl-starts-a-storage-buffer-as-the-array-of-its-attribute), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the array of the attribute is the buffer's contents on the host, and TSL starts the GPU buffer from it. Each adapter knows its storage buffers from the program, so the host can read back a buffer the program only writes, without setting it first.
+
 #### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
 
 > `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
@@ -4289,7 +4310,7 @@ This follows because every adapter draws one program the same way, and the raste
 
 #### @spec a-compute-call-dispatches-the-count-it-is-given
 
-> A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
+> A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer. That is the first the host passed, or the program's first before the host passes one.
 
 Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
@@ -4301,7 +4322,7 @@ This follows because the application owns the data it uploads and decides how ma
 
 ##### @spec a-compute-call-takes-its-count-from-the-first-storage-buffer
 
-> A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
+> A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count. Before the host passes one, the count is that of the first storage buffer the program declares.
 
 ##### @spec a-vector-storage-buffer-counts-its-elements
 
@@ -6052,6 +6073,12 @@ This is how three.js's TSL behaves, read from its source (`UniformNode` and `Uni
 > The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 
 This is how three.js's TSL behaves, read from its source (`src/renderers/common/StorageBufferAttribute.js` and `StorageInstancedBufferAttribute.js`, with `src/nodes/accessors/Arrays.js` for the functions).
+
+## @fact tsl-starts-a-storage-buffer-as-the-array-of-its-attribute
+
+> three.js's WebGPU renderer makes the GPU buffer of a storage attribute when it first binds it, and copies the attribute's `array` into it. So a storage buffer the application never writes starts as that array: zeros for one made from a count.
+
+This is how three.js r186 behaves, read from its source (`src/renderers/webgpu/utils/WebGPUAttributeUtils.js`, `createAttribute`).
 
 ## @fact tsl-takes-a-compute-count-from-its-caller
 

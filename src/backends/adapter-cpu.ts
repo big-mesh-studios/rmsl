@@ -50,6 +50,8 @@ export interface CpuAdapterPrograms {
   boxedUniforms?: boolean;
   /** What a uniform or an array the host sets is checked against: the guard of the program's stages. */
   guard: HostInputGuard;
+  /** The width the stages compute floats in, and so the width of a float storage buffer the host never sets. */
+  float?: FloatWidth;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -90,12 +92,15 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   const storageTypes = programs.compute?.storageTypes ?? {};
 
   let firstStorage: string | undefined;
-  /** Components per element of each slot the host passed by node, from the
-   *  node's own type; a slot passed by name falls back to the program's. */
+  /** Components per element of each slot, from the type of the program's node
+   *  or of the node the host passed; a slot passed by name falls back to the program's. */
   const elementWidths = new Map<string, number>();
+  /** Each storage buffer by slot: the host's own array, or, at the first dispatch, a copy for one it never set. */
   const storages: Record<string, TypedArray> = {};
-  /** The slots of `storages`, in the order the host first passed them. */
-  const storageSlots: string[] = [];
+  /** The slots of the storage buffers: the program's, in the order it created them, then any other the host passed. */
+  const storageSlots: string[] = [...programs.guard.storages.keys()];
+  for (const [slot, node] of programs.guard.storages) elementWidths.set(slot, componentCountOf(node._t));
+  let unsetStorages = programs.guard.storages.size > 0;
   const uniforms: Record<string, number | number[]> = programs.boxedUniforms ? Object.create(null) : {};
   const textures: Record<string, CpuTextureData> = {};
   /** The stage takes the host's own flat arrays, so one context serves every dispatch. */
@@ -108,8 +113,25 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
    *  type)`. A flat array holds one entry per component, so an array of `vec4`
    *  holds a quarter as many elements as it has components. */
   function elementCount(): number {
-    if (firstStorage === undefined) return 0;
-    return Math.floor(storages[firstStorage]!.length / elementWidths.get(firstStorage)!);
+    const slot = firstStorage ?? storageSlots[0];
+    if (slot === undefined) return 0;
+    return Math.floor(storages[slot]!.length / elementWidths.get(slot)!);
+  }
+
+  /**
+   * Starts each storage buffer the host never set as a copy of its
+   * attribute's array, as a GPU buffer does. A float buffer takes the width
+   * the stages compute in, as an array the host sets may.
+   */
+  function startUnsetStorages(): void {
+    if (!unsetStorages) return;
+    unsetStorages = false;
+    for (const [slot, node] of programs.guard.storages) {
+      if (Object.hasOwn(storages, slot)) continue;
+      const array = node.attribute.array;
+      storages[slot] =
+        array instanceof Float32Array && programs.float !== "f32" ? Float64Array.from(array) : array.slice();
+    }
   }
 
   function setUniform(uniform: UniformOrSlot, value: unknown): void {
@@ -122,11 +144,11 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     programs.guard.array(attribute, data);
-    if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
+    if (!storageSlots.includes(slot)) storageSlots.push(slot);
     storages[slot] = data;
     const elementType =
       typeof attribute === "string"
-        ? storageTypes[slot]
+        ? (storageTypes[slot] ?? programs.guard.storages.get(slot)?._t)
         : "attribute" in attribute
           ? attribute.attribute.elementType
           : attribute._t;
@@ -152,6 +174,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
+      startUnsetStorages();
       // An out array is checked before the dispatch, so a refusal leaves the storages as they were.
       if (out) {
         for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);

@@ -2293,6 +2293,7 @@ const cpuAdapters: [string, (colour: Node<"vec4">) => { setUniform(uniform: any,
 describe("the shape of a value a CPU adapter takes", () => {
   /**
    * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
    */
   it.each(cpuAdapters)(
     "%s refuses a uniform value of another shape through setUniform, by node or by slot",
@@ -2320,6 +2321,12 @@ describe("the shape of a value a CPU adapter takes", () => {
       expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrow(
         `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
       );
+      for (const nothing of [undefined, null])
+        expect(() => adapter.setUniform(pairs, [[1, 2], nothing])).toThrow(
+          `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
+        );
+      expect(() => adapter.setUniform(offsets, [1, undefined])).not.toThrow();
+      expect(() => adapter.setUniform(offsets.name, [null, 2])).not.toThrow();
       expect(() => adapter.setUniform(count, 2.7)).not.toThrow();
       expect(() => adapter.setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
       expect(() => adapter.setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
@@ -2475,5 +2482,83 @@ describe("the readback array a CPU compute adapter takes", () => {
     const out = new Int32Array(4);
     adapter.compute({ [counts.name]: out });
     expect(Array.from(out)).toEqual([2, 3, 4, 0]);
+  });
+});
+
+describe("a storage buffer the host never sets on a CPU compute adapter", () => {
+  /**
+   * The program reads one buffer made from data and one made from a count,
+   * writes a third, and reads back all three, with no `setAttribute`. The
+   * write to the buffer made from a count leaves its node's array as it was.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s starts each storage buffer the host never set as its array", (_, create) => {
+    const given = instancedArray(Float32Array.of(1, 2), "float");
+    const zeroed = instancedArray(2, "float");
+    const out = instancedArray(2, "float");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        out.element(i).assign(given.element(i).add(zeroed.element(i)).add(7));
+        zeroed.element(i).assign(float(3));
+      })(),
+    );
+    const read = {
+      [given.name]: new Float32Array(2),
+      [zeroed.name]: new Float32Array(2),
+      [out.name]: new Float32Array(2),
+    };
+    adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([8, 9]);
+    expect(Array.from(read[given.name]!)).toEqual([1, 2]);
+    expect(Array.from(read[zeroed.name]!)).toEqual([3, 3]);
+    expect(Array.from(zeroed.attribute.array)).toEqual([0, 0]);
+    adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([11, 12]);
+  });
+  /**
+   * The adapters compute floats in f64 by default, so a float buffer the
+   * host never sets holds a third as an f64 does, as one the host sets as a
+   * `Float64Array` would.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s holds a float buffer the host never set at the width it computes in", (_, create) => {
+    const out = instancedArray(1, "float");
+    const adapter = create(
+      Fn(() => {
+        out.element(int(0)).assign(float(1).div(3));
+      })(),
+    );
+    const read = { [out.name]: new Float64Array(1) };
+    adapter.compute(read, 1);
+    expect(read[out.name]![0]).toBe(1 / 3);
+  });
+
+  /**
+   * No buffer is set, so the dispatch covers the first the program declares.
+   *
+   * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s given no count covers the program's first buffer before the host sets one", (_, create) => {
+    const out = instancedArray(3, "float");
+    const adapter = create(
+      Fn(() => {
+        out.element(invocationIndex()).assign(float(5));
+      })(),
+    );
+    const read = { [out.name]: new Float32Array(3) };
+    adapter.compute(read);
+    expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
   });
 });
