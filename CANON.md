@@ -253,7 +253,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
-    - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
+    - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. Every target refuses it when the program is compiled.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
@@ -323,7 +323,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-integer-or-boolean-column-converts-to-float`](#spec-an-integer-or-boolean-column-converts-to-float) — A matrix constructor given integer or boolean vectors, as its columns or as the one vector `mat2` splits, converts their components to float on every target. A boolean gives 1 or 0.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
-    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
+    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused. The refusal names the operation that received the array, so a large shader points at the call.
     - [`@spec a-returned-array-lists-roots`](#spec-a-returned-array-lists-roots) — An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
@@ -381,6 +381,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
     - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
     - [`@spec nodes-over-one-buffer-share-one-binding`](#spec-nodes-over-one-buffer-share-one-binding) — Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
+    - [`@exception a-whole-storage-buffer-has-no-operations`](#exception-a-whole-storage-buffer-has-no-operations) — A storage node has `element(i)`, `toReadOnly()`, its `name`, its `access` and its `attribute`, and none of the operations of its element type. TSL's storage node carries every operation of a node, so `instancedArray(4, "float").add(1)` is TSL code that rmsl refuses.
     - [`@exception a-vec3-storage-element-is-padded-only-on-the-gpu`](#exception-a-vec3-storage-element-is-padded-only-on-the-gpu) — A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
     - [`@spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) — `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
   - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
@@ -767,6 +768,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
+- [`@fact a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type) — TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
 - [`@fact tsl-compute-takes-a-workgroup-size`](#fact-tsl-compute-takes-a-workgroup-size) — TSL's `compute(node, count, workgroupSize)` takes a workgroup size of one to three positive integers, `[64]` by default, and pads it with ones to three dimensions.
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
@@ -2251,7 +2253,9 @@ This follows because a scalar beside a vector broadcasts, and the result has the
 
 #### @spec a-whole-storage-buffer-cannot-be-read
 
-> A storage node read as a whole, rather than through `element(i)`, is refused.
+> A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. Every target refuses it when the program is compiled.
+
+A buffer holds no single value for an operation to take, only its elements do. So the type checker refuses the read as well as the compiler.
 
 #### @spec a-scalar-argument-beside-a-vector-is-widened-to-it
 
@@ -2653,7 +2657,7 @@ This follows because a vector constructor takes a node wherever it takes a numbe
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 
-> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
+> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused. The refusal names the operation that received the array, so a large shader points at the call.
 
 #### @spec a-returned-array-lists-roots
 
@@ -2984,6 +2988,14 @@ This follows because a TSL shader ports by changing its import, and one that cal
 #### @spec nodes-over-one-buffer-share-one-binding
 
 > Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
+
+#### @exception a-whole-storage-buffer-has-no-operations
+
+> A storage node has `element(i)`, `toReadOnly()`, its `name`, its `access` and its `attribute`, and none of the operations of its element type. TSL's storage node carries every operation of a node, so `instancedArray(4, "float").add(1)` is TSL code that rmsl refuses.
+
+Derives from: [`fact-a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+TSL gives a whole buffer read as a value two meanings. On WebGPU it is an array that no operation takes. On WebGL it is the element of the vertex the draw runs for. One program would mean something else on each target, or nothing. So rmsl refuses the read, in the type checker too, as [`spec-a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) states.
 
 #### @exception a-vec3-storage-element-is-padded-only-on-the-gpu
 
@@ -5352,6 +5364,12 @@ This is how three.js's TSL behaves, read from its source (`VarNode`, three.js 0.
 > TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 
 This is how three.js's TSL behaves, read from its source (`StorageBufferNode`, three.js 0.186).
+
+## @fact a-tsl-storage-node-is-a-node-of-its-element-type
+
+> TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
+
+This is how the TSL of three.js 0.186 behaves, read from its source. Its `StorageBufferNode` extends `BufferNode`, which extends `UniformNode`. `addMethodChaining` in `src/nodes/tsl/TSLCore.js` sets each operation on `Node.prototype`. `StorageBufferNode.generate` returns the name of the buffer. `WGSLNodeBuilder.getPropertyName` writes that name as `<name>.value`, the array. A builder without `storageBuffer` builds the varying of a `bufferAttribute` over the buffer instead.
 
 ## @fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array
 

@@ -1,5 +1,5 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, slotOf, TypedArray, unknownStorageSlots } from "./adapter";
+import { Adapter, AttributeOrSlot, AttributeOrStorage, slotOf, TypedArray, unknownStorageSlots } from "./adapter";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -104,18 +104,19 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     uniforms[slotOf(uniform)] = _value as number | number[];
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
-  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+  function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
-    elementWidths.set(
-      slot,
+    const elementType =
       typeof attribute === "string"
-        ? componentCountOf(storageTypes[slot] ?? "float")
-        : componentCountOf(attribute._t ?? "float"),
-    );
+        ? storageTypes[slot]
+        : "attribute" in attribute
+          ? attribute.attribute.elementType
+          : attribute._t;
+    elementWidths.set(slot, componentCountOf(elementType ?? "float"));
     firstStorage ??= slot;
   }
 

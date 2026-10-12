@@ -3817,6 +3817,25 @@ describe("TSL free-function API", () => {
   });
 
   /**
+   * A refused array names the operation it was given to, as a method, as the
+   * first or a later argument of a free function, and as a constructor part.
+   *
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("names the operation a refused array was given to", () => {
+    const junk = [1, 2, "x", 4] as any;
+    expect(() => vec4(0).add(junk)).toThrow(/array given to add\(\) as a vec4/);
+    expect(() => vec4(0).lessThan(junk)).toThrow(/array given to lessThan\(\) as a vec4/);
+    expect(() => vec4(0).dot(junk)).toThrow(/array given to dot\(\) as a vec4/);
+    expect(() => vec4(0).mix(junk, 0.5)).toThrow(/array given to mix\(\) as a vec4/);
+    expect(() => abs(junk)).toThrow(/array given to abs\(\) as a vec4/);
+    expect(() => add(junk, vec4(0))).toThrow(/array given to add\(\) as a vec4/);
+    expect(() => clamp(vec4(0), junk, 1)).toThrow(/array given to clamp\(\) as a vec4/);
+    expect(() => vec4(junk)).toThrow(/array given to vec4\(\) as a vec4/);
+    expect(() => vec4(0).add([1, 2, 3, 4, 5] as any)).toThrow(/array of length 5 given to add\(\) is no vector/);
+  });
+
+  /**
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
    */
   it("builds an array that holds nodes as the vector of its elements", () => {

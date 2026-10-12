@@ -10,6 +10,8 @@ import {
 import { compile, WgslResource } from "../../wgsl";
 import {
   Adapter,
+  AttributeOrSlot,
+  AttributeOrStorage,
   DrawClearOptions,
   DrawCountOptions,
   requestedStorageSlots,
@@ -446,9 +448,9 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     if (!renderPipeline) pendingUniforms.set(slot, value);
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
-  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+  function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     if (!device) {
       pendingAttributes.set(slot, data);
@@ -678,7 +680,7 @@ export interface WgslComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
   /**
    * With `out`, writes the result into it and returns it. Without it,
@@ -812,9 +814,9 @@ export function createWgslCompute(
   // Named `setAttribute` by convention with the render-shaped adapters,
   // but it's a storage() slot's current value here — read_write, so the
   // same slot comes back out of `compute`'s result.
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
-  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+  function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     if (!device) {
       pendingAttributes.set(slot, data);
