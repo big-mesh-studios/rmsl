@@ -1726,26 +1726,46 @@ export function typedOperand(value: any, operandType: string): BaseNode<ShaderTy
   }) as BaseNode<ShaderType>;
 }
 
-/** The operations whose operands share one component kind, integer or float. */
+/** The operations whose operands share one component kind: signed integer, unsigned integer or float. */
 const SAME_KIND_OPS = new Set(["add", "sub", "mul", "div", "mod", "min", "max"]);
 
-/** `"integer"` for an int, uint or integer vector, `"float"` for a float, float vector or matrix, otherwise `undefined`. */
-function componentKind(type: string | undefined): "integer" | "float" | undefined {
+type ComponentKind = "int" | "uint" | "float";
+
+/** The kind of the components of `type`: `"int"` for an int or ivec, `"uint"` for a uint or uvec, `"float"` for a float, float vector or matrix, otherwise `undefined`. */
+function componentKind(type: string | undefined): ComponentKind | undefined {
   if (type === undefined) return undefined;
-  if (/^(int|uint|ivec[234]|uvec[234])$/.test(type)) return "integer";
+  if (/^(int|ivec[234])$/.test(type)) return "int";
+  if (/^(uint|uvec[234])$/.test(type)) return "uint";
   if (/^(float|vec[234]|mat)/.test(type)) return "float";
   return undefined;
 }
 
-/** Refuse an operation on an integer operand and a float operand, which no target converts the same way. */
+/** The method that converts a value of `type` to the same width of `kind`, such as `toUVec3()` for an ivec3 to uint, or `undefined` for a matrix. */
+function conversionTo(type: string, kind: ComponentKind): string | undefined {
+  if (MATRIX_DIMENSIONS[type]) return undefined;
+  let width = /vec([234])$/.exec(type)?.[1];
+  if (width) return `to${{ int: "IVec", uint: "UVec", float: "Vec" }[kind]}${width}()`;
+  return `to${{ int: "Int", uint: "Uint", float: "Float" }[kind]}()`;
+}
+
+/** Refuse an operation on operands of two component kinds, which no two targets convert the same way. */
 function assertSameKind(type: string, params: BaseNode<ShaderType>[]): void {
-  let kinds = params.map((p) => componentKind((p as any)?._t));
-  if (kinds.includes("integer") && kinds.includes("float")) {
-    let types = params.map((p) => (p as any)?._t).join(" and ");
-    throw new Error(
-      `[RMSL] ${type}() takes operands of one kind, not ${types}. Convert one of them with toFloat() or toInt() first.`,
-    );
-  }
+  let typed = params.flatMap((p) => {
+    let t = (p as any)?._t as string | undefined;
+    let kind = componentKind(t);
+    return kind ? [{ t: t!, kind }] : [];
+  });
+  let other = typed.find((p) => p.kind !== typed[0].kind);
+  if (!other) return;
+  let first = typed[0];
+  let fixes = [
+    [first.t, conversionTo(first.t, other.kind)],
+    [other.t, conversionTo(other.t, first.kind)],
+  ].filter(([, fix]) => fix !== undefined);
+  throw new Error(
+    `[RMSL] ${type}() takes operands of one kind, not ${first.t} and ${other.t}. ` +
+      `Convert ${fixes.map(([t, fix]) => `the ${t} with ${fix}`).join(" or ")} first.`,
+  );
 }
 
 /** Refuse an operation on vectors of different widths. A scalar beside a vector broadcasts, and a matrix has no width here. */

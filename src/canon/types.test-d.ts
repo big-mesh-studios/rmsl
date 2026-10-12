@@ -11,6 +11,7 @@ import {
   bool,
   ivec2,
   uvec3,
+  uvec2,
   bvec4,
   mat3,
   outputStruct,
@@ -44,6 +45,41 @@ describe("refusals the types make", () => {
     vec2(1, 2).add(vec3(1, 2, 3));
     // @ts-expect-error nor a product
     vec3(1, 2, 3).mul(vec2(1, 2));
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("refuses an operation on an integer and a float", () => {
+    // @ts-expect-error an int and a float have no sum
+    int(1).add(float(2));
+    // @ts-expect-error nor a float and a uint a product
+    float(1).mul(uint(2));
+    // @ts-expect-error nor an ivec2 and a vec2 a minimum
+    ivec2(1, 2).min(vec2(1, 2));
+    // @ts-expect-error nor an int and a float an order
+    int(1).lessThan(float(2));
+    expectTypeOf(int(1).add(2)).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(float(1).add(2)).toEqualTypeOf<Node<"float">>();
+  });
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   */
+  it("refuses an operation on a signed and an unsigned integer", () => {
+    // @ts-expect-error an int and a uint have no sum
+    int(1).add(uint(2));
+    // @ts-expect-error nor a uint and an int a remainder
+    uint(1).mod(int(2));
+    // @ts-expect-error nor an int and a uint an order
+    int(1).lessThan(uint(2));
+    // @ts-expect-error nor an ivec2 and a uvec2 a product
+    ivec2(1, 2).mul(uvec2(1, 2));
+    // @ts-expect-error nor a uvec2 and an int a maximum
+    uvec2(1, 2).max(int(1));
+    expectTypeOf(int(1).add(2)).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(uint(1).add(2)).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(uvec2(1, 2).add(2)).toEqualTypeOf<Node<"uvec2">>();
   });
 
   /**

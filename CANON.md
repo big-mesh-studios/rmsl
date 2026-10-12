@@ -255,7 +255,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
-    - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
+    - [`@spec operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused) — An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead.
+      - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target.
+      - [`@spec a-signed-and-an-unsigned-integer-operand-are-refused`](#spec-a-signed-and-an-unsigned-integer-operand-are-refused) — An operation on an `int` or `ivecN` operand and a `uint` or `uvecN` operand is refused, by the type checker and on every target.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
@@ -288,6 +290,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
+    - [`@exception an-operation-refuses-an-operand-tsl-would-convert`](#exception-an-operation-refuses-an-operand-tsl-would-convert) — An arithmetic operation, `min`, `max` or a comparison on operands of two kinds is refused, where TSL converts one operand to the type of the other.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
@@ -773,6 +776,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 - [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
 - [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
+- [`@fact tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other) — TSL builds both operands of an arithmetic operator, and of `min` and `max`, as one type. That is the type of the first operand, unless the second is the longer vector. `int + uint` converts the `uint` to an `int`, and `int + float` converts the `float` to an `int`. A comparison of two scalars of different types converts both to `float`.
 - [`@fact tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node) — TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
 - [`@fact tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes) — TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
 - [`@fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter) — A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
@@ -2261,13 +2265,25 @@ Derives from: [`spec-operands-of-different-widths-are-refused`](#spec-operands-o
 
 This follows because a scalar beside a vector broadcasts, and widening it once in the graph hands every target the same vector arguments.
 
-#### @spec an-integer-and-a-float-operand-are-refused
+#### @spec operands-of-different-kinds-are-refused
 
-> An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
+> An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead.
 
 Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
 
-This follows because WGSL converts nothing implicitly and GLSL converts the integer to a float, so a target that compiled it would give a result the others do not.
+This follows because WGSL converts nothing implicitly, so a target that compiled such an operation would choose a conversion the others need not share. Which operand to convert is the user's choice, so the error offers both.
+
+##### @spec an-integer-and-a-float-operand-are-refused
+
+> An operation on an integer operand and a float operand is refused, by the type checker and on every target.
+
+This follows because GLSL converts the integer to a float, so a target that compiled it would give a result the others do not.
+
+##### @spec a-signed-and-an-unsigned-integer-operand-are-refused
+
+> An operation on an `int` or `ivecN` operand and a `uint` or `uvecN` operand is refused, by the type checker and on every target.
+
+This follows because WGSL would convert the unsigned operand to a signed one, and JavaScript would add the raw numbers. The sum of `-1` and `4294967295` would be `-2` on one and `4294967294` on the other.
 
 #### @spec a-for-update-that-holds-a-block-is-refused
 
@@ -2466,6 +2482,14 @@ This follows because a TSL shader ports by changing its import only if each oper
 #### @spec arithmetic-compiles-to-the-operators-of-the-target
 
 > `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
+
+#### @exception an-operation-refuses-an-operand-tsl-would-convert
+
+> An arithmetic operation, `min`, `max` or a comparison on operands of two kinds is refused, where TSL converts one operand to the type of the other.
+
+Derives from: [`spec-operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused), [`fact-tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+TSL writes the conversion out on both GPU targets, and rmsl has CPU targets too. It refuses such a mix rather than choose a conversion for the user.
 
 #### @spec a-math-function-compiles-to-the-builtin-of-the-target
 
@@ -5388,6 +5412,12 @@ This is how three.js's TSL behaves, read from its source (`Normal`, `Instance` a
 > TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
 
 This is how three.js's TSL behaves, read from its source (`Normal`, `NodeMaterial.setupNormal` and `transformNormalByInverseViewMatrix`, three.js 0.186).
+
+## @fact tsl-converts-an-operand-to-the-type-of-the-other
+
+> TSL builds both operands of an arithmetic operator, and of `min` and `max`, as one type. That is the type of the first operand, unless the second is the longer vector. `int + uint` converts the `uint` to an `int`, and `int + float` converts the `float` to an `int`. A comparison of two scalars of different types converts both to `float`.
+
+This is how three.js's TSL behaves, read from its source (`OperatorNode`, `generate`, and `MathNode`, `getInputType`, three.js 0.186).
 
 ## @fact tsl-turns-a-number-into-a-constant-node
 

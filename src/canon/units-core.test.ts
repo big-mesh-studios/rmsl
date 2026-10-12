@@ -560,6 +560,7 @@ describe("a bare number takes the type beside it", () => {
 describe("an integer and a float operand", () => {
   /**
    * @canon spec-an-integer-and-a-float-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
    */
   it("are refused by an operation and by a comparison, with the same error on every target", () => {
     const count = uniform("int") as any;
@@ -570,7 +571,66 @@ describe("an integer and a float operand", () => {
       expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
       expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
       expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+      expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
     }
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("names the conversion of each operand to the other's kind", () => {
+    const count = uniform("int") as any;
+    const scale = uniform("float") as any;
+    expect(() => count.add(scale)).toThrow("Convert the int with toFloat() or the float with toInt() first.");
+    expect(() => uniform("vec3").mul(uniform("uvec3") as any)).toThrow(
+      "Convert the vec3 with toUVec3() or the uvec3 with toVec3() first.",
+    );
+  });
+});
+
+describe("a signed and an unsigned integer operand", () => {
+  /**
+   * An int beside a uint, or an ivec beside a uvec, reaches the compilers only
+   * through a cast, since the types refuse it.
+   *
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it("are refused by an operation and by a comparison, with the same error on every target", () => {
+    const count = uniform("int") as any;
+    const mask = uniform("uint") as any;
+    const signed = uniform("ivec2") as any;
+    const unsigned = uniform("uvec2") as any;
+    const builds = [
+      () => Fn(() => vec4(count.add(mask).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(mask.sub(count).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(count.mod(mask).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(count.max(mask).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(count.lessThan(mask).select(1, 0), 0, 0, 1))(),
+      () => Fn(() => vec4(signed.mul(unsigned).toVec2(), 0, 1))(),
+      () => Fn(() => vec4(signed.add(mask).toVec2(), 0, 1))(),
+      () => Fn(() => vec4(signed.equal(unsigned).all().select(1, 0), 0, 0, 1))(),
+    ];
+    for (const build of builds) {
+      expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+      expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+    }
+  });
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   */
+  it("names the conversion of each operand to the other's kind", () => {
+    const count = uniform("int") as any;
+    const mask = uniform("uint") as any;
+    expect(() => count.add(mask)).toThrow(
+      "add() takes operands of one kind, not int and uint. Convert the int with toUint() or the uint with toInt() first.",
+    );
+    expect(() => (uniform("uvec4") as any).min(uniform("ivec4"))).toThrow(
+      "Convert the uvec4 with toIVec4() or the ivec4 with toUVec4() first.",
+    );
   });
 });
 
