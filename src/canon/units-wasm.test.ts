@@ -545,7 +545,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   });
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-two-branches-runs-in-each
    */
   it("runs it in the branch that reads its value, and once there on WASM", () => {
     const taken = uniform("float");

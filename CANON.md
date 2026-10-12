@@ -363,7 +363,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
-      - [`@bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it`](#bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it) — On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
+    - [`@spec an-inline-fn-read-in-two-branches-runs-in-each`](#spec-an-inline-fn-read-in-two-branches-runs-in-each) — An `Fn` called outside the program's body has its statements run where its value is first read. When two blocks read the value, and neither holds the other, each runs the statements before it reads the value, on every target. Both branches of an `If` are such blocks. A path through one of the blocks runs them once.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
@@ -765,6 +765,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path) — TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
+- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
@@ -2881,11 +2882,13 @@ This follows because TSL builds a shader the same way.
 
 > The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
 
-##### @bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it
+#### @spec an-inline-fn-read-in-two-branches-runs-in-each
 
-> On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
+> An `Fn` called outside the program's body has its statements run where its value is first read. When two blocks read the value, and neither holds the other, each runs the statements before it reads the value, on every target. Both branches of an `If` are such blocks. A path through one of the blocks runs them once.
 
-Issue: #205
+Derives from: [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once), [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them)
+
+This follows because a path that reads the value but skipped the block that ran the statements would read a value nothing computed. Running them in each branch keeps them on the path that reads them, as TSL does.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -5344,6 +5347,12 @@ This is how three.js's TSL behaves, read from its source (`LoopNode` and `Discar
 > TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 
 This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCallNodeInternal` in `TSLCore`, three.js 0.186).
+
+## @fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them
+
+> TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there.
+
+This is how three.js's TSL behaves, read from its source: `NodeBuilder.addLineFlowCodeBlock` and `addFlowCodeHierarchy` in `src/nodes/core/NodeBuilder.js`, called from `Node.build`, with the branches made in `ConditionalNode.setup` (three.js 0.186).
 
 ## @fact tsl-to-var-takes-a-name
 

@@ -2115,3 +2115,40 @@ describe("an early Return in a function on the CPU targets", () => {
     expect(source).toMatch(/\{\s*return res;\s*\}/);
   });
 });
+
+describe("an inline Fn read in both branches of an If on JS", () => {
+  /**
+   * @canon spec-an-inline-fn-read-in-two-branches-runs-in-each
+   */
+  it("runs an inline Fn read in both branches of an If on the branch taken, on JS", () => {
+    const counter = instancedArray(1, "float");
+    const shared = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const taken = uniform("float");
+    const result = instancedArray(1, "float");
+    const build = () =>
+      Fn(() => {
+        If(taken.greaterThan(0), () => {
+          result.element(int(0)).assign(shared.fract().add(shared));
+        }).Else(() => {
+          result.element(int(0)).assign(shared.mul(10));
+        });
+      })();
+    const runs = (branch: number) => {
+      const data = new Float64Array(1);
+      const out = new Float64Array(1);
+      compileJSRoutine(
+        build as any,
+        none,
+      )({
+        storages: { [counter.name]: data, [result.name]: out },
+        uniforms: { [taken.name]: branch },
+      });
+      return { runs: data[0], value: out[0] };
+    };
+    expect(runs(1)).toEqual({ runs: 1, value: 2 });
+    expect(runs(0)).toEqual({ runs: 1, value: 20 });
+  });
+});

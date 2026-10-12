@@ -1382,4 +1382,32 @@ describe("each leaf on every target it claims", () => {
     const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
     expect(wasm.value ?? wasm).toEqual(new Float64Array([2, 0, 0, 1]));
   });
+
+  /**
+   * The inline `Fn` is called outside the program's body, so the program
+   * holds its statements only where it reads the value. Its variable is
+   * declared in each branch, which GLSL and WGSL refuse to read in the other.
+   *
+   * @canon spec-an-inline-fn-read-in-two-branches-runs-in-each
+   */
+  it("runs an inline Fn read in both branches of an If in the branch taken, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        const counted = a.add(1).toVar();
+        counted.addAssign(1);
+        return counted;
+      })() as any;
+      return Fn(() => {
+        const out = float(0).toVar();
+        If(a.greaterThan(0), () => {
+          out.assign(shared.fract().add(shared));
+        }).Else(() => {
+          out.assign(shared.mul(10));
+        });
+        return out;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(3);
+    expect(evaluateRecording(build, [-5])).toBe(-30);
+  });
 });

@@ -37,6 +37,9 @@ import {
   tryFold,
   isIntegerType,
   withoutSemicolon,
+  compileBlock,
+  memoize,
+  memoized,
   wrapExpr,
 } from "../shared";
 import { shareNodes } from "../share";
@@ -366,14 +369,14 @@ export function compileWGSLStage(node: BaseNode<ShaderType> | any, ctx: CompileC
     return { decls: [], body: [], expr: `vec3<f32>(${node.join(", ")})` };
   }
 
-  // Reached before: its statements are already in the output, so only the
-  // expression naming the result is handed back. Emitting them again would
-  // redeclare a variable, or run an assignment or a loop a second time.
-  let seen = ctx.memo.get(node);
-  if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+  // Reached before where its statements ran: only the expression naming the
+  // result is handed back. Emitting them again would redeclare a variable, or
+  // run an assignment or a loop a second time.
+  let seen = memoized(node, ctx);
+  if (seen) return seen;
 
   let result = compileWGSLNode(node, ctx);
-  ctx.memo.set(node, result);
+  memoize(node, result, ctx);
   return result;
 }
 
@@ -1198,10 +1201,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "if": {
       let cd = compileWGSLStage(node.params![0], ctx);
-      let body = compileWGSLStage(node.params![1], ctx);
+      let body = compileBlock(ctx, () => compileWGSLStage(node.params![1], ctx));
       let elseBody =
         node.params!.length >= 3 && node.params![2] !== undefined
-          ? compileWGSLStage(node.params![2], ctx)
+          ? compileBlock(ctx, () => compileWGSLStage(node.params![2], ctx))
           : { decls: [] as string[], body: [] as string[], expr: "" };
       let lines: string[] = [...cd.body, `if (${cd.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
@@ -1219,8 +1222,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "for": {
       let init = compileWGSLStage(node.params![0], ctx);
       let cd = compileWGSLStage(node.params![1], ctx);
-      let update = compileWGSLStage(node.params![2], ctx);
-      let body = compileWGSLStage(node.params![3], ctx);
+      let update = compileBlock(ctx, () => compileWGSLStage(node.params![2], ctx));
+      let body = compileBlock(ctx, () => compileWGSLStage(node.params![3], ctx));
       // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
       let initExpr = "";
       let initBody = init.body;
@@ -1275,7 +1278,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "while": {
       let cd = compileWGSLStage(node.params![0], ctx);
-      let body = compileWGSLStage(node.params![1], ctx);
+      let body = compileBlock(ctx, () => compileWGSLStage(node.params![1], ctx));
       let { header, guard } = loopTest(cd);
       return {
         decls: [...cd.decls, ...body.decls],
