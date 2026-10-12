@@ -895,6 +895,7 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+2. An `Fn` called outside the program's body, read twice in a `While` condition that makes no statements, runs once, before the loop. Read once there, it runs before every test, whether the condition is a node or a function, which the graph does not tell apart. So a node read once breaks [`spec-a-while-condition-given-as-a-node-is-built-once`](#spec-a-while-condition-given-as-a-node-is-built-once). A read twice breaks [`spec-a-node-a-loop-condition-reads-twice-is-computed-at-every-test`](#spec-a-node-a-loop-condition-reads-twice-is-computed-at-every-test), and [`exception-a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test) too. Issue #241 asks which rule a node condition follows.
 
 ### Coverage gaps
 
