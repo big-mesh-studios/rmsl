@@ -1719,6 +1719,32 @@ describe("a variable the update of a For makes", () => {
   });
 
   /**
+   * The update is one statement, a declaration, which WGSL takes in a
+   * continuing block, not in the for header. The body steps the loop.
+   *
+   * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
+   */
+  it("runs a For whose update is a variable alone, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(a),
+          (i) => {
+            i.mul(2).toVar();
+          },
+          (i) => {
+            i.addAssign(1);
+            total.addAssign(10);
+          },
+        );
+        return total;
+      })();
+    expect(evaluateRecording(build, [3])).toBe(30);
+  });
+
+  /**
    * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
    */
   it("steps a For by a variable its update makes, on every target", () => {

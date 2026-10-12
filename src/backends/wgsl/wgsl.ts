@@ -1236,11 +1236,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let updates = update.body;
       let decls = [...init.decls, ...cd.decls, ...update.decls, ...body.decls];
 
-      // WGSL's for-header holds a single update statement. More than one goes
-      // in a continuing block instead, which runs after the body on every
-      // iteration — including after a continue, which appending them to the
-      // body would not.
-      if (updates.length > 1) {
+      // WGSL's for-header holds a single update statement, and no declaration.
+      // Anything else goes in a continuing block, which runs after the body on
+      // every iteration, after a continue too, unlike the end of the body.
+      if (updates.length > 1 || (updates.length === 1 && /^(var|let|const) /.test(updates[0]!))) {
         return {
           decls,
           body: [
