@@ -131,9 +131,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
         - [`@spec a-divisor-that-folds-to-zero-divides-like-a-literal-zero`](#spec-a-divisor-that-folds-to-zero-divides-like-a-literal-zero) — On WGSL, an integer divisor built from literals that comes to zero compiles as a literal divisor of one.
       - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
-        - [`@bug glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does`](#bug-glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does) — On GLSL, an `int` remainder with a negative operand, and `INT_MIN / -1`, give what the driver gives rather than the result WGSL defines, for a run-time operand and a literal one alike.
         - [`@spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation) — On GLSL, an integer operation whose result GLSL ES 3.00 defines gives the result WGSL defines for it.
-        - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
+        - [`@exception glsl-integer-edge-cases-follow-the-driver`](#exception-glsl-integer-edge-cases-follow-the-driver) — On GLSL, an integer operation whose result GLSL ES 3.00 leaves open gives whatever the driver gives. The GLSL target emits the native operator for it. One such operation is a division or remainder by a run-time zero. Another is a shift by a run-time amount that is negative, or 32 or more. So is an `int` remainder with a negative operand, or `INT_MIN / -1`, once one operand is a run-time value, even beside a literal.
     - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the result WebGPU gives, computed in 32 bits.
       - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
@@ -687,7 +686,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
   - [`@spec compile-wat-refuses-a-memory-import-it-cannot-make-shared`](#spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared) — `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
-- [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
+- [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves the result of an integer division by zero unspecified. It leaves undefined a remainder by zero or with a negative operand. A shift by a negative amount, or by the bit width or more, is undefined too. Other integer overflow wraps to the low bits. The one exception is the most negative integer divided by `-1`, which may give the most negative or the most positive integer.
+- [`@fact tsl-emits-the-native-integer-division-and-remainder`](#fact-tsl-emits-the-native-integer-division-and-remainder) — TSL writes an integer division as `/` and an integer remainder as `%`, on literal and run-time operands alike, with no guard around either.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
 - [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
 - [`@fact wgsl-an-indeterminate-value-is-any-value-of-its-type`](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) — Where the WGSL specification gives an operation an indeterminate value, the result is any value of the result type. It need not be the same on two devices, or on two evaluations of the same expression.
@@ -1548,23 +1548,17 @@ This follows because WGSL refuses a constant division by zero, so a constant sub
 
 > The GLSL target gives an integer operation the result that WGSL defines for it.
 
-###### @bug glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does
-
-> On GLSL, an `int` remainder with a negative operand, and `INT_MIN / -1`, give what the driver gives rather than the result WGSL defines, for a run-time operand and a literal one alike.
-
-Issue: #226
-
 ###### @spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation
 
 > On GLSL, an integer operation whose result GLSL ES 3.00 defines gives the result WGSL defines for it.
 
-###### @exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver
+###### @exception glsl-integer-edge-cases-follow-the-driver
 
-> On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
+> On GLSL, an integer operation whose result GLSL ES 3.00 leaves open gives whatever the driver gives. The GLSL target emits the native operator for it. One such operation is a division or remainder by a run-time zero. Another is a shift by a run-time amount that is negative, or 32 or more. So is an `int` remainder with a negative operand, or `INT_MIN / -1`, once one operand is a run-time value, even beside a literal.
 
-Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined)
+Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined), [`fact-tsl-emits-the-native-integer-division-and-remainder`](#fact-tsl-emits-the-native-integer-division-and-remainder)
 
-GLSL leaves these results undefined, and the GLSL target emits the native operator for them. A guard around each operation would give the WGSL result, at the cost of a branch on every integer division and shift.
+A guard around each operation would give the WGSL result, at the cost of a branch on every integer division, remainder and shift. TSL emits the bare operator too, so a ported shader gives on rmsl what it gave on TSL.
 
 #### @spec float-arithmetic-gives-one-result
 
@@ -4873,9 +4867,15 @@ This is a fact of the WGSL specification, not a choice.
 
 ## @fact glsl-leaves-integer-edge-cases-undefined
 
-> GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
+> GLSL ES 3.00 leaves the result of an integer division by zero unspecified. It leaves undefined a remainder by zero or with a negative operand. A shift by a negative amount, or by the bit width or more, is undefined too. Other integer overflow wraps to the low bits. The one exception is the most negative integer divided by `-1`, which may give the most negative or the most positive integer.
 
-This is a fact of the GLSL ES 3.00 specification, not a choice.
+This is a fact of the GLSL ES 3.00 specification, revision 6, sections 4.1.3 and 5.9, not a choice. A driver need not keep to it: SwiftShader gives 1 for `INT_MIN / -1`.
+
+## @fact tsl-emits-the-native-integer-division-and-remainder
+
+> TSL writes an integer division as `/` and an integer remainder as `%`, on literal and run-time operands alike, with no guard around either.
+
+This is how three.js's TSL behaves, read from its source (`OperatorNode`, `generate`, three.js 0.186).
 
 ## @fact wgsl-rejects-a-constant-expression-that-fails
 
