@@ -1287,6 +1287,53 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * Each matrix that is not square goes to the WebGL call of its shape, with its columns as they are given.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a matrix that is not square through the call of its shape on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const shapes = ["mat2x3", "mat2x4", "mat3x2", "mat3x4", "mat4x2", "mat4x3"] as const;
+    for (const type of shapes) {
+      const [columns, rows] = [Number(type[3]), Number(type[5])];
+      const value = Array.from({ length: columns * rows }, (_, i) => i + 1);
+      const before = calls.length;
+      renderer.setUniform({ name: type }, type, value);
+      expect(
+        calls.slice(before).map((c) => [c.name, c.args[1], Array.from(c.args[2])]),
+        type,
+      ).toEqual([[`uniformMatrix${columns}x${rows}fv`, false, value]]);
+    }
+  });
+
+  /**
+   * A material uniform of a matrix that is not square is written column by
+   * column, each column of three padded to 16 bytes, as WGSL reads it.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a matrix that is not square as WGSL lays it out on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const tall = b.materialUniform("tall", "mat2x3", () => [1, 2, 3, 4, 5, 6]);
+      const wide = b.materialUniform("wide", "mat3x2", () => [7, 8, 9, 10, 11, 12]);
+      return vec4(tall.element(1).x.add(wide.element(2).y), 0, 0, 1);
+    };
+    const mesh = new Mesh(new PlaneGeometry(), material);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
+    renderer.packUniforms(entry, mesh, camera(), 0);
+
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const tall = offsetOf(entry, "tall") / 4;
+    const wide = offsetOf(entry, "wide") / 4;
+    expect(Array.from(floats.subarray(tall, tall + 7))).toEqual([1, 2, 3, 0, 4, 5, 6]);
+    expect(Array.from(floats.subarray(wide, wide + 6))).toEqual([7, 8, 9, 10, 11, 12]);
+  });
+
+  /**
    * The WebGL renderer uploads a `uint`, a `uvec2` and a `bvec3` uniform.
    *
    * @canon spec-a-uniform-uploads-in-the-shape-its-type-has

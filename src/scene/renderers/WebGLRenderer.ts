@@ -553,6 +553,24 @@ export class WebGLRenderer {
       case "mat4":
         gl.uniformMatrix4fv(location, false, value);
         break;
+      case "mat2x3":
+        gl.uniformMatrix2x3fv(location, false, value);
+        break;
+      case "mat2x4":
+        gl.uniformMatrix2x4fv(location, false, value);
+        break;
+      case "mat3x2":
+        gl.uniformMatrix3x2fv(location, false, value);
+        break;
+      case "mat3x4":
+        gl.uniformMatrix3x4fv(location, false, value);
+        break;
+      case "mat4x2":
+        gl.uniformMatrix4x2fv(location, false, value);
+        break;
+      case "mat4x3":
+        gl.uniformMatrix4x3fv(location, false, value);
+        break;
       default:
         // Unknown types are skipped rather than guessed.
         break;

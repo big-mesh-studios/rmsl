@@ -546,7 +546,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses`](#spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses) — The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
-    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
+    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix, square or not, as an array. An integer uniform goes up as an integer, and each column of three components is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
     - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture only if its sampler state changed.
@@ -4044,7 +4044,7 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 
 #### @spec a-uniform-uploads-in-the-shape-its-type-has
 
-> A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
+> A renderer uploads a scalar uniform as a scalar and a vector or matrix, square or not, as an array. An integer uniform goes up as an integer, and each column of three components is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
 
 #### @spec an-instanced-attribute-comes-from-its-mesh
 
