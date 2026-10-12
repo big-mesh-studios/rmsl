@@ -17,7 +17,7 @@ const position = attribute("vec3");
 const colour = uniform("vec4");
 const vertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 const fragment = () => Fn(() => colour)();
-// A vertex stage that also reads an attribute the host never sets, which moves the triangle out of view unless it holds 0.
+// A vertex stage that also reads an attribute that moves the triangle out of view unless it holds 0.
 const offset = attribute("vec4");
 const offsetVertex = () => Fn(() => { builtinPosition().assign(vec4(position.add(offset.xyz.mul(8)), 1)); })();
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -88,6 +88,7 @@ const drawnOver = (dirty) => {
   const adapter = createGlsl(offsetVertex(), texturedFragment());
   adapter.attach(target);
   adapter.setAttribute(position, TRIANGLE);
+  adapter.setAttribute(offset, new Float32Array(12));
   adapter.setTexture(image, {
     data: Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255),
     width: 2,
@@ -108,6 +109,7 @@ const glslStateChanged = (preserveState) => {
   adapter.attach(target);
   check();
   adapter.setAttribute(position, TRIANGLE);
+  adapter.setAttribute(offset, new Float32Array(12));
   check();
   adapter.setUniform(colour, [0, 1, 0, 1]);
   check();
@@ -387,7 +389,6 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
 
   /**
    * @canon spec-a-webgl-call-sets-the-state-it-reads
-   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
    */
   it("draws over state the page set as it draws on a fresh context with createGlsl", async () => {
     const { dirty, clean } = await drawn("glslDrawsOver");

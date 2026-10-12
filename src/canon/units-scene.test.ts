@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
-import { uniform, vec2, vec4, texture, type Node } from "../rmsl";
+import { float, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
 import {
   AmbientLight,
   Blending,
@@ -11,6 +11,7 @@ import {
   DirectionalLight,
   FloatType,
   InstancedMesh,
+  Matrix3,
   Line2NodeMaterial,
   LineSegments2,
   LineSegmentsGeometry,
@@ -30,11 +31,13 @@ import {
   WebGLRenderTarget,
   WebGPURenderer,
 } from "../scene";
-import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
+import { GPU_ENABLED, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { collectNodes } from "../scene/materials/nodes/graph";
-import { GL_STATE, runInGpuPage } from "../testing/browser";
+import { GL_STATE, READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { camera, offsetOf, sampling, stubDevice, stubGl, stubWebGl } from "./scene-stubs";
 import { drawToCanvas, GlStateKeeper } from "../backends/glsl/gl-state";
+
+const WEBGPU = await webgpuAvailable();
 
 /** The value a built program's uniform of that name holds now. */
 function uniformValue(material: MeshLambertMaterial, scene: Scene, name: string): unknown {
@@ -80,6 +83,138 @@ globalThis.__rmslR8UIRowsRun = () => {
   const pixels = new Uint8Array(4);
   gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
   return { r: pixels[0], error: gl.getError() };
+};
+`;
+
+/**
+ * A plane filling a 16×16 canvas, coloured in the vertex stage from one
+ * attribute of each case, on either scene renderer. Each case reads green only
+ * when its attribute reaches the shader as the type it declares, column by
+ * column for a matrix. Returns each case's pixel, or the error it hit.
+ */
+const ENTRY_ATTRIBUTE_TYPES = `
+import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  BufferAttribute, MeshBasicMaterial } from "../scene";
+import { vec2, vec3, vec4 } from "../rmsl";
+${READ_PIXEL}
+const perVertex = (array, values) => {
+  for (let i = 0; i < array.length; i++) array[i] = values[i % values.length];
+  return array;
+};
+const CASES = {
+  int: ["ivec2", new BufferAttribute(perVertex(new Int32Array(8), [-255, 255]), 2),
+    (v) => vec4(v.x.add(255).toFloat(), v.y.toFloat(), 0, 255).div(255)],
+  uint: ["uint", new BufferAttribute(perVertex(new Uint32Array(4), [255]), 1),
+    (v) => vec4(0, v.toFloat().div(255), 0, 1)],
+  sint32Format: ["int", Object.assign(new BufferAttribute(perVertex(new Int32Array(4), [255]), 1), { format: "sint32" }),
+    (v) => vec4(0, v.toFloat().div(255), 0, 1)],
+  bytes: ["uvec4", new BufferAttribute(perVertex(new Uint8Array(16), [0, 255, 0, 255]), 4),
+    (v) => vec4(v.x.toFloat(), v.y.toFloat(), v.z.toFloat(), v.w.toFloat()).div(255)],
+  mat3: ["mat3", new BufferAttribute(perVertex(new Float32Array(36), [1, 0, 1, 0, 1, 0, 1, 0, 1]), 9),
+    (m) => vec4(m.mul(vec3(0, 1, 0)), 1)],
+  mat2x3: ["mat2x3", new BufferAttribute(perVertex(new Float32Array(24), [1, 0, 1, 0, 1, 0]), 6),
+    (m) => vec4(m.mul(vec2(0, 1)), 1)],
+};
+const drawCase = async (renderer, canvas, [type, data, colour]) => {
+  const geometry = new PlaneGeometry(2, 2);
+  geometry.setAttribute("value", data);
+  const material = new MeshBasicMaterial();
+  material.vertexNode = (b) => {
+    b.varying("colour", "vec4").assign(colour(b.attribute("value", type)));
+    return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+  };
+  material.fragmentNode = (b) => b.varying("colour", "vec4");
+  const scene = new Scene();
+  scene.add(new Mesh(geometry, material));
+  const camera = new PerspectiveCamera(90, 1, 0.1, 100);
+  camera.position.set(0, 0, 0.5);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  if (renderer.device) {
+    await renderer.device.queue.onSubmittedWorkDone();
+    return readPixel(canvas, 8, 8);
+  }
+  const gl = renderer.gl;
+  const pixels = new Uint8Array(4);
+  gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const error = gl.getError();
+  return error ? { error } : { r: pixels[0], g: pixels[1], b: pixels[2], a: pixels[3] };
+};
+globalThis.__rmslAttributeTypes = async (backend) => {
+  const results = {};
+  for (const [name, attributeCase] of Object.entries(CASES)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    try {
+      const renderer = backend === "webgpu"
+        ? await WebGPURenderer.init(canvas)
+        : new WebGLRenderer(canvas, { antialias: false });
+      results[name] = await drawCase(renderer, canvas, attributeCase);
+    } catch (error) {
+      results[name] = { error: error.message };
+    }
+  }
+  return results;
+};
+`;
+
+/**
+ * A plane filling a 16×16 canvas whose material reads an attribute of each
+ * type that its geometry lacks, and adds it to (0, 1, 0, 0). The colour is
+ * opaque green when the attribute reads (0, 0, 0, 1), a matrix column by
+ * column. Returns each type's pixel, or the error it hit.
+ */
+const ENTRY_MISSING_ATTRIBUTE = `
+import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial } from "../scene";
+import { vec4 } from "../rmsl";
+${READ_PIXEL}
+const AS_COLOUR = {
+  vec4: (v) => v,
+  ivec4: (v) => vec4(v.x.toFloat(), v.y.toFloat(), v.z.toFloat(), v.w.toFloat()),
+  mat4: (m) => m.element(0).add(m.element(1)).add(m.element(2)).add(m.element(3)).div(4),
+  mat3: (m) => vec4(m.element(0).add(m.element(1)).add(m.element(2)), 1),
+};
+globalThis.__rmslMissingAttribute = async (backend) => {
+  const results = {};
+  for (const [type, asColour] of Object.entries(AS_COLOUR)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    try {
+      const renderer = backend === "webgpu"
+        ? await WebGPURenderer.init(canvas)
+        : new WebGLRenderer(canvas, { antialias: false });
+      const errors = [];
+      renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+      const material = new MeshBasicMaterial();
+      material.vertexNode = (b) => {
+        b.varying("colour", "vec4").assign(vec4(0, 1, 0, 0).add(asColour(b.attribute("missing", type))));
+        return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+      };
+      material.fragmentNode = (b) => b.varying("colour", "vec4");
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+      const camera = new PerspectiveCamera(90, 1, 0.1, 100);
+      camera.position.set(0, 0, 0.5);
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+      if (renderer.device) {
+        await renderer.device.queue.onSubmittedWorkDone();
+        results[type] = errors.length ? { errors } : readPixel(canvas, 8, 8);
+      } else {
+        const gl = renderer.gl;
+        const pixels = new Uint8Array(4);
+        gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        const error = gl.getError();
+        results[type] = error ? { error } : { r: pixels[0], g: pixels[1], b: pixels[2], a: pixels[3] };
+      }
+    } catch (error) {
+      results[type] = { error: error.message };
+    }
+  }
+  return results;
 };
 `;
 
@@ -1015,6 +1150,334 @@ describe("a scene renderer manages what it uploads", () => {
     expect(after.find((c) => c.name === "renderbufferStorage")!.args.slice(1)).toEqual([gl.DEPTH_COMPONENT24, 16, 8]);
     expect(after.find((c) => c.name === "viewport")!.args).toEqual([0, 0, 16, 8]);
   });
+
+  /**
+   * @canon spec-a-webgpu-render-records-what-a-fresh-renderer-records
+   */
+  it("records the pass a fresh renderer records after drawing another scene first", () => {
+    const sceneOf = (z: number, color: number) => {
+      const scene = new Scene();
+      const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial({ color }));
+      mesh.position.z = z;
+      scene.add(mesh);
+      return scene;
+    };
+    const recorded = (render: (renderer: WebGPURenderer) => void) => {
+      const { device, canvas, passes } = stubDevice();
+      render(new WebGPURenderer(canvas, device as any));
+      const last = passes[passes.length - 1];
+      return JSON.stringify([
+        last.descriptor.colorAttachments[0].clearValue,
+        last.calls.map((c) => [c.name, c.args.filter((a) => typeof a === "number")]),
+      ]);
+    };
+    const later = sceneOf(-1, 0x00ff00);
+
+    const afterOther = recorded((renderer) => {
+      renderer.render(sceneOf(1, 0xff0000), camera());
+      renderer.render(later, camera());
+    });
+    const fresh = recorded((renderer) => renderer.render(later, camera()));
+
+    expect(afterOther).toBe(fresh);
+  });
+
+  /**
+   * The WebGPU renderer pads each column of a `mat3` uniform to 16 bytes, as WGSL
+   * reads it.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads the normal matrix with each column padded to 16 bytes on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
+    mesh.rotation.set(0.3, 0.5, 0.7);
+    mesh.scale.set(1, 2, 3);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(mesh.material, new Scene(), false, false);
+    renderer.packUniforms(entry, mesh, camera(), 0);
+
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const base = offsetOf(entry, "normalMatrix") / 4;
+    const expected = new Matrix3().getNormalMatrix(mesh.matrixWorld).elements;
+    for (let column = 0; column < 3; column++) {
+      for (let row = 0; row < 3; row++) {
+        expect(floats[base + column * 4 + row]).toBeCloseTo(expected[column * 3 + row], 5);
+      }
+    }
+  });
+
+  /**
+   * The WebGPU renderer writes an `int` uniform as an integer.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads an int uniform as an integer on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.materialUniform("count", "int", () => 7).toFloat(), 0, 0, 1);
+    const mesh = new Mesh(new PlaneGeometry(), material);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
+    renderer.packUniforms(entry, mesh, camera(), 0);
+
+    const ints = new Int32Array(bytesOf(entry.ringBuffer).buffer);
+    expect(ints[offsetOf(entry, "count") / 4]).toBe(7);
+  });
+
+  /**
+   * The WebGPU renderer leaves a `mat3` uniform at zero when the value it
+   * takes is an empty array, as it does for a name it does not know.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("writes nothing for an empty matrix value on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) =>
+      vec4(
+        b
+          .materialUniform("m", "mat3", () => [])
+          .element(0)
+          .element(0),
+        0,
+        0,
+        1,
+      );
+    const mesh = new Mesh(new PlaneGeometry(), material);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
+    renderer.packUniforms(entry, mesh, camera(), 0);
+
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const base = offsetOf(entry, "m") / 4;
+    expect(Array.from(floats.subarray(base, base + 12))).toEqual(new Array(12).fill(0));
+  });
+
+  /**
+   * The WebGL renderer uploads a `uint`, a `uvec2` and a `bvec3` uniform.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a uint, a uvec2 and a bvec3 uniform on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const before = calls.length;
+    renderer.setUniform({ name: "a" }, "uint", 5);
+    renderer.setUniform({ name: "b" }, "uvec2", [5, 6]);
+    renderer.setUniform({ name: "c" }, "bvec3", [1, 0, 1]);
+    expect(calls.slice(before).map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
+  });
+
+  /**
+   * The WebGPU renderer reads a normalized `Uint8Array` `vec4` as `unorm8x4`
+   * with a 4-byte stride.
+   *
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it("reads a normalized byte attribute as unorm8x4 on WebGPU", () => {
+    const { device, canvas, pipelines } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any);
+    const geometry = new PlaneGeometry();
+    geometry.setAttribute("tint", new BufferAttribute(new Uint8Array(4 * 4).fill(255), 4, true));
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const tint = b.varying("tint", "vec4");
+      return tint;
+    };
+    material.vertexNode = (b) => {
+      b.varying("tint", "vec4").assign(b.attribute("tint", "vec4"));
+      return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+    };
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    renderer.render(scene, camera());
+
+    const tint = pipelines[0].vertex.buffers.find((buffer: any) =>
+      buffer.attributes.some((a: any) => a.format === "unorm8x4" || a.format === "float32x4"),
+    );
+    expect(tint).toMatchObject({ arrayStride: 4, attributes: [{ format: "unorm8x4" }] });
+  });
+
+  /**
+   * Meshes that share a material and hold an attribute in different formats
+   * each draw with a pipeline that reads it in its own, whether the formats
+   * differ by array type or by width, and a mesh's attributes that the
+   * program never reads do not make another pipeline.
+   *
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it("draws meshes that hold an attribute in different formats with a pipeline each on WebGPU", () => {
+    const { device, canvas, pipelines, passes } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any);
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => b.varying("tint", "vec4");
+    material.vertexNode = (b) => {
+      b.varying("tint", "vec4").assign(b.attribute("tint", "vec4"));
+      return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+    };
+    const tints = [
+      new BufferAttribute(new Uint8Array(16).fill(255), 4, true),
+      new BufferAttribute(new Float32Array(16), 4),
+      new BufferAttribute(new Float32Array(12), 3),
+      new BufferAttribute(new Float32Array(16), 4),
+    ];
+    const scene = new Scene();
+    tints.forEach((tint, i) => {
+      const geometry = new PlaneGeometry();
+      geometry.setAttribute("tint", tint);
+      // No program reads this one, and it differs between meshes.
+      geometry.setAttribute(
+        "unused",
+        new BufferAttribute(i % 2 ? new Uint8Array(4) : new Float32Array(4), 4, i % 2 === 1),
+      );
+      scene.add(new Mesh(geometry, material));
+    });
+    renderer.render(scene, camera());
+
+    const formatOf = (pipeline: any) =>
+      pipeline.vertex.buffers.flatMap((b: any) => b.attributes.map((a: any) => a.format));
+    const used = passes.map((pass) => pass.calls.find((c) => c.name === "setPipeline")!.args[0]);
+    expect(used.map(formatOf)).toEqual([
+      ["unorm8x4", "float32x3"],
+      ["float32x4", "float32x3"],
+      ["float32x3", "float32x3"],
+      ["float32x4", "float32x3"],
+    ]);
+    expect(used[3]).toBe(used[1]);
+    expect(pipelines).toHaveLength(3);
+  });
+
+  /**
+   * Each of 65 draws of one material reads its own model matrix, so the
+   * frame holds more draws than the ring held at first.
+   *
+   * @canon spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has
+   */
+  it("draws each of 65 meshes with its own model matrix on WebGPU", () => {
+    const { device, canvas, passes, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    const geometry = new PlaneGeometry();
+    const scene = new Scene();
+    for (let i = 0; i < 65; i++) {
+      const mesh = new Mesh(geometry, material);
+      mesh.position.x = i;
+      scene.add(mesh);
+    }
+    renderer.render(scene, camera());
+
+    const entry = [...renderer.pipelines.get(material).values()][0];
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const translation = offsetOf(entry, "modelMatrix") / 4 + 12;
+    const seen = passes.map((pass) => {
+      const [offset] = pass.calls.find((c) => c.name === "setBindGroup" && c.args[0] === 0)!.args[2];
+      return floats[offset / 4 + translation];
+    });
+    expect(seen).toEqual([...Array(65).keys()]);
+  });
+
+  /**
+   * A program's uniform ring shrinks again once a frame needs far fewer
+   * slots, and the ring of an entry a rebuild replaces is freed.
+   *
+   * @canon spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses
+   */
+  it("frees a uniform ring that a frame no longer fills, and one a rebuild replaces on WebGPU", () => {
+    const { device, canvas, destroyed } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    const geometry = new PlaneGeometry();
+    const scene = new Scene();
+    const meshes = Array.from({ length: 1000 }, () => new Mesh(geometry, material));
+    for (const mesh of meshes) scene.add(mesh);
+    renderer.render(scene, camera());
+    const entry = [...renderer.pipelines.get(material).values()][0];
+    const full = entry.ringBuffer;
+    expect(entry.slots).toBeGreaterThanOrEqual(1000);
+
+    for (const mesh of meshes.slice(3)) scene.remove(mesh);
+    renderer.render(scene, camera());
+    // A ring that is oversized for a frame or two is kept.
+    expect(entry.ringBuffer).toBe(full);
+    for (let frame = 0; frame < 60; frame++) renderer.render(scene, camera());
+    expect(entry.slots).toBeLessThan(1000);
+    expect(destroyed.has(full)).toBe(true);
+
+    // A program with no draw at all shrinks too.
+    scene.clear();
+    for (let frame = 0; frame < 60; frame++) renderer.render(scene, camera());
+    expect(entry.slots).toBe(64);
+
+    const small = entry.ringBuffer;
+    scene.add(meshes[0]);
+    material.needsUpdate = true;
+    renderer.render(scene, camera());
+    expect(destroyed.has(small)).toBe(true);
+  });
+
+  /**
+   * The WebGPU renderer binds each texture and sampler at the binding the
+   * compiled WGSL declares it at, in both stages.
+   *
+   * @canon spec-each-sampler-gets-its-own-texture
+   */
+  it("numbers texture and sampler bindings as the compiled WGSL does on WebGPU", () => {
+    const { device, canvas, pipelines } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    const image = () => new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    material.fragmentNode = (b) => {
+      b.sampler("unused", image);
+      const first = b.sampler("first", image);
+      const second = b.sampler("second", image);
+      return texture(second, vec2(0.5, 0.5)).add(texture(first, vec2(0.5, 0.5)));
+    };
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    renderer.render(scene, camera());
+    const entry = [...renderer.pipelines.get(material).values()][0];
+    const wgsl = pipelines[0].fragment.module.code;
+
+    const declared = (group: number) =>
+      [...wgsl.matchAll(new RegExp(`@group\\(${group}\\) @binding\\((\\d+)\\) var (\\w+)`, "g"))].map(
+        (m) => `${m[2]}@${m[1]}`,
+      );
+    const bound = (bindings: { name: string; binding: number }[], suffix: string) =>
+      bindings.map((b) => `${b.name}${suffix}@${b.binding}`);
+    const samplerSuffix = "_s";
+    expect(bound(entry.textureBindings, "").sort()).toEqual(declared(1).sort());
+    expect(bound(entry.samplerBindings, samplerSuffix).sort()).toEqual(declared(2).sort());
+  });
+
+  /**
+   * The WebGPU renderer makes a texture and its sampler visible to the vertex
+   * stage as well as the fragment stage, so a texture sampled in
+   * `positionNode` binds.
+   *
+   * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
+   */
+  it("binds a texture sampled in the vertex stage to the vertex stage on WebGPU", () => {
+    const { device, canvas, layouts } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const height = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) =>
+      b.position.add(
+        textureLevel(
+          b.sampler("height", () => height),
+          b.uv,
+          float(0),
+        ).xyz,
+      );
+    renderer.ensurePipeline(material, new Scene(), false, false);
+
+    const textureLayout = layouts.find((l) => l.entries.some((e: any) => e.texture))!;
+    expect(textureLayout.entries[0].visibility & 1).toBe(1);
+    expect(textureLayout.entries[0].visibility & 2).toBe(2);
+  });
 });
 
 describe("a node material lights as three.js does", () => {
@@ -1366,6 +1829,279 @@ describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a r
     expect(result.fresh).toEqual([0, 0, 0, 255]);
     expect(result.afterTextured).toEqual(result.fresh);
   }, 60_000);
+});
+
+describe("a scene renderer reads an attribute as the type it declares", () => {
+  /** A plane whose material moves each vertex by the attribute `value` of `type`, read through `read`. */
+  const meshReading = (type: string, data: BufferAttribute, read: (value: any) => Node<"float">) => {
+    const geometry = new PlaneGeometry();
+    geometry.setAttribute("value", data);
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => b.position.add(read(b.attribute("value", type as any)));
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    return scene;
+  };
+  /** The vertex formats the one pipeline of a WebGPU render of `scene` reads, and its vertex WGSL. */
+  const webGpuLayout = (scene: Scene) => {
+    const { device, canvas, pipelines } = stubDevice();
+    new WebGPURenderer(canvas, device as any).render(scene, camera());
+    return { buffers: pipelines[0].vertex.buffers, code: pipelines[0].vertex.module.code as string };
+  };
+
+  /**
+   * @canon spec-a-scene-renderer-reads-an-integer-attribute-as-integers
+   */
+  it("points an integer attribute with vertexAttribIPointer on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    renderer.render(
+      meshReading("ivec2", new BufferAttribute(new Int32Array(8), 2), (v) => v.x.toFloat()),
+      camera(),
+    );
+    const pointers = calls.filter((c) => c.name === "vertexAttribIPointer");
+    expect(pointers).toHaveLength(1);
+    const [location, size, type, stride, offset] = pointers[0]!.args;
+    expect([size, type, stride, offset]).toEqual([2, renderer.gl.INT, 8, 0]);
+    expect(calls.some((c) => c.name === "vertexAttribPointer" && c.args[0] === location)).toBe(false);
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-an-integer-attribute-as-integers
+   */
+  it("reads a Uint32Array, a sint32 format and raw bytes as integers on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const declared = new BufferAttribute(new Int32Array(4), 1);
+    declared.format = "sint32";
+    const scene = meshReading("uint", new BufferAttribute(new Uint32Array(4), 1), (v) => v.toFloat());
+    scene.add(meshReading("int", declared, (v) => v.toFloat()).children[0]!);
+    scene.add(meshReading("uvec4", new BufferAttribute(new Uint8Array(16), 4), (v) => v.x.toFloat()).children[0]!);
+    renderer.render(scene, camera());
+    const pointers = calls.filter((c) => c.name === "vertexAttribIPointer").map((c) => c.args.slice(1));
+    const gl = renderer.gl;
+    expect(pointers).toEqual([
+      [1, gl.UNSIGNED_INT, 4, 0],
+      [1, gl.INT, 4, 0],
+      [4, gl.UNSIGNED_BYTE, 4, 0],
+    ]);
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-an-integer-attribute-as-integers
+   */
+  it("reads an Int32Array, a uint32 format and raw bytes in integer formats on WebGPU", () => {
+    const declared = new BufferAttribute(new Uint32Array(8), 2);
+    declared.format = "uint32x2";
+    const formats = [
+      ["ivec3", new BufferAttribute(new Int32Array(12), 3), "sint32x3", 12],
+      ["uvec2", declared, "uint32x2", 8],
+      ["ivec4", new BufferAttribute(new Int8Array(16), 4), "sint8x4", 4],
+    ] as const;
+    for (const [type, data, format, stride] of formats) {
+      const { buffers } = webGpuLayout(meshReading(type, data, (v) => v.x.toFloat()));
+      expect(buffers[1].arrayStride).toBe(stride);
+      expect(buffers[1].attributes.map((a: any) => a.format)).toEqual([format]);
+    }
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location
+   */
+  it.each([
+    ["mat2", 2, 2],
+    ["mat3", 3, 3],
+    ["mat2x3", 2, 3],
+    ["mat4x2", 4, 2],
+  ] as const)("points each column of a %s attribute at a location of its own on WebGL", (type, columns, rows) => {
+    const { renderer, calls } = stubWebGl();
+    const stride = columns * rows * 4;
+    renderer.render(
+      meshReading(type, new BufferAttribute(new Float32Array(columns * rows * 4), columns * rows), (m) =>
+        m.element(0).element(0),
+      ),
+      camera(),
+    );
+    const pointers = calls.filter((c) => c.name === "vertexAttribPointer" && c.args[4] === stride);
+    const first = pointers[0]!.args[0];
+    expect(pointers.map((c) => c.args)).toEqual(
+      Array.from({ length: columns }, (_, column) => [
+        first + column,
+        rows,
+        renderer.gl.FLOAT,
+        false,
+        stride,
+        column * rows * 4,
+      ]),
+    );
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location
+   */
+  it.each([
+    ["mat3", 3, 3],
+    ["mat2x3", 2, 3],
+    ["mat4x2", 4, 2],
+  ] as const)(
+    "reads each column of a %s attribute at the location the WGSL declares it on WebGPU",
+    (type, columns, rows) => {
+      const { buffers, code } = webGpuLayout(
+        meshReading(type, new BufferAttribute(new Float32Array(columns * rows * 4), columns * rows), (m) =>
+          m.element(0).element(0),
+        ),
+      );
+      const matrix = buffers[1];
+      expect(matrix.arrayStride).toBe(columns * rows * 4);
+      expect(matrix.attributes).toEqual(
+        Array.from({ length: columns }, (_, column) => ({
+          shaderLocation: 1 + column,
+          offset: column * rows * 4,
+          format: `float32x${rows}`,
+        })),
+      );
+      for (let column = 0; column < columns; column++) {
+        expect(code).toMatch(new RegExp(`@location\\(${1 + column}\\) \\w+_${column}: vec${rows}<f32>`));
+      }
+    },
+  );
+
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it.each([
+    ["int", new BufferAttribute(new Float32Array(4), 1)],
+    ["uint", new BufferAttribute(new Int32Array(4), 1)],
+    ["float", new BufferAttribute(new Int32Array(4), 1)],
+  ] as const)("refuses an attribute declared %s whose array is of another kind, naming the type", (type, data) => {
+    const read = (v: any) => (type === "float" ? v : v.toFloat());
+    const { renderer } = stubWebGl();
+    expect(() => renderer.render(meshReading(type, data, read), camera())).toThrow(new RegExp(`\\b${type}\\b`));
+    const { device, canvas } = stubDevice();
+    expect(() => new WebGPURenderer(canvas, device as any).render(meshReading(type, data, read), camera())).toThrow(
+      new RegExp(`\\b${type}\\b`),
+    );
+  });
+
+  /**
+   * The stub device records the pipeline and the buffers each draw sets.
+   *
+   * @canon spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives
+   */
+  it("binds a buffer that every vertex reads at the slot of an attribute with no data on WebGPU", () => {
+    const { device, canvas, pipelines, passes } = stubDevice();
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => b.position.add(b.attribute("missing", "mat3").element(0));
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    new WebGPURenderer(canvas, device as any).render(scene, camera());
+    const buffers = pipelines[0].vertex.buffers;
+    const slot = buffers.findIndex((b: any) => b.attributes.length === 3);
+    expect(buffers[slot]).toMatchObject({
+      arrayStride: 0,
+      attributes: [0, 1, 2].map((column) => ({ offset: 0, format: "float32x3" })),
+    });
+    const set = passes[0].calls.filter((c) => c.name === "setVertexBuffer").map((c) => c.args[0]);
+    expect(set.sort()).toEqual(buffers.map((_: unknown, i: number) => i));
+  });
+
+  /**
+   * Two frames of one mesh warn once; a second geometry that lacks the
+   * attribute warns again.
+   *
+   * @canon spec-a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks
+   */
+  it.each(["WebGL", "WebGPU"])(
+    "warns once for each geometry that lacks an attribute the material reads on %s",
+    (backend) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const material = new MeshBasicMaterial();
+        material.positionNode = (b) => b.position.add(b.attribute("tint", "vec3"));
+        const scene = new Scene();
+        scene.add(new Mesh(new PlaneGeometry(), material));
+        let renderer: { render(scene: Scene, camera: PerspectiveCamera): void };
+        if (backend === "WebGL") renderer = stubWebGl().renderer;
+        else {
+          const { device, canvas } = stubDevice();
+          renderer = new WebGPURenderer(canvas, device as any);
+        }
+        renderer.render(scene, camera());
+        renderer.render(scene, camera());
+        expect(warn.mock.calls.map((call) => call.join(" "))).toEqual([
+          expect.stringMatching(/Vertex attribute "tint" not found on geometry\./),
+        ]);
+        scene.add(new Mesh(new PlaneGeometry(), material));
+        renderer.render(scene, camera());
+        expect(warn).toHaveBeenCalledTimes(2);
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+});
+
+describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type on a real driver", () => {
+  const GREEN = { r: 0, g: 255, b: 0, a: 255 };
+  const CASES = { int: GREEN, uint: GREEN, sint32Format: GREEN, bytes: GREEN, mat3: GREEN, mat2x3: GREEN };
+
+  /**
+   * @canon spec-a-scene-renderer-reads-an-integer-attribute-as-integers
+   * @canon spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location
+   */
+  it("draws integer and matrix attributes on WebGL", async () => {
+    const results = await runInGpuPage(
+      ENTRY_ATTRIBUTE_TYPES,
+      "__rmslAttributeTypes",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(results).toEqual(CASES);
+  }, 60_000);
+
+  /**
+   * @canon spec-a-scene-renderer-reads-an-integer-attribute-as-integers
+   * @canon spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location
+   */
+  it.skipIf(!WEBGPU)(
+    "draws integer and matrix attributes on WebGPU",
+    async () => {
+      const results = await runInWebGpuPage(
+        `${ENTRY_ATTRIBUTE_TYPES}\nglobalThis.__rmslAttributeTypesOnWebGpu = () => globalThis.__rmslAttributeTypes("webgpu");`,
+        "__rmslAttributeTypesOnWebGpu",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(results).toEqual(CASES);
+    },
+    60_000,
+  );
+
+  /**
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   * @canon exception-a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column
+   */
+  it("gives an attribute with no data (0, 0, 0, 1) on WebGL", async () => {
+    const results = await runInGpuPage(
+      ENTRY_MISSING_ATTRIBUTE,
+      "__rmslMissingAttribute",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(results).toEqual({ vec4: GREEN, ivec4: GREEN, mat4: GREEN, mat3: GREEN });
+  }, 60_000);
+
+  /**
+   * @canon spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives
+   * @canon exception-a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column
+   */
+  it.skipIf(!WEBGPU)(
+    "gives an attribute with no data (0, 0, 0, 1) on WebGPU",
+    async () => {
+      const results = await runInWebGpuPage(
+        `${ENTRY_MISSING_ATTRIBUTE}\nglobalThis.__rmslMissingAttributeOnWebGpu = () => globalThis.__rmslMissingAttribute("webgpu");`,
+        "__rmslMissingAttributeOnWebGpu",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(results).toEqual({ vec4: GREEN, ivec4: GREEN, mat4: GREEN, mat3: GREEN });
+    },
+    60_000,
+  );
 });
 
 describe("a material reads position and normal as TSL does", () => {

@@ -1,5 +1,14 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, AttributeOrSlot, AttributeOrStorage, slotOf, TypedArray, unknownStorageSlots } from "./adapter";
+import {
+  Adapter,
+  assertNodeArray,
+  AttributeOrSlot,
+  AttributeOrStorage,
+  slotOf,
+  TypedArray,
+  unknownStorageSlots,
+} from "./adapter";
+import { assertHostArray } from "./vertex-format";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -45,7 +54,7 @@ export interface CpuAdapterPrograms {
  * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so
  * their callers never see the always-throwing `draw()` this interface
  * still carries. Both are synchronous: this loop never awaits anything. */
-export interface CpuAdapter extends Adapter<AdapterResult> {
+export interface CpuAdapter extends Adapter<AdapterResult, void, Float32Array | Float64Array> {
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
   draw(): void;
 }
@@ -108,6 +117,9 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
+    assertNodeArray(attribute, data, true);
+    const slotType = typeof attribute === "string" ? storageTypes[slot] : undefined;
+    if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, data, true);
     if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
     const elementType =

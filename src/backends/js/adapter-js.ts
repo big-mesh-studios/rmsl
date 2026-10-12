@@ -8,6 +8,8 @@ import {
   slotOf,
   TypedArray,
   UniformOrSlot,
+  assertNodeArray,
+  HostArray,
 } from "../adapter";
 import {
   AdapterResult,
@@ -18,6 +20,7 @@ import {
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
+import { assertHostArray } from "../vertex-format";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
@@ -104,7 +107,10 @@ export interface JsComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(
+    attribute: AttributeOrStorage<T>,
+    data: HostArray<T, Float32Array | Float64Array>,
+  ): void;
   setAttribute(slot: string, data: TypedArray): void;
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
 }
@@ -153,7 +159,7 @@ export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions {
  * draw state, `attach` opens a 2D canvas context, and `draw()` runs one
  * frame into it. See {@link JsDrawOptions} for `count`/`first`/`clear`/`clearDepth`.
  */
-export interface JsAdapter extends Adapter<void, JsDrawOptions> {
+export interface JsAdapter extends Adapter<void, JsDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: JsDrawOptions): void;
 }
@@ -181,7 +187,11 @@ export function createJs(
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
-    attributes[slotOf(attribute)] = data;
+    const slot = slotOf(attribute);
+    assertNodeArray(attribute, data, true);
+    const slotType = typeof attribute === "string" ? routine.attributeTypes[slot] : undefined;
+    if (slotType !== undefined) assertHostArray("attribute", slot, slotType, data, true);
+    attributes[slot] = data;
   }
 
   return {

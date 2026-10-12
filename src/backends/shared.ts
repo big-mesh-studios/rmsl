@@ -116,7 +116,7 @@ export interface CompileCtx {
    */
   storageTypes?: Map<string, string>;
   /** The attributes the program reads, by name; `id` is the first one's, which orders them as they were made. */
-  attributes: Map<string, { id: number; type: string; slot: string }>;
+  attributes: Map<string, { id: number; type: string; shaderType: string; slot: string }>;
   /** The varyings the program reads or writes, by name. */
   varyings: Map<string, { id: number; type: string; slot: string }>;
   outputs: Map<number, { type: string; slot: string; location: number }>;

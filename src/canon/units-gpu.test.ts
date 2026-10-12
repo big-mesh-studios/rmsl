@@ -1,12 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   attribute,
   builtinPosition,
+  bvec3,
   Fn,
+  For,
   float,
   instancedArray,
   int,
   invocationIndex,
+  ivec2,
+  ivec3,
   outputStruct,
   select,
   texture,
@@ -16,6 +20,7 @@ import {
   uvec2,
   vec2,
   vec3,
+  varyingRaw,
   vec4,
 } from "../rmsl";
 import type { UniformNode } from "../rmsl";
@@ -23,6 +28,7 @@ import {
   compile,
   compileWgsl as compileWgslStage,
   compileWgslFn,
+  createWgsl,
   createWgslCompute,
   createWgslContext,
   wgslUniformDeclaration,
@@ -33,9 +39,10 @@ import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
+import { evaluateWGSL } from "../testing/shader-eval";
 import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
-import { stubGl } from "./scene-stubs";
+import { stubDevice, stubGl } from "./scene-stubs";
 import { createGlsl } from "../glsl";
 
 const WEBGPU = await webgpuAvailable();
@@ -554,6 +561,81 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const code = compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [read, other] });
     expect(code).toMatch(new RegExp(`${other.name}: vec2<f32>`));
   });
+
+  /**
+   * A compute program declares its textures in group 1 after its storage
+   * buffers, so a texture and a buffer have no binding in common.
+   *
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
+   */
+  it("gives a texture read by a compute program a binding no storage buffer has", () => {
+    const values = instancedArray(2, "float");
+    const image = uniform("isampler2D");
+    const program = Fn(() => {
+      values.element(invocationIndex()).assign(texture(image, ivec2(0, 0)).x.toFloat());
+    })();
+    const bindings = bindingsOf(compile({ stage: "compute" }, program).code);
+    expect(new Set(bindings).size).toBe(bindings.length);
+  });
+
+  /**
+   * Given the textures of the whole program, a vertex and a fragment stage
+   * that read different textures bind them at different bindings, and a
+   * texture has the same binding in both stages.
+   *
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
+   */
+  it("binds two textures read by different render stages at different bindings on WGSL", () => {
+    const near = uniform("isampler2D");
+    const far = uniform("isampler2D");
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(texture(near, ivec2(0, 0)).x.toFloat(), 0, 0, 1));
+    })();
+    const fragment = Fn(() => vec4(texture(far, ivec2(0, 0)).x.toFloat(), 0, 0, 1))();
+    const samplers = [near, far];
+    const vertexCode = compileWgslStage.vertex(vertex, { samplers });
+    const fragmentCode = compileWgslStage.fragment(fragment, { samplers });
+    expect(bindingOf(vertexCode, near.name)).toBeDefined();
+    expect(bindingOf(vertexCode, near.name)).not.toBe(bindingOf(vertexCode, far.name));
+    expect(bindingOf(vertexCode, near.name)).toBe(bindingOf(fragmentCode, near.name));
+    expect(bindingOf(vertexCode, far.name)).toBe(bindingOf(fragmentCode, far.name));
+  });
+
+  /**
+   * A texture sampled in the vertex stage is read at level 0, because only a
+   * fragment stage has the derivatives that pick a level, and a stage
+   * numbers the samplers of the textures it samples in the order the program
+   * made the textures.
+   *
+   * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
+   * @canon spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
+   */
+  it("samples a texture in the vertex stage at level 0, and numbers samplers in creation order on WGSL", () => {
+    const zebra = uniformRaw("zebra", "sampler2D");
+    const apple = uniformRaw("apple", "sampler2D");
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(texture(zebra, vec2(0, 0)).x.add(texture(apple, vec2(0, 0)).x), 0, 0, 1));
+    })();
+    const code = compileWgslStage.vertex(vertex);
+    expect(code).toContain("textureSampleLevel(");
+    expect(code).not.toMatch(/textureSample\(/);
+    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:0");
+    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:1");
+  });
+
+  /**
+   * A texture of a sampler type that WGSL has no texture for is refused.
+   *
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
+   */
+  it("refuses a sampler of a type WGSL has no texture for", () => {
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(0, 0, 0, 1));
+    })();
+    expect(() => compileWgslStage.vertex(vertex, { samplers: [uniformRaw("map", "sampler9D" as any)] })).toThrow(
+      /sampler9D/,
+    );
+  });
 });
 
 /**
@@ -651,6 +733,182 @@ describe("an integer attribute of createGlsl", () => {
     const uploads = calls.filter((c) => c.name === "bufferData").map((c) => c.args[1]);
     expect(uploads).toContain(idData);
     expect(uploads).toContain(flagData);
+  });
+});
+
+describe("the array a GPU adapter takes for an attribute", () => {
+  /**
+   * The stub context reports an `ivec2`, a `uint` and a `vec3` attribute.
+   *
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("refuses an array of another kind on createGlsl, named by node or by slot", () => {
+    const ids = attribute("ivec2");
+    const flags = attribute("uint");
+    const position = attribute("vec3");
+    const { gl } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_ATTRIBUTES ? 3 : name === gl.ACTIVE_UNIFORMS ? 0 : true,
+        getActiveAttrib: (_program: unknown, i: number) =>
+          [
+            { name: ids.name, type: gl.INT_VEC2, size: 1 },
+            { name: flags.name, type: gl.UNSIGNED_INT, size: 1 },
+            { name: position.name, type: gl.FLOAT_VEC3, size: 1 },
+          ][i],
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))() as any,
+      Fn(() => vec4(0, 1, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
+      /\bivec2\b.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
+    expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrow(/Uint32Array.*Int32Array/);
+    expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrow(/Float32Array.*Float64Array/);
+    expect(() => adapter.setAttribute(ids, Int32Array.of(1, 2))).not.toThrow();
+  });
+
+  /**
+   * A stub device stands in for the GPU.
+   *
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("refuses an array of another kind on createWgsl, named by node or by slot", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const ids = attribute("ivec2");
+      const flags = attribute("uint");
+      const position = attribute("vec3");
+      const { device, canvas } = stubDevice();
+      const vertex = Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))();
+      const adapter = createWgsl({ context: { device } as any, vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() });
+      await adapter.attach(canvas);
+      expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
+        /\bivec2\b.*Int32Array.*Float32Array/,
+      );
+      expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrow(/Uint32Array.*Int32Array/);
+      expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrow(/Float32Array.*Float64Array/);
+      expect(() => adapter.setAttribute(ids, Int32Array.of(1, 2))).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("the array a GPU adapter takes for a storage buffer", () => {
+  /**
+   * The stub context reports one active uniform, the buffer's sampler.
+   *
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses an array of another kind on createGlsl, named by node or by slot", () => {
+    const counts = instancedArray(4, "int");
+    const position = uniform("vec4");
+    const { gl } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS ? 1 : name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+        getActiveUniform: () => ({ name: counts.name, type: gl.INT_SAMPLER_2D, size: 1 }),
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(position))() as any,
+      Fn(() => vec4(counts.element(int(0)).toFloat(), 0, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    expect(() => adapter.setAttribute(counts, new Float32Array(4) as any)).toThrow(
+      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(4))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(counts, new Int32Array(4))).not.toThrow();
+  });
+
+  /**
+   * A stub device stands in for the GPU.
+   *
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses an array of another kind on createWgsl, named by node or by slot", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8, STORAGE: 16 });
+    try {
+      const flags = instancedArray(2, "uvec2");
+      const position = attribute("vec3");
+      const { device, canvas } = stubDevice();
+      const createRenderPipeline = device.createRenderPipeline;
+      device.createRenderPipeline = (descriptor: any) => ({
+        ...createRenderPipeline(descriptor),
+        getBindGroupLayout: () => ({}),
+      });
+      const vertex = Fn(() => builtinPosition().assign(vec4(position, 1)))();
+      const fragment = Fn(() => vec4(flags.element(int(0)).x.toFloat(), 0, 0, 1))();
+      const adapter = createWgsl({
+        context: { device, buffer: () => device.createBuffer({ size: 16 }) } as any,
+        vertex,
+        fragment,
+      });
+      await adapter.attach(canvas);
+      expect(() => adapter.setAttribute(flags, new Float32Array(4) as any)).toThrow(
+        /\buvec2\b storage buffer.*Uint32Array.*Float32Array/,
+      );
+      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrow(/Uint32Array.*Int32Array/);
+      expect(() => adapter.setAttribute(flags, new Uint32Array(4))).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("the vertex layout of createWgsl", () => {
+  /**
+   * A stub device records the pipeline. Each attribute takes a buffer of its
+   * own, in the order the program made them, and a matrix a location for each
+   * column, numbered as the compiled WGSL numbers them.
+   *
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   */
+  it("lays out integer attributes in integer formats and a matrix column by column", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const ids = attribute("ivec2");
+      const flags = attribute("uint");
+      const turn = attribute("mat3x2");
+      const position = attribute("vec3");
+      const { device, canvas, pipelines } = stubDevice();
+      const vertex = Fn(() => {
+        const shift = turn.mul(vec3(ids.x.toFloat(), flags.toFloat(), 1));
+        builtinPosition().assign(vec4(position.xy.add(shift), 0, 1));
+      })();
+      await createWgsl({ context: { device } as any, vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() }).attach(canvas);
+      const { buffers, module } = pipelines[0].vertex;
+      expect(buffers).toEqual([
+        { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "sint32x2" }] },
+        { arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "uint32" }] },
+        {
+          arrayStride: 24,
+          attributes: [0, 1, 2].map((column) => ({
+            shaderLocation: 2 + column,
+            offset: column * 8,
+            format: "float32x2",
+          })),
+        },
+        { arrayStride: 12, attributes: [{ shaderLocation: 5, offset: 0, format: "float32x3" }] },
+      ]);
+      expect(module.code).toMatch(/@location\(0\) \w+: vec2<i32>/);
+      expect(module.code).toMatch(/@location\(4\) \w+_2: vec2<f32>/);
+      expect(module.code).toMatch(/@location\(5\) \w+: vec3<f32>/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -769,7 +1027,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
  * error it hit.
  */
 const VALUE_TYPES = `
-import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
@@ -806,6 +1064,16 @@ const glsl = (fragment, set, vertex = plainVertex(), drawWith) => attempt(() => 
 const shiftedVertex = (shift) =>
   Fn(() => { builtinPosition().assign(vec4(position.x.add(shift.toFloat()), position.y, 0, 1)); })();
 const colours = () => uniformArray("vec4", 2);
+/** Draws \`vertex\` green with createWgsl, after \`set\` gives the adapter its attributes; the draw names no count. */
+const wgsl = (vertex, set, fragment = Fn(() => vec4(0, 1, 0, 1))()) => attempt(async () => {
+  const target = canvas();
+  const adapter = createWgsl({ vertex, fragment });
+  await adapter.attach(target);
+  set(adapter);
+  adapter.draw();
+  await adapter.device().queue.onSubmittedWorkDone();
+  return readPixel(target, 1, 2);
+});
 globalThis.__rmslValueTypes = {
   uniformArray: () => {
     const array = colours();
@@ -862,6 +1130,40 @@ globalThis.__rmslValueTypes = {
       adapter.draw();
     });
   },
+  wgslIntAttribute: () => {
+    // Each vertex holds (-5, 5), which sums to no shift only when read as integers.
+    const shift = attribute("ivec2");
+    return wgsl(shiftedVertex(shift.x.add(shift.y)), (adapter) => {
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.setAttribute(shift, Int32Array.of(-5, 5, -5, 5, -5, 5));
+    });
+  },
+  wgslUintAttribute: () => {
+    const shift = attribute("uint");
+    return wgsl(shiftedVertex(shift), (adapter) => {
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.setAttribute(shift, Uint32Array.of(0, 0, 0));
+    });
+  },
+  // Each vertex's matrix has the columns (0, 0, 0), (1, 0, 0) and (0, 0, 0),
+  // so only its second column gives the green. The draw counts by the matrix.
+  wgslMatrixAttribute: () => {
+    const columns = attribute("mat3");
+    const green = varying("float");
+    const vertex = Fn(() => {
+      green.assign(columns.mul(vec3(0, 1, 0)).x);
+      builtinPosition().assign(vec4(position, 1));
+    })();
+    const matrix = Float32Array.of(0, 0, 0, 1, 0, 0, 0, 0, 0);
+    return wgsl(vertex, (adapter) => {
+      adapter.setAttribute(columns, Float32Array.of(...matrix, ...matrix, ...matrix));
+      adapter.setAttribute(position, TRIANGLE);
+    }, Fn(() => vec4(0, green, 0, 1))());
+  },
+  wgslAttributeWithoutData: () => {
+    const shift = attribute("int");
+    return wgsl(shiftedVertex(shift), (adapter) => adapter.setAttribute(position, TRIANGLE));
+  },
   wgslUnreadFirst: () => attempt(async () => {
     const unused = attribute("vec2");
     const target = canvas();
@@ -890,6 +1192,14 @@ globalThis.__rmslValueTypes = {
 /** Runs the entry `name` of `VALUE_TYPES` in the WebGL page. */
 const glslValueType = (name: string) =>
   runInGpuPage(
+    `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.${name}();`,
+    "__rmslValueTypesRun",
+    new URL(".", import.meta.url).pathname,
+  );
+
+/** Runs the entry `name` of `VALUE_TYPES` in the WebGPU page. */
+const wgslValueType = (name: string) =>
+  runInWebGpuPage(
     `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.${name}();`,
     "__rmslValueTypesRun",
     new URL(".", import.meta.url).pathname,
@@ -960,18 +1270,55 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   );
 
   /**
-   * @canon spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
    */
   it("draws with a mat2 attribute through createGlsl, counted by the matrix", async () => {
     expect(await glslValueType("matrixAttribute")).toEqual(GREEN);
   }, 120_000);
 
   /**
-   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
-  it("draws with an integer attribute given no data through createGlsl", async () => {
-    expect(await glslValueType("intAttributeWithoutData")).toEqual(GREEN);
+  it.skipIf(!WEBGPU).each(["wgslIntAttribute", "wgslUintAttribute"])(
+    "draws with an integer attribute through createWgsl, %s",
+    async (entry) => {
+      expect(await wgslValueType(entry)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   */
+  it.skipIf(!WEBGPU)(
+    "draws with a mat3 attribute through createWgsl, counted by the matrix",
+    async () => {
+      expect(await wgslValueType("wgslMatrixAttribute")).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
+   */
+  it("refuses a draw missing an attribute its vertex stage reads on createGlsl", async () => {
+    expect(await glslValueType("intAttributeWithoutData")).toEqual({
+      error: expect.stringMatching(/createGlsl: draw\(\) is missing attribute "_rmsl_a\d+"/),
+    });
   }, 120_000);
+
+  /**
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
+   */
+  it.skipIf(!WEBGPU)(
+    "refuses a draw missing an attribute its vertex stage reads on createWgsl",
+    async () => {
+      expect(await wgslValueType("wgslAttributeWithoutData")).toEqual({
+        error: expect.stringMatching(/createWgsl: draw\(\) is missing attribute "_rmsl_a\d+"/),
+      });
+    },
+    120_000,
+  );
 });
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
@@ -1031,4 +1378,435 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     context.destroy();
     device.destroy();
   });
+
+  /**
+   * A `vec3` buffer is laid out as WGSL lays out a storage array, 16 bytes an
+   * element, and comes back as one flat typed array without the padding.
+   *
+   * @canon spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes
+   */
+  it("computes over a vec3 storage buffer with createWgslCompute", async () => {
+    const points = instancedArray(2, "vec3");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      points.element(i).assign(points.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4, 5, 6));
+    const out = { [points.name]: new Float32Array(6) };
+    await adapter.compute(out);
+    adapter.destroy();
+    expect(Array.from(out[points.name]!)).toEqual([2, 3, 4, 5, 6, 7]);
+  }, 60_000);
+
+  /**
+   * Setting one slot to a length of its own keeps what the other slots hold.
+   *
+   * @canon spec-setting-one-storage-slot-keeps-the-others
+   */
+  it("keeps what one storage slot holds when another is set to a different length", async () => {
+    const source = instancedArray(1, "float");
+    const target = instancedArray(2, "float");
+    const program = Fn(() => {
+      target.element(invocationIndex()).assign(source.element(0));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(source.name, Float32Array.of(5));
+    adapter.setAttribute(target.name, new Float32Array(2));
+    const out = { [source.name]: new Float32Array(1), [target.name]: new Float32Array(2) };
+    await adapter.compute(out, 1);
+    adapter.destroy();
+    expect(Array.from(out[source.name]!)).toEqual([5]);
+    expect(Array.from(out[target.name]!)).toEqual([5, 0]);
+  }, 60_000);
+
+  /**
+   * A slot the host never sets, such as one the program only writes, is as
+   * long as the first slot set, and comes back with what the program wrote.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("reads back a slot the host never set, as long as the first slot set", async () => {
+    const source = instancedArray(3, "float");
+    const result = instancedArray(3, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      result.element(i).assign(source.element(i).mul(2));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(source.name, Float32Array.of(1, 2, 3));
+    const out = { [result.name]: new Float32Array(3) };
+    await adapter.compute(out);
+    adapter.destroy();
+    expect(Array.from(out[result.name]!)).toEqual([2, 4, 6]);
+  }, 60_000);
+
+  /**
+   * A length that is not a multiple of the component count still fits its buffer, and an output
+   * array shorter than the slot is refused where it used to be copied from silently.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("takes a ragged vec3 array, and refuses an output array that is too short", async () => {
+    const points = instancedArray(2, "vec3");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      points.element(i).assign(points.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4));
+    await expect(adapter.compute({ [points.name]: new Float32Array(2) })).rejects.toThrow(RangeError);
+    const out = { [points.name]: new Float32Array(6) };
+    // The dispatch covers the whole elements of the array, here one, so the half element is not computed.
+    // The refused call still dispatched, so the first element has been incremented twice.
+    await adapter.compute(out);
+    adapter.destroy();
+    expect(Array.from(out[points.name]!.subarray(0, 3))).toEqual([3, 4, 5]);
+  }, 60_000);
+
+  /**
+   * A compute program with no storage buffer still dispatches.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("dispatches a program with no storage", async () => {
+    const offset = uniform("float");
+    const adapter = createWgslCompute(Fn(() => offset.add(1))());
+    await adapter.attach();
+    adapter.setUniform(offset, 1);
+    await expect(adapter.compute(undefined, 1)).resolves.toBeUndefined();
+    adapter.destroy();
+  }, 60_000);
+
+  /**
+   * A slot the host never sets is as long as the program declared it, whichever slot is set first.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("sizes a slot the host never sets from its declared count, whichever slot is set first", async () => {
+    const result = instancedArray(3, "float");
+    const counter = instancedArray(1, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      result.element(i).assign(counter.element(0).add(i.toFloat()));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(counter.name, Float32Array.of(10));
+    const out = { [result.name]: new Float32Array(3) };
+    await adapter.compute(out, 3);
+    adapter.destroy();
+    expect(Array.from(out[result.name]!)).toEqual([10, 11, 12]);
+  }, 60_000);
+
+  /**
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses a storage array of another kind on createWgslCompute, named by node or by slot", async () => {
+    const counts = instancedArray(2, "int");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        counts.element(invocationIndex()).assign(counts.element(invocationIndex()).add(1));
+      })(),
+    );
+    await adapter.attach();
+    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
+      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(counts, new Int32Array(2))).not.toThrow();
+    adapter.destroy();
+  }, 60_000);
+});
+
+describe("what WGSL writes for a name or a loop header", () => {
+  /**
+   * A uniform whose raw name is empty is refused.
+   *
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
+  it("refuses a uniform with an empty name on WGSL", () => {
+    expect(() => compileWgslStage.fragment(Fn(() => vec4(uniformRaw("", "float"), 0, 0, 1))())).toThrow();
+  });
+
+  /**
+   * A varying whose raw name is empty is refused.
+   *
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
+  it("refuses a varying with an empty name on WGSL", () => {
+    expect(() => compileWgslStage.fragment(Fn(() => vec4(varyingRaw("", "float"), 0, 0, 1))())).toThrow();
+  });
+
+  /**
+   * A `For` whose init makes no statement, such as one handed a variable
+   * made before the loop, compiles on WGSL to a header with an empty init.
+   *
+   * @canon spec-a-for-loops-over-a-variable-its-init-is-given
+   */
+  it("compiles a For whose init makes no statement to a valid WGSL header", () => {
+    const code = compileWgslStage.fragment(
+      Fn(() => {
+        const i = int(0).toVar();
+        const total = float(0).toVar();
+        For(
+          () => i,
+          (v) => v.lessThan(3),
+          (v) => {
+            v.assign(v.add(1));
+          },
+          () => {
+            total.assign(total.add(1));
+          },
+        );
+        return vec4(total, 0, 0, 1);
+      })(),
+    );
+    expect(code).toMatch(/for \(;/);
+  });
+});
+
+describe.skipIf(!GPU_ENABLED)("WGSL on a WebGPU device", () => {
+  /**
+   * WGSL widens a scalar branch of `select` to the vector type of the other
+   * branch, so an integer select of a vector and a scalar is accepted by the
+   * driver.
+   *
+   * @canon spec-select-picks-one-of-two-values
+   */
+  it("selects between an ivec3 and an int on WGSL", async () => {
+    const build = () => vec3(select(bvec3(true, false, true), ivec3(4, 5, 6), int(1)));
+    expect(await evaluateWGSL(build as any)).toEqual([4, 1, 6]);
+  }, 60_000);
+});
+
+/** Every `@group(g) @binding(b)` pair a WGSL source declares, in order. */
+const bindingsOf = (code: string) =>
+  [...code.matchAll(/@group\((\d+)\) @binding\((\d+)\)/g)].map((m) => `${m[1]}:${m[2]}`);
+
+/** The `@group(g) @binding(b)` pair WGSL declares for the variable `name`. */
+const bindingOf = (code: string, name: string) =>
+  new RegExp(`@group\\((\\d+)\\) @binding\\((\\d+)\\) var ${name}:`).exec(code)?.slice(1).join(":");
+
+/**
+ * A full-screen triangle on a 4×4 canvas drawn green, as a `createGlsl`
+ * entry builds it. Each entry returns what it read, or the error it hit.
+ */
+const GLSL_DRAWS = `
+import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+${READ_PIXEL}
+const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+const canvas = () => {
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 4;
+  return c;
+};
+const attempt = (run) => {
+  try {
+    return run();
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+const position = attribute("vec3");
+const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+globalThis.__rmslGlslDraws = {
+  firstAttributeCount: () => attempt(() => {
+    const target = canvas();
+    const offset = attribute("vec2");
+    const vertex = Fn(() => { builtinPosition().assign(vec4(position.xy.add(offset), 0, 1)); })();
+    const adapter = createGlsl(vertex, Fn(() => vec4(0, 1, 0, 1))());
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setAttribute(offset, new Float32Array(12));
+    adapter.draw();
+    return readPixel(target, 1, 2);
+  }),
+  firstVertex: () => attempt(() => {
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, 1, 0, 1))());
+    adapter.attach(target);
+    adapter.setAttribute(position, Float32Array.of(0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0, 3, -1, 0, -1, 3, 0));
+    adapter.draw({ first: 3 });
+    return readPixel(target, 1, 2);
+  }),
+};
+`;
+
+/** The `createWgsl` counterparts, on a 4×4 canvas; each returns what it read, or the error it hit. */
+const WGSL_DRAWS = `
+import { Fn, attribute, builtinPosition, instancedArray, ivec2, uniform, vec2, vec4, texture } from "../rmsl";
+import { createWgsl } from "../wgsl";
+${READ_PIXEL}
+const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+const canvas = () => {
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 4;
+  return c;
+};
+const attempt = async (run) => {
+  try {
+    return await run();
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+const position = attribute("vec3");
+const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+const drawn = async (adapter, target) => {
+  await adapter.device().queue.onSubmittedWorkDone();
+  return readPixel(target, 1, 2);
+};
+globalThis.__rmslWgslDraws = {
+  texture: () => attempt(async () => {
+    const target = canvas();
+    const image = uniform("sampler2D");
+    const adapter = createWgsl({
+      vertex: plainVertex(),
+      fragment: Fn(() => texture(image, vec2(0.75, 0.25)))(),
+    });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    // Row 0 is red then green, row 1 blue then white, so (0.75, 0.25) lands on the green texel.
+    adapter.setTexture(image, {
+      data: Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255),
+      width: 2,
+      height: 2,
+    });
+    adapter.draw({ count: 3 });
+    return drawn(adapter, target);
+  }),
+  integerTexture: () => attempt(async () => {
+    const target = canvas();
+    const image = uniform("usampler2D");
+    const adapter = createWgsl({
+      vertex: plainVertex(),
+      fragment: Fn(() => vec4(0, texture(image, ivec2(0, 0)).y.toFloat().div(255), 0, 1))(),
+    });
+    adapter.setTexture(image, { data: Uint8Array.of(0, 255, 0, 255), width: 1, height: 1 });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw({ count: 3 });
+    return drawn(adapter, target);
+  }),
+  vec3Storage: () => attempt(async () => {
+    const target = canvas();
+    const colours = instancedArray(2, "vec3");
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => vec4(colours.element(1), 1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setAttribute(colours.name, Float32Array.of(1, 0, 0, 0, 1, 0));
+    adapter.draw({ count: 3 });
+    return drawn(adapter, target);
+  }),
+  firstAttributeCount: () => attempt(async () => {
+    const target = canvas();
+    const extra = attribute("float");
+    const vertex = Fn(() => { builtinPosition().assign(vec4(position.x.add(extra.mul(0)), position.y, 0, 1)); })();
+    const adapter = createWgsl({ vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setAttribute(extra, new Float32Array(6));
+    adapter.draw();
+    return drawn(adapter, target);
+  }),
+  firstVertex: () => attempt(async () => {
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => vec4(0, 1, 0, 1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, Float32Array.of(0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0, 3, -1, 0, -1, 3, 0));
+    adapter.draw({ first: 3 });
+    return drawn(adapter, target);
+  }),
+};
+`;
+
+/** Runs one entry of `GLSL_DRAWS` in the WebGL page. */
+const glslEntry = (name: string) =>
+  runInGpuPage(
+    `${GLSL_DRAWS}\nglobalThis.__rmslGlslDrawRun = async () => globalThis.__rmslGlslDraws.${name}();`,
+    "__rmslGlslDrawRun",
+    new URL(".", import.meta.url).pathname,
+  );
+
+/** Runs one entry of `WGSL_DRAWS` in the WebGPU page. */
+const wgslEntry = (name: string) =>
+  runInWebGpuPage(
+    `${WGSL_DRAWS}\nglobalThis.__rmslWgslDrawRun = async () => globalThis.__rmslWgslDraws.${name}();`,
+    "__rmslWgslDrawRun",
+    new URL(".", import.meta.url).pathname,
+  );
+
+describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
+  /**
+   * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("counts a createGlsl draw from the first attribute, less its first vertex", async () => {
+    expect(await glslEntry("firstVertex")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * A `createGlsl` draw that names no count takes the first attribute's, and
+   * so does not draw vertices past its end.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("takes the count of a createGlsl draw from the first attribute", async () => {
+    expect(await glslEntry("firstAttributeCount")).toEqual(GREEN);
+  }, 120_000);
+});
+
+describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
+  /**
+   * `createWgsl` samples the texture set with `setTexture`.
+   *
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("samples the texture set with setTexture with createWgsl", async () => {
+    expect(await wgslEntry("texture")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * `createWgsl` reads an integer texture set before `attach`.
+   *
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("reads an integer texture set before attach with createWgsl", async () => {
+    expect(await wgslEntry("integerTexture")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * A `createWgsl` draw that names a first vertex and no count draws the vertices after it.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("counts a createWgsl draw from the first attribute, less its first vertex", async () => {
+    expect(await wgslEntry("firstVertex")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * A `createWgsl` draw that names no count takes the first attribute's, and
+   * so does not read past a shorter buffer.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("takes the count of a createWgsl draw from the first attribute", async () => {
+    expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes
+   */
+  it("draws from a vec3 storage buffer of its own with createWgsl", async () => {
+    expect(await wgslEntry("vec3Storage")).toEqual(GREEN);
+  }, 120_000);
 });
