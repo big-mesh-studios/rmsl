@@ -52,6 +52,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
       - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
       - [`@spec nested-inline-fns-compile-in-time-that-grows-with-the-levels`](#spec-nested-inline-fns-compile-in-time-that-grows-with-the-levels) — A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
+      - [`@spec an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes`](#spec-an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes) — An expression can reach an `Fn` called outside the program's body through 2^`n` paths, as one that adds a value to itself `n` levels deep does. It compiles on every target in time that grows with `n`, not with the paths.
+      - [`@spec the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels`](#spec-the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels) — A program can nest `n` levels of `Fn`s called outside its body, each reading the one below once. The pass that places them works in time that grows with `n`.
       - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
       - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
       - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
@@ -390,7 +392,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if`](#exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value both branches of an `If` read, runs once, before the `If`, on every target.
       - [`@exception an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if`](#exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value a branch of an `If` and a statement after the `If` read, runs once, before the `If`, on every target.
       - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
-      - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when roots that share no block read that other `Fn`.
+      - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when several roots read that other `Fn`.
+      - [`@spec an-inline-fn-several-roots-read-runs-once-before-the-first`](#spec-an-inline-fn-several-roots-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several roots of one program read, runs once each time the program runs. It runs before the first root that reads it, when no block inside one root holds every read. This holds on every target.
       - [`@spec random-programs-of-inline-fns-run-each-as-the-rule-says`](#spec-random-programs-of-inline-fns-run-each-as-the-rule-says) — Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
       - [`@spec an-inline-fn-a-loop-condition-reads-runs-at-every-test`](#spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only the condition of a loop reads, runs at every test of that condition. This holds for any number of reads there, and for a condition given as a node or as a function.
         - [`@bug a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute`](#bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute) — On WGSL compute on Dawn on Metal, a storage write that a `While` condition makes before its test counts one run, whatever the number of tests. The WGSL holds the write inside the loop, before the test.
@@ -404,10 +407,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs`](#spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs) — A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
       - [`@spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) — A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
         - [`@spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop`](#spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop) — A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+        - [`@spec a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs`](#spec-a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs) — An `Fn` called outside the program's body can read another such `Fn` that holds a `Break()` or a `Continue()`. The other can run outside the first, in a block that holds reads of its own. Its jump then acts on the loop around the place it runs. It is checked there, not at the reads of the first `Fn`.
         - [`@spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop) — A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
         - [`@spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop) — A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
         - [`@spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
-        - [`@spec a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop`](#spec-a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop) — Roots that share no block can read the value of an `Fn` called outside the program's body. Every target refuses a `Break()` or a `Continue()` in such an `Fn` when one of those reads sits outside every loop.
+        - [`@spec a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused) — Several roots can read the value of an `Fn` called outside the program's body, with no block inside one root that holds every read. Every target refuses a `Break()` or a `Continue()` in such an `Fn`.
         - [`@spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for`](#spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for) — A `Break()` or a `Continue()` in the init of a `For` that an `Fn` called outside the program's body holds acts on the loop around the place the `Fn` runs. It is refused as a jump outside that `For` would be.
         - [`@spec a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again`](#spec-a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again) — A `Continue()` in an `Fn` called outside the program's body, whose value only a `While` condition reads, tests that condition again. A `Continue()` among the statements of the condition does the same.
         - [`@exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused`](#exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
@@ -1147,6 +1151,18 @@ This follows because the output and the work at run time then grow with the node
 > A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
 
 This follows because the compiler walks the statements of each such `Fn` once, whatever number of reads it has. It places a read inside an `Fn` from the statements around that read, and places every level in one pass.
+
+##### @spec an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes
+
+> An expression can reach an `Fn` called outside the program's body through 2^`n` paths, as one that adds a value to itself `n` levels deep does. It compiles on every target in time that grows with `n`, not with the paths.
+
+This follows because the compiler walks an expression once at each place that reads it, whatever the number of paths there. A second path counts as a second read, so the `Fn` still runs before them both.
+
+##### @spec the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels
+
+> A program can nest `n` levels of `Fn`s called outside its body, each reading the one below once. The pass that places them works in time that grows with `n`.
+
+This follows because every read inside an `Fn` read once shares the frames from the program to that `Fn`. No level copies them.
 
 ##### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
@@ -3164,11 +3180,21 @@ This follows because the loop body is the innermost block that holds the read, a
 
 ##### @spec an-inline-fn-read-only-inside-another-runs-in-the-block-there
 
-> An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when roots that share no block read that other `Fn`.
+> An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when several roots read that other `Fn`.
 
 Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
 
+A value of that other `Fn` that the program reads counts as part of its block, since it is computed where that `Fn` runs. So an `Fn` that only such a value reads runs with it, once.
+
 This follows because the body of the other `Fn` is a block like any other. Placed outside it, the statements would run a different number of times. Issue #264 settled this.
+
+##### @spec an-inline-fn-several-roots-read-runs-once-before-the-first
+
+> An `Fn` called outside the program's body, whose value several roots of one program read, runs once each time the program runs. It runs before the first root that reads it, when no block inside one root holds every read. This holds on every target.
+
+Derives from: [`spec-every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects), [`fact-three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable)
+
+This follows because the roots of a program run in order, as the statements of one block. That block, the program, is the innermost one that holds reads in two roots. So the rule runs the `Fn` at the start of the first of them. In three.js, a stage computes a node once when several of its outputs read it. The owner of the design settled this in the review of PR #266.
 
 ##### @spec random-programs-of-inline-fns-run-each-as-the-rule-says
 
@@ -3256,6 +3282,12 @@ This follows because the statements of the `Fn` run at that place, as if the pro
 
 > A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
 
+###### @spec a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs
+
+> An `Fn` called outside the program's body can read another such `Fn` that holds a `Break()` or a `Continue()`. The other can run outside the first, in a block that holds reads of its own. Its jump then acts on the loop around the place it runs. It is checked there, not at the reads of the first `Fn`.
+
+This follows because the statements of the other `Fn` do not run inside the first one. So no read of the first one says which loop the jump leaves.
+
 ###### @spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop
 
 > A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
@@ -3274,13 +3306,13 @@ Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-o
 
 This follows because the jump would run outside every loop, which no target can run.
 
-###### @spec a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop
+###### @spec a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused
 
-> Roots that share no block can read the value of an `Fn` called outside the program's body. Every target refuses a `Break()` or a `Continue()` in such an `Fn` when one of those reads sits outside every loop.
+> Several roots can read the value of an `Fn` called outside the program's body, with no block inside one root that holds every read. Every target refuses a `Break()` or a `Continue()` in such an `Fn`.
 
-Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused)
+Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused), [`spec-an-inline-fn-several-roots-read-runs-once-before-the-first`](#spec-an-inline-fn-several-roots-read-runs-once-before-the-first)
 
-This follows because no block holds every read, so the `Fn` runs at each read. At the read outside every loop, the jump would run outside every loop.
+This follows because the `Fn` then runs before the first root that reads it, where no loop is around it. This holds when each root reads the value inside a loop of its own.
 
 ###### @spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
 

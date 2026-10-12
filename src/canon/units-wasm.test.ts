@@ -1045,6 +1045,195 @@ describe("an inline Fn read in the program and inside another read twice", () =>
   });
 });
 
+describe("an inline Fn several roots read", () => {
+  /**
+   * The first root reads the value in a branch and in a loop, the second once.
+   * The `Fn` runs once, before the first root, whichever branch runs. The
+   * fuzz found this: JavaScript ran it in the branch, so the loop and the
+   * second root read a value never set, while WASM ran it at each read.
+   *
+   * @canon spec-an-inline-fn-several-roots-read-runs-once-before-the-first
+   */
+  it.each(cpuTargets)("%s: runs it once, before the first root, read in a branch and a loop", (_, compile) => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(3, "float");
+    const taken = uniform("float");
+    const build = () => {
+      const f = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return counter.element(int(0)).toVar();
+      })() as any;
+      return [
+        Fn(() => {
+          If(taken.greaterThan(0), () => {
+            result.element(int(0)).addAssign(f);
+          });
+          Loop(3, () => {
+            result.element(int(1)).addAssign(f);
+          });
+        })(),
+        Fn(() => {
+          result.element(int(2)).addAssign(f);
+        })(),
+      ];
+    };
+    for (const branch of [0, 1]) {
+      const runs = new Float64Array(1);
+      const data = new Float64Array(3);
+      compile(
+        build as any,
+        none,
+      )({
+        storages: { [counter.name]: runs, [result.name]: data },
+        uniforms: { [taken.name]: branch },
+      });
+      expect({ branch, runs: runs[0], values: Array.from(data) }).toEqual({ branch, runs: 1, values: [branch, 3, 1] });
+    }
+  });
+
+  /**
+   * Two roots read the outer `Fn`, and the inner one is read inside it and
+   * twice in the first root. Both run once, before the first root, the inner
+   * one ahead of the statement of the outer one that reads it.
+   *
+   * @canon spec-an-inline-fn-several-roots-read-runs-once-before-the-first
+   */
+  it.each(cpuTargets)("%s: runs one read inside another that two roots read once too", (_, compile) => {
+    const counter = instancedArray(2, "float");
+    const result = instancedArray(4, "float");
+    const build = () => {
+      const inner = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return counter.element(int(0)).toVar();
+      })() as any;
+      const outer = Fn(() => {
+        counter.element(int(1)).addAssign(1);
+        return inner.mul(10).toVar();
+      })() as any;
+      return [
+        Fn(() => {
+          result.element(int(0)).assign(outer);
+          result.element(int(1)).assign(inner);
+          result.element(int(2)).assign(inner.add(1));
+        })(),
+        Fn(() => {
+          result.element(int(3)).assign(outer.add(1));
+        })(),
+      ];
+    };
+    const runs = new Float64Array(2);
+    const data = new Float64Array(4);
+    compile(build as any, none)({ storages: { [counter.name]: runs, [result.name]: data } });
+    expect({ runs: Array.from(runs), values: Array.from(data) }).toEqual({ runs: [1, 1], values: [10, 1, 2, 11] });
+  });
+
+  /**
+   * An `Fn` placed inside the value of another, which the program reads in
+   * two roots, reads a third `Fn` that the first root reads too. The third
+   * runs before the second's statements, which read it. The fuzz found this
+   * with seed 5556: the second ran first and read a value never set.
+   *
+   * @canon spec-an-inline-fn-several-roots-read-runs-once-before-the-first
+   */
+  it.each(cpuTargets)("%s: runs an Fn before the Fn placed beside it that reads it (seed 5556)", (_, compile) => {
+    const counter = instancedArray(4, "float");
+    const result = instancedArray(4, "float");
+    const counted = (slot: number, body: () => void = () => {}) =>
+      Fn(() => {
+        counter.element(int(slot)).addAssign(1);
+        const r = counter.element(int(slot)).toVar();
+        body();
+        return r;
+      })() as any;
+    const build = () => {
+      const f0 = counted(0);
+      const f1 = counted(1, () => result.element(int(0)).addAssign(f0));
+      const f2 = Fn(() => {
+        counter.element(int(2)).addAssign(1);
+        return counter.element(int(2)).toVar().add(f1);
+      })() as any;
+      const f3 = counted(3, () => result.element(int(1)).addAssign(f2));
+      return [
+        Fn(() => {
+          result.element(int(2)).addAssign(f2);
+          result.element(int(3)).addAssign(f0);
+        })(),
+        Fn(() => {
+          result.element(int(3)).addAssign(f3.add(f3));
+        })(),
+      ];
+    };
+    const runs = new Float64Array(4);
+    const data = new Float64Array(4);
+    compile(build as any, none)({ storages: { [counter.name]: runs, [result.name]: data } });
+    expect({ runs: Array.from(runs), values: Array.from(data) }).toEqual({ runs: [1, 1, 1, 1], values: [1, 2, 2, 3] });
+  });
+});
+
+describe("roots that are the values of one call", () => {
+  /**
+   * The roots are both values of one call, so they share its statements, and
+   * the second reads an `Fn` twice. That `Fn` runs once, before the value that
+   * reads it, and the routine returns that value.
+   *
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
+  it.each(cpuTargets)("%s: runs an inline Fn the second value reads twice", (_, compile) => {
+    const counter = instancedArray(2, "float");
+    const build = () => {
+      const f = Fn(() => {
+        counter.element(int(1)).addAssign(1);
+        return counter.element(int(1)).toVar();
+      })() as any;
+      const [a, b] = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return [float(5), f.add(f)];
+      })() as any;
+      return [a, b];
+    };
+    const runs = new Float64Array(2);
+    const returned = compile(build as any, none)({ storages: { [counter.name]: runs } });
+    expect({ runs: Array.from(runs), returned }).toEqual({ runs: [1, 1], returned: 2 });
+  });
+});
+
+describe("an inline Fn read once in the value of another read more than once", () => {
+  /**
+   * The outer `Fn` returns two values, the second of which reads the inner
+   * one. The program reads the first before a loop and the second in its
+   * body, so the outer `Fn` runs once, before the loop, and the inner one with
+   * it. The fuzz found this with seed 2643: the inner one ran at every
+   * iteration, where the body read the second value.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it.each(cpuTargets)("%s: runs it once, with the other (seed 2643)", (_, compile) => {
+    const counter = instancedArray(2, "float");
+    const result = instancedArray(2, "float");
+    const build = () => {
+      const inner = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return counter.element(int(0)).toVar();
+      })() as any;
+      const [first, second] = Fn(() => {
+        counter.element(int(1)).addAssign(1);
+        const r = counter.element(int(1)).toVar();
+        return [r, r.mul(10).add(inner)];
+      })() as any;
+      return Fn(() => {
+        result.element(int(0)).addAssign(first);
+        Loop(3, () => {
+          result.element(int(1)).addAssign(second);
+        });
+      })();
+    };
+    const runs = new Float64Array(2);
+    const data = new Float64Array(2);
+    compile(build, none)({ storages: { [counter.name]: runs, [result.name]: data } });
+    expect({ runs: Array.from(runs), values: Array.from(data) }).toEqual({ runs: [1, 1], values: [1, 33] });
+  });
+});
+
 describe("an inline Fn that discards, read in both branches of an If", () => {
   /**
    * The `Fn` discards the fragment, and each branch reads its value, so

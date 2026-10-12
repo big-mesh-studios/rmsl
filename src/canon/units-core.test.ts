@@ -47,6 +47,7 @@ import {
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
 import type { CompileCpuRoutine } from "../backends/cpu";
+import { shareNodes } from "../backends/share";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -380,6 +381,94 @@ describe("what a program does with a node it reads more than once", () => {
     const deep = work(24);
     expect(deep.reads / shallow.reads).toBeLessThan(3);
     expect(deep.output / shallow.output).toBeLessThan(4);
+  });
+
+  /** Makes every read of the operands of each node `root` reaches add one to `count.reads`. */
+  const countOperandReads = (root: any, count: { reads: number }) => {
+    const seen = new Set<any>();
+    const visit = (n: any) => {
+      if (!n || typeof n !== "object" || seen.has(n) || !Array.isArray(n.params)) return;
+      seen.add(n);
+      let params = n.params;
+      Object.defineProperty(n, "params", {
+        enumerable: true,
+        configurable: true,
+        get: () => (count.reads++, params),
+        set: (value) => (params = value),
+      });
+      params.forEach(visit);
+    };
+    visit(root);
+    return root;
+  };
+
+  /**
+   * An expression that adds a value to itself, nested `n` levels, reaches an
+   * inline `Fn` through 2^`n` paths. The work a compile does is counted as the
+   * reads of the operands of each node: 30 levels take less than three times
+   * the reads of 15. A walk of every path takes 2^15 times as many, and 30
+   * levels never finished.
+   *
+   * @canon spec-an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes
+   */
+  it.each([
+    ["GLSL", (build: any) => compileGlslFn(build, param)],
+    ["WGSL", (build: any) => compileWgslFn(build, param)],
+    ["JS", (build: any) => compileJSFn(build, param)],
+    ["WASM", (build: any) => compileWasmFn(build, param)],
+  ] as const)("compiles an inline Fn read through 30 levels of doubling on %s", (_target, compile) => {
+    const reads = (levels: number) => {
+      const count = { reads: 0 };
+      compile((a: Node<"float">) => {
+        let x: any = Fn(() => a.mul(2).toVar())();
+        for (let i = 0; i < levels; i++) x = x.add(x);
+        return countOperandReads(Fn(() => x)(), count);
+      });
+      return count.reads;
+    };
+    expect(reads(30) / reads(15)).toBeLessThan(3);
+  });
+
+  /**
+   * Each level is an inline `Fn` that reads the one below once, so the reads
+   * of the deepest sit inside every level above it. The work of the pass that
+   * places them is counted as the elements it steps through in iterating
+   * arrays, which copying the path from the program to each read does. Twice
+   * the levels take about twice the steps; copying the whole path at each
+   * level takes four times.
+   *
+   * @canon spec-the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels
+   */
+  it("places inline Fns nested 200 levels, each reading the one below once, in steps that grow with the levels", () => {
+    const chain = (levels: number) => {
+      let f: any = Fn(() => float(2).toVar())();
+      for (let i = 0; i < levels; i++) {
+        const below = f;
+        f = Fn(() => below.add(1).toVar())();
+      }
+      return Fn(() => f.mul(1))();
+    };
+    const steps = (levels: number) => {
+      const root = chain(levels);
+      const iterator = Array.prototype[Symbol.iterator];
+      let count = 0;
+      Array.prototype[Symbol.iterator] = function (this: unknown[]) {
+        const inner = iterator.call(this);
+        return {
+          next: () => (count++, inner.next()),
+          [Symbol.iterator]() {
+            return this;
+          },
+        } as ArrayIterator<unknown>;
+      };
+      try {
+        shareNodes(root);
+      } finally {
+        Array.prototype[Symbol.iterator] = iterator;
+      }
+      return count;
+    };
+    expect(steps(200) / steps(100)).toBeLessThan(3);
   });
 
   /**

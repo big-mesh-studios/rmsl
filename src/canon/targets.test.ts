@@ -1693,15 +1693,18 @@ describe("an inline Fn that jumps, read in several statements", () => {
   });
 
   /**
-   * Two roots read the value, so no block holds both reads and the `Fn` runs
-   * at each. The first root reads it outside every loop.
+   * Two roots read the value, so the `Fn` runs before the first of them,
+   * outside every loop, whether the first root reads it outside every loop or
+   * in a loop of its own.
    *
-   * @canon spec-a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop
+   * @canon spec-a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused
    */
   it.each([
-    ["break", Break],
-    ["continue", Continue],
-  ] as const)("refuses %s in an inline Fn two roots read, one outside every loop, on every target", (name, jump) => {
+    ["break", "outside every loop", Break],
+    ["continue", "outside every loop", Continue],
+    ["break", "in a loop", Break],
+    ["continue", "in a loop", Continue],
+  ] as const)("refuses %s in an inline Fn two roots read, the first %s, on every target", (name, first, jump) => {
     const drop = uniform("float");
     const build = () => {
       const stop = Fn(() => {
@@ -1710,7 +1713,9 @@ describe("an inline Fn that jumps, read in several statements", () => {
       })() as any;
       return [
         Fn(() => {
-          float(0).toVar().assign(stop);
+          const total = float(0).toVar();
+          if (first === "in a loop") Loop(2, () => total.addAssign(stop));
+          else total.assign(stop);
         })(),
         Fn(() => {
           const total = float(0).toVar();
@@ -1730,6 +1735,73 @@ describe("an inline Fn that jumps, read in several statements", () => {
     ];
     for (const [target, compile] of compilers)
       expect(compile, target).toThrow(INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[name]);
+  });
+
+  /**
+   * The `Fn` returns two values, and only the second reads an `Fn` that
+   * breaks, which runs with the first. The program reads the first in a loop
+   * body and the second in a loop inside it, so the `Break()` would leave the
+   * outer loop while a read sits in the inner one. Before, only the jumps the
+   * value read first reaches were checked, and the program compiled.
+   *
+   * @canon exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused
+   */
+  it("refuses a Break that only the second value of an inline Fn reaches, read in a deeper loop, on every target", () => {
+    const drop = uniform("float");
+    const build = () => {
+      const stop = Fn(() => {
+        If(drop.greaterThan(1), () => Break());
+        return float(1);
+      })() as any;
+      const [first, second] = Fn(() => {
+        const t = drop.toVar();
+        return [t, t.add(stop)];
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(first);
+          Loop(2, () => {
+            total.addAssign(second);
+          });
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE.break);
+  });
+
+  /**
+   * The breaking `Fn` is read in the outer loop's body and inside another
+   * `Fn`, which the body reads and a loop inside it reads too. The breaking
+   * one runs at the start of the outer body, where its `Break()` leaves the
+   * outer loop. The other holds no jump of its own, so its read in the inner
+   * loop is no read of the breaking one there. Before, its read in the inner
+   * loop refused the program as a jump in a deeper loop.
+   *
+   * @canon spec-a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs
+   */
+  it("leaves the loop around where an inline Fn runs, when another Fn that reads it runs elsewhere, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const stop = Fn(() => {
+        If(a.greaterThan(5), () => Break());
+        return a.toVar();
+      })() as any;
+      const doubled = Fn(() => stop.mul(2).toVar())() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(stop);
+          total.addAssign(doubled);
+          Loop(2, () => {
+            total.addAssign(doubled.mul(10));
+          });
+        });
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(2 * (1 + 2 + 40));
+    expect(evaluateRecording(build, [6])).toBe(0);
   });
 
   /**

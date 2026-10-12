@@ -1597,6 +1597,47 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * The first root reads the value in a branch and in a loop, the second
+   * once. The `Fn` runs once, before the first root, whichever branch runs.
+   *
+   * @canon spec-an-inline-fn-several-roots-read-runs-once-before-the-first
+   */
+  it("runs an inline Fn several roots read once, before the first root, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(3, "float");
+    const taken = uniform("float");
+    const f = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return counter.element(int(0)).toVar();
+    })() as any;
+    const roots = [
+      Fn(() => {
+        If(taken.greaterThan(0), () => {
+          result.element(int(0)).addAssign(f);
+        });
+        Loop(3, () => {
+          result.element(int(1)).addAssign(f);
+        });
+      })(),
+      Fn(() => {
+        result.element(int(2)).addAssign(f);
+      })(),
+    ];
+    for (const branch of [0, 1]) {
+      const adapter = createWgslCompute(roots, { workgroupSize: 1 });
+      await adapter.attach();
+      adapter.setUniform(taken, branch);
+      const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(3) };
+      await adapter.compute(out, 1);
+      expect({ branch, runs: out[counter.name]![0], values: Array.from(out[result.name]!) }).toEqual({
+        branch,
+        runs: 1,
+        values: [branch, 3, 1],
+      });
+      adapter.destroy();
+    }
+  });
+  /**
    * The outer `Fn` reads the inner one in both branches of an `If`, and two
    * roots read the outer one.
    *
