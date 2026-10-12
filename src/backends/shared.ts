@@ -1,6 +1,7 @@
 import {
   assertCallFits,
   assertFnIsClosed,
+  assertNodeNames,
   assertForUpdateNode,
   type FnDefinition,
   BaseNode,
@@ -707,6 +708,7 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
     if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
     if (inUpdate) assertForUpdateNode(node);
     if (node.type === "outputStruct") holdsOutputStruct = true;
+    assertNodeNames(node);
     if (node.type === "call") {
       assertCallFits(node);
       checkFn(node.value);

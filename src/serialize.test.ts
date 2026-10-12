@@ -3,6 +3,8 @@ import { deserialize, serialize, type SerializedGraph } from "./serialize";
 import {
   Fn,
   For,
+  var_,
+  vec4,
   If,
   float,
   instancedArray,
@@ -19,6 +21,8 @@ import {
   type ShaderType,
 } from "./core";
 import { compile } from "./wgsl";
+import { compileGlsl } from "./glsl";
+import { compileWasmRoutine } from "./wasm";
 import { compileJSRoutine } from "./js";
 
 const compute = (root: Node<ShaderType> | Node<ShaderType>[]) => compile({ stage: "compute", workgroupSize: 64 }, root);
@@ -318,5 +322,38 @@ describe("serialize/deserialize", () => {
     const graph = (node: object) => ({ nodes: [node], buffers: [], roots: 0 }) as unknown as SerializedGraph;
     expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrow();
     expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrow();
+  });
+
+  /**
+   * @canon spec-deserialize-refuses-data-serialize-could-not-have-produced
+   */
+  it.each([
+    ["a variable", (graph: any) => graph.nodes.find((n: any) => n.type === "var").value],
+    ["a uniform", (graph: any) => graph.nodes.find((n: any) => n.type === "uniform").value],
+  ] as const)("refuses %s named by text that is no identifier", (_, valueOf) => {
+    const graph = serialize(
+      Fn(() => {
+        const v = float(1).toVar("myvar");
+        return v.add(uniform("float"));
+      })(),
+    ) as any;
+    const value = valueOf(graph);
+    if ("varName" in value) value.varName = "x = 1.0; } void evil() { float y";
+    else {
+      delete value.local;
+      value.slot = "u; } void evil() { float y";
+    }
+    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrow(/is no identifier/);
+  });
+
+  /**
+   * @canon spec-deserialize-refuses-data-serialize-could-not-have-produced
+   */
+  it("refuses a graph built by hand whose variable is named by text, on every target", () => {
+    const build = () => Fn(() => var_<"float">("x = 1.0; } void evil() { float y", "float"))();
+    expect(() => compileGlsl.fragment(build() as any)).toThrow(/is no identifier/);
+    expect(() => compile({ stage: "compute", workgroupSize: 64 }, build())).toThrow(/is no identifier/);
+    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrow(/is no identifier/);
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/is no identifier/);
   });
 });

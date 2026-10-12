@@ -1952,10 +1952,30 @@ export let usedVarNames = new Set<string>();
  */
 export const RESERVED_VAR_PREFIX = "_rmsl_";
 
+/** What a name is held to wherever it is printed into a shader: letters, digits and underscore, not starting with a digit. */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Throws unless the names `n` holds, a variable's or a slot's, are identifiers.
+ * GLSL and WGSL print them as they are, so a graph that skipped the builders,
+ * such as one rebuilt from JSON, cannot put text of its own into a shader.
+ * `where` says which node of the data it is, for an error.
+ */
+export function assertNodeNames(n: any, where = ""): void {
+  for (const name of [n?.type === "var" ? n.value?.varName : undefined, n?.value?.slot]) {
+    if (name !== undefined && !(typeof name === "string" && IDENTIFIER.test(name))) {
+      throw new Error(
+        `[RMSL] ${where}a ${n.type} node is named ${JSON.stringify(name)}, which is no identifier ` +
+          `(letters, digits and underscore, not starting with a digit).`,
+      );
+    }
+  }
+}
+
 /** Pick a name for a `toVar()`, claiming it in `usedVarNames`. */
 export function claimVarName(name: string | undefined): string {
   if (name !== undefined) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    if (!IDENTIFIER.test(name)) {
       throw new Error(
         `toVar("${name}") must be a valid identifier (letters, digits and ` + `underscore, not starting with a digit).`,
       );
@@ -2066,8 +2086,6 @@ const LAYOUT_VALUE_TYPES: ReadonlySet<string> = new Set([
   "mat4x3",
   "mat4",
 ]);
-
-const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** What an error calls the function of a layout. */
 function describeFn(name: string | undefined): string {

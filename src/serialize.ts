@@ -3,6 +3,7 @@ import {
   allocUniformId,
   allocVaryingId,
   attachUniformArrayElement,
+  assertNodeNames,
   claimVarName,
   node,
   NODE_TYPES,
@@ -280,6 +281,7 @@ function deserializeNode(
   }
 
   const result = node({ _t: entry._t, type: entry.type, value, params, name }) as any;
+  assertNodeNames(result, `deserialize: node ${nodes.length}, `);
   if (entry.type === "uniformArray") {
     result.length = value!.length;
     attachUniformArrayElement(result, entry._t as ShaderType);
