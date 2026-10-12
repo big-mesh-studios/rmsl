@@ -894,20 +894,8 @@ function uniformDeclaration(info: { type: string; slot: string; length?: number;
 export function binaryGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
   let lhs = compileGLSLStage(node.params![0], ctx);
   let rhs = compileGLSLStage(node.params![1], ctx);
-  let lhsType = (node.params![0] as any)?._t || "float";
-  let rhsType = (node.params![1] as any)?._t || "float";
   let lhsExpr = lhs.expr;
   let rhsExpr = rhs.expr;
-  if (lhsType === "float" && (rhsType === "int" || rhsType === "uint")) {
-    rhsExpr = `float(${rhsExpr})`;
-  } else if ((lhsType === "int" || lhsType === "uint") && rhsType === "float") {
-    lhsExpr = `float(${lhsExpr})`;
-  } else if ((lhsType === "int" || lhsType === "uint") && (rhsType === "int" || rhsType === "uint")) {
-    // GLSL would promote int+uint to uint, but the node is typed after its
-    // first operand, so the other side is converted to match.
-    if (lhsType === "int" && rhsType === "uint") rhsExpr = `int(${rhsExpr})`;
-    if (lhsType === "uint" && rhsType === "int") lhsExpr = `uint(${lhsExpr})`;
-  }
   if (isFn) {
     return {
       decls: [...lhs.decls, ...rhs.decls],
@@ -931,16 +919,10 @@ export function comparisonGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let a = compileGLSLStage(node.params![0], ctx);
   let b = compileGLSLStage(node.params![1], ctx);
   let lhsType = (node.params![0] as any)?._t || "float";
-  let rhsType = (node.params![1] as any)?._t || "float";
   // Comparisons are per-component for any vector, float or integer.
   let isVec = (TYPE_WIDTH[lhsType] ?? 1) > 1;
   let lhsExpr = a.expr;
   let rhsExpr = b.expr;
-  if (!isVec && lhsType === "float" && (rhsType === "int" || rhsType === "uint")) {
-    rhsExpr = `float(${rhsExpr})`;
-  } else if (!isVec && (lhsType === "int" || lhsType === "uint") && rhsType === "float") {
-    lhsExpr = `float(${lhsExpr})`;
-  }
   if (isVec) {
     return {
       decls: [...a.decls, ...b.decls],
@@ -969,25 +951,10 @@ export function ternaryGLSL(
   let a = compileGLSLStage(node.params![0], ctx);
   let b = compileGLSLStage(node.params![1], ctx);
   let c = compileGLSLStage(node.params![2], ctx);
-  let aType = (node.params![0] as any)?._t || "float";
-  let bType = (node.params![1] as any)?._t || "float";
-  let cType = (node.params![2] as any)?._t || "float";
-  let aExpr = a.expr;
-  let bExpr = b.expr;
-  let cExpr = c.expr;
-  if (aType === "float") {
-    if (bType === "int" || bType === "uint") bExpr = `float(${bExpr})`;
-    if (cType === "int" || cType === "uint") cExpr = `float(${cExpr})`;
-  } else if (aType === "int" || aType === "uint") {
-    if (bType === "float") aExpr = `float(${aExpr})`;
-    if (cType === "float") {
-      /* keep as-is or convert both */
-    }
-  }
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
-    expr: format(aExpr, bExpr, cExpr),
+    expr: format(a.expr, b.expr, c.expr),
   };
 }
 

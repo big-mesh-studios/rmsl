@@ -626,7 +626,7 @@ describe.skipIf(!RUN_SWEEP)("integer sweep", () => {
       );
 
       /**
-       * @canon exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver
+       * @canon exception-glsl-integer-edge-cases-follow-the-driver
        */
       it.skipIf(GPU_EVALUATION_SKIPPED)(
         "GLSL compiles",

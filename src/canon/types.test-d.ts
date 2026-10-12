@@ -11,6 +11,7 @@ import {
   bool,
   ivec2,
   uvec3,
+  uvec2,
   bvec4,
   mat3,
   outputStruct,
@@ -19,6 +20,21 @@ import {
   dot,
   length,
   distance,
+  sin,
+  floor,
+  pow,
+  mix,
+  step,
+  smoothstep,
+  normalize,
+  cross,
+  bitAnd,
+  bitNot,
+  shiftLeft,
+  ivec3,
+  abs,
+  sign,
+  negate,
   screenSize,
   type Node,
   type UniformNode,
@@ -58,6 +74,136 @@ describe("refusals the types make", () => {
     vec2(1, 2).add(vec3(1, 2, 3));
     // @ts-expect-error nor a product
     vec3(1, 2, 3).mul(vec2(1, 2));
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("refuses an operation on an integer and a float", () => {
+    // @ts-expect-error an int and a float have no sum
+    int(1).add(float(2));
+    // @ts-expect-error nor a float and a uint a product
+    float(1).mul(uint(2));
+    // @ts-expect-error nor an ivec2 and a vec2 a minimum
+    ivec2(1, 2).min(vec2(1, 2));
+    // @ts-expect-error nor an int and a float an order
+    int(1).lessThan(float(2));
+    expectTypeOf(int(1).add(2)).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(float(1).add(2)).toEqualTypeOf<Node<"float">>();
+  });
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   */
+  it("refuses an operation on a signed and an unsigned integer", () => {
+    // @ts-expect-error an int and a uint have no sum
+    int(1).add(uint(2));
+    // @ts-expect-error nor a uint and an int a remainder
+    uint(1).mod(int(2));
+    // @ts-expect-error nor an int and a uint an order
+    int(1).lessThan(uint(2));
+    // @ts-expect-error nor an ivec2 and a uvec2 a product
+    ivec2(1, 2).mul(uvec2(1, 2));
+    // @ts-expect-error nor a uvec2 and an int a maximum
+    uvec2(1, 2).max(int(1));
+    expectTypeOf(int(1).add(2)).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(uint(1).add(2)).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(uvec2(1, 2).add(2)).toEqualTypeOf<Node<"uvec2">>();
+    // @ts-expect-error nor an int and a uint a bitwise and
+    int(1).bitAnd(uint(2));
+    // @ts-expect-error nor a uvec2 and an ivec2 a bitwise or
+    uvec2(1, 2).bitOr(ivec2(1, 2));
+    // @ts-expect-error nor an int between uint bounds a clamp
+    int(1).clamp(uint(0), uint(2));
+    // @ts-expect-error nor an int and a uint a choice
+    bool(true).select(int(1), uint(2));
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("refuses an integer beside a float in a function of several operands", () => {
+    // @ts-expect-error a float has no power of an int
+    float(2).pow(int(3));
+    // @ts-expect-error nor a float a clamp between int bounds
+    float(2).clamp(int(0), int(1));
+    // @ts-expect-error nor a vec3 a blend by an int weight
+    vec3(1, 2, 3).mix(vec3(1, 2, 3), int(1));
+    // @ts-expect-error nor an int and a float a bitwise and
+    int(1).bitAnd(float(2));
+    // @ts-expect-error nor an int a shift by a float
+    int(1).shiftLeft(float(2));
+    // @ts-expect-error nor an int and a float a choice
+    bool(true).select(int(1), float(2));
+  });
+
+  /**
+   * @canon spec-a-shift-amount-may-be-of-either-integer-kind
+   */
+  it("takes a shift amount of either integer kind", () => {
+    expectTypeOf(int(1).shiftLeft(uint(2))).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(uint(1).shiftRight(int(2))).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(ivec2(1, 2).shiftLeft(uvec2(1, 2))).toEqualTypeOf<Node<"ivec2">>();
+    expectTypeOf(uvec2(1, 2).shiftRight(int(1))).toEqualTypeOf<Node<"uvec2">>();
+  });
+
+  /**
+   * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
+   */
+  it("refuses an integer operand of a function defined only for floats", () => {
+    // @ts-expect-error an int has no sine
+    sin(int(1));
+    // @ts-expect-error nor a uint a floor
+    floor(uint(1));
+    // @ts-expect-error nor an int a power
+    pow(int(2), 3);
+    // @ts-expect-error nor two ints a blend
+    mix(int(1), int(2), 0.5);
+    // @ts-expect-error nor an int a step
+    step(0, int(1));
+    // @ts-expect-error nor an int a smooth step
+    smoothstep(0, 1, int(1));
+    // @ts-expect-error nor an ivec3 a direction
+    normalize(ivec3(1, 2, 3));
+    // @ts-expect-error nor two ivec3s a cross product
+    cross(ivec3(1, 2, 3), ivec3(1, 2, 3));
+    // @ts-expect-error nor an int a method of floats
+    int(1).sin();
+    sin(1);
+    pow(float(2), 3);
+    mix(vec3(1, 2, 3), [0, 0, 0], 0.5);
+  });
+
+  /**
+   * @canon spec-an-integer-operation-refuses-a-float-operand
+   */
+  it("refuses a float operand of an integer operation", () => {
+    // @ts-expect-error a float has no bitwise and
+    bitAnd(float(1), 2);
+    // @ts-expect-error nor a vec2 a bitwise not
+    bitNot(vec2(1, 2));
+    // @ts-expect-error nor an int a shift by a float
+    shiftLeft(int(1), float(2));
+    // @ts-expect-error nor a float a method of integers
+    float(1).bitAnd(1);
+    bitAnd(int(1), 2);
+    shiftLeft(uint(1), int(2));
+  });
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   */
+  it("refuses an unsigned operand of abs, sign and negate", () => {
+    // @ts-expect-error a uint has no absolute value
+    abs(uint(1));
+    // @ts-expect-error nor a uvec2 a sign
+    sign(uvec2(1, 2));
+    // @ts-expect-error nor a uint a negation
+    negate(uint(1));
+    abs(int(-1));
+    sign(vec3(1, 2, 3));
+    negate(mat3(1));
+    negate(ivec2(1, 2));
   });
 
   /**

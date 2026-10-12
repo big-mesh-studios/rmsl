@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { int, ivec2, uint, uvec2, type Node } from "./rmsl";
+import { compileGlslFn } from "./glsl";
 import {
   closeEvaluators,
   evaluateIntegerGLSL,
@@ -153,8 +154,8 @@ describe("integer semantics match WGSL", () => {
 
   /**
    * GLSL ES 3.00 defines every case here but a division or remainder by zero,
-   * a remainder with a negative operand, a division that overflows, and a
-   * shift by an amount that is negative or 32 or more.
+   * a remainder with a negative operand, `INT_MIN / -1`, which it lets give
+   * `INT_MIN` or `INT_MAX`, and a shift by an amount that is negative or 32 or more.
    *
    * @canon spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation
    */
@@ -192,18 +193,25 @@ describe("a defect of Dawn on Metal", () => {
 });
 
 describe("integer cases GLSL leaves to the driver", () => {
+  const params = { name: "main", params: [{ name: "a", type: "int" as const }] };
+
   /**
-   * GLSL ES 3.00 leaves a remainder with a negative operand, and a division
-   * that overflows, undefined, and the GLSL target emits them as they are.
+   * The driver's answer for these differs from one driver to the next, so
+   * what holds on every one is that GLSL computes them with its own operator.
    *
-   * @canon bug-glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does
+   * @canon exception-glsl-integer-edge-cases-follow-the-driver
    */
-  it.skipIf(GPU_EVALUATION_SKIPPED).fails.each([
-    ["-7 % 3", "mod", -7, 3, -1],
-    ["7 % -3", "mod", 7, -3, 1],
-    ["INT_MIN / -1", "div", INT_MIN, -1, INT_MIN],
-  ] as const)("gives %s the result WGSL defines on GLSL", async (_, op, a, b, want) => {
-    const build = (x: Node<"int">, y: Node<"int">) => apply(op, x, y) as Node<"int">;
-    expect(await evaluateIntegerGLSL(build, "int", [a, b])).toBe(want);
+  it.each([
+    ["a run-time remainder by a negative literal", (a: Node<"int">) => a.mod(int(-3)), "a % -3"],
+    ["a remainder of a negative literal", (a: Node<"int">) => int(-7).mod(a), "-7 % a"],
+    [
+      "a vector remainder by a negative literal",
+      (a: Node<"int">) => ivec2(a, a).mod(ivec2(-3, -3)).x,
+      "% ivec2(-3, -3)",
+    ],
+    ["a run-time division by -1", (a: Node<"int">) => a.div(int(-1)), "a / -1"],
+    ["a division of INT_MIN", (a: Node<"int">) => int(INT_MIN).div(a), "(-2147483647 - 1) / a"],
+  ] as const)("compiles %s to the native operator on GLSL", (_, build, expected) => {
+    expect(String(compileGlslFn(build as any, params))).toContain(expected);
   });
 });
