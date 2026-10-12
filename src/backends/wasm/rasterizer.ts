@@ -1,6 +1,7 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
-import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
+import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
+import { assertHostArray } from "../vertex-format";
 import {
   compileWasmFn,
   componentSizeOf,
@@ -221,6 +222,8 @@ export interface WasmRasterRoutine {
    * {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
    */
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
+  /** The type of each attribute the vertex stage reads, by slot. */
+  readonly attributeTypes: Readonly<Record<string, string>>;
 }
 
 function align8(n: number): number {
@@ -327,7 +330,7 @@ export function compileWasm(
     const sizeBytes = componentCount * componentSizeOf(kind);
     const offset = attrCursor;
     attrCursor += sizeBytes;
-    return { slot: p.slot, offset, sizeBytes, componentCount, kind, destAddress: p.address };
+    return { slot: p.slot, shaderType: p.shaderType, offset, sizeBytes, componentCount, kind, destAddress: p.address };
   });
   const attrStrideBytes = attrCursor;
 
@@ -492,7 +495,8 @@ export function compileWasm(
         continue;
       }
       const src = ctx.attributes[a.slot];
-      if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
+      if (!src) throw missingAttributeError("compileWasm", a.slot);
+      assertHostArray("attribute", a.slot, a.shaderType, src, true);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;
@@ -575,5 +579,8 @@ export function compileWasm(
     return new Float64Array(result); // copy out — memory can grow (and detach `result`'s buffer) on a later draw()
   }
 
-  return { draw };
+  const attributeTypes = Object.fromEntries(
+    attrParams.filter((p) => p.slot !== VERTEX_INDEX_SLOT).map((p) => [p.slot, p.shaderType]),
+  );
+  return { draw, attributeTypes };
 }

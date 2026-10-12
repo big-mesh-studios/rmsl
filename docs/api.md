@@ -288,7 +288,9 @@ A `Var<A>` is accepted wherever a `Node<A>` is. A function that writes a node it
 is given takes a `Var<A>`. `.toReadOnly()` on a storage node makes that node read-only, as TSL's does, and
 returns it as a `ReadOnlyStorageNode<A>`, whose elements are `Node<A>`s. Another
 reference to the node, typed as writable, is read-only too, and the compiler
-refuses a write through it.
+refuses a write through it. A storage node itself has no value, only its
+elements do, so it has none of the operations of its element type, and is no
+operand: read and write it through `.element(i)`.
 
 ## Node Methods
 

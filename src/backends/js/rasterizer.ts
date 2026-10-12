@@ -1,5 +1,6 @@
 import { Node, ShaderType } from "../../core";
-import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
+import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
+import { assertHostArray } from "../vertex-format";
 import {
   componentCountOf,
   componentKindOf,
@@ -30,7 +31,7 @@ export interface CompileJSRasterOptions {
  * WASM-specific shape (`CpuShaderContext["textures"]` here instead).
  */
 export interface JsRasterContext {
-  attributes: Record<string, ArrayLike<number>>;
+  attributes: Record<string, TypedArray>;
   uniforms?: Record<string, unknown>;
   textures?: CpuShaderContext["textures"];
 }
@@ -60,6 +61,8 @@ export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions 
  */
 export interface JsRasterRoutine {
   draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer;
+  /** The type of each attribute the vertex stage reads, by slot. */
+  readonly attributeTypes: Readonly<Record<string, string>>;
 }
 
 /**
@@ -347,8 +350,10 @@ export function compileJS(
     const { width, height, out } = options;
     const { attributes } = ctx;
     const first = options.first ?? 0;
-    for (const slot of attributeSlots) {
-      if (!attributes[slot]) throw new Error(`[RMSL] compileJS: draw() is missing attribute "${slot}"`);
+    for (let a = 0; a < attributeSlots.length; a++) {
+      const slot = attributeSlots[a]!;
+      if (!attributes[slot]) throw missingAttributeError("compileJS", slot);
+      assertHostArray("attribute", slot, vertexStage.attributeTypes[slot]!, attributes[slot], true);
     }
     // An attribute the program does not read counts for nothing, as a WebGPU
     // draw reads no buffer its shader does not declare.
@@ -438,5 +443,5 @@ export function compileJS(
     return result;
   }
 
-  return { draw };
+  return { draw, attributeTypes: vertexStage.attributeTypes };
 }

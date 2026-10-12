@@ -10,6 +10,7 @@ import {
   StorageBufferAttribute,
   TYPE_WIDTH,
   node,
+  operandRefusal,
   someNode,
   swizzleWritePlace,
   var_,
@@ -116,7 +117,7 @@ export interface CompileCtx {
    */
   storageTypes?: Map<string, string>;
   /** The attributes the program reads, by name; `id` is the first one's, which orders them as they were made. */
-  attributes: Map<string, { id: number; type: string; slot: string }>;
+  attributes: Map<string, { id: number; type: string; shaderType: string; slot: string }>;
   /** The varyings the program reads or writes, by name. */
   varyings: Map<string, { id: number; type: string; slot: string }>;
   outputs: Map<number, { type: string; slot: string; location: number }>;
@@ -680,7 +681,8 @@ function refuseWholeStorageRead(storage: any): never {
 
 /**
  * Checks every node of `roots`, in one walk, for the refusals every compiler
- * shares: a storage node read as a whole rather than through `.element(i)`
+ * shares: an operation on operands it does not take, see {@link operandRefusal},
+ * a storage node read as a whole rather than through `.element(i)`
  * (an assignment to one has its own refusal, in `assertAssignable`), a node of
  * a `for` update that the update slot of a `for` cannot take, and a write by
  * index through a swizzle that its read would refuse. It gives each such write
@@ -707,6 +709,8 @@ function checkRoots(roots: readonly unknown[]): {
     visited[+inUpdate]!.add(node);
     if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
     if (inUpdate) assertForUpdateNode(node);
+    const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
+    if (refusal) throw new Error(`[RMSL] ${refusal}`);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     if (node.type === "return") holdsReturn = true;
     if (STAGE_WRITES.has(node.type)) holdsStageWrite = true;
@@ -1016,24 +1020,27 @@ export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"
   });
 }
 
+/** A storage node as the program's graph holds it: a node of its element type. */
+export type StorageGraphNode = StorageNode<ShaderType> & BaseNode<ShaderType>;
+
 /**
  * One entry for each storage buffer reachable from the roots, in the order the
  * program created the buffers: a node over the buffer, and the widest access
  * any node over it needs.
  */
-export function storageBuffersOf(roots: unknown): { node: StorageNode<ShaderType>; access: StorageAccess }[] {
-  const buffers = new Map<string, { node: StorageNode<ShaderType>; access: StorageAccess }>();
+export function storageBuffersOf(roots: unknown): { node: StorageGraphNode; access: StorageAccess }[] {
+  const buffers = new Map<string, { node: StorageGraphNode; access: StorageAccess }>();
   someNode(roots, (node) => {
     if (node.type !== "storage") return;
     const buffer = buffers.get(node.value.slot);
-    if (!buffer) buffers.set(node.value.slot, { node: node as StorageNode<ShaderType>, access: node.value.access });
+    if (!buffer) buffers.set(node.value.slot, { node: node as StorageGraphNode, access: node.value.access });
     else if (buffer.access !== node.value.access) buffer.access = "read_write";
   });
   return [...buffers.values()].sort((a, b) => a.node.attribute.id - b.node.attribute.id);
 }
 
 /** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
-export function storageNodesOf(roots: unknown): StorageNode<ShaderType>[] {
+export function storageNodesOf(roots: unknown): StorageGraphNode[] {
   return storageBuffersOf(roots).map((buffer) => buffer.node);
 }
 

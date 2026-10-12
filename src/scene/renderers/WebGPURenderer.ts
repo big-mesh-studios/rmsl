@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
 import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
+import { componentCountOf } from "../../backends/cpu";
 import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
@@ -34,9 +35,6 @@ import {
   programSignature,
   geometryAttribute,
   samplerState,
-  vertexFormatOf,
-  type VertexFormat,
-  VERTEX_FORMATS,
   textureChannels,
   type SamplerState,
   type TextureWrap,
@@ -48,7 +46,16 @@ import {
   rangesCover,
   clearUpdateRanges,
   type AttributeBuffer,
+  warnMissingAttribute,
 } from "./common";
+import {
+  attributeShape,
+  vertexFormatOf,
+  wordFormat,
+  type AttributeKind,
+  type VertexFormat,
+  VERTEX_FORMATS,
+} from "../../backends/vertex-format";
 
 interface PipelineEntry {
   program: MaterialProgram;
@@ -191,6 +198,8 @@ export class WebGPURenderer {
   private animationCallback: ((time: number) => void) | null = null;
   private animationHandle: number | null = null;
   private blankTextures = new Map<string, DataTexture>();
+  /** The value an attribute with no data reads, made at the first draw that needs it. */
+  private noDataBuffer: GPUBuffer | null = null;
 
   /** Whether the device filters a 32-bit float texture, read once since a device's features are fixed. */
   private readonly floatFilterable: boolean;
@@ -800,24 +809,26 @@ export class WebGPURenderer {
     const mirrored = isMirrored(mesh);
     let key = `${material.transparent},${material.blending},${material.depthTest},${material.depthWrite},${mirrored};`;
     for (const attribute of entry.program.attributes) {
-      key += `${this.formatOf(attribute, mesh)},`;
+      key += `${geometryAttribute(mesh, mesh.geometry, attribute.name) ? "" : "-"}${this.formatOf(attribute, mesh)},`;
     }
     const cached = entry.variants.get(key);
     if (cached) return cached;
     const vertexFormats: VertexBufferLayout[] = [];
     let shaderLocation = 0;
     for (const attribute of entry.program.attributes) {
-      const columns = attribute.node._t === "mat4" ? 4 : 1;
+      const { columns } = attributeShape(attribute.node._t);
       const format = this.formatOf(attribute, mesh);
       const { count, bytes } = VERTEX_FORMATS[format];
+      // An attribute with no data reads one element at every vertex: the value `setVertexBuffers` binds.
+      const stride = geometryAttribute(mesh, mesh.geometry, attribute.name) ? count * bytes : 0;
       const locations: VertexBufferLayout["attributes"] = [];
       for (let i = 0; i < columns; i++) {
-        locations.push({ shaderLocation: shaderLocation + i, offset: i * count * bytes, format });
+        locations.push({ shaderLocation: shaderLocation + i, offset: i * stride, format });
       }
       vertexFormats.push({
         name: attribute.name,
         stepMode: attribute.stepMode,
-        arrayStride: columns * count * bytes,
+        arrayStride: columns * stride,
         attributes: locations,
       });
       shaderLocation += columns;
@@ -855,23 +866,46 @@ export class WebGPURenderer {
 
   /** The vertex format `mesh` holds the attribute of the program in, or the one its shader type implies. */
   private formatOf(attribute: MaterialProgram["attributes"][number], mesh: Mesh): VertexFormat {
-    const columns = attribute.node._t === "mat4" ? 4 : 1;
+    const type = attribute.node._t;
     const attr = geometryAttribute(mesh, mesh.geometry, attribute.name);
-    return attr
-      ? vertexFormatOf(attr, attr.itemSize / columns)
-      : vertexFormatFromType(columns === 4 ? "vec4" : attribute.node._t);
+    if (attr) return vertexFormatOf(attr, type);
+    const { columns, kind } = attributeShape(type);
+    return wordFormat(kind, componentCountOf(type) / columns);
   }
 
   private setVertexBuffers(pass: GPURenderPassEncoder, variant: PipelineVariant, mesh: Mesh): void {
     const buffers = this.ensureGeometryBuffers(mesh.geometry);
     // Each `vertexFormats` entry is one vertex buffer slot, so the buffer is
     // bound at its slot index (the loop position) rather than any shader
-    // location — a mat4 entry spans several locations from a single buffer.
+    // location — a matrix entry spans several locations from a single buffer.
     for (let slot = 0; slot < variant.vertexFormats.length; slot++) {
       const layout = variant.vertexFormats[slot];
       const buffer = this.vertexBuffer(mesh, layout.name, buffers);
       if (buffer) pass.setVertexBuffer(slot, buffer);
+      else {
+        warnMissingAttribute(mesh.geometry, layout.name);
+        this.setNoData(pass, slot, VERTEX_FORMATS[layout.attributes[0]!.format as VertexFormat].kind);
+      }
     }
+  }
+
+  /**
+   * Binds at `slot` the value an attribute with no data reads, (0, 0, 0, 1)
+   * as `kind` holds it, which a fresh WebGL context gives such an attribute.
+   */
+  private setNoData(pass: GPURenderPassEncoder, slot: number, kind: AttributeKind): void {
+    if (!this.noDataBuffer) {
+      this.noDataBuffer = this.device.createBuffer({
+        size: 32,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      const words = new ArrayBuffer(32);
+      new Float32Array(words, 0, 4).set([0, 0, 0, 1]);
+      new Int32Array(words, 16, 4).set([0, 0, 0, 1]);
+      this.device.queue.writeBuffer(this.noDataBuffer, 0, words);
+    }
+    // The float value sits in the first 16 bytes, and the integer one, which a `sint` and a `uint` format read alike, after it.
+    pass.setVertexBuffer(slot, this.noDataBuffer, kind === "float" ? 0 : 16);
   }
 
   /**
@@ -1204,6 +1238,8 @@ export class WebGPURenderer {
       texture.removeEventListener("dispose", this.onTextureDispose);
     }
     this.depthTexture?.destroy();
+    this.noDataBuffer?.destroy();
+    this.noDataBuffer = null;
     this.pipelines.clear();
     this.meshAttributes.clear();
     this.textures.clear();
@@ -1229,21 +1265,6 @@ function gpuAddressMode(wrap: TextureWrap): GPUAddressMode {
 /** One sampler state as a string, so two of them can share a sampler. */
 function samplerKey(state: SamplerState): string {
   return `${state.magFilter}|${state.minFilter}|${state.wrapS}|${state.wrapT}|${state.wrapR}`;
-}
-
-function vertexFormatFromType(type: string): VertexFormat {
-  switch (type) {
-    case "float":
-      return "float32";
-    case "vec2":
-      return "float32x2";
-    case "vec3":
-      return "float32x3";
-    case "vec4":
-      return "float32x4";
-    default:
-      return "float32x3";
-  }
 }
 
 /** `image` when it is an image element, video, bitmap or canvas, which has a size of its own, or null for data or nothing. */

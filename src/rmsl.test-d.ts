@@ -32,6 +32,8 @@ import {
   varying,
   type Node,
   type ShaderType,
+  type StorageAccess,
+  StorageBufferAttribute,
   type Var,
   type VaryingNode,
   texture,
@@ -693,6 +695,29 @@ describe("what can be assigned to", () => {
     expectTypeOf(values.element(int(0))).toEqualTypeOf<Node<"vec4">>();
     // @ts-expect-error an element of a read-only storage node can't be assigned
     values.element(int(0)).assign(vec4(0, 0, 0, 0));
+  });
+
+  /**
+   * @canon spec-a-whole-storage-buffer-cannot-be-read
+   * @canon exception-a-whole-storage-buffer-has-no-operations
+   */
+  it("refuses a whole storage buffer read as a value, and takes its element", () => {
+    const values = instancedArray(4, "float");
+    const readOnly = instancedArray(4, "vec4").toReadOnly();
+    // @ts-expect-error a whole storage buffer has no operations, only its elements do
+    values.add(1);
+    // @ts-expect-error nor does a read-only one
+    readOnly.mul(2);
+    // @ts-expect-error a whole storage buffer can't be copied into a variable
+    values.toVar();
+    // @ts-expect-error a whole storage buffer is no operand
+    float(1).add(values);
+    expectTypeOf(values.element(int(0)).add(1)).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(readOnly.element(0).mul(2)).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(values.name).toEqualTypeOf<string>();
+    expectTypeOf(values.access).toEqualTypeOf<StorageAccess>();
+    expectTypeOf(values.attribute).toEqualTypeOf<StorageBufferAttribute>();
+    expectTypeOf(values.toReadOnly().element(0)).toEqualTypeOf<Node<"float">>();
   });
 
   /**

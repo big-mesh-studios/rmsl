@@ -2,11 +2,14 @@ import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, Uniform
 import {
   Adapter,
   AttributeOrSlot,
+  AttributeOrStorage,
   DrawClearOptions,
   DrawCountOptions,
   slotOf,
   TypedArray,
   UniformOrSlot,
+  assertNodeArray,
+  HostArray,
 } from "../adapter";
 import {
   AdapterResult,
@@ -17,6 +20,7 @@ import {
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
+import { assertHostArray } from "../vertex-format";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import {
@@ -122,7 +126,10 @@ export interface WasmComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(
+    attribute: AttributeOrStorage<T>,
+    data: HostArray<T, Float32Array | Float64Array>,
+  ): void;
   setAttribute(slot: string, data: TypedArray): void;
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
 }
@@ -182,7 +189,7 @@ export interface WasmDrawOptions extends DrawCountOptions, DrawClearOptions {
  * canvas context, and `draw()` runs one frame into it. See
  * {@link WasmDrawOptions} for `count`/`first`/`clear`/`clearDepth`.
  */
-export interface WasmAdapter extends Adapter<void, WasmDrawOptions> {
+export interface WasmAdapter extends Adapter<void, WasmDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: WasmDrawOptions): void;
 }
@@ -207,10 +214,14 @@ export function createWasm(
     uniforms[slotOf(uniform)] = value as number | number[];
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
-    attributes[slotOf(attribute)] = data;
+    const slot = slotOf(attribute);
+    assertNodeArray(attribute, data, true);
+    const slotType = typeof attribute === "string" ? routine.attributeTypes[slot] : undefined;
+    if (slotType !== undefined) assertHostArray("attribute", slot, slotType, data, true);
+    attributes[slot] = data;
   }
 
   return {

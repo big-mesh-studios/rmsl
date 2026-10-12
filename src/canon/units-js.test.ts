@@ -48,6 +48,7 @@ import {
   compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
+  createJs,
   createJsCompute,
   createJsGrid,
   createJsRoutine,
@@ -59,6 +60,7 @@ import {
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
+  createWasm,
   createWasmCompute,
   createWasmGrid,
   createWasmRoutine,
@@ -1792,12 +1794,12 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
-   * The triangle's colour is what its integer attributes read: a fraction in
-   * a scalar `int`, and a negative `uint` and a fraction in a vector one.
+   * The triangle's colour is what its integer attributes read, from arrays of
+   * their kinds. An array of another kind, or a plain array, is refused.
    *
-   * @canon spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
    */
-  it.each(rasterizers)("%s: reads an integer attribute as a 32-bit integer of its type", (_, compileRaster) => {
+  it.each(rasterizers)("%s: draws with an integer attribute only from an array of its kind", (_, compileRaster) => {
     const pos = attribute("vec2");
     const signed = attribute("int");
     const unsigned = attribute("uvec2");
@@ -1810,17 +1812,24 @@ describe("the fragments a CPU rasterizer draws", () => {
         })() as any,
       () => Fn(() => vec4(shade, 1))() as any,
     );
-    const got = routine.draw(
-      {
-        attributes: {
-          [pos.name]: new Float64Array([-1, -1, 3, -1, -1, 3]),
-          [signed.name]: new Float64Array([-1.5, -1.5, -1.5]),
-          [unsigned.name]: new Float64Array([-1, 2.5, -1, 2.5, -1, 2.5]),
-        },
-      },
-      { width: 1, height: 1 },
-    );
+    const draw = (attributes: Record<string, any>) => routine.draw({ attributes }, { width: 1, height: 1 });
+    const corners = new Float64Array([-1, -1, 3, -1, -1, 3]);
+    const got = draw({
+      [pos.name]: corners,
+      [signed.name]: Int32Array.of(-1, -1, -1),
+      [unsigned.name]: Uint32Array.of(4294967295, 2, 4294967295, 2, 4294967295, 2),
+    });
     expect(Array.from(got)).toEqual([-1, 4294967295, 2, 1]);
+    const unsignedData = new Uint32Array(6);
+    expect(() =>
+      draw({ [pos.name]: corners, [signed.name]: new Float64Array(3), [unsigned.name]: unsignedData }),
+    ).toThrow(/\bint\b.*Int32Array.*Float64Array/);
+    expect(() =>
+      draw({ [pos.name]: corners, [signed.name]: new Int32Array(3), [unsigned.name]: new Int32Array(6) }),
+    ).toThrow(/\buvec2\b.*Uint32Array.*Int32Array/);
+    expect(() =>
+      draw({ [pos.name]: [-1, -1, 3, -1, -1, 3], [signed.name]: new Int32Array(3), [unsigned.name]: unsignedData }),
+    ).toThrow(/\bvec2\b.*Float32Array or a Float64Array.*number\[\]/);
   });
 
   /**
@@ -1982,7 +1991,7 @@ describe("the count of a draw that names none on JS", () => {
   });
 
   /**
-   * @canon spec-a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
    */
   it("refuses a draw missing an attribute the program reads on JS and WASM", async () => {
     const pos = attribute("vec3");
@@ -2150,5 +2159,75 @@ describe("an inline Fn read in both branches of an If on JS", () => {
     };
     expect(runs(1)).toEqual({ runs: 1, value: 2 });
     expect(runs(0)).toEqual({ runs: 1, value: 20 });
+  });
+});
+
+describe("the array a CPU adapter takes for an attribute", () => {
+  const adapters: [string, typeof createJs][] = [
+    ["createJs", createJs],
+    ["createWasm", createWasm as unknown as typeof createJs],
+  ];
+
+  /**
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it.each(adapters)("%s refuses an array of another kind, named by node or by slot", (_, create) => {
+    const position = attribute("vec2");
+    const ids = attribute("ivec2");
+    const flags = attribute("uint");
+    const adapter = create(
+      () =>
+        Fn(() => builtinPosition().assign(vec4(position.add(vec2(ids.x.toFloat(), flags.toFloat())), 0, 1)))() as any,
+      () => Fn(() => vec4(0, 1, 0, 1))() as any,
+    );
+    expect(() => adapter.setAttribute(ids, new Float32Array(6) as any)).toThrow(/\bivec2\b.*Int32Array.*Float32Array/);
+    expect(() => adapter.setAttribute(ids.name, new Uint32Array(6))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(flags, new Int32Array(3) as any)).toThrow(/\buint\b.*Uint32Array/);
+    expect(() => adapter.setAttribute(position, new Int32Array(6) as any)).toThrow(/\bvec2\b.*Float32Array/);
+    expect(() => adapter.setAttribute(position, new Float64Array(6))).not.toThrow();
+    expect(() => adapter.setAttribute(ids, new Int32Array(6))).not.toThrow();
+  });
+});
+
+describe("the array a CPU adapter takes for a storage buffer", () => {
+  /**
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an array of another kind, named by node or by slot", (_, create) => {
+    const counts = instancedArray(2, "int");
+    const weights = instancedArray(2, "float");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        weights.element(i).assign(weights.element(i).add(counts.element(i).toFloat()));
+      })(),
+    );
+    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
+      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(weights, new Int32Array(2) as any)).toThrow(/\bfloat\b storage buffer/);
+    expect(() => adapter.setAttribute(weights, new Float64Array(2))).not.toThrow();
+    expect(() => adapter.setAttribute(counts, new Int32Array(2))).not.toThrow();
+  });
+
+  /**
+   * A grid adapter knows the element type of a storage buffer from its node.
+   *
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsGrid", createJsGrid],
+    ["createWasmGrid", createWasmGrid as unknown as typeof createJsGrid],
+  ])("%s refuses a storage array of another kind given with the node", (_, create) => {
+    const shades = instancedArray(1, "uint");
+    const adapter = create({ draw: Fn(() => vec4(shades.element(0).toFloat(), 0, 0, 1))() });
+    expect(() => adapter.setAttribute(shades, new Int32Array(1) as any)).toThrow(
+      /\buint\b storage buffer.*Uint32Array/,
+    );
+    expect(() => adapter.setAttribute(shades, new Uint32Array(1))).not.toThrow();
   });
 });

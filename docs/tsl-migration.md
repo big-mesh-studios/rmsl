@@ -122,6 +122,23 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
 - **`builtinFragDepth()`** starts from the fragment's own depth, so a path that
   writes none keeps it, where TSL gives such a path 0 on WebGPU and an
   undefined depth on WebGL.
+- **Operands of two kinds are refused.** An operation on a float and an
+  integer, or on an `int` and a `uint` (or their vectors), throws on every
+  target: arithmetic and bitwise operators, comparisons, `select`, and math
+  functions of several operands such as `clamp`, `mix`, `pow` and `step`. TSL
+  converts one operand to the type of the other instead. Convert it yourself,
+  with `toFloat()`, `toInt()`, `toUint()` or a vector conversion. A bare number
+  still takes the type beside it, and a shift amount may be an `int` or a
+  `uint` beside a value of either. A float operand of a bitwise operator or a
+  shift is refused too, where TSL converts it to an `int`.
+- **A function defined only for floats refuses an integer.** `sin`, `floor`,
+  `pow`, `mix`, `step`, `normalize`, `cross` and every other math function that
+  GLSL and WGSL define only for floats throw on an `int`, `uint` or `bool`
+  operand, where TSL emits the call and the driver refuses it (`cross` excepted:
+  TSL converts its operands to `vec3`). `abs`, `sign` and `negate` take an
+  `int` but throw on a `uint` or `bool`, which TSL leaves to the driver: WebGL
+  has no `abs` or `sign` of a `uint`, and WebGPU no `sign` or negation of one.
+  `min`, `max` and `clamp` take either integer kind.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.
@@ -141,7 +158,11 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   element, or a matrix with columns of three, keeps its packed layout on the
   attribute and in what `getArrayBufferAsync()` returns: the WGSL context pads
   each column of three to 16 bytes only in the GPU buffer, where TSL rewrites
-  the attribute itself to 4 components.
+  the attribute itself to 4 components. A storage node has `element(i)`,
+  `toReadOnly()`, `name`, `access` and `attribute`, and none of the
+  operations of its element type: `buffer.add(1)` is a type error, and every
+  backend refuses it when compiled. TSL compiles it to the whole array on
+  WebGPU and to a vertex attribute on WebGL. Read `buffer.element(i)` instead.
 - **Drawing from storage**: a vertex or fragment stage reads a `storage()`
   node on WGSL, read-only, as in TSL; writing one there throws.
   `vertexIndex()` and `instanceIndex()` give the vertex and instance being
