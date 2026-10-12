@@ -316,6 +316,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec while-is-a-loop-of-rmsls-own`](#spec-while-is-a-loop-of-rmsls-own) — rmsl has `While` beside TSL's `Loop(condition, body)`. TSL has no `While`.
       - [`@spec a-while-condition-given-as-a-node-is-built-once`](#spec-a-while-condition-given-as-a-node-is-built-once) — A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
       - [`@exception a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test) — A `While` condition given as a function is computed before every test, a variable it makes included.
+      - [`@exception dawn-on-metal-counts-the-first-of-two-storage-writes-in-a-while-body-once`](#exception-dawn-on-metal-counts-the-first-of-two-storage-writes-in-a-while-body-once) — On WGSL compute on Dawn on Metal, a `While` body that adds to two elements of one buffer counts one iteration in the first. The second counts every iteration.
     - [`@spec for-runs-its-init-condition-body-and-update`](#spec-for-runs-its-init-condition-body-and-update) — `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
       - [`@spec a-for-loops-over-a-variable-its-init-is-given`](#spec-a-for-loops-over-a-variable-its-init-is-given) — A `For` whose init makes no statement, such as one handed a variable made before the loop, loops over that variable as it is.
       - [`@spec a-for-runs-its-body-and-update-while-its-condition-holds`](#spec-a-for-runs-its-body-and-update-while-its-condition-holds) — A `For` makes its loop variable once, then runs its body and its update, in that order, for as long as its condition holds.
@@ -417,7 +418,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec an-inline-fn-several-roots-read-runs-once-before-the-first`](#spec-an-inline-fn-several-roots-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several roots of one program read, runs once each time the program runs. It runs before the first root that reads it, when no block inside one root holds every read. This holds on every target.
       - [`@spec random-programs-of-inline-fns-run-each-as-the-rule-says`](#spec-random-programs-of-inline-fns-run-each-as-the-rule-says) — Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
       - [`@spec an-inline-fn-a-loop-condition-reads-runs-at-every-test`](#spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only the condition of a loop reads, runs at every test of that condition. This holds for any number of reads there, and for a condition given as a node or as a function.
-        - [`@bug a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute`](#bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute) — On WGSL compute on Dawn on Metal, a storage write that a `While` condition makes before its test counts one run, whatever the number of tests. The WGSL holds the write inside the loop, before the test.
+        - [`@exception dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once`](#exception-dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once) — On WGSL compute on Dawn on Metal, a storage write that a `While` or `Loop` condition makes before its test counts one run. This holds for any number of tests.
         - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
         - [`@spec an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test`](#spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only a `While` condition given as a node reads, runs at every test of that condition. This holds when the condition reads the value once or twice.
         - [`@spec an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test`](#spec-an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test) — An `Fn` called outside the program's body runs at every test of a `While` condition given as a function, when only the function's value reads it. This holds when the condition reads the value once or twice.
@@ -784,6 +785,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
 - [`@fact a-content-security-policy-can-block-new-function`](#fact-a-content-security-policy-can-block-new-function) — A Content-Security-Policy without `unsafe-eval` stops `new Function` from compiling source.
 - [`@fact dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly) — Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
+- [`@fact metal-reads-a-storage-element-from-before-the-loop-in-some-loops`](#fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops) — On Dawn on Metal, a loop iteration that reads a storage element and writes it back can read the value from before the loop. It does so when the iteration goes on past the write to a conditional exit and more statements. It does so too when the iteration reaches the same buffer again after the write.
 - [`@fact tsl-to-read-only-changes-the-node-it-is-called-on`](#fact-tsl-to-read-only-changes-the-node-it-is-called-on) — TSL's `toReadOnly()` on a storage node sets the access of that node to read-only and returns the same node.
 - [`@fact tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills-in-a-loop-range-it-is-not-given) — TSL's `Loop` given only `end` starts at 0 and tests `<`, whatever condition it is given. Given only `start`, it starts at `start - 1`, ends at 0 and tests `>=`. Given both and no condition, it tests `>=` when the code built for `start` reads as the greater number, as a literal does, and `<` otherwise. It builds a count, `start` and `end` as the index's type. With no `update`, an `int` or `uint` index steps by 1 up for a condition with `<` and down otherwise, and a `float` index by `1.`. A number or a node `update` is the step in that direction, and a function `update` is built as the step. Several ranges nest, their indices named `i`, `j`, `k` and on, unless a range names its own.
 - [`@fact tsl-emits-no-bounds-for-a-range-that-names-none`](#fact-tsl-emits-no-bounds-for-a-range-that-names-none) — TSL's `Loop` given a range with neither `start` nor `end` fills in neither, and writes `undefined` as each bound of the loop it emits.
@@ -2792,6 +2794,14 @@ This follows because the statement that makes the variable runs where the progra
 
 Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
 
+##### @exception dawn-on-metal-counts-the-first-of-two-storage-writes-in-a-while-body-once
+
+> On WGSL compute on Dawn on Metal, a `While` body that adds to two elements of one buffer counts one iteration in the first. The second counts every iteration.
+
+Derives from: [`fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops`](#fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops)
+
+The WGSL target writes both additions inside the loop, and the driver computes the first wrongly. The exception lasts as long as the defect in Metal.
+
 #### @spec for-runs-its-init-condition-body-and-update
 
 > `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
@@ -3380,11 +3390,13 @@ Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-n
 
 This follows because a loop condition is a block that runs at every test. It is the innermost block that holds the reads, so the statements run at its start. Issue #241 settled this for `While` and `Loop`.
 
-###### @bug a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute
+###### @exception dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once
 
-> On WGSL compute on Dawn on Metal, a storage write that a `While` condition makes before its test counts one run, whatever the number of tests. The WGSL holds the write inside the loop, before the test.
+> On WGSL compute on Dawn on Metal, a storage write that a `While` or `Loop` condition makes before its test counts one run. This holds for any number of tests.
 
-Issue: #265
+Derives from: [`fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops`](#fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops)
+
+The WGSL target writes the increment inside the loop, before the test, and the driver computes it wrongly. The exception lasts as long as the defect in Metal.
 
 ###### @spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
 
@@ -5639,6 +5651,14 @@ This is a fact of the browser platform, not a choice.
 > Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
 
 This is a fact of one driver, not a choice. It holds until Dawn fixes it.
+
+## @fact metal-reads-a-storage-element-from-before-the-loop-in-some-loops
+
+> On Dawn on Metal, a loop iteration that reads a storage element and writes it back can read the value from before the loop. It does so when the iteration goes on past the write to a conditional exit and more statements. It does so too when the iteration reaches the same buffer again after the write.
+
+This is a fact of one driver, not a choice. One invocation runs `var n = 0f; loop { c[0] = c[0] + 1f; if (!(n < 3f)) { break; } n = n + 1f; }`. There `c[0]` ends at 1, where it should be 4. In `while (n < 4f) { c[0] = c[0] + 1f; c[1] = c[1] + 1f; n = n + 1f; }`, `c[0]` ends at 1 and `c[1]` at 4. A `storageBarrier()` after the write gives the right value.
+
+The Dawn of `@kmamal/gpu` and the WebGPU of Chromium give the same results, on Apple's Metal driver on macOS 15.0. The Metal Shading Language that Dawn writes for these loops is correct. So the defect lies in Apple's Metal compiler, and it holds until Metal fixes it.
 
 ## @fact tsl-to-read-only-changes-the-node-it-is-called-on
 

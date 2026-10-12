@@ -133,11 +133,10 @@ describe.skipIf(!GPU_ENABLED)("random programs of inline Fns on WGSL compute on 
 
   /**
    * A sample of the programs the model runs, each on WGSL compute, for each
-   * pair of branches. The sample leaves out a program that holds a loop. Dawn
-   * on Metal counts a storage write in a loop condition once (issue #265), and
-   * loses other storage writes in loops too: the first of two in the body of a
-   * `while`, and a count an `Fn` keeps when it returns from inside a loop. It
-   * also leaves out a program whose totals an f32 does not hold exactly.
+   * pair of branches. On macOS the sample leaves out a program that holds a
+   * loop: Metal reads a storage element from before the loop in some loops,
+   * and every count of a program sits in one buffer. It also leaves out a
+   * program whose totals an f32 does not hold exactly.
    *
    * @canon spec-random-programs-of-inline-fns-run-each-as-the-rule-says
    */
@@ -152,7 +151,7 @@ describe.skipIf(!GPU_ENABLED)("random programs of inline Fns on WGSL compute on 
       for (const seed of SEEDS) {
         if (ran >= SAMPLE) break;
         const program = generate(seed);
-        if (holdsALoop(program)) continue;
+        if (process.platform === "darwin" && holdsALoop(program)) continue;
         const want = reference(program, UNIFORM_CASES);
         if ("refused" in want[0]!) continue;
         if (want.some((w) => "outs" in w && [...w.outs, ...w.counters].some((x) => Math.abs(x) >= 2 ** 24))) continue;
@@ -169,7 +168,10 @@ describe.skipIf(!GPU_ENABLED)("random programs of inline Fns on WGSL compute on 
   );
 });
 
-/** Whether `program` holds a loop, whose storage writes Dawn on Metal can count wrongly. */
+/**
+ * Whether `program` holds a loop, whose storage writes Metal can count wrongly,
+ * as `fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops` says.
+ */
 function holdsALoop(program: Program): boolean {
   const inBlock = (list: Program["roots"][number]): boolean =>
     list.some((s) => {

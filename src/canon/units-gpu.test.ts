@@ -6,6 +6,7 @@ import {
   Fn,
   Loop,
   For,
+  While,
   If,
   float,
   instancedArray,
@@ -1850,9 +1851,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
    * The condition is tested four times, and the `Fn` counts its runs. On
    * Dawn on Metal every case counts one run, though the WGSL writes the
    * increment inside the loop before the test. This test fails while the
-   * defect lasts, so it starts passing, and fails the run, once it is fixed.
+   * defect lasts, so it starts passing, and fails the run, once Metal fixes it.
    *
-   * @canon bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute
+   * @canon exception-dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once
    */
   it.skipIf(process.platform !== "darwin").fails(
     "runs an inline Fn read only in a While or Loop condition at every test, on WGSL",
@@ -1869,6 +1870,35 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
           value: 3,
         });
       }
+    },
+  );
+
+  /**
+   * Each of the four iterations adds one to two elements of one buffer. On
+   * Dawn on Metal the first element counts one iteration, though the WGSL
+   * writes both inside the loop. This test fails while the defect lasts, so
+   * it starts passing, and fails the run, once Metal fixes it.
+   *
+   * @canon exception-dawn-on-metal-counts-the-first-of-two-storage-writes-in-a-while-body-once
+   */
+  it.skipIf(process.platform !== "darwin").fails(
+    "runs both storage writes in a While body on every iteration, on WGSL",
+    async () => {
+      const counts = instancedArray(2, "float");
+      const program = Fn(() => {
+        const n = float(0).toVar();
+        While(n.lessThan(4), () => {
+          counts.element(int(0)).addAssign(1);
+          counts.element(int(1)).addAssign(1);
+          n.addAssign(1);
+        });
+      })();
+      const adapter = createWgslCompute(program);
+      await adapter.attach();
+      const out = { [counts.name]: new Float32Array(2) };
+      await adapter.compute(out, 1);
+      adapter.destroy();
+      expect(Array.from(out[counts.name]!)).toEqual([4, 4]);
     },
   );
 
