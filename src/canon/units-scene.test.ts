@@ -237,11 +237,11 @@ describe("the values a scene renderer uploads", () => {
         '[RMSL] the float uniform "materialOpacity" takes one value, not an array of 1',
       );
       (material as any).opacity = 1;
-      material.color.toArray = () => [1, 1];
+      (material.color as any).toArray = () => [1, 1];
       expect(() => renderer.render(scene, camera())).toThrow(
         '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 2',
       );
-      material.color.toArray = () => [];
+      (material.color as any).toArray = () => [];
       expect(() => renderer.render(scene, camera())).toThrow(
         '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 0',
       );

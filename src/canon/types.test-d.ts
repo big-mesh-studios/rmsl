@@ -59,6 +59,18 @@ import type { WgslAdapter, WgslComputeAdapter, WgslContext } from "../wgsl";
 import type { WasmContext } from "../wasm";
 import type { CpuShaderContext } from "../backends/cpu";
 import {
+  Color,
+  Matrix3,
+  Matrix4,
+  PerspectiveCamera,
+  Quaternion,
+  Vector2,
+  Vector3,
+  Vector4,
+  type Matrix3Tuple,
+  type Matrix4Tuple,
+} from "../scene";
+import {
   compileWasmFragment,
   compileWasmGrid,
   compileWasmRoutine,
@@ -583,6 +595,49 @@ describe("the type of setUniform", () => {
     expectTypeOf<CpuRoutineAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
     expectTypeOf<WgslContext["setUniform"]>().toEqualTypeOf<SetUniformByNode>();
     expectTypeOf<WasmContext["setUniform"]>().toEqualTypeOf<SetUniformByNode>();
+  });
+});
+
+describe("the arrays of the scene math classes", () => {
+  let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-the-math-classes-type-their-arrays-as-tuples
+   */
+  it("set a uniform of their type with no cast, and a uniform of another shape is still refused", () => {
+    const camera = new PerspectiveCamera();
+    const mvp = uniform("mat4");
+    const normalMatrix = uniform("mat3");
+    const tint = uniform("vec3");
+    glsl.setUniform(mvp, camera.projectionMatrix.elements);
+    glsl.setUniform(mvp, new Matrix4().toArray());
+    glsl.setUniform(normalMatrix, new Matrix3().elements);
+    glsl.setUniform(normalMatrix, new Matrix3().toArray());
+    glsl.setUniform(tint, new Color(1, 0.5, 0).toArray());
+    glsl.setUniform(tint, new Vector3(1, 0.5, 0).toArray());
+    glsl.setUniform(uniform("vec2"), new Vector2(1, 0.5).toArray());
+    glsl.setUniform(uniform("vec4"), new Vector4(1, 0.5, 0, 1).toArray());
+    glsl.setUniform(uniform("vec4"), new Quaternion().toArray());
+    // @ts-expect-error a vec3 takes three components
+    glsl.setUniform(tint, [1, 0.5]);
+    // @ts-expect-error a mat4 takes sixteen components, not a mat3's nine
+    glsl.setUniform(mvp, new Matrix3().elements);
+    // @ts-expect-error a vec3 takes three components, not a vec2's two
+    glsl.setUniform(tint, new Vector2().toArray());
+  });
+
+  /**
+   * @canon spec-the-math-classes-type-their-arrays-as-tuples
+   */
+  it("type elements and toArray() as tuples of their length, and toArray(array, offset) as the array", () => {
+    expectTypeOf(new Matrix4().elements).toEqualTypeOf<Matrix4Tuple>();
+    expectTypeOf(new Matrix3().elements).toEqualTypeOf<Matrix3Tuple>();
+    expectTypeOf(new Vector3().toArray()).toEqualTypeOf<[number, number, number]>();
+    expectTypeOf(new Color().toArray()).toEqualTypeOf<[number, number, number]>();
+    expectTypeOf(new Quaternion().toArray()).toEqualTypeOf<[number, number, number, number]>();
+    const out = new Float32Array(6);
+    expectTypeOf(new Vector3().toArray(out, 3)).toEqualTypeOf(out);
+    expectTypeOf(new Matrix4().toArray([] as number[], 16)).toEqualTypeOf<number[]>();
   });
 });
 

@@ -1,3 +1,6 @@
+/** A tuple of the three channels of a `Color`, `[r, g, b]`. */
+export type ColorTuple = [r: number, g: number, b: number];
+
 /**
  * An sRGB color, components in 0..1, following three.js's `Color`.
  */
@@ -89,7 +92,11 @@ export class Color {
     return color.r === this.r && color.g === this.g && color.b === this.b;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The channels as a new tuple. */
+  toArray(): ColorTuple;
+  /** Writes the channels into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     array[offset] = this.r;
     array[offset + 1] = this.g;
     array[offset + 2] = this.b;

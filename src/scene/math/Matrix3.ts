@@ -1,12 +1,15 @@
 import { Matrix4 } from "./Matrix4";
 
+/** A tuple of the nine elements of a `Matrix3`, column after column. */
+export type Matrix3Tuple = [number, number, number, number, number, number, number, number, number];
+
 /**
  * A 3x3 matrix, column-major in a nine-element array, following the same
  * storage convention as `Matrix4`. Used for transforming normals and
  * directions where the translation row is not wanted.
  */
 export class Matrix3 {
-  readonly elements: number[];
+  readonly elements: Matrix3Tuple;
 
   constructor(n11 = 1, n21 = 0, n31 = 0, n12 = 0, n22 = 1, n32 = 0, n13 = 0, n23 = 0, n33 = 1) {
     this.elements = [n11, n21, n31, n12, n22, n32, n13, n23, n33];
@@ -171,7 +174,11 @@ export class Matrix3 {
     return this;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The elements as a new tuple. */
+  toArray(): Matrix3Tuple;
+  /** Writes the elements into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     for (let i = 0; i < 9; i++) array[offset + i] = this.elements[i];
     return array;
   }

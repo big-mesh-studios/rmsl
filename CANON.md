@@ -445,6 +445,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-camera-builds-its-projection`](#spec-a-camera-builds-its-projection) — A perspective or orthographic camera builds its projection matrix and the inverse of its view matrix as three.js does.
     - [`@spec a-light-is-a-coloured-scene-node`](#spec-a-light-is-a-coloured-scene-node) — A light is a node of the scene with a colour and an intensity, and a directional light has a target. A scene has a background colour.
     - [`@spec the-math-classes-follow-three-js`](#spec-the-math-classes-follow-three-js) — `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+    - [`@spec the-math-classes-type-their-arrays-as-tuples`](#spec-the-math-classes-type-their-arrays-as-tuples) — `Matrix3.elements` and `Matrix4.elements` are typed `Matrix3Tuple` and `Matrix4Tuple`, tuples of 9 and 16 numbers. On `Matrix3`, `Matrix4`, `Vector2`, `Vector3`, `Vector4`, `Color` and `Quaternion`, `toArray()` with no argument is typed a tuple of the class's length. `toArray(array, offset)` is typed as `array`. So these arrays set a uniform of their type with no cast. The type checker refuses one of another length.
     - [`@spec the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values) — The wrapping, filtering and blending constants of `./scene` carry the numbers three.js gives them.
     - [`@spec the-lighting-terms-compile-on-both-gpu-targets`](#spec-the-lighting-terms-compile-on-both-gpu-targets) — `lambertDiffuse`, `standardLight` and `pointLightAttenuation` build the lighting terms of the built-in materials as nodes, which compile on GLSL and WGSL and give finite values on the CPU.
     - [`@spec a-geometry-builds-the-vertices-three-js-builds`](#spec-a-geometry-builds-the-vertices-three-js-builds) — A geometry primitive builds the positions, normals and indices of its three.js counterpart. A `BufferGeometry` holds attributes and an index, typed as 32-bit once an index passes 65535.
@@ -785,6 +786,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-keeps-no-value-for-an-attribute-without-a-buffer`](#fact-webgpu-keeps-no-value-for-an-attribute-without-a-buffer) — A WebGPU draw needs a vertex buffer set at every slot of its pipeline's vertex layout, and fails validation when one is missing. WebGPU keeps no value for a vertex input, as WebGL keeps one for each location. A vertex buffer layout with an `arrayStride` of 0 gives every vertex the same element.
 - [`@fact a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column) — GLSL ES 3.00 gives a matrix vertex input one location for each column, consecutive from its first location. Each location reads a vector of the column's rows. WGSL takes no matrix as a vertex input, so a WGSL vertex stage reads a matrix as one vector input for each column.
 - [`@fact three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns) — three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
+- [`@fact three-js-types-its-matrix-elements-as-tuples`](#fact-three-js-types-its-matrix-elements-as-tuples) — `@types/three` 0.186 types `Matrix3.elements` and `Matrix4.elements` as tuples of 9 and 16 numbers, `Matrix3Tuple` and `Matrix4Tuple`. On those two classes, `toArray()` with no argument is typed that tuple, and `toArray(array, offset)` the type of `array`. It exports `Vector2Tuple`, `Vector3Tuple`, `Vector4Tuple` and `QuaternionTuple`, but types `toArray()` on those classes, and on `Color`, as `number[]`.
 - [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
 - [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
 - [`@fact glsl-defines-most-math-functions-for-floats-only`](#fact-glsl-defines-most-math-functions-for-floats-only) — GLSL ES 3.00 defines its math functions for floats and float vectors only. The exceptions are `abs` and `sign` of a signed integer, and `min`, `max` and `clamp` of either integer kind. Its bitwise operators, `~` and shifts take integers and integer vectors only.
@@ -3451,6 +3453,16 @@ This follows because WebGL keeps one value at each location, and a matrix reads 
 
 > `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
 
+#### @spec the-math-classes-type-their-arrays-as-tuples
+
+> `Matrix3.elements` and `Matrix4.elements` are typed `Matrix3Tuple` and `Matrix4Tuple`, tuples of 9 and 16 numbers. On `Matrix3`, `Matrix4`, `Vector2`, `Vector3`, `Vector4`, `Color` and `Quaternion`, `toArray()` with no argument is typed a tuple of the class's length. `toArray(array, offset)` is typed as `array`. So these arrays set a uniform of their type with no cast. The type checker refuses one of another length.
+
+Derives from: [`fact-three-js-types-its-matrix-elements-as-tuples`](#fact-three-js-types-its-matrix-elements-as-tuples), [`spec-the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape)
+
+This follows because a uniform set by its node is typed an exact tuple of its components. The arrays of the math classes are what a host most often sets a uniform from. A `number[]` would need a cast at every such call, which hides a wrong length as well as a right one.
+
+The matrices are typed as `@types/three` types them. The vectors, the colour and the quaternion go further, with the tuples `@types/three` already exports. A tuple still reads wherever three.js code expects a `number[]`.
+
 #### @spec the-three-js-constants-carry-three-js-values
 
 > The wrapping, filtering and blending constants of `./scene` carry the numbers three.js gives them.
@@ -5550,6 +5562,12 @@ This is a fact of the GLSL ES 3.00 and WGSL specifications.
 > three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
 
 This is how three.js behaves, read from its source: `setupVertexAttributes` in `src/renderers/webgl/WebGLBindingStates.js`, and `_getVertexFormat` in `src/renderers/webgpu/utils/WebGPUAttributeUtils.js`, in three.js 0.186.
+
+## @fact three-js-types-its-matrix-elements-as-tuples
+
+> `@types/three` 0.186 types `Matrix3.elements` and `Matrix4.elements` as tuples of 9 and 16 numbers, `Matrix3Tuple` and `Matrix4Tuple`. On those two classes, `toArray()` with no argument is typed that tuple, and `toArray(array, offset)` the type of `array`. It exports `Vector2Tuple`, `Vector3Tuple`, `Vector4Tuple` and `QuaternionTuple`, but types `toArray()` on those classes, and on `Color`, as `number[]`.
+
+This is how the types of three.js read, from `src/math/Matrix3.d.ts`, `Matrix4.d.ts`, `Vector3.d.ts`, `Quaternion.d.ts` and `Color.d.ts` in `@types/three` 0.186.
 
 ## @fact wgsl-refuses-an-i32-literal-out-of-its-range
 
