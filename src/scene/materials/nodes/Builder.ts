@@ -8,8 +8,10 @@ import {
   type Node,
   type ShaderType,
   type UniformNode,
+  type UniformValue,
   type VaryingNode,
 } from "../../../rmsl";
+import { withArticle } from "../../../article";
 import type { Camera } from "../../cameras/Camera";
 import type { Mesh } from "../../objects/Mesh";
 import type { Texture } from "../../textures/Texture";
@@ -27,7 +29,7 @@ export interface UniformBinding {
   name: string;
   scope: UniformScope;
   /** Value source; material-scope uniforms always carry one. */
-  value?: (ctx: UniformContext) => number | number[];
+  value?: (ctx: UniformContext) => UniformValue<ShaderType>;
 }
 
 export interface AttributeBinding {
@@ -114,17 +116,26 @@ export class Builder {
     return existing.node as VaryingNode<T>;
   }
 
+  /**
+   * The uniform registered under `name`, made on the first call. A later call
+   * with the same type returns that node and keeps its scope and value
+   * function; one with another type throws.
+   */
   uniform<T extends ShaderType>(
     name: string,
     type: T,
     scope: UniformScope,
-    value?: (ctx: UniformContext) => number | number[],
+    value?: (ctx: UniformContext) => UniformValue<T>,
   ): UniformNode<T> {
-    let existing = this.uniforms.get(name) as UniformBinding | undefined;
+    let existing = this.uniforms.get(name);
     if (!existing) {
       const node = uniformRaw(name, type);
       this.uniforms.set(name, { node, name, scope, value });
       existing = this.uniforms.get(name)!;
+    } else if (existing.node._t !== type) {
+      throw new Error(
+        `[RMSL/scene] uniform "${name}" is ${withArticle(existing.node._t)}, and is registered again as ${withArticle(type)}`,
+      );
     }
     return existing.node as UniformNode<T>;
   }
@@ -133,7 +144,7 @@ export class Builder {
   materialUniform<T extends ShaderType>(
     name: string,
     type: T,
-    value: (ctx: UniformContext) => number | number[],
+    value: (ctx: UniformContext) => UniformValue<T>,
   ): UniformNode<T> {
     return this.uniform(name, type, "material", value);
   }

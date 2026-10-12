@@ -89,25 +89,53 @@ export type BooleanValue = boolean | 0 | 1;
  * `Mat4Like` above). Samplers and `void` have no numeric uniform value, so
  * they resolve to `never` — set a sampler through its own binding, not
  * `setUniform`.
+ *
+ * A lookup in a table rather than a conditional type, so that the type checker
+ * relates the value of a generic `A` through the union of the table's entries.
+ * A conditional of a generic `A` expands branch by branch through the tuple
+ * types, deep enough to overflow tsc 5 and 6.
  */
-export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint"
-  ? number
-  : A extends "bool"
-    ? BooleanValue
-    : A extends "bvec2"
-      ? [BooleanValue, BooleanValue] | Int32Array | Uint32Array
-      : A extends "bvec3"
-        ? [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
-        : A extends "bvec4"
-          ? [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
-          : A extends keyof typeof MATRIX_SHAPES
-            ? MatrixComponents<(typeof MATRIX_SHAPES)[A][0], (typeof MATRIX_SHAPES)[A][1]> | HostVectorArray<A>
-            : A extends keyof typeof VECTOR_WIDTHS
-              ? Components<(typeof VECTOR_WIDTHS)[A]> | HostVectorArray<A>
-              : never;
+export type UniformValue<A extends ShaderType> = UniformValues[A];
 
-/** A tuple of `N` numbers: the components of a vector or matrix value, given as a plain array. */
-type Components<N extends number, T extends number[] = []> = T["length"] extends N ? T : Components<N, [...T, number]>;
+/**
+ * The value of each `ShaderType`, which `UniformValue` looks up. An interface,
+ * so that a lookup of a generic key stays a lookup rather than turning back
+ * into the conditional each entry is computed by.
+ */
+interface UniformValues extends VectorValues, MatrixValues, NoValues {}
+
+/** The value of each scalar and vector type, by its width in `VECTOR_WIDTHS`. */
+type VectorValues = { [A in keyof typeof VECTOR_WIDTHS]: VectorValue<A, (typeof VECTOR_WIDTHS)[A]> };
+
+/** The value of each matrix type, by its columns and rows in `MATRIX_SHAPES`. */
+type MatrixValues = {
+  [A in keyof typeof MATRIX_SHAPES]:
+    MatrixComponents<(typeof MATRIX_SHAPES)[A][0], (typeof MATRIX_SHAPES)[A][1]> | FloatArray;
+};
+
+/** The types with no numeric uniform value: the samplers and `void`. */
+type NoValues = { [A in Exclude<ShaderType, keyof typeof VECTOR_WIDTHS | keyof typeof MATRIX_SHAPES>]: never };
+
+/** The value of a scalar or vector type `A` of `N` components: booleans for a `bool` kind, integers in their own typed array. */
+type VectorValue<A extends ShaderType, N extends number> = N extends 1
+  ? A extends "bool"
+    ? BooleanValue
+    : number
+  : A extends `bvec${string}`
+    ? Components<N, [], BooleanValue> | Int32Array | Uint32Array
+    : Components<N> | (A extends `ivec${string}` ? Int32Array : A extends `uvec${string}` ? Uint32Array : FloatArray);
+
+/** Holds only when `A` and `B` are the same type. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+/** Fails to compile when the table has a key `ShaderType` lacks, or lacks one it has. */
+type UniformValuesCoverEveryShaderType = AssertTrue<Same<keyof UniformValues, ShaderType>>;
+type AssertTrue<T extends true> = T;
+
+/** A tuple of `N` components of type `C`: a vector or matrix value, given as a plain array. */
+type Components<N extends number, T extends C[] = [], C = number> = T["length"] extends N
+  ? T
+  : Components<N, [...T, C], C>;
 
 /** A tuple of the components of a matrix of `C` columns of `R` rows, a plain array of them column after column. */
 type MatrixComponents<
@@ -117,12 +145,8 @@ type MatrixComponents<
   Columns extends unknown[] = [],
 > = Columns["length"] extends C ? T : MatrixComponents<C, R, [...T, ...Components<R>], [...Columns, unknown]>;
 
-/** The typed arrays that hold a vector or matrix of type `A` as it is: integers in their own kind, floats at either width. */
-type HostVectorArray<A extends ShaderType> = A extends `ivec${string}`
-  ? Int32Array
-  : A extends `uvec${string}`
-    ? Uint32Array
-    : Float32Array | Float64Array;
+/** The typed arrays that hold a float vector or matrix as it is, at either width. */
+type FloatArray = Float32Array | Float64Array;
 
 /**
  * Any value `setUniform` takes by slot name, where the type of the slot is

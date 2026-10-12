@@ -327,7 +327,7 @@ describe("material program → uniform layout", () => {
       // The value a getter yields must fit the member's footprint.
       const value = binding.scope === "material" ? binding.value!({ camera: new PerspectiveCamera(), mesh }) : [];
       const expectedFloats = member!.size / 4;
-      if (typeof value === "number") {
+      if (typeof value !== "object") {
         expect(expectedFloats).toBeGreaterThanOrEqual(1);
       } else {
         expect(value.length).toBeLessThanOrEqual(expectedFloats);

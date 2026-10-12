@@ -293,6 +293,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape) — `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
       - [`@spec a-renderer-refuses-a-uniform-value-of-another-shape`](#spec-a-renderer-refuses-a-uniform-value-of-another-shape) — A scene renderer refuses a value a material gives a uniform of another shape than its type, at the draw that would upload it. It checks no value of the camera, the object or the renderer, which it computes itself. A camera, object or renderer name it gives no value for keeps the value it had, which is zero until set.
       - [`@spec the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape) — Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+      - [`@spec the-types-hold-a-material-uniforms-value-to-its-shape`](#spec-the-types-hold-a-material-uniforms-value-to-its-shape) — A material gives `Builder.materialUniform` or `Builder.uniform` a function for a uniform's value. Its type returns the value a uniform of that type takes when set by its node. A function that returns another shape is a type error where the material calls the builder.
       - [`@spec the-types-admit-a-uniform-set-to-nothing`](#spec-the-types-admit-a-uniform-set-to-nothing) — On every adapter and context, the type of `setUniform` takes `null` or `undefined` for a uniform set by its node or as an array. An adapter also takes it by slot name.
       - [`@spec every-adapter-shares-one-type-of-setuniform`](#spec-every-adapter-shares-one-type-of-setuniform) — Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
       - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
@@ -496,6 +497,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-built-in-materials-shade-as-three-js-does`](#spec-the-built-in-materials-shade-as-three-js-does) — `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` build programs that shade as three.js's do, to a finite colour.
       - [`@spec a-material-slot-takes-a-node-or-a-builder`](#spec-a-material-slot-takes-a-node-or-a-builder) — A material slot such as `colorNode` takes a node, or a function of the builder that gives one. `vertexNode` and `fragmentNode` replace a whole stage.
       - [`@spec a-material-uniform-has-a-scope-and-a-live-value`](#spec-a-material-uniform-has-a-scope-and-a-live-value) — A material uniform belongs to the camera, the object, the material or the renderer. It reads its value from the object it belongs to when the renderer uploads it.
+      - [`@spec a-uniform-name-registered-again-gives-its-first-node`](#spec-a-uniform-name-registered-again-gives-its-first-node) — A builder given a uniform name it already holds, with the same type, returns the node it made first. The scope and the value function of the first registration stay, and the later ones are not read.
+      - [`@spec a-uniform-name-registered-again-with-another-type-is-refused`](#spec-a-uniform-name-registered-again-with-another-type-is-refused) — A builder given a uniform name it already holds, with another type, throws. The message names the uniform and both types.
       - [`@spec a-material-reads-any-sampler-type`](#spec-a-material-reads-any-sampler-type) — A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
       - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
@@ -2632,6 +2635,14 @@ This follows because only a material's value function comes from the user. A mat
 
 > Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
 
+##### @spec the-types-hold-a-material-uniforms-value-to-its-shape
+
+> A material gives `Builder.materialUniform` or `Builder.uniform` a function for a uniform's value. Its type returns the value a uniform of that type takes when set by its node. A function that returns another shape is a type error where the material calls the builder.
+
+Derives from: [`spec-the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape)
+
+This follows because the builder knows the type of the uniform where the material gives the function. The type checker can refuse the mistake there, which the renderer refuses only at the draw.
+
 ##### @spec the-types-admit-a-uniform-set-to-nothing
 
 > On every adapter and context, the type of `setUniform` takes `null` or `undefined` for a uniform set by its node or as an array. An adapter also takes it by slot name.
@@ -3831,6 +3842,22 @@ The matrices are typed as `@types/three` types them. The vectors, the colour and
 ##### @spec a-material-uniform-has-a-scope-and-a-live-value
 
 > A material uniform belongs to the camera, the object, the material or the renderer. It reads its value from the object it belongs to when the renderer uploads it.
+
+##### @spec a-uniform-name-registered-again-gives-its-first-node
+
+> A builder given a uniform name it already holds, with the same type, returns the node it made first. The scope and the value function of the first registration stay, and the later ones are not read.
+
+Derives from: [`spec-a-material-uniform-has-a-scope-and-a-live-value`](#spec-a-material-uniform-has-a-scope-and-a-live-value)
+
+This follows because the built-in accessors, such as `cameraPosition` or `modelMatrix`, register their uniform on each read. One material's graph reads each of them many times, and every read must name the one slot the renderer uploads.
+
+##### @spec a-uniform-name-registered-again-with-another-type-is-refused
+
+> A builder given a uniform name it already holds, with another type, throws. The message names the uniform and both types.
+
+Derives from: [`spec-a-material-uniform-has-a-scope-and-a-live-value`](#spec-a-material-uniform-has-a-scope-and-a-live-value)
+
+This follows because one name is one slot, which holds one type. Returning the first node would give the material a node of another type than it asked for, which its types cannot see.
 
 ##### @spec a-material-reads-any-sampler-type
 

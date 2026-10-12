@@ -144,6 +144,29 @@ describe("node materials", () => {
     expectTypeOf(b.instanceColorVarying).toEqualTypeOf<VaryingNode<"vec3">>();
   });
   /**
+   * @canon spec-the-types-hold-a-material-uniforms-value-to-its-shape
+   */
+  it("takes a uniform value function returning the shape of the uniform's type", () => {
+    const b = new Builder();
+    expectTypeOf(b.materialUniform("tint", "vec3", () => [1, 0, 0])).toEqualTypeOf<UniformNode<"vec3">>();
+    b.materialUniform("tint", "vec3", () => Float32Array.of(1, 0, 0));
+    b.materialUniform("opacity", "float", () => 0.5);
+    b.materialUniform("flag", "bool", () => true);
+    b.materialUniform("turn", "mat2", () => [1, 0, 0, 1]);
+    b.materialUniform("ids", "ivec2", () => Int32Array.of(1, 2));
+    b.uniform("tint", "vec3", "material", () => [1, 0, 0]);
+    // @ts-expect-error a vec3 takes three components
+    b.materialUniform("tint", "vec3", () => [1, 0]);
+    // @ts-expect-error a float takes one value, not an array
+    b.materialUniform("opacity", "float", () => [0.5]);
+    // @ts-expect-error a mat3 takes nine components
+    b.materialUniform("frame", "mat3", () => []);
+    // @ts-expect-error an ivec2 takes an Int32Array, not a float array
+    b.materialUniform("ids", "ivec2", () => Float32Array.of(1, 2));
+    // @ts-expect-error a vec4 takes four components
+    b.uniform("color", "vec4", "material", () => [1, 0, 0]);
+  });
+  /**
    * @canon spec-a-material-reads-any-sampler-type
    */
   it("types the builder sampler overloads by sampler type", () => {
