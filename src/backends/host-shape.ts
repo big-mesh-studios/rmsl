@@ -1,3 +1,4 @@
+import { withArticle } from "../article";
 import { componentCountOf } from "./cpu";
 
 /**
@@ -37,7 +38,9 @@ export function assertHostShape(what: string, name: string, type: string, value:
       : `${count === 1 ? "one value" : `${count} components`}${inEach ? " in each element" : ""}`;
   const given =
     typeof wrong === "object" && wrong !== null
-      ? `an array of ${wrong.length}`
+      ? typeof wrong.length === "number"
+        ? `an array of ${wrong.length}`
+        : withArticle(wrong.constructor && wrong.constructor !== Object ? wrong.constructor.name : "object")
       : typeof wrong === "string"
         ? JSON.stringify(wrong)
         : String(wrong);

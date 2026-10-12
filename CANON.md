@@ -282,6 +282,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-readback-array-holds-at-least-the-values-of-its-slot`](#spec-a-readback-array-holds-at-least-the-values-of-its-slot) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` that holds fewer values than its slot, before it runs anything. The error reads `out["<slot>"] holds <length> values, and the slot has <count>`.
     - [`@spec a-context-write-takes-only-the-array-of-its-attributes-kind`](#spec-a-context-write-takes-only-the-array-of-its-attributes-kind) — `write` on `createWgslContext` and `createWasmContext` refuses an array of another kind than the attribute's own array, before it writes anything. `createWasmContext` takes a `Float64Array` for a float attribute too. The type of `write` admits only those typed arrays.
     - [`@spec a-value-takes-only-the-shape-of-its-type`](#spec-a-value-takes-only-the-shape-of-its-type) — Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type. The check is one length comparison for each value, and allocates nothing unless it refuses.
+      - [`@spec a-shape-refusal-names-what-the-host-gave`](#spec-a-shape-refusal-names-what-the-host-gave) — A refusal of a value of another shape names the input, its type and what the host gave. It names an array by its length, another object by its class, and a scalar by its value.
       - [`@spec a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set`](#spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set) — Each CPU adapter refuses in `setUniform` a value of another shape than the uniform's type. These are `createJs` and `createWasm`, and the grid, compute and routine adapters of both targets. A slot name is checked against the type of its slot in the program the adapter compiled. The routine adapters refuse in `run` a parameter of another shape than its type. A draw, a dispatch or a run checks no uniform again.
       - [`@spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape) — `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
       - [`@spec a-renderer-refuses-a-uniform-value-of-another-shape`](#spec-a-renderer-refuses-a-uniform-value-of-another-shape) — A scene renderer refuses a uniform value of another shape than its type at the draw that would upload it. A camera, object or renderer name it gives no value for keeps the value it had, which is zero until set.
@@ -2511,6 +2512,14 @@ This follows because a write fills the buffer of a storage attribute, which hold
 Derives from: [`fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves`](#fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves)
 
 This follows because the targets copy a value into typed memory in different ways. WebGPU writes a vector through `TypedArray.set`, which throws on a longer array and keeps stale components past a shorter one. WebAssembly and JS copy one component at a time. Only a value of the right shape reads the same on each.
+
+##### @spec a-shape-refusal-names-what-the-host-gave
+
+> A refusal of a value of another shape names the input, its type and what the host gave. It names an array by its length, another object by its class, and a scalar by its value.
+
+Site: `host-shape.ts:assertHostShape`
+
+This follows because a refusal names its cause, and the class of an object tells the host which value it passed where an array belongs.
 
 ##### @spec a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
 

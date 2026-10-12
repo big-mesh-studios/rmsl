@@ -73,6 +73,7 @@ import {
   evaluateRecording,
 } from "../testing/shader-eval";
 import type { ComputeStage, FragmentStage, VertexStage } from "../backends/cpu";
+import { Vector3 } from "../scene/math";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -2326,6 +2327,25 @@ describe("the shape of a value a CPU adapter takes", () => {
       expect(() => adapter.setUniform(tint, null)).not.toThrow();
     },
   );
+
+  /**
+   * An object that is no array is named by its class, or as an object when it has none of its own.
+   *
+   * @canon spec-a-shape-refusal-names-what-the-host-gave
+   */
+  it.each(cpuAdapters)("%s names an object given for a uniform by what it is", (_, create) => {
+    const { count, tint, colour } = cpuUniformShapes();
+    const adapter = create(colour);
+    expect(() => adapter.setUniform(tint, new Vector3(1, 2, 3))).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not a Vector3`,
+    );
+    expect(() => adapter.setUniform(count, { value: 2 })).toThrow(
+      `[RMSL] the int uniform "${count.name}" takes one value, not an object`,
+    );
+    expect(() => adapter.setUniform(tint, Object.create(null))).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an object`,
+    );
+  });
 
   /**
    * A value the host changes after it set it is not checked again: the run reads what the array holds.
