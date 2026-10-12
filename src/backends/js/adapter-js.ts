@@ -8,7 +8,8 @@ import {
   slotOf,
   TypedArray,
   UniformOrSlot,
-  attributeTypeOf,
+  assertNodeArray,
+  HostArray,
 } from "../adapter";
 import {
   AdapterResult,
@@ -19,7 +20,7 @@ import {
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
-import { assertAttributeArray } from "../vertex-format";
+import { assertHostArray } from "../vertex-format";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
@@ -106,7 +107,10 @@ export interface JsComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(
+    attribute: AttributeOrStorage<T>,
+    data: HostArray<T, Float32Array | Float64Array>,
+  ): void;
   setAttribute(slot: string, data: TypedArray): void;
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
 }
@@ -184,8 +188,9 @@ export function createJs(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    const type = attributeTypeOf(attribute) ?? routine.attributeTypes[slot];
-    if (type !== undefined) assertAttributeArray(slot, type, data, true);
+    assertNodeArray(attribute, data, true);
+    const slotType = typeof attribute === "string" ? routine.attributeTypes[slot] : undefined;
+    if (slotType !== undefined) assertHostArray("attribute", slot, slotType, data, true);
     attributes[slot] = data;
   }
 

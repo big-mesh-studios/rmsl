@@ -204,22 +204,29 @@ function arrayTypeName(array: ArrayLike<number>): string {
   return ArrayBuffer.isView(array) ? array.constructor.name : "number[]";
 }
 
-/** The typed array an adapter takes for an attribute whose components are of each kind: the one that holds them as the shader reads them. */
-const ATTRIBUTE_ARRAY = { float: Float32Array, int: Int32Array, uint: Uint32Array } as const;
+/** The typed array an adapter takes for host data whose components are of each kind: the one that holds them as the program reads them. */
+const HOST_ARRAY = { float: Float32Array, int: Int32Array, uint: Uint32Array } as const;
 
 /**
- * Refuses `data` for the attribute `slot`, declared as `type`, unless it is
- * the array an adapter takes for its kind. `float64` admits a `Float64Array`
- * for a float attribute too, as a CPU adapter reads one as it is.
+ * Refuses `data` for the attribute or storage buffer `slot`, declared as
+ * `type`, unless it is the array an adapter takes for its kind. `float64`
+ * admits a `Float64Array` for float components too, as a CPU target reads
+ * and writes one as it is.
  */
-export function assertAttributeArray(slot: string, type: string, data: ArrayLike<number>, float64 = false): void {
+export function assertHostArray(
+  what: "attribute" | "storage buffer",
+  slot: string,
+  type: string,
+  data: ArrayLike<number>,
+  float64 = false,
+): void {
   const kind = attributeKindOf(type);
-  if (data instanceof ATTRIBUTE_ARRAY[kind]) return;
+  if (data instanceof HOST_ARRAY[kind]) return;
   if (float64 && kind === "float" && data instanceof Float64Array) return;
-  const takes = `${ATTRIBUTE_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
+  const takes = `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
   throw new Error(
-    `[RMSL] setAttribute: the ${type} attribute "${slot}" takes ${articled(takes)}, not ${articled(arrayTypeName(data))}. ` +
-      "An adapter converts no array, so give it one that holds the components as the shader reads them.",
+    `[RMSL] the ${type} ${what} "${slot}" takes ${articled(takes)}, not ${articled(arrayTypeName(data))}. ` +
+      "No target converts host data, so give it an array that holds the components as the program reads them.",
   );
 }
 

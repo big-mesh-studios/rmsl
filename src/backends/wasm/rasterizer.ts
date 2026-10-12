@@ -1,6 +1,7 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
+import { assertHostArray } from "../vertex-format";
 import {
   compileWasmFn,
   componentSizeOf,
@@ -329,7 +330,7 @@ export function compileWasm(
     const sizeBytes = componentCount * componentSizeOf(kind);
     const offset = attrCursor;
     attrCursor += sizeBytes;
-    return { slot: p.slot, offset, sizeBytes, componentCount, kind, destAddress: p.address };
+    return { slot: p.slot, shaderType: p.shaderType, offset, sizeBytes, componentCount, kind, destAddress: p.address };
   });
   const attrStrideBytes = attrCursor;
 
@@ -495,6 +496,7 @@ export function compileWasm(
       }
       const src = ctx.attributes[a.slot];
       if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
+      assertHostArray("attribute", a.slot, a.shaderType, src, true);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;

@@ -6,8 +6,10 @@ import {
   UniformArrayNode,
   UniformNode,
   UniformValue,
+  StorageBufferAttribute,
 } from "../core";
 import type { CpuTextureData } from "./cpu";
+import { assertHostArray } from "./vertex-format";
 
 /**
  * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
@@ -42,14 +44,13 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
   setUniform(slot: string, value: number | number[]): void;
 
   /**
-   * Same reasoning as `setUniform`: passing the `attribute()` node lets the
-   * slot name come from the node instead of being retyped by hand, and narrows
-   * `data` to the one array the attribute's type takes, which the adapter
-   * refuses any other array for (see {@link AttributeArray}). A storage node
-   * and a slot name take any flat `TypedArray`.
+   * Same reasoning as `setUniform`: passing the `attribute()` or storage node
+   * lets the slot name come from the node instead of being retyped by hand,
+   * and narrows `data` to the one array the node's type takes, which the
+   * adapter refuses any other array for (see {@link HostArray}). A slot name
+   * takes any flat `TypedArray`, checked once the adapter knows its type.
    */
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: AttributeArray<T, TFloatArray>): void;
-  setAttribute<T extends ShaderType>(storage: StorageNode<T> | ReadOnlyStorageNode<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: HostArray<T, TFloatArray>): void;
   setAttribute(slot: string, data: TypedArray): void;
 
   /**
@@ -136,14 +137,13 @@ export interface DrawClearOptions {
 export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string;
 
 /**
- * The array an attribute of type `T` takes: an `Int32Array` for an `int` or
- * `ivecN`, a `Uint32Array` for a `uint` or `uvecN`, and `TFloatArray` for any
- * other, a `Float32Array` unless the adapter also takes a `Float64Array`.
+ * The array an attribute of type `T`, or a storage buffer of elements of type
+ * `T`, takes: an `Int32Array` for an `int` or `ivecN`, a `Uint32Array` for a
+ * `uint` or `uvecN`, and `TFloatArray` for any other, a `Float32Array` unless
+ * the adapter also takes a `Float64Array`.
  */
-export type AttributeArray<
-  T extends ShaderType,
-  TFloatArray extends Float32Array | Float64Array = Float32Array,
-> = T extends "int" | "ivec2" | "ivec3" | "ivec4"
+export type HostArray<T extends ShaderType, TFloatArray extends Float32Array | Float64Array = Float32Array> = T extends
+  "int" | "ivec2" | "ivec3" | "ivec4"
   ? Int32Array
   : T extends "uint" | "uvec2" | "uvec3" | "uvec4"
     ? Uint32Array
@@ -154,6 +154,23 @@ export type AttributeOrStorage<T extends ShaderType> = AttributeNode<T> | Storag
 
 /** Same idea as `UniformOrSlot`, for `setAttribute`. */
 export type AttributeOrSlot = AttributeOrStorage<ShaderType> | string;
+
+/**
+ * Refuses `data` for a node `setAttribute` was given unless it is the array
+ * of the node's kind: an attribute's declared type, or a storage buffer's
+ * element type. A slot name passes here, to be checked where the adapter
+ * learns its type. `float64` admits a `Float64Array` for float components.
+ */
+export function assertNodeArray(attribute: AttributeOrSlot, data: ArrayLike<number>, float64 = false): void {
+  if (typeof attribute === "string") return;
+  if ("attribute" in attribute && attribute.attribute instanceof StorageBufferAttribute) {
+    const type = attribute.attribute.elementType;
+    if (type) assertHostArray("storage buffer", attribute.name, type, data, float64);
+    return;
+  }
+  const type = attributeTypeOf(attribute);
+  if (type !== undefined) assertHostArray("attribute", attribute.name, type, data, float64);
+}
 
 /** The declared type of an attribute node, or nothing for a storage node or a slot name. */
 export function attributeTypeOf(attribute: AttributeOrSlot): string | undefined {

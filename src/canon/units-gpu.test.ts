@@ -801,6 +801,71 @@ describe("the array a GPU adapter takes for an attribute", () => {
   });
 });
 
+describe("the array a GPU adapter takes for a storage buffer", () => {
+  /**
+   * The stub context reports one active uniform, the buffer's sampler.
+   *
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses an array of another kind on createGlsl, named by node or by slot", () => {
+    const counts = instancedArray(4, "int");
+    const position = uniform("vec4");
+    const { gl } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS ? 1 : name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+        getActiveUniform: () => ({ name: counts.name, type: gl.INT_SAMPLER_2D, size: 1 }),
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(position))() as any,
+      Fn(() => vec4(counts.element(int(0)).toFloat(), 0, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    expect(() => adapter.setAttribute(counts, new Float32Array(4) as any)).toThrow(
+      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(4))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(counts, new Int32Array(4))).not.toThrow();
+  });
+
+  /**
+   * A stub device stands in for the GPU.
+   *
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses an array of another kind on createWgsl, named by node or by slot", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8, STORAGE: 16 });
+    try {
+      const flags = instancedArray(2, "uvec2");
+      const position = attribute("vec3");
+      const { device, canvas } = stubDevice();
+      const createRenderPipeline = device.createRenderPipeline;
+      device.createRenderPipeline = (descriptor: any) => ({
+        ...createRenderPipeline(descriptor),
+        getBindGroupLayout: () => ({}),
+      });
+      const vertex = Fn(() => builtinPosition().assign(vec4(position, 1)))();
+      const fragment = Fn(() => vec4(flags.element(int(0)).x.toFloat(), 0, 0, 1))();
+      const adapter = createWgsl({
+        context: { device, buffer: () => device.createBuffer({ size: 16 }) } as any,
+        vertex,
+        fragment,
+      });
+      await adapter.attach(canvas);
+      expect(() => adapter.setAttribute(flags, new Float32Array(4) as any)).toThrow(
+        /\buvec2\b storage buffer.*Uint32Array.*Float32Array/,
+      );
+      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrow(/Uint32Array.*Int32Array/);
+      expect(() => adapter.setAttribute(flags, new Uint32Array(4))).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("the vertex layout of createWgsl", () => {
   /**
    * A stub device records the pipeline. Each attribute takes a buffer of its
@@ -1417,6 +1482,25 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     await adapter.compute(out, 3);
     adapter.destroy();
     expect(Array.from(out[result.name]!)).toEqual([10, 11, 12]);
+  }, 60_000);
+
+  /**
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses a storage array of another kind on createWgslCompute, named by node or by slot", async () => {
+    const counts = instancedArray(2, "int");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        counts.element(invocationIndex()).assign(counts.element(invocationIndex()).add(1));
+      })(),
+    );
+    await adapter.attach();
+    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
+      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(counts, new Int32Array(2))).not.toThrow();
+    adapter.destroy();
   }, 60_000);
 });
 

@@ -17,11 +17,11 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
-  attributeTypeOf,
+  assertNodeArray,
 } from "../adapter";
 import { assertOneDeclarationPerName, storageNodesOf, type StorageGraphNode, VertexRoot } from "../shared";
 import { componentKindOf, type CpuTextureData } from "../cpu";
-import { assertAttributeArray, type AttributeKind } from "../vertex-format";
+import { assertHostArray, type AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
 import { drawToCanvas, GlState, GlStateKeeper, setAttributeValue, setRasterState, setUnpackState } from "./gl-state";
@@ -400,9 +400,9 @@ export function createGlsl(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    const declared = attributeTypeOf(attribute);
-    if (declared !== undefined) assertAttributeArray(slot, declared, data);
+    assertNodeArray(attribute, data);
     const storage = storages.get(slot);
+    if (storage) assertHostArray("storage buffer", slot, storage._t, data);
     const sampler = uniforms.get(slot);
     if (gl && program && storage && sampler) {
       state?.begin(GlState.activeTexture | GlState.unpack | GlState.program);
@@ -418,7 +418,7 @@ export function createGlsl(
       pendingAttributes.set(slot, data);
       return;
     }
-    assertAttributeArray(slot, info.type, data);
+    assertHostArray("attribute", slot, info.type, data);
     state?.begin(GlState.vertexArray | GlState.arrayBuffer);
     try {
       gl.bindVertexArray(vao);

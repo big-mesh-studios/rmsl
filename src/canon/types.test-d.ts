@@ -30,9 +30,11 @@ import {
   compileJSVertex,
   createJsRoutine,
   type JsAdapter,
+  type JsComputeAdapter,
 } from "../js";
+import type { CpuAdapter } from "../backends/adapter-cpu";
 import type { GlslAdapter } from "../glsl";
-import type { WgslAdapter } from "../wgsl";
+import type { WgslAdapter, WgslComputeAdapter } from "../wgsl";
 import {
   compileWasmFragment,
   compileWasmGrid,
@@ -40,6 +42,7 @@ import {
   compileWasmVertex,
   createWasmRoutine,
   type WasmAdapter,
+  type WasmComputeAdapter,
 } from "../wasm";
 
 describe("refusals the types make", () => {
@@ -277,10 +280,34 @@ describe("the array setAttribute takes", () => {
   /**
    * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
    */
-  it("takes any typed array by slot name or for a storage node", () => {
-    const values = instancedArray(2, "int");
+  it("takes any typed array by slot name", () => {
     glsl.setAttribute(ids.name, new Float32Array(2));
-    glsl.setAttribute(values, new Float32Array(2));
-    js.setAttribute(values.toReadOnly(), new Uint8Array(2));
+    js.setAttribute(ids.name, new Uint8Array(2));
+  });
+
+  /**
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it("takes only the array of a storage node's element kind on every adapter", () => {
+    const counts = instancedArray(2, "int");
+    const weights = instancedArray(2, "vec2");
+    let wgslCompute!: WgslComputeAdapter;
+    let jsCompute!: JsComputeAdapter;
+    let wasmCompute!: WasmComputeAdapter;
+    let grid!: CpuAdapter;
+    for (const adapter of [glsl, wgsl, wgslCompute]) {
+      adapter.setAttribute(counts, new Int32Array(2));
+      adapter.setAttribute(counts.toReadOnly(), new Int32Array(2));
+      adapter.setAttribute(weights, new Float32Array(4));
+      // @ts-expect-error an int storage buffer takes an Int32Array
+      adapter.setAttribute(counts, new Float32Array(2));
+      // @ts-expect-error a GPU target reads no Float64Array
+      adapter.setAttribute(weights, new Float64Array(4));
+    }
+    for (const adapter of [js, wasm, jsCompute, wasmCompute, grid]) {
+      adapter.setAttribute(weights, new Float64Array(4));
+      // @ts-expect-error an int storage buffer takes an Int32Array
+      adapter.setAttribute(counts.toReadOnly(), new Uint32Array(2));
+    }
   });
 });

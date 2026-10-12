@@ -18,10 +18,11 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
-  attributeTypeOf,
+  assertNodeArray,
+  HostArray,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
-import { assertAttributeArray, attributeShape, wordFormat } from "../vertex-format";
+import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { CompileCtx, storageNodesOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
@@ -439,8 +440,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    const declared = attributeTypeOf(attribute);
-    if (declared !== undefined) assertAttributeArray(slot, declared, data);
+    assertNodeArray(attribute, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;
@@ -448,7 +448,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let attrInfo = vertexAttributes.find((a) => a.slot === slot);
     if (attrInfo) {
-      assertAttributeArray(slot, attrInfo.shaderType, data);
+      assertHostArray("attribute", slot, attrInfo.shaderType, data);
       let componentCount = componentCountOf(attrInfo.shaderType);
       let bytes = data.length * 4;
       let existing = vertexBuffers.get(slot);
@@ -466,6 +466,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let storage = storages.get(slot);
     if (storage) {
+      assertHostArray("storage buffer", slot, storage.elementType!, data);
       // The buffer is laid out as WGSL lays out a storage array, so a vec3 leaves a slot empty after each element.
       const { slot: first, data: slots } = spread(data, 0, storageLayout(storage));
       device.queue.writeBuffer(storageBuffer(storage), first * 4, slots as BufferSource);
@@ -669,7 +670,7 @@ export interface WgslComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: HostArray<T, Float32Array>): void;
   setAttribute(slot: string, data: TypedArray): void;
   /**
    * With `out`, writes the result into it and returns it. Without it,
@@ -807,6 +808,7 @@ export function createWgslCompute(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
+    assertNodeArray(attribute, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;
@@ -814,6 +816,7 @@ export function createWgslCompute(
 
     const resource = computeStorageResources().find((r) => r.name === slot);
     if (resource) {
+      assertHostArray("storage buffer", slot, resource.shaderType, data);
       const elements = Math.ceil(data.length / componentCountOf(resource.shaderType));
       const state = sizeStorageSlot(resource, elements);
       // The dispatch covers the first buffer the host passed, in elements:
