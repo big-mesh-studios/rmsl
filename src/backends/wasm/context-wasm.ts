@@ -6,7 +6,8 @@ import {
   type UniformNode,
   type UniformValue,
 } from "../../core";
-import { assertUniformShape, slotOf, type TypedArray } from "../adapter";
+import { assertUniformShape, slotOf } from "../adapter";
+import { assertWriteKind } from "../vertex-format";
 import { assertWriteFits, storageNodesOf } from "../shared";
 import type { CpuProgram } from "../cpu";
 import { compileWasmFn, instantiateWasmProgram } from "./wasm";
@@ -31,7 +32,11 @@ export interface WasmContext {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
-  write(attribute: StorageBufferAttribute, data: TypedArray, offset?: number): void;
+  write(
+    attribute: StorageBufferAttribute,
+    data: Float32Array | Float64Array | Int32Array | Uint32Array,
+    offset?: number,
+  ): void;
   /**
    * The attribute's contents as bytes of its own `arrayClass`, the same layout
    * `WgslContext.getArrayBufferAsync()` returns. WASM holds `float` elements
@@ -124,6 +129,7 @@ export function createWasmContext(): WasmContext {
     },
 
     write(attribute, data, offset = 0) {
+      assertWriteKind(attribute, data, true);
       assertWriteFits(attribute, data.length, offset);
       region(attribute).set(data as ArrayLike<number>, offset * attribute.itemSize);
     },

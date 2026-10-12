@@ -392,12 +392,29 @@ for (const backend of backends) {
     /**
      * @canon spec-a-context-writes-a-buffer-and-reads-it-back
      */
-    it("writes values converted to the buffer's type, and refuses a write past its end", async () => {
+    it("writes from an element on, and refuses a write past its end", async () => {
       const context = await backend.create();
       const values = instancedArray(3, "uint");
-      context.write(values.attribute, Float32Array.of(1, 2), 1);
+      context.write(values.attribute, Uint32Array.of(1, 2), 1);
       expect(await context.read(values.attribute)).toEqual([0, 1, 2]);
       expect(() => context.write(values.attribute, Uint32Array.of(1, 2), 2)).toThrow(/past the end/);
+      context.destroy();
+    });
+    /**
+     * @canon spec-a-context-write-takes-only-the-array-of-its-attributes-kind
+     */
+    it("refuses a write of an array of another kind, and writes nothing", async () => {
+      const context = await backend.create();
+      const values = instancedArray(2, "uint");
+      const weights = instancedArray(2, "float");
+      expect(() => context.write(values.attribute, Float32Array.of(1, 2) as any)).toThrow(
+        "[RMSL] the uint storage buffer takes a Uint32Array, not a Float32Array",
+      );
+      expect(() => context.write(values.attribute, Int32Array.of(1, 2))).toThrow(/Uint32Array, not an Int32Array/);
+      expect(() => context.write(weights.attribute, Int32Array.of(1, 2))).toThrow(
+        /the float storage buffer takes a Float32Array/,
+      );
+      expect(await context.read(values.attribute)).toEqual([0, 0]);
       context.destroy();
     });
     /**
@@ -546,5 +563,20 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     expect(() => context.compute(wide)).toThrow(/workgroups/);
     expect(await context.getArrayBufferAsync(out.attribute)).toEqual(new Uint32Array(1).buffer);
     context.destroy();
+  });
+});
+
+describe("the array createWasmContext writes into a float attribute", () => {
+  /**
+   * A CPU target computes floats in 64 bits, so it takes the array it holds them in.
+   *
+   * @canon spec-a-context-write-takes-only-the-array-of-its-attributes-kind
+   */
+  it("takes a Float64Array as well as a Float32Array", () => {
+    const context = createWasmContext();
+    const weights = instancedArray(2, "float");
+    context.write(weights.attribute, Float64Array.of(0.1, 2));
+    context.write(weights.attribute, Float32Array.of(3), 1);
+    expect(Array.from(new Float32Array(context.getArrayBuffer(weights.attribute)))).toEqual([Math.fround(0.1), 3]);
   });
 });

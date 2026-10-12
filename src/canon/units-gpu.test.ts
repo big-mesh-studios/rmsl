@@ -1843,6 +1843,30 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * The refusal comes before the dispatch, so the buffer keeps the values set before it.
+   *
+   * @canon spec-a-readback-array-takes-only-an-array-of-its-element-kind
+   */
+  it("refuses an out array of another kind on createWgslCompute", async () => {
+    const counts = instancedArray(2, "int");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    await adapter.attach();
+    adapter.setAttribute(counts, Int32Array.of(1, 2));
+    await expect(adapter.compute({ [counts.name]: new Float32Array(2) })).rejects.toThrow(
+      `[RMSL] the int storage buffer "${counts.name}" takes an Int32Array, not a Float32Array`,
+    );
+    const out = { [counts.name]: new Int32Array(2) };
+    await adapter.compute(out);
+    expect(Array.from(out[counts.name]!)).toEqual([2, 3]);
+    adapter.destroy();
+  });
+
+  /**
    * The context gets a device whose pipeline creation is counted. Three
    * dispatches of one compute node create one pipeline.
    *

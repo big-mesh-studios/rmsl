@@ -1,7 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
-import { assertHostArray } from "../vertex-format";
 import {
   compileWasmFn,
   componentSizeOf,
@@ -509,7 +508,6 @@ export function compileWasmRasterizer(
       }
       const src = ctx.attributes[a.slot];
       if (!src) throw missingAttributeError(caller, a.slot);
-      assertHostArray("attribute", a.slot, a.shaderType, src, true);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;

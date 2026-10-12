@@ -157,12 +157,22 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
+      // An out array is checked before the dispatch, so a refusal leaves the storages as they were.
+      if (out) {
+        for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
+        for (let i = 0; i < storageSlots.length; i++) {
+          const slot = storageSlots[i]!;
+          const slotType = storageTypes[slot];
+          if (slotType !== undefined && Object.hasOwn(out, slot)) {
+            assertHostArray("storage buffer", slot, slotType, out[slot]!, true);
+          }
+        }
+      }
       computeStep(stepContext, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
       if (!out) return;
-      for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
       for (let i = 0; i < storageSlots.length; i++) {
         const slot = storageSlots[i]!;
         if (Object.hasOwn(out, slot)) out[slot]!.set(storages[slot]!);

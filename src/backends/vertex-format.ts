@@ -1,5 +1,5 @@
 import { withArticle } from "../article";
-import { MATRIX_DIMENSIONS } from "../core";
+import { MATRIX_DIMENSIONS, type StorageBufferAttribute } from "../core";
 import { componentKindOf } from "./cpu";
 
 /** The kind of the components a vertex attribute reads. */
@@ -212,11 +212,11 @@ const HOST_ARRAY = { float: Float32Array, int: Int32Array, uint: Uint32Array } a
  * Refuses `data` for the attribute or storage buffer `slot`, declared as
  * `type`, unless it is the array an adapter takes for its kind. `float64`
  * admits a `Float64Array` for float components too, as a CPU target reads
- * and writes one as it is.
+ * and writes one as it is. A buffer known by no slot passes `undefined`.
  */
 export function assertHostArray(
   what: "attribute" | "storage buffer",
-  slot: string,
+  slot: string | undefined,
   type: string,
   data: ArrayLike<number>,
   float64 = false,
@@ -224,9 +224,36 @@ export function assertHostArray(
   const kind = attributeKindOf(type);
   if (data instanceof HOST_ARRAY[kind]) return;
   if (float64 && kind === "float" && data instanceof Float64Array) return;
+  throw hostArrayError(what, slot, type, data, float64);
+}
+
+/** The error that refuses `data` for the buffer `slot` of `type`: what it takes, what it was given, and what to give instead. */
+function hostArrayError(
+  what: "attribute" | "storage buffer",
+  slot: string | undefined,
+  type: string,
+  data: ArrayLike<number>,
+  float64: boolean,
+): Error {
+  const kind = attributeKindOf(type);
   const takes = `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
-  throw new Error(
-    `[RMSL] the ${type} ${what} "${slot}" takes ${withArticle(takes)}, not ${withArticle(arrayTypeName(data))}. ` +
+  return new Error(
+    `[RMSL] the ${type} ${what}${slot === undefined ? "" : ` "${slot}"`} takes ${withArticle(takes)}, not ${withArticle(arrayTypeName(data))}. ` +
       "No target converts host data, so give it an array that holds the components as the program reads them.",
   );
+}
+
+/**
+ * Refuses `data` for a context's write into `attribute` unless it is the
+ * attribute's own array class, or with `float64` a `Float64Array` for a
+ * `Float32Array` attribute, as a CPU target holds floats in 64 bits.
+ */
+export function assertWriteKind(attribute: StorageBufferAttribute, data: ArrayLike<number>, float64 = false): void {
+  if (data instanceof attribute.arrayClass) return;
+  if (float64 && attribute.arrayClass === Float32Array && data instanceof Float64Array) return;
+  // The attribute's array names its kind where no storage node has named its element type yet.
+  const type =
+    attribute.elementType ??
+    (attribute.arrayClass === Int32Array ? "int" : attribute.arrayClass === Uint32Array ? "uint" : "float");
+  throw hostArrayError("storage buffer", undefined, type, data, float64);
 }

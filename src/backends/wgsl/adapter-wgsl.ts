@@ -914,6 +914,12 @@ export function createWgslCompute(
       if (!device || !computePipeline || !computeBindGroup1) {
         throw new Error("[RMSL] createWgslCompute: attach() was never called");
       }
+      if (out) {
+        for (const resource of computeStorageResources()) {
+          const target = out[resource.name];
+          if (target !== undefined) assertHostArray("storage buffer", resource.name, resource.shaderType, target);
+        }
+      }
       let workgroupSize = options.workgroupSize ?? 64;
       let invocations = count ?? firstStorageCount;
       let encoder = device.createCommandEncoder();

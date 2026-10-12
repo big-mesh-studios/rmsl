@@ -1080,7 +1080,7 @@ describe("a JS storage access outside its buffer", () => {
     const params = [{ name: "i", type: "int" as const }];
     const build = (i: Node<"int">) =>
       Fn(() => scalars.element(i).add(pairs.element(i).y).add(pairs.element(i).x.mul(10)).toVar())() as any;
-    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: [3, 4, 5, 6] });
+    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: Float64Array.of(3, 4, 5, 6) });
     for (const i of [10, -1, 2]) {
       const ctx = { params: { i }, storages: storages() };
       expect(compileJSRoutine(build, { name: "main", params })(ctx)).toBe(0);
@@ -1131,9 +1131,10 @@ describe("a JS storage access outside its buffer", () => {
         pairs.element(int(2)).xy.assign(vec2(9, 9));
       })() as any;
     for (const compile of [compileJSCompute, compileWasmCompute]) {
-      const storages = { [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] };
+      const storages = { [scalars.name]: Float64Array.of(1, 2), [pairs.name]: Float32Array.of(3, 4, 5, 6) };
       compile(build, { name: "main", params: [] })({ storages }, 1);
-      expect(storages).toEqual({ [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] });
+      expect(Array.from(storages[scalars.name]!)).toEqual([1, 2]);
+      expect(Array.from(storages[pairs.name]!)).toEqual([3, 4, 5, 6]);
     }
   });
 });
@@ -1796,11 +1797,12 @@ describe("the fragments a CPU rasterizer draws", () => {
 
   /**
    * The triangle's colour is what its integer attributes read, from arrays of
-   * their kinds. An array of another kind, or a plain array, is refused.
+   * their kinds. A draw checks no array's kind: an array of another kind, or a
+   * plain array, is drawn from as it is.
    *
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-a-compiled-program-trusts-its-inputs
    */
-  it.each(rasterizers)("%s: draws with an integer attribute only from an array of its kind", (_, compileRaster) => {
+  it.each(rasterizers)("%s: draws with an integer attribute from an array of any kind", (_, compileRaster) => {
     const pos = attribute("vec2");
     const signed = attribute("int");
     const unsigned = attribute("uvec2");
@@ -1824,13 +1826,13 @@ describe("the fragments a CPU rasterizer draws", () => {
     const unsignedData = new Uint32Array(6);
     expect(() =>
       draw({ [pos.name]: corners, [signed.name]: new Float64Array(3), [unsigned.name]: unsignedData }),
-    ).toThrow(/\bint\b.*Int32Array.*Float64Array/);
+    ).not.toThrow();
     expect(() =>
       draw({ [pos.name]: corners, [signed.name]: new Int32Array(3), [unsigned.name]: new Int32Array(6) }),
-    ).toThrow(/\buvec2\b.*Uint32Array.*Int32Array/);
+    ).not.toThrow();
     expect(() =>
       draw({ [pos.name]: [-1, -1, 3, -1, -1, 3], [signed.name]: new Int32Array(3), [unsigned.name]: unsignedData }),
-    ).toThrow(/\bvec2\b.*Float32Array or a Float64Array.*number\[\]/);
+    ).not.toThrow();
   });
 
   /**
@@ -2369,5 +2371,62 @@ describe("the shape of a value a CPU adapter takes", () => {
       for (const u of [k, v, pairs]) adapter.setUniform(u as any, left as any);
       expect(Array.from(adapter.run() as Float64Array), String(left)).toEqual([0, 0, 0]);
     }
+  });
+});
+
+describe("the storage arrays a CPU program takes", () => {
+  /**
+   * A routine or compute stage reads the arrays of ctx.storages as the host gives them.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it.each([
+    ["compileJSCompute", compileJSCompute],
+    ["compileWasmCompute", compileWasmCompute as typeof compileJSCompute],
+  ])("%s takes an array of another kind in ctx.storages without refusing it", (_, stage) => {
+    const counts = instancedArray(2, "int");
+    const weights = instancedArray(2, "float");
+    const compute = stage(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          weights.element(i).assign(counts.element(i).toFloat());
+        })() as any,
+      none,
+    );
+    const filled = new Float32Array(2);
+    expect(() =>
+      compute({ storages: { [counts.name]: Float32Array.of(3, 4) as any, [weights.name]: filled } }, 2),
+    ).not.toThrow();
+    expect(Array.from(filled)).toEqual([3, 4]);
+  });
+});
+
+describe("the readback array a CPU compute adapter takes", () => {
+  /**
+   * The refusal comes before the dispatch, so the storage the adapter holds keeps its values.
+   *
+   * @canon spec-a-readback-array-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an out array of another kind", (_, create) => {
+    const counts = instancedArray(2, "int");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    const held = Int32Array.of(1, 2);
+    adapter.setAttribute(counts, held);
+    expect(() => adapter.compute({ [counts.name]: new Float32Array(2) })).toThrow(
+      new RegExp(`the int storage buffer "${counts.name}" takes an Int32Array, not a Float32Array`),
+    );
+    expect(Array.from(held)).toEqual([1, 2]);
+    const out = new Int32Array(2);
+    adapter.compute({ [counts.name]: out });
+    expect(Array.from(out)).toEqual([2, 3]);
   });
 });

@@ -38,6 +38,7 @@ import {
   screenSize,
   type Node,
   type UniformNode,
+  type StorageBufferAttribute,
   uniform,
 } from "../rmsl";
 import {
@@ -51,7 +52,9 @@ import {
 } from "../js";
 import type { CpuAdapter } from "../backends/adapter-cpu";
 import type { GlslAdapter } from "../glsl";
-import type { WgslAdapter, WgslComputeAdapter } from "../wgsl";
+import type { WgslAdapter, WgslComputeAdapter, WgslContext } from "../wgsl";
+import type { WasmContext } from "../wasm";
+import type { CpuShaderContext } from "../backends/cpu";
 import {
   compileWasmFragment,
   compileWasmGrid,
@@ -456,6 +459,35 @@ describe("the array setAttribute takes", () => {
       // @ts-expect-error an int storage buffer takes an Int32Array
       adapter.setAttribute(counts.toReadOnly(), new Uint32Array(2));
     }
+  });
+});
+
+describe("the arrays a CPU program and a context take for a storage buffer", () => {
+  /**
+   * @canon spec-the-type-of-a-programs-storages-admits-only-typed-arrays
+   */
+  it("takes only typed arrays in the storages of a CPU program's context", () => {
+    const ctx = (storages: CpuShaderContext["storages"]) => storages;
+    ctx({ a: new Float64Array(2), b: new Float32Array(2), c: new Int32Array(2), d: new Uint32Array(2) });
+    // @ts-expect-error a plain array holds numbers of no one kind
+    ctx({ a: [1, 2] });
+  });
+
+  /**
+   * @canon spec-a-context-write-takes-only-the-array-of-its-attributes-kind
+   */
+  it("takes only typed arrays of a component kind in a context's write", () => {
+    const write = (context: WasmContext, wgsl: WgslContext, attribute: StorageBufferAttribute) => {
+      context.write(attribute, new Float64Array(2));
+      wgsl.write(attribute, new Uint32Array(2));
+      // @ts-expect-error a plain array holds numbers of no one kind
+      context.write(attribute, [1, 2]);
+      // @ts-expect-error a WGSL context holds no 64-bit floats
+      wgsl.write(attribute, new Float64Array(2));
+      // @ts-expect-error an 8-bit array is no component kind of a storage buffer
+      wgsl.write(attribute, new Uint8Array(2));
+    };
+    void write;
   });
 });
 

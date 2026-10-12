@@ -12,7 +12,8 @@ import {
 } from "../../core";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import { compile, type WgslResource } from "../../wgsl";
-import { assertUniformShape, slotOf, type TypedArray } from "../adapter";
+import { assertUniformShape, slotOf } from "../adapter";
+import { assertWriteKind } from "../vertex-format";
 import { assertWriteFits } from "../shared";
 import {
   assertStorageBufferLimit,
@@ -46,7 +47,7 @@ export interface WgslContext {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
-  write(attribute: StorageBufferAttribute, data: TypedArray, offset?: number): void;
+  write(attribute: StorageBufferAttribute, data: Float32Array | Int32Array | Uint32Array, offset?: number): void;
   /**
    * The attribute's buffer contents, copied back from the GPU, as TSL's
    * `getArrayBufferAsync()`, laid out as the attribute holds them.
@@ -240,11 +241,10 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     write(attribute, data, offset = 0) {
+      assertWriteKind(attribute, data);
       assertWriteFits(attribute, data.length, offset);
-      // Converted to the attribute's own array type, so values arrive as numbers, not reinterpreted bits.
-      const values = data instanceof attribute.arrayClass ? data : attribute.arrayClass.from(data as ArrayLike<number>);
       const { buffer, layout } = resident(attribute);
-      const { slot, data: slots } = spread(values, offset * attribute.itemSize, layout);
+      const { slot, data: slots } = spread(data, offset * attribute.itemSize, layout);
       gpu.queue.writeBuffer(buffer, slot * 4, slots as BufferSource);
     },
 

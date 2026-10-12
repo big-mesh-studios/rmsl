@@ -1,6 +1,5 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
-import { assertHostArray } from "../vertex-format";
 import {
   componentCountOf,
   componentKindOf,
@@ -366,7 +365,6 @@ export function compileJSRasterizer(
     for (let a = 0; a < attributeSlots.length; a++) {
       const slot = attributeSlots[a]!;
       if (!attributes[slot]) throw missingAttributeError(caller, slot);
-      assertHostArray("attribute", slot, vertexStage.attributeTypes[slot]!, attributes[slot], true);
     }
     // An attribute the program does not read counts for nothing, as a WebGPU
     // draw reads no buffer its shader does not declare.
