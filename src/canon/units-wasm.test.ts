@@ -975,6 +975,41 @@ describe("an inline Fn that continues, read only by a While condition", () => {
   });
 });
 
+describe("an inline Fn that returns two values", () => {
+  /**
+   * The `Fn` counts its runs and returns two values. One program reads both
+   * in one statement, the other reads each in a statement of its own.
+   *
+   * @canon spec-an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them
+   */
+  it.each(cpuTargets)("%s: runs it once, wherever the program reads its values", (_, compile) => {
+    for (const [shape, total] of [
+      ["one statement", 5],
+      ["two statements", 5],
+    ] as const) {
+      const counter = instancedArray(1, "float");
+      const result = instancedArray(1, "float");
+      const build = () => {
+        const [a, b] = Fn(() => {
+          counter.element(int(0)).addAssign(1);
+          return [float(2), float(3)];
+        })() as any;
+        return Fn(() => {
+          if (shape === "one statement") result.element(int(0)).assign(a.add(b));
+          else {
+            result.element(int(0)).assign(a);
+            result.element(int(0)).addAssign(b);
+          }
+        })();
+      };
+      const runs = new Float64Array(1);
+      const data = new Float64Array(1);
+      compile(build, none)({ storages: { [counter.name]: runs, [result.name]: data } });
+      expect({ shape, runs: runs[0], value: data[0] }).toEqual({ shape, runs: 1, value: total });
+    }
+  });
+});
+
 describe("an inline Fn read in the program and inside another read twice", () => {
   /**
    * The program reads the inner `Fn` once, and twice the outer one, whose

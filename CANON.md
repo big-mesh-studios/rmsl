@@ -383,6 +383,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — The statements of an `Fn` called inside another `Fn`'s body run once, where the call is, whether and wherever the program reads its value. A variable it makes is declared there.
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
       - [`@spec an-inline-fn-read-in-one-statement-runs-before-it`](#spec-an-inline-fn-read-in-one-statement-runs-before-it) — An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
+      - [`@spec an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them`](#spec-an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them) — An `Fn` called outside the program's body that returns several values runs once, before every read of any of them, on every target. This holds when one statement reads several of them, and when a statement of its own reads each.
       - [`@spec an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop`](#spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop) — An `Fn` called outside the program's body, whose value both the condition and the body of a `For` read, runs once, before the loop. This holds when the condition is that value itself. Each test then reads what the `Fn` returned.
       - [`@spec an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first`](#spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several statements of one block read, runs once, at the start of the first of them. The later statements read what it returned.
       - [`@exception an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if`](#exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value both branches of an `If` read, runs once, before the `If`, on every target.
@@ -3108,6 +3109,12 @@ This follows because a call of an `Fn` means one run of its statements, and the 
 ##### @spec an-inline-fn-read-in-one-statement-runs-before-it
 
 > An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
+
+##### @spec an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them
+
+> An `Fn` called outside the program's body that returns several values runs once, before every read of any of them, on every target. This holds when one statement reads several of them, and when a statement of its own reads each.
+
+This follows because the call is one run of the statements of the `Fn`, whichever of its values the program reads. Issue #277 settled this.
 
 ##### @spec an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop
 

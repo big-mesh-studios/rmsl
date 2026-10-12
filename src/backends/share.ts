@@ -132,6 +132,9 @@ type Read = { within: any; path: Frame[] };
  * one. Each read takes the value the `Fn` returns, which the sharing pass then
  * treats as any other node. A result read once stays where it is read, so its
  * statements keep their place among those of the operation that reads it.
+ * A call of an `Fn` that returns several values gives a result for each, all
+ * holding the same statements, so a read of any of them is a read of the call,
+ * whose statements run once.
  *
  * A result is a block of its own, so one read only inside another runs in
  * the nearest block there that holds every read, and never outside it. This
@@ -182,7 +185,21 @@ function placeInlineFns(blocks: any[]): any[] {
       return result;
     };
 
+    const callMemo = new Map<any, any>();
+    /**
+     * The result that stands for the call that made result `n`. A call of an
+     * `Fn` that returns several values gives a result for each, all holding the
+     * same statements, so a read of any of them is a read of that call.
+     */
+    const callOf = (n: any): any => {
+      const first = n.params[0];
+      const known = callMemo.get(first);
+      if (known) return known;
+      callMemo.set(first, n);
+      return n;
+    };
     const reads = new Map<any, Read[]>();
+    const otherValuesWalked = new Set<any>();
     const walked = new Set<any>();
     /** The blocks that run on every iteration of a loop, a loop condition among them. */
     const loopBodies = new Set<any>();
@@ -199,10 +216,17 @@ function placeInlineFns(blocks: any[]): any[] {
         for (const p of n.params) scan(p, within, path);
         return;
       }
-      let known = reads.get(n);
+      const call = callOf(n);
+      let known = reads.get(call);
       if (!known) {
-        reads.set(n, (known = []));
+        reads.set(call, (known = []));
         walkBlock(n, n, [], n);
+      }
+      if (call !== n && !otherValuesWalked.has(n)) {
+        otherValuesWalked.add(n);
+        // The value of another result of the call, read as the last item of the call's block.
+        const last = n.params.length - 1;
+        scan(n.params[last], call, [{ block: call, index: last }]);
       }
       known.push({ within, path });
     };
@@ -348,13 +372,14 @@ function placeInlineFns(blocks: any[]): any[] {
       const known = copies.get(n);
       if (known !== undefined) return known;
       let result: any;
-      if (placed.has(n)) result = rewrite(n.params[n.params.length - 1]);
-      else if (!holds(n) && !before.has(n)) result = n;
+      const frameBlock = isInlineFn(n) ? callOf(n) : n;
+      if (placed.has(frameBlock)) result = rewrite(n.params[n.params.length - 1]);
+      else if (!holds(n) && !before.has(frameBlock)) result = n;
       else {
         const slots = bodySlots(n);
         const params =
-          n.type === "seq" && before.has(n)
-            ? items(n, n)
+          n.type === "seq" && before.has(frameBlock)
+            ? items(n, frameBlock)
             : n.params.map((p: any, i: number) =>
                 i === conditionSlot(n) ? condition(n, i) : slots.includes(i) ? body(n, i) : rewrite(p),
               );

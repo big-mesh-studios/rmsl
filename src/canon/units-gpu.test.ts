@@ -1573,6 +1573,30 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * The `Fn` counts its runs and returns two values, and one statement reads
+   * both.
+   *
+   * @canon spec-an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them
+   */
+  it("runs an inline Fn that returns two values once when one statement reads both, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const [a, b] = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return [float(2), float(3)];
+    })() as any;
+    const program = Fn(() => {
+      result.element(int(0)).assign(a.add(b));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 1, value: 5 });
+    adapter.destroy();
+  });
+
+  /**
    * The outer `Fn` reads the inner one in both branches of an `If`, and two
    * roots read the outer one.
    *
