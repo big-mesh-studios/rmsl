@@ -1289,7 +1289,7 @@ describe("a scene renderer manages what it uploads", () => {
     material.fragmentNode = (b) =>
       vec4(
         b
-          // @ts-expect-error the types refuse it too, and the renderer checks a value the types let through
+          // @ts-expect-error a mat3 takes nine components; this test checks the renderer's own refusal
           .materialUniform("m", "mat3", () => [])
           .element(0)
           .element(0),
@@ -1303,6 +1303,43 @@ describe("a scene renderer manages what it uploads", () => {
     expect(() => renderer.packUniforms(entry, mesh, camera(), 0)).toThrow(
       '[RMSL] the mat3 uniform "m" takes 9 components, not an array of 0',
     );
+  });
+
+  /**
+   * A typed array of any length passes the types for a vector or matrix, so
+   * a `Float32Array` of four for a `mat3` reaches the renderer, which refuses
+   * it at the draw on WebGL and WebGPU.
+   *
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
+   */
+  it("refuses a typed array of another length the types admit, on WebGL and WebGPU", () => {
+    const material = () => {
+      const m = new MeshBasicMaterial();
+      m.fragmentNode = (b) =>
+        vec4(
+          b
+            .materialUniform("m", "mat3", () => Float32Array.of(1, 0, 0, 1))
+            .element(0)
+            .element(0),
+          0,
+          0,
+          1,
+        );
+      return m;
+    };
+    const message = '[RMSL] the mat3 uniform "m" takes 9 components, not an array of 4';
+
+    const { renderer } = stubWebGl();
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material()));
+    expect(() => renderer.render(scene, camera())).toThrow(message);
+
+    const { device, canvas } = stubDevice();
+    const webgpu = new WebGPURenderer(canvas, device as any) as any;
+    const mesh = new Mesh(new PlaneGeometry(), material());
+    mesh.updateMatrixWorld(true);
+    const entry = webgpu.ensurePipeline(mesh.material, new Scene(), false, false);
+    expect(() => webgpu.packUniforms(entry, mesh, camera(), 0)).toThrow(message);
   });
 
   /**
