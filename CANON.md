@@ -161,6 +161,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
     - [`@spec an-expected-rejection-must-be-a-rejection`](#spec-an-expected-rejection-must-be-a-rejection) — A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
     - [`@spec the-integer-sweep-tells-right-from-wrong`](#spec-the-integer-sweep-tells-right-from-wrong) — The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
+    - [`@spec the-inline-fn-fuzz-tells-right-from-wrong`](#spec-the-inline-fn-fuzz-tells-right-from-wrong) — The inline `Fn` fuzz builds the same program from the same seed and shows it with its seed. Its reference model gives the runs of a program written by hand. Its check rejects an outcome that differs in one count, one total or the message of a refusal.
     - [`@spec releasing-the-harness-never-throws`](#spec-releasing-the-harness-never-throws) — Releasing the harness's browser and device never throws, after a failed launch too.
     - [`@spec evaluation-fails-when-it-recorded-nothing`](#spec-evaluation-fails-when-it-recorded-nothing) — The replay of recorded evaluations fails when the run recorded no program.
     - [`@spec evaluate-recording-returns-the-cpu-result-at-once`](#spec-evaluate-recording-returns-the-cpu-result-at-once) — `evaluateRecording` returns the JS result at once, and keeps the program for a replay on the other targets after the tests.
@@ -390,6 +391,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if`](#exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value a branch of an `If` and a statement after the `If` read, runs once, before the `If`, on every target.
       - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
       - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when roots that share no block read that other `Fn`.
+      - [`@spec random-programs-of-inline-fns-run-each-as-the-rule-says`](#spec-random-programs-of-inline-fns-run-each-as-the-rule-says) — Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
       - [`@spec an-inline-fn-a-loop-condition-reads-runs-at-every-test`](#spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only the condition of a loop reads, runs at every test of that condition. This holds for any number of reads there, and for a condition given as a node or as a function.
         - [`@bug a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute`](#bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute) — On WGSL compute on Dawn on Metal, a storage write that a `While` condition makes before its test counts one run, whatever the number of tests. The WGSL holds the write inside the loop, before the test.
         - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
@@ -1795,6 +1797,12 @@ This follows because most mistakes in a shader are silent, and a target nobody r
 
 > The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
 
+#### @spec the-inline-fn-fuzz-tells-right-from-wrong
+
+> The inline `Fn` fuzz builds the same program from the same seed and shows it with its seed. Its reference model gives the runs of a program written by hand. Its check rejects an outcome that differs in one count, one total or the message of a refusal.
+
+This follows because a fuzz whose failures do not reproduce, or whose check passes a wrong outcome, proves nothing.
+
 #### @spec releasing-the-harness-never-throws
 
 > Releasing the harness's browser and device never throws, after a failed launch too.
@@ -3161,6 +3169,16 @@ This follows because the loop body is the innermost block that holds the read, a
 Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
 
 This follows because the body of the other `Fn` is a block like any other. Placed outside it, the statements would run a different number of times. Issue #264 settled this.
+
+##### @spec random-programs-of-inline-fns-run-each-as-the-rule-says
+
+> Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
+
+The programs read those `Fn`s in branches, after them and in loop bodies. They read them in the init, condition and update of a `For`, and in the condition of a `While` or a `Loop`. They read them inside other such `Fn`s, from several roots, and through every value of an `Fn` that returns two. They read them through expressions that read a node many times. Some `Fn`s break, continue or return.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the cases above meet in real programs in more ways than hand-written tests list. A reference model of the rule, run on programs a seeded generator makes, checks every combination the generator reaches.
 
 ##### @spec an-inline-fn-a-loop-condition-reads-runs-at-every-test
 
