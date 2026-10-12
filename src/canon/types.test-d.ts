@@ -31,6 +31,9 @@ import {
   bitNot,
   shiftLeft,
   ivec3,
+  abs,
+  sign,
+  negate,
   screenSize,
   type Node,
   type UniformNode,
@@ -171,6 +174,22 @@ describe("refusals the types make", () => {
     float(1).bitAnd(1);
     bitAnd(int(1), 2);
     shiftLeft(uint(1), int(2));
+  });
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   */
+  it("refuses an unsigned operand of abs, sign and negate", () => {
+    // @ts-expect-error a uint has no absolute value
+    abs(uint(1));
+    // @ts-expect-error nor a uvec2 a sign
+    sign(uvec2(1, 2));
+    // @ts-expect-error nor a uint a negation
+    negate(uint(1));
+    abs(int(-1));
+    sign(vec3(1, 2, 3));
+    negate(mat3(1));
+    negate(ivec2(1, 2));
   });
 
   /**

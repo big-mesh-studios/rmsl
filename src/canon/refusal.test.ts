@@ -329,6 +329,19 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   */
+  it("refuses a deserialized absolute value of a uint on every target", () => {
+    const count = uniform("int");
+    const mask = uniform("uint");
+    const build = () => Fn(() => vec4(count.abs().toFloat(), mask.toFloat(), 0, 1))();
+    refusedOnEveryTarget(
+      rewired(build, "abs", "uint"),
+      /abs\(\) takes a float or a signed integer, scalar or vector, not uint/,
+    );
+  });
+
+  /**
    * A `For` whose update leaves the loop or the function is refused as it is
    * built, and as every target compiles it, a graph `deserialize` rebuilt
    * included: the update slot of a GLSL, WGSL or JavaScript `for` takes no

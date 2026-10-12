@@ -132,7 +132,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-divisor-that-folds-to-zero-divides-like-a-literal-zero`](#spec-a-divisor-that-folds-to-zero-divides-like-a-literal-zero) — On WGSL, an integer divisor built from literals that comes to zero compiles as a literal divisor of one.
       - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
         - [`@spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation) — On GLSL, an integer operation whose result GLSL ES 3.00 defines gives the result WGSL defines for it.
-        - [`@exception glsl-integer-edge-cases-follow-the-driver`](#exception-glsl-integer-edge-cases-follow-the-driver) — On GLSL, an integer operation whose result GLSL ES 3.00 leaves open gives whatever the driver gives. The GLSL target emits the native operator for it. One such operation is a division or remainder by a run-time zero. Another is a shift by a run-time amount that is negative, or 32 or more. So is an `int` remainder with a negative operand, or `INT_MIN / -1`, once one operand is a run-time value, even beside a literal.
+        - [`@exception glsl-integer-edge-cases-follow-the-driver`](#exception-glsl-integer-edge-cases-follow-the-driver) — On GLSL, an integer operation whose result GLSL ES 3.00 leaves open gives whatever the driver gives. The GLSL target emits the native operator for it. One such operation is a `/` or `%` by a run-time zero. Another is a shift by a run-time amount that is negative, or 32 or more. So is an `int` `%` with a negative operand, or `INT_MIN / -1`, once one operand is a run-time value, even beside a literal.
     - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the result WebGPU gives, computed in 32 bits.
       - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
@@ -259,8 +259,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-shift-amount-may-be-of-either-integer-kind`](#spec-a-shift-amount-may-be-of-either-integer-kind) — A shift takes an amount of either integer kind beside a value of either, by the type checker and on every target. Its result has the type of the value. A float beside an integer is refused there too, and the error names the conversion of the float alone.
     - [`@spec an-integer-operation-refuses-a-float-operand`](#spec-an-integer-operation-refuses-a-float-operand) — The bitwise operators and the shifts take integers and integer vectors only, by the type checker and on every target, in a graph `deserialize` rebuilt too. A float or boolean operand is refused. The error names its conversion to the kind of the integer beside it, or to `int`.
     - [`@spec a-function-defined-only-for-floats-refuses-an-integer`](#spec-a-function-defined-only-for-floats-refuses-an-integer) — A function that GLSL ES 3.00 and WGSL define only for floats takes a float or a float vector. The type checker and every target hold it to that, in a graph `deserialize` rebuilt too. An integer, unsigned or boolean operand is refused, and the error names its conversion to a float.
-      - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
+      - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. They refuse an integer, unsigned or boolean argument, scalar or vector, and a matrix. The two refuse a scalar beside a vector. Each refusal is a type error, and building the graph throws, naming the conversion where one exists.
       - [`@spec a-math-function-of-floats-refuses-an-integer-operand`](#spec-a-math-function-of-floats-refuses-an-integer-operand) — The angle, trigonometric, exponential and rounding functions refuse an integer, unsigned or boolean operand, scalar or vector. So do the derivatives, `pow`, `mix`, `step`, `smoothstep`, `normalize`, `reflect`, `refract`, `faceForward` and `cross`, and `cbrt`, `oneMinus`, `reciprocal` and `lengthSq`, which rmsl composes from them.
+    - [`@spec a-signed-operation-refuses-an-unsigned-operand`](#spec-a-signed-operation-refuses-an-unsigned-operand) — `abs`, `sign` and `negate` take a float or a signed integer, scalar or vector, by the type checker and on every target. Every target holds a graph `deserialize` rebuilt to it too. An unsigned or boolean operand is refused, and the error names its conversion to a signed integer.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
@@ -294,7 +295,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@exception an-operation-refuses-an-operand-tsl-would-convert`](#exception-an-operation-refuses-an-operand-tsl-would-convert) — An operation on operands of two kinds is refused, where TSL converts one operand to the type of the other. This holds for an arithmetic or bitwise operator, a comparison, `select`, and a math function of several operands. A float operand of a bitwise operator or a shift is refused too, which TSL converts to an integer. So is an integer operand of `cross`, which TSL converts to a float.
-    - [`@exception a-float-function-refuses-an-integer-tsl-leaves-to-the-driver`](#exception-a-float-function-refuses-an-integer-tsl-leaves-to-the-driver) — A function defined only for floats refuses an integer, unsigned or boolean operand where the program builds the call. TSL builds such a call as written and leaves the refusal to the driver.
+    - [`@exception an-operation-refuses-an-operand-tsl-leaves-to-the-driver`](#exception-an-operation-refuses-an-operand-tsl-leaves-to-the-driver) — A function defined only for floats refuses an integer, unsigned or boolean operand where the program builds the call. So do `abs`, `sign` and `negate` an unsigned or boolean one. TSL builds such a call as written and leaves the refusal to the driver.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
@@ -691,8 +692,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
   - [`@spec compile-wat-refuses-a-memory-import-it-cannot-make-shared`](#spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared) — `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
-- [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves the result of an integer division by zero unspecified. It leaves undefined a remainder by zero or with a negative operand. A shift by a negative amount, or by the bit width or more, is undefined too. Other integer overflow wraps to the low bits. The one exception is the most negative integer divided by `-1`, which may give the most negative or the most positive integer.
-- [`@fact tsl-emits-the-native-integer-division-and-remainder`](#fact-tsl-emits-the-native-integer-division-and-remainder) — TSL writes an integer division as `/` and an integer remainder as `%`, on literal and run-time operands alike, with no guard around either.
+- [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves the result of an integer division by zero unspecified. It leaves undefined a `%` by zero or with a negative operand. A shift by a negative amount, or by the bit width or more, is undefined too. Other integer overflow wraps to the low bits. The one exception is the most negative integer divided by `-1`, which may give the most negative or the most positive integer.
+- [`@fact tsl-emits-the-native-integer-division-and-remainder`](#fact-tsl-emits-the-native-integer-division-and-remainder) — TSL writes an integer division as `/` and the integer `%` as it is, on literal and run-time operands alike, with no guard around either.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
 - [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
 - [`@fact wgsl-an-indeterminate-value-is-any-value-of-its-type`](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) — Where the WGSL specification gives an operation an indeterminate value, the result is any value of the result type. It need not be the same on two devices, or on two evaluations of the same expression.
@@ -750,7 +751,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
 - [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
 - [`@fact glsl-defines-most-math-functions-for-floats-only`](#fact-glsl-defines-most-math-functions-for-floats-only) — GLSL ES 3.00 defines its math functions for floats and float vectors only. The exceptions are `abs` and `sign` of a signed integer, and `min`, `max` and `clamp` of either integer kind. Its bitwise operators, `~` and shifts take integers and integer vectors only.
-- [`@fact wgsl-defines-most-math-functions-for-floats-only`](#fact-wgsl-defines-most-math-functions-for-floats-only) — WGSL defines its math functions for floats and float vectors only. The exceptions are `abs`, `min`, `max`, `clamp` and `dot` of integers, and `sign` of a signed integer. Its `~` and shifts take integers only, and `&`, `|` and `^` integers or `bool`.
+- [`@fact wgsl-defines-most-math-functions-for-floats-only`](#fact-wgsl-defines-most-math-functions-for-floats-only) — WGSL defines its math functions for floats and float vectors only. The exceptions are `abs`, `min`, `max`, `clamp` and `dot` of integers, and `sign` of a signed integer. Its `~` and shifts take integers only, and `&`, `|` and `^` integers or `bool`. Its unary `-` takes no unsigned integer.
 - [`@fact glsl-takes-a-shift-amount-of-either-signedness`](#fact-glsl-takes-a-shift-amount-of-either-signedness) — A GLSL ES 3.00 shift lets one operand be signed and the other unsigned, and its result has the type of the left operand. The operands of `&`, `|` and `^` must both be signed or both be unsigned.
 - [`@fact glsl-has-no-implicit-conversion`](#fact-glsl-has-no-implicit-conversion) — GLSL ES 3.00 converts no value to another type implicitly.
 - [`@fact a-wgsl-shift-takes-an-unsigned-amount`](#fact-a-wgsl-shift-takes-an-unsigned-amount) — A WGSL shift takes its amount as a `u32` or a vector of `u32`, and refuses an `i32` amount.
@@ -1565,11 +1566,11 @@ This follows because WGSL refuses a constant division by zero, so a constant sub
 
 ###### @exception glsl-integer-edge-cases-follow-the-driver
 
-> On GLSL, an integer operation whose result GLSL ES 3.00 leaves open gives whatever the driver gives. The GLSL target emits the native operator for it. One such operation is a division or remainder by a run-time zero. Another is a shift by a run-time amount that is negative, or 32 or more. So is an `int` remainder with a negative operand, or `INT_MIN / -1`, once one operand is a run-time value, even beside a literal.
+> On GLSL, an integer operation whose result GLSL ES 3.00 leaves open gives whatever the driver gives. The GLSL target emits the native operator for it. One such operation is a `/` or `%` by a run-time zero. Another is a shift by a run-time amount that is negative, or 32 or more. So is an `int` `%` with a negative operand, or `INT_MIN / -1`, once one operand is a run-time value, even beside a literal.
 
 Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined), [`fact-tsl-emits-the-native-integer-division-and-remainder`](#fact-tsl-emits-the-native-integer-division-and-remainder)
 
-A guard around each operation would give the WGSL result, at the cost of a branch on every integer division, remainder and shift. TSL emits the bare operator too, so a ported shader gives on rmsl what it gave on TSL.
+A guard around each operation would give the WGSL result, at the cost of a branch on every integer `/`, `%` and shift. TSL emits the bare operator too, so a ported shader gives on rmsl what it gave on TSL.
 
 #### @spec float-arithmetic-gives-one-result
 
@@ -2308,7 +2309,7 @@ This follows because no GPU target has such a function of an integer, so a progr
 
 ##### @spec length-distance-and-dot-take-only-floats
 
-> `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
+> `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. They refuse an integer, unsigned or boolean argument, scalar or vector, and a matrix. The two refuse a scalar beside a vector. Each refusal is a type error, and building the graph throws, naming the conversion where one exists.
 
 This follows because no target defines the three for integers as a `float`. GLSL defines them for floats only. WGSL defines `length` and `distance` for floats only, and `dot` of two integer vectors as an integer that wraps. TSL types the three as `float` but builds code that passes an integer as it is, which neither language compiles. Neither language takes a matrix in the three, nor a scalar beside a vector in `distance` or `dot`.
 
@@ -2316,6 +2317,14 @@ This follows because no target defines the three for integers as a `float`. GLSL
 
 > The angle, trigonometric, exponential and rounding functions refuse an integer, unsigned or boolean operand, scalar or vector. So do the derivatives, `pow`, `mix`, `step`, `smoothstep`, `normalize`, `reflect`, `refract`, `faceForward` and `cross`, and `cbrt`, `oneMinus`, `reciprocal` and `lengthSq`, which rmsl composes from them.
 
+
+#### @spec a-signed-operation-refuses-an-unsigned-operand
+
+> `abs`, `sign` and `negate` take a float or a signed integer, scalar or vector, by the type checker and on every target. Every target holds a graph `deserialize` rebuilt to it too. An unsigned or boolean operand is refused, and the error names its conversion to a signed integer.
+
+Derives from: [`fact-glsl-defines-most-math-functions-for-floats-only`](#fact-glsl-defines-most-math-functions-for-floats-only), [`fact-wgsl-defines-most-math-functions-for-floats-only`](#fact-wgsl-defines-most-math-functions-for-floats-only)
+
+This follows because GLSL has no `abs` or `sign` of an unsigned integer, and WGSL no `sign` or `-` of one. Such a program could compile on one GPU target at most.
 
 #### @spec a-for-update-that-holds-a-block-is-refused
 
@@ -2523,13 +2532,13 @@ Derives from: [`spec-operands-of-different-kinds-are-refused`](#spec-operands-of
 
 TSL writes the conversion out on both GPU targets, and rmsl has CPU targets too. It refuses such a mix rather than choose a conversion for the user.
 
-#### @exception a-float-function-refuses-an-integer-tsl-leaves-to-the-driver
+#### @exception an-operation-refuses-an-operand-tsl-leaves-to-the-driver
 
-> A function defined only for floats refuses an integer, unsigned or boolean operand where the program builds the call. TSL builds such a call as written and leaves the refusal to the driver.
+> A function defined only for floats refuses an integer, unsigned or boolean operand where the program builds the call. So do `abs`, `sign` and `negate` an unsigned or boolean one. TSL builds such a call as written and leaves the refusal to the driver.
 
-Derives from: [`spec-a-function-defined-only-for-floats-refuses-an-integer`](#spec-a-function-defined-only-for-floats-refuses-an-integer), [`fact-tsl-builds-a-math-function-of-integers-as-integers`](#fact-tsl-builds-a-math-function-of-integers-as-integers), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+Derives from: [`spec-a-function-defined-only-for-floats-refuses-an-integer`](#spec-a-function-defined-only-for-floats-refuses-an-integer), [`spec-a-signed-operation-refuses-an-unsigned-operand`](#spec-a-signed-operation-refuses-an-unsigned-operand), [`fact-tsl-builds-a-math-function-of-integers-as-integers`](#fact-tsl-builds-a-math-function-of-integers-as-integers), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
-A TSL shader that called such a function compiled on no GPU, so rmsl refuses it where it is written rather than at the driver.
+A TSL shader that called a float-only function on an integer compiled on no GPU. The refusal comes where the program makes the call, not at the driver. The absolute value of a `uint` compiles on WebGPU and not on WebGL, so rmsl refuses it on every target.
 
 #### @spec a-math-function-compiles-to-the-builtin-of-the-target
 
@@ -4913,13 +4922,13 @@ This is a fact of the WGSL specification, not a choice.
 
 ## @fact glsl-leaves-integer-edge-cases-undefined
 
-> GLSL ES 3.00 leaves the result of an integer division by zero unspecified. It leaves undefined a remainder by zero or with a negative operand. A shift by a negative amount, or by the bit width or more, is undefined too. Other integer overflow wraps to the low bits. The one exception is the most negative integer divided by `-1`, which may give the most negative or the most positive integer.
+> GLSL ES 3.00 leaves the result of an integer division by zero unspecified. It leaves undefined a `%` by zero or with a negative operand. A shift by a negative amount, or by the bit width or more, is undefined too. Other integer overflow wraps to the low bits. The one exception is the most negative integer divided by `-1`, which may give the most negative or the most positive integer.
 
 This is a fact of the GLSL ES 3.00 specification, revision 6, sections 4.1.3 and 5.9, not a choice. A driver need not keep to it: SwiftShader gives 1 for `INT_MIN / -1`.
 
 ## @fact tsl-emits-the-native-integer-division-and-remainder
 
-> TSL writes an integer division as `/` and an integer remainder as `%`, on literal and run-time operands alike, with no guard around either.
+> TSL writes an integer division as `/` and the integer `%` as it is, on literal and run-time operands alike, with no guard around either.
 
 This is how three.js's TSL behaves, read from its source (`OperatorNode`, `generate`, three.js 0.186).
 
@@ -5267,7 +5276,7 @@ This is a fact of the GLSL ES 3.00 specification, revision 6, sections 5.9 and 8
 
 ## @fact wgsl-defines-most-math-functions-for-floats-only
 
-> WGSL defines its math functions for floats and float vectors only. The exceptions are `abs`, `min`, `max`, `clamp` and `dot` of integers, and `sign` of a signed integer. Its `~` and shifts take integers only, and `&`, `|` and `^` integers or `bool`.
+> WGSL defines its math functions for floats and float vectors only. The exceptions are `abs`, `min`, `max`, `clamp` and `dot` of integers, and `sign` of a signed integer. Its `~` and shifts take integers only, and `&`, `|` and `^` integers or `bool`. Its unary `-` takes no unsigned integer.
 
 This is a fact of the WGSL specification, its sections on built-in functions and on bit expressions, not a choice.
 

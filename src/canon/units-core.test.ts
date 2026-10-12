@@ -641,7 +641,7 @@ describe("an integer operand of a function defined only for floats", () => {
 
   /**
    * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
-   * @canon exception-a-float-function-refuses-an-integer-tsl-leaves-to-the-driver
+   * @canon exception-an-operation-refuses-an-operand-tsl-leaves-to-the-driver
    * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
    */
   it.each([
@@ -749,6 +749,45 @@ describe("a float operand of an integer operation", () => {
     expect(() => scale.shiftRight(mask)).toThrow(
       "shiftRight() takes an integer or an integer vector, not float. Convert it with toUint() first.",
     );
+  });
+});
+
+describe("an unsigned operand of an operation defined only for signed values", () => {
+  const mask = uniform("uint") as any;
+  const masks = uniform("uvec3") as any;
+  const flag = uniform("bool") as any;
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   * @canon exception-an-operation-refuses-an-operand-tsl-leaves-to-the-driver
+   */
+  it.each([
+    ["abs", () => mask.abs()],
+    ["abs of a vector", () => rmsl.abs(masks).x],
+    ["sign", () => mask.sign()],
+    ["negate", () => mask.negate()],
+    ["negate of a vector", () => rmsl.negate(masks).x],
+    ["difference", () => mask.difference(mask)],
+    ["abs of a bool", () => flag.abs()],
+  ])("refuses an unsigned operand of %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
+    const refusal = /takes a float or a signed integer/;
+    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
+    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
+    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
+    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+  });
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   */
+  it("names the conversion to a signed integer, and keeps the signed and float cases", () => {
+    expect(() => mask.sign()).toThrow(
+      "sign() takes a float or a signed integer, scalar or vector, not uint. Convert it with toInt() first.",
+    );
+    expect(() => masks.negate()).toThrow("Convert it with toIVec3() first.");
+    expect(evaluateRecording((a) => a.toInt().negate().abs().toFloat(), [3])).toBe(3);
+    expect(evaluateRecording((a) => a.negate().sign(), [3])).toBe(-1);
   });
 });
 

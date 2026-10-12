@@ -651,6 +651,9 @@ export interface RectMatOps<
   transpose(): Node<Transposed>;
 }
 
+/** A float, a signed integer, or a vector of either, as `abs`, `sign` and `negate` take it. */
+export type SignedValueLike = FloatValueLike | IntLike | IVec2Like | IVec3Like | IVec4Like;
+
 /** An integer or integer vector of either kind, as the bitwise operators and the shifts take it. */
 export type IntegerValueLike =
   IntLike | UintLike | IVec2Like | IVec3Like | IVec4Like | UVec2Like | UVec3Like | UVec4Like;
@@ -1830,6 +1833,9 @@ const FLOAT_ONLY_OPS = new Set([
 /** The operations GLSL ES 3.00 and WGSL define only for integers and integer vectors. A shift's amount may be of either integer kind. */
 const INTEGER_ONLY_OPS = new Set(["bitAnd", "bitOr", "bitXor", "bitNot", "shiftLeft", "shiftRight"]);
 
+/** The operations GLSL ES 3.00 and WGSL define only for floats and signed integers, a matrix included for `negate`. */
+const SIGNED_OPS = new Set(["abs", "sign", "negate"]);
+
 /** The operations whose two operands are of one type, so a scalar does not broadcast beside a vector. */
 const ONE_TYPE_OPS = new Set(["dot", "distance"]);
 
@@ -1876,8 +1882,9 @@ function conversionTo(type: string, kind: ComponentKind): string | undefined {
  * it compiles, so a graph `deserialize` rebuilt is refused alike.
  *
  * A function defined only for floats refuses an integer or boolean operand,
- * and an operation defined only for integers a float or boolean one. Operands
- * of two kinds are refused, as are vectors of two widths.
+ * an operation defined only for integers a float or boolean one, and one
+ * defined only for signed values an unsigned or boolean one. Operands of two
+ * kinds are refused, as are vectors of two widths.
  */
 export function operandRefusal(type: string, operandTypes: readonly (string | undefined)[]): string | undefined {
   let name = OPERATION_NAMES[type] ?? type;
@@ -1901,6 +1908,12 @@ export function operandRefusal(type: string, operandTypes: readonly (string | un
       let beside = types.find(isInteger);
       let fix = conversionTo(wrong, beside ? componentKind(beside)! : "int");
       return `${name}() takes an integer or an integer vector, not ${wrong}.${fix ? ` Convert it with ${fix} first.` : ""}`;
+    }
+  }
+  if (SIGNED_OPS.has(type)) {
+    let wrong = types.find((t) => componentKind(t) !== "int" && componentKind(t) !== "float");
+    if (wrong !== undefined) {
+      return `${name}() takes a float or a signed integer, scalar or vector, not ${wrong}. Convert it with ${conversionTo(wrong, "int")} first.`;
     }
   }
   if (SAME_KIND_OPS.has(type)) {
@@ -2659,10 +2672,10 @@ export function shiftRight(a: IntegerValueLike, b: IntegerValueLike): any {
   return (typeof a === "number" ? int(a) : toNode(a)).shiftRight(b);
 }
 
-export function abs(a: MathLike): any {
+export function abs(a: SignedValueLike): any {
   return toNode(a).abs();
 }
-export function sign(a: MathLike): any {
+export function sign(a: SignedValueLike): any {
   return toNode(a).sign();
 }
 export function floor(a: FloatValueLike): any {
@@ -2708,7 +2721,7 @@ export function exp2(a: FloatValueLike): any {
 export function log2(a: FloatValueLike): any {
   return toNode(a).log2();
 }
-export function negate(a: MathLike): any {
+export function negate(a: SignedValueLike | Node<MatrixType>): any {
   return toNode(a).negate();
 }
 export function oneMinus(a: FloatValueLike): any {

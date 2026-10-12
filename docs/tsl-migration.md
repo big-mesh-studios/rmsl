@@ -135,8 +135,10 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   `pow`, `mix`, `step`, `normalize`, `cross` and every other math function that
   GLSL and WGSL define only for floats throw on an `int`, `uint` or `bool`
   operand, where TSL emits the call and the driver refuses it (`cross` excepted:
-  TSL converts its operands to `vec3`). `abs` and `sign` take an `int`, and
-  `min`, `max` and `clamp` either integer kind.
+  TSL converts its operands to `vec3`). `abs`, `sign` and `negate` take an
+  `int` but throw on a `uint` or `bool`, which TSL leaves to the driver: WebGL
+  has no `abs` or `sign` of a `uint`, and WebGPU no `sign` or negation of one.
+  `min`, `max` and `clamp` take either integer kind.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.
