@@ -392,8 +392,11 @@ export function createGlsl(
   /** The type of each other uniform the stages read, by slot, which a value set by slot is checked against. */
   const uniformDeclarations = uniformDeclarationsOf([vertexRoot, fragmentRoot]);
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  function setUniform<T extends ShaderType>(
+    uniform: UniformArrayNode<T>,
+    value: UniformValue<T>[] | null | undefined,
+  ): void;
   function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
     const slot = slotOf(uniform);

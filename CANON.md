@@ -286,6 +286,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape) — `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
       - [`@spec a-renderer-refuses-a-uniform-value-of-another-shape`](#spec-a-renderer-refuses-a-uniform-value-of-another-shape) — A scene renderer refuses a uniform value of another shape than its type at the draw that would upload it. A camera, object or renderer name it gives no value for keeps the value it had, which is zero until set.
       - [`@spec the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape) — Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+      - [`@spec the-types-admit-a-uniform-set-to-nothing`](#spec-the-types-admit-a-uniform-set-to-nothing) — The type of `setUniform` on every adapter and context takes `null` or `undefined` for a uniform, set by its node, as a uniform array, or by slot name.
+      - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
     - [`@spec a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) — A program the host calls with its inputs in a context checks neither the shape of a value nor the kind of an array. These programs are the function `compileJSFn` gives, which `precompileJS` ships, the program `precompileWasm` ships, and the routines, grids, stages and draws of `compileJS*` and `compileWasm*`. Their inputs include `ctx.storages` and the attribute arrays of a draw. A value of another shape, or an array of another kind, gives what that target gives. Each component it reads still converts as a typed slot of its kind does.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
@@ -2529,6 +2531,20 @@ This follows because the adapter holds its program from the start, so it knows t
 ##### @spec the-types-hold-a-uniform-value-to-its-shape
 
 > Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+
+##### @spec the-types-admit-a-uniform-set-to-nothing
+
+> The type of `setUniform` on every adapter and context takes `null` or `undefined` for a uniform, set by its node, as a uniform array, or by slot name.
+
+Derives from: [`spec-a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero)
+
+This follows because every adapter sets a uniform given nothing to zero, so the types admit what the adapters do.
+
+##### @spec the-types-hold-a-routine-parameter-to-its-shape
+
+> A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
+
+This follows because `run` checks the shape of each parameter it receives, and the type checker refuses the same mistake earlier wherever it knows the type.
 
 #### @spec a-compiled-program-trusts-its-inputs
 

@@ -2338,10 +2338,10 @@ describe("the shape of a value a CPU adapter takes", () => {
   ])("%s refuses a parameter of another shape at run, and checks no uniform there", (_, create) => {
     const tint = uniform("vec3");
     const adapter = create(Fn(() => tint.z)(), { params: [{ name: "p", type: "vec2" }] });
-    expect(() => adapter.run({ p: [1] })).toThrow(
+    expect(() => adapter.run({ p: [1] as any })).toThrow(
       '[RMSL] the vec2 parameter "p" takes 2 components, not an array of 1',
     );
-    expect(() => adapter.run({ p: 1 })).toThrow('[RMSL] the vec2 parameter "p" takes 2 components, not 1');
+    expect(() => adapter.run({ p: 1 as any })).toThrow('[RMSL] the vec2 parameter "p" takes 2 components, not 1');
     const value = [0, 0, 2];
     adapter.setUniform(tint, value as [number, number, number]);
     expect(adapter.run({ p: [0, 1] })).toBe(2);

@@ -40,6 +40,7 @@ import {
   type UniformNode,
   type StorageBufferAttribute,
   uniform,
+  uniformArray,
 } from "../rmsl";
 import {
   compileJSFragment,
@@ -557,5 +558,76 @@ describe("the value setUniform takes for a vector or matrix uniform", () => {
       [1, 0, 0, 1],
       [0, 1, 0, 1],
     ]);
+  });
+});
+
+describe("a uniform set to nothing", () => {
+  let glsl!: GlslAdapter;
+  let wgsl!: WgslAdapter;
+  let wgslCompute!: WgslComputeAdapter;
+  let wgslContext!: WgslContext;
+  let wasmContext!: WasmContext;
+  let js!: JsAdapter;
+  let wasm!: WasmAdapter;
+  let jsCompute!: JsComputeAdapter;
+  let wasmCompute!: WasmComputeAdapter;
+  let cpu!: CpuAdapter;
+
+  /**
+   * @canon spec-the-types-admit-a-uniform-set-to-nothing
+   */
+  it("takes null or undefined for a uniform by node, a uniform array or a slot name, on every adapter", () => {
+    const tint = uniform("vec3");
+    const items = uniformArray("float", 2);
+    for (const adapter of [glsl, wgsl, wgslCompute, wgslContext, wasmContext, js, wasm, jsCompute, wasmCompute, cpu]) {
+      adapter.setUniform(tint, null);
+      adapter.setUniform(tint, undefined);
+      adapter.setUniform(items, null);
+      adapter.setUniform(items, undefined);
+    }
+    for (const adapter of [glsl, wgsl, wgslCompute, js, wasm, jsCompute, wasmCompute, cpu]) {
+      adapter.setUniform(tint.name, null);
+      adapter.setUniform(tint.name, undefined);
+    }
+    const routine = createJsRoutine(tint);
+    routine.setUniform(tint, null);
+    routine.setUniform(items, undefined);
+    routine.setUniform(tint.name, null);
+  });
+});
+
+describe("the parameters run takes", () => {
+  /**
+   * @canon spec-the-types-hold-a-routine-parameter-to-its-shape
+   */
+  it("takes each parameter named where the routine was made in the shape of its type", () => {
+    const params = [
+      { name: "p", type: "vec2" },
+      { name: "n", type: "int" },
+    ] as const;
+    for (const routine of [createJsRoutine(float(1), { params }), createWasmRoutine(float(1), { params })]) {
+      routine.run({ p: [1, 2], n: 3 });
+      routine.run({ p: Float32Array.of(1, 2) });
+      routine.run({ p: null });
+      routine.run();
+      // @ts-expect-error a vec2 takes two components
+      routine.run({ p: [1, 2, 3] });
+      // @ts-expect-error an int takes one value
+      routine.run({ n: [1] });
+      // @ts-expect-error the routine has no parameter q
+      routine.run({ q: 1 });
+    }
+  });
+
+  /**
+   * @canon spec-the-types-hold-a-routine-parameter-to-its-shape
+   */
+  it("takes any value a parameter can hold, a typed array included, when the names are not known", () => {
+    const params: { name: string; type: "vec2" | "float" }[] = [{ name: "p", type: "vec2" }];
+    const routine = createJsRoutine(float(1), { params });
+    routine.run({ p: Float32Array.of(1, 2) });
+    routine.run({ p: [1, 2], q: 1, flag: true });
+    // @ts-expect-error a parameter holds numbers
+    routine.run({ p: "1" });
   });
 });

@@ -42,8 +42,8 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
    * overload stays for `uniformRaw()` slots or callers that only have a
    * name on hand — there the value shape is on the caller to get right.
    */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
   setUniform(slot: string, value: UniformSlotValue): void;
 
   /**

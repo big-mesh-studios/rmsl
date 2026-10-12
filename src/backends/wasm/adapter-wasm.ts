@@ -1,6 +1,7 @@
 import {
   AttributeNode,
   Node,
+  RoutineParam,
   ShaderType,
   UniformArrayNode,
   UniformNode,
@@ -80,7 +81,7 @@ export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
 
 export type CreateWasmRoutineOptions = WasmFloatWidth & {
   name?: string;
-  params?: CompileWasmFnOptions["params"];
+  params?: readonly RoutineParam[];
   derivatives?: CompileWasmFnOptions["derivatives"];
   reentrant?: CompileWasmFnOptions["reentrant"];
   memory?: CompileWasmFnOptions["memory"];
@@ -93,14 +94,15 @@ export type CreateWasmRoutineOptions = WasmFloatWidth & {
  * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
  * keep what the host gives it, and `run(params)` calls the routine with them.
  */
-export function createWasmRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
-  fn: Node<A>,
-  options: CreateWasmRoutineOptions & { float?: W } = {},
-): CpuRoutineAdapter<A, W> {
-  return createCpuRoutineAdapter<A, W>(
+export function createWasmRoutine<
+  A extends ShaderType,
+  W extends FloatWidth = "f64",
+  const P extends readonly RoutineParam[] = readonly [],
+>(fn: Node<A>, options: CreateWasmRoutineOptions & { float?: W; params?: P } = {}): CpuRoutineAdapter<A, W, P> {
+  return createCpuRoutineAdapter<A, W, P>(
     compileWasmRoutine(() => fn, {
       name: options.name ?? "routine",
-      params: options.params ?? [],
+      params: [...(options.params ?? [])],
       derivatives: options.derivatives,
       reentrant: options.reentrant,
       memory: options.memory,
@@ -108,7 +110,7 @@ export function createWasmRoutine<A extends ShaderType, W extends FloatWidth = "
       maxMemoryPages: options.maxMemoryPages,
       ...floatWidthOf(options),
     }),
-    options.params ?? [],
+    options.params ?? ([] as readonly RoutineParam[] as P),
     uniformDeclarationsOf(fn),
   );
 }
@@ -134,8 +136,8 @@ export type CreateWasmComputeOptions = WasmFloatWidth & {
  * one per element of the first storage buffer `setAttribute` was given.
  */
 export interface WasmComputeAdapter {
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
   setUniform(slot: string, value: UniformSlotValue): void;
   setAttribute<T extends ShaderType>(
     attribute: AttributeOrStorage<T>,
@@ -222,8 +224,11 @@ export function createWasm(
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  function setUniform<T extends ShaderType>(
+    uniform: UniformArrayNode<T>,
+    value: UniformValue<T>[] | null | undefined,
+  ): void;
   function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformOrSlot, value: unknown): void {
     const slot = slotOf(uniform);

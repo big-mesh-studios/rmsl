@@ -1,4 +1,13 @@
-import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue, UniformSlotValue } from "../core";
+import {
+  AttributeNode,
+  RoutineParam,
+  RoutineParams,
+  ShaderType,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+  UniformSlotValue,
+} from "../core";
 import {
   Adapter,
   assertNodeArray,
@@ -112,8 +121,11 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     return Math.floor(storages[firstStorage]!.length / elementWidths.get(firstStorage)!);
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  function setUniform<T extends ShaderType>(
+    uniform: UniformArrayNode<T>,
+    value: UniformValue<T>[] | null | undefined,
+  ): void;
   function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
     const slot = slotOf(uniform);
@@ -203,13 +215,17 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
  * sets, and `run` calls the routine with them and the parameters it is given,
  * so the host does not build a context for each call. `run` answers at once.
  */
-export interface CpuRoutineAdapter<A extends ShaderType = ShaderType, W extends FloatWidth = "f64"> {
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+export interface CpuRoutineAdapter<
+  A extends ShaderType = ShaderType,
+  W extends FloatWidth = "f64",
+  P extends readonly RoutineParam[] = readonly RoutineParam[],
+> {
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
   setUniform(slot: string, value: UniformSlotValue): void;
   setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
   /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
-  run(params?: Record<string, number | boolean | number[]>): CpuValue<A, W>;
+  run(params?: RoutineParams<P>): CpuValue<A, W>;
   destroy(): void;
 }
 
@@ -218,11 +234,15 @@ export interface CpuRoutineAdapter<A extends ShaderType = ShaderType, W extends 
  * against `uniformDeclarations` where it is set, and each of `params` where
  * `run` is given it.
  */
-export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWidth = "f64">(
+export function createCpuRoutineAdapter<
+  A extends ShaderType,
+  W extends FloatWidth = "f64",
+  P extends readonly RoutineParam[] = readonly RoutineParam[],
+>(
   routine: CpuRoutine<A, W>,
-  params: readonly { name: string; type: string }[],
+  params: P,
   uniformDeclarations: ReadonlyMap<string, UniformDeclaration>,
-): CpuRoutineAdapter<A, W> {
+): CpuRoutineAdapter<A, W, P> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
@@ -233,14 +253,14 @@ export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWid
   }
 
   return {
-    setUniform: setUniform as CpuRoutineAdapter<A, W>["setUniform"],
+    setUniform: setUniform as CpuRoutineAdapter<A, W, P>["setUniform"],
     setTexture(sampler, texture) {
       textures[slotOf(sampler)] = texture;
     },
     run(given) {
       for (let i = 0; i < params.length; i++) {
         const param = params[i]!;
-        assertHostShape("parameter", param.name, param.type, given?.[param.name]);
+        assertHostShape("parameter", param.name, param.type, (given as Record<string, unknown>)?.[param.name]);
       }
       return routine({ params: given, uniforms, textures });
     },

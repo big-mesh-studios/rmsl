@@ -138,10 +138,25 @@ type HostVectorArray<A extends ShaderType> = A extends `ivec${string}`
 
 /**
  * Any value `setUniform` takes by slot name, where the type of the slot is
- * not known: a scalar, a vector or matrix, or a uniform array of them. The
- * adapter checks its shape against the slot's type when it knows it.
+ * not known: a scalar, a vector or matrix, or a uniform array of them, or
+ * `null` or `undefined`, which set it to zero. The adapter checks its shape
+ * against the slot's type.
  */
-export type UniformSlotValue = number | boolean | ArrayLike<number | boolean> | readonly ArrayLike<number | boolean>[];
+export type UniformSlotValue =
+  number | boolean | ArrayLike<number | boolean> | readonly ArrayLike<number | boolean>[] | null | undefined;
+
+/** A parameter of a routine, as the host names it where the routine is compiled. */
+export type RoutineParam = { readonly name: string; readonly type: ShaderType };
+
+/**
+ * The parameters `run` takes, by name. Given parameters whose names are
+ * known, each takes the value a uniform of its type takes, and may be left
+ * out or `null`, which reads zero. Otherwise any name takes any value a
+ * parameter can hold.
+ */
+export type RoutineParams<P extends readonly RoutineParam[]> = string extends P[number]["name"]
+  ? Record<string, UniformSlotValue>
+  : { [K in P[number] as K["name"]]?: UniformValue<K["type"]> | null };
 
 // === BaseNode ===
 export interface BaseNode<A extends ShaderType> {

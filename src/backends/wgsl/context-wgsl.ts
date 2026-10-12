@@ -44,8 +44,8 @@ export interface WgslContext {
    * Sets a uniform for every program that reads it. A value applies to every
    * dispatch in the next `compute()`, as in TSL, not to individual dispatches.
    */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
   write(attribute: StorageBufferAttribute, data: Float32Array | Int32Array | Uint32Array, offset?: number): void;
   /**

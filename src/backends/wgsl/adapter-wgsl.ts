@@ -426,8 +426,11 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     texturesChanged = false;
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  function setUniform<T extends ShaderType>(
+    uniform: UniformArrayNode<T>,
+    value: UniformValue<T>[] | null | undefined,
+  ): void;
   function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
     const slot = slotOf(uniform);
@@ -680,8 +683,8 @@ export interface CreateWgslComputeOptions {
  */
 export interface WgslComputeAdapter {
   attach(): Promise<void>;
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
   setUniform(slot: string, value: UniformSlotValue): void;
   setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: HostArray<T, Float32Array>): void;
   setAttribute(slot: string, data: TypedArray): void;
@@ -820,8 +823,11 @@ export function createWgslCompute(
       });
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  function setUniform<T extends ShaderType>(
+    uniform: UniformArrayNode<T>,
+    value: UniformValue<T>[] | null | undefined,
+  ): void;
   function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
     const slot = slotOf(uniform);
