@@ -53,9 +53,11 @@ function isConstant(n: any, memo: Map<any, boolean>): boolean {
   const known = memo.get(n);
   if (known !== undefined) return known;
   const result =
-    Array.isArray(n.params) && n.params.length > 0
-      ? n.params.every((p: any) => isConstant(p, memo))
-      : LITERALS.has(n.type) || (n.type === n._t && Array.isArray(n.value));
+    n.type === "call"
+      ? false
+      : Array.isArray(n.params) && n.params.length > 0
+        ? n.params.every((p: any) => isConstant(p, memo))
+        : LITERALS.has(n.type) || (n.type === n._t && Array.isArray(n.value));
   memo.set(n, result);
   return result;
 }
@@ -102,7 +104,7 @@ export function shareNodes<T>(roots: T): T {
   /** Whether `n` is a node that gets a variable when it is read more than once. */
   const isShareable = (n: any): boolean =>
     Array.isArray(n.params) &&
-    n.params.length > 0 &&
+    (n.params.length > 0 || n.type === "call") &&
     n._t !== "void" &&
     !READ_WHERE_IT_IS.has(n.type) &&
     !isConstant(n, constantsMemo);
@@ -152,6 +154,10 @@ export function shareNodes<T>(roots: T): T {
       case "scope":
         expanded.add(statement);
         count(statement.params[0]);
+        return;
+      case "call":
+        expanded.add(statement);
+        for (const p of statement.params ?? []) if (!holdsStatements(p, statementsMemo)) read(p);
         return;
       default:
         expanded.add(statement);
@@ -281,6 +287,12 @@ export function shareNodes<T>(roots: T): T {
       case "scope": {
         const body = enclosed(s.params[0]);
         if (body !== s.params[0]) result = copyOf(s, [body]);
+        epoch++;
+        break;
+      }
+      case "call": {
+        const params = s.params.map((p: any) => rewrite(p, out));
+        if (!sameParams(params, s.params)) result = copyOf(s, params);
         epoch++;
         break;
       }

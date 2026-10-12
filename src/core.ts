@@ -2077,7 +2077,8 @@ function describeFn(name: string | undefined): string {
 /**
  * Throws unless `layout` is one a function can be declared from: a result type,
  * and inputs that each have a type and a name no other input has. A name is an
- * identifier that does not start with the prefix the compiler keeps for its own.
+ * identifier that does not start with the prefix the compiler keeps for its own
+ * and is no keyword or built-in of GLSL or WGSL, for an input as for the function.
  */
 function assertLayout(layout: unknown): asserts layout is FnLayout {
   const fail = (why: string): never => {
@@ -2104,6 +2105,9 @@ function assertLayout(layout: unknown): asserts layout is FnLayout {
       fail(
         `has an input with the name ${JSON.stringify(input?.name)}, which is no identifier or starts with "${RESERVED_VAR_PREFIX}"`,
       );
+    }
+    if (RESERVED_FUNCTION_NAMES.has(input.name)) {
+      fail(`has the input "${input.name}", which is a keyword or a built-in of GLSL or WGSL`);
     }
     if (!LAYOUT_VALUE_TYPES.has(input.type))
       fail(`has the input "${input.name}" of the type ${JSON.stringify(input.type)}, which no function takes`);
@@ -2148,6 +2152,10 @@ export function assertFnIsClosed(definition: FnDefinition): void {
  */
 export function assertCallFits(call: BaseNode<ShaderType>): void {
   const definition = call.value as FnDefinition | undefined;
+  // The names and types go into the shader text, so data that skipped `Fn` is held to the layout rules too.
+  if (definition !== null && typeof definition === "object") {
+    assertLayout({ name: definition.name, type: definition.type, inputs: definition.inputs });
+  }
   const args = call.params ?? [];
   const fits =
     isNode(definition?.body) &&
@@ -2174,7 +2182,7 @@ function fitArgument(
     const got = isNode(value) && value._t !== "void" ? `a ${value._t}` : "nothing";
     throw new Error(
       `[RMSL] The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
-        `Convert it to a ${input.type}.`,
+        `Convert it to a ${input.type}${typeof x === "number" ? `, as ${input.type}(${x}) does: a plain number is a float` : ""}.`,
     );
   }
   return value;

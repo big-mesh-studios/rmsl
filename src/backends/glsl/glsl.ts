@@ -1159,6 +1159,12 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const ctx: CompileCtx = {
     nextId: 0,
     shaderStage: "fragment",
+    // The function the wrapper declares and its parameters are names a layout function cannot take.
+    userFns: {
+      names: new Map(),
+      taken: new Set([options.name, ...options.params.map((p) => p.name)]),
+      declarations: [],
+    },
     uniforms: new Map(),
     attributes: new Map(),
     varyings: new Map(),

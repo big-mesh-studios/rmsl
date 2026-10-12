@@ -15,7 +15,8 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileWgsl as compileWgslStage } from "../wgsl";
+import { compileWgsl as compileWgslStage, compileWgslFn } from "../wgsl";
+import { compileGlslFn } from "../glsl";
 import { deserialize, serialize } from "../serialize";
 import { compileJSFn, compileJSFragment, compileJSRoutine } from "../js";
 import { compileWasmFn, compileWasmFragment, compileWasmRoutine } from "../wasm";
@@ -537,6 +538,16 @@ describe("a mistake in a function with a layout is refused", () => {
       },
       /two inputs named "x"/,
     ],
+    [
+      "an input that is a GLSL keyword",
+      { name: "f", type: "float", inputs: [{ name: "in", type: "float" }] },
+      /input "in", which is a keyword or a built-in/,
+    ],
+    [
+      "an input that is a WGSL keyword",
+      { name: "f", type: "float", inputs: [{ name: "var", type: "float" }] },
+      /input "var", which is a keyword or a built-in/,
+    ],
     ["a name that is no identifier", { name: "1f", type: "float", inputs: [] }, /no identifier/],
     ["a name with the reserved prefix", { name: "_rmsl_f", type: "float", inputs: [] }, /starts with "_rmsl_"/],
     [
@@ -552,5 +563,88 @@ describe("a mistake in a function with a layout is refused", () => {
   ] as const)("refuses a layout with %s", (_, malformed, refusal) => {
     expect(() => Fn(() => float(1)).setLayout(malformed as any)).toThrow(refusal);
     expect(() => Fn(() => float(1), malformed as any)).toThrow(refusal);
+  });
+
+  /**
+   * @canon spec-a-malformed-layout-is-refused
+   */
+  it.each<[string, (call: any) => void]>([
+    ["a function name that is code", (call) => void (call.value.name = "f(){} void evil")],
+    ["an input name that is code", (call) => void (call.value.inputs[0].name = "x) { } void evil(float y")],
+    ["an input name that is a keyword", (call) => void (call.value.inputs[0].name = "in")],
+    ["an input type that is code", (call) => void (call.value.inputs[0].type = "float x) {} void evil(float")],
+  ])("refuses a graph rebuilt from JSON with %s, on every target", (_, tamper) => {
+    const ok = Fn(([x]: [Node<"float">]) => x.mul(2)).setLayout(layout());
+    const graph = serialize(Fn(() => vec4(ok(uniform("float")), 0, 0, 1))());
+    tamper(graph.nodes.find((n) => n.type === "call"));
+    const restored = () => deserialize(JSON.parse(JSON.stringify(graph))) as Node<"vec4">;
+    expect(() => compileGlsl.fragment(restored())).toThrow(/\[RMSL\]/);
+    expect(() => compileWgsl.fragment(restored())).toThrow(/\[RMSL\]/);
+    expect(() => compileJSFragment(restored, none)).toThrow(/\[RMSL\]/);
+    expect(() => compileWasmFragment(restored, none)).toThrow(/\[RMSL\]/);
+  });
+
+  /**
+   * @canon spec-a-taken-function-name-gets-a-number
+   */
+  it("numbers a layout function named like the function a compile wraps the program in", () => {
+    const scale = Fn(([x]: [Node<"float">]) => x.mul(2)).setLayout({
+      name: "scale",
+      type: "float",
+      inputs: [{ name: "x", type: "float" }],
+    });
+    const build = (inputs: Node<"float">) => Fn(() => scale(inputs))();
+    const options = { name: "scale", params: [{ name: "v", type: "float" as const }], returnType: "float" as const };
+    expect(compileGlslFn(build as any, options as any)).toMatch(
+      /float scale_1\(float x\)[\s\S]*float scale\(float v\)/,
+    );
+    expect(compileWgslFn(build as any, options as any)).toMatch(/fn scale_1\(x: f32\)[\s\S]*fn scale\(v: f32\)/);
+  });
+
+  /**
+   * @canon spec-a-layout-fn-is-declared-once-and-called-at-each-use
+   */
+  it("evaluates a shared argument of a void call once, as the argument of an assignment is", () => {
+    const out = instancedArray(2, "float");
+    const store = Fn(([x]: [Node<"float">]) => {
+      out.element(int(0)).assign(x);
+    }).setLayout({ name: "store", type: "void", inputs: [{ name: "x", type: "float" }] });
+    const u = uniform("float");
+    const wgsl = compileWgslStage.compute(
+      Fn(() => {
+        const shared = u.sin();
+        store(shared.add(shared));
+        store(shared);
+      })(),
+    );
+    expect(wgsl.match(/sin\(/g)).toHaveLength(1);
+  });
+
+  /**
+   * @canon spec-a-layout-fn-is-declared-once-and-called-at-each-use
+   */
+  it("calls a function once for a result that is read twice outside an Fn", () => {
+    const twice = Fn(([x]: [Node<"float">]) => x.mul(2)).setLayout({
+      name: "twice",
+      type: "float",
+      inputs: [{ name: "x", type: "float" }],
+    });
+    const result = twice(float(2));
+    const build = () => Fn(() => vec4(result.add(result), 0, 0, 1))();
+    expect(compileGlsl.fragment(build()).match(/twice\(2\.0\)/g)).toHaveLength(1);
+    expect(compileWgsl.fragment(build()).match(/twice\(2f\)/g)).toHaveLength(1);
+  });
+
+  /**
+   * @canon spec-a-call-with-an-argument-of-the-wrong-type-is-refused
+   */
+  it("refuses a plain number for an int input, and says how to convert it", () => {
+    const next = Fn(([n]: [Node<"int">]) => n.add(1)).setLayout({
+      name: "next",
+      type: "int",
+      inputs: [{ name: "n", type: "int" }],
+    }) as (...args: any[]) => any;
+    expect(() => next(3)).toThrow(/is a int, and the call passes a float\. Convert it to a int, as int\(3\) does/);
+    expect(() => next(int(3))).not.toThrow();
   });
 });

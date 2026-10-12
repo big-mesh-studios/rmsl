@@ -253,7 +253,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller`](#spec-a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller) — Every target refuses a graph whose `Fn` with a layout names a variable declared outside it as it compiles, a graph `deserialize` rebuilt included.
     - [`@spec return-in-a-layout-fn-that-gives-a-value-is-refused`](#spec-return-in-a-layout-fn-that-gives-a-value-is-refused) — A `Return()` in an `Fn` with a layout whose type is not `void` is refused, with an error that names the function.
     - [`@spec a-layout-fn-uses-no-input-or-output-of-its-stage`](#spec-a-layout-fn-uses-no-input-or-output-of-its-stage) — An `Fn` with a layout whose body uses an attribute, a varying, a stage output, the position, the fragment depth or a built-in input such as `fragCoord()` is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input.
-    - [`@spec a-malformed-layout-is-refused`](#spec-a-malformed-layout-is-refused) — A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier, starts with the prefix `_rmsl_`, or is a keyword or a built-in of GLSL or WGSL.
+    - [`@spec a-malformed-layout-is-refused`](#spec-a-malformed-layout-is-refused) — A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier, starts with the prefix `_rmsl_`, or is a keyword or a built-in of GLSL or WGSL. An input name is held to the same rules, and so is a call in a graph `deserialize` rebuilt, as every target compiles it.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -344,12 +344,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
       - [`@bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it`](#bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it) — On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
   - [`@spec an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own) — An `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, is a function of its own, as in TSL. GLSL and WGSL declare it once in a program and call it at each use. The CPU targets run its body where it is called. An `Fn` without a layout stays inline.
-    - [`@spec a-layout-fn-is-declared-once-and-called-at-each-use`](#spec-a-layout-fn-is-declared-once-and-called-at-each-use) — GLSL and WGSL declare an `Fn` with a layout once in a program, under the name and the typed inputs of its layout. They call it at each use.
+    - [`@spec a-layout-fn-is-declared-once-and-called-at-each-use`](#spec-a-layout-fn-is-declared-once-and-called-at-each-use) — GLSL and WGSL declare an `Fn` with a layout once in a program, under the name and the typed inputs of its layout. They call it at each use. A call reads its arguments as any statement does, so an argument read twice is evaluated once, and a result read twice is held.
     - [`@spec a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called`](#spec-a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called) — JavaScript and WebAssembly compile a call of an `Fn` with a layout as its body, run where the call is. The arguments are bound to its inputs.
     - [`@spec a-layout-fn-computes-the-same-on-every-target`](#spec-a-layout-fn-computes-the-same-on-every-target) — A program that calls an `Fn` with a layout computes the same value on every target.
     - [`@spec a-layout-fn-takes-its-inputs-as-an-array-and-by-name`](#spec-a-layout-fn-takes-its-inputs-as-an-array-and-by-name) — The body of an `Fn` with a layout receives its inputs as one value that destructures as an array, `([a, b])`, and as an object, `({ a, b })`. A call passes them by position or as one object keyed by input name.
     - [`@spec a-layout-fn-without-a-name-gets-one`](#spec-a-layout-fn-without-a-name-gets-one) — A layout that gives no `name` gets a generated name, and its function is declared under it.
-    - [`@spec a-taken-function-name-gets-a-number`](#spec-a-taken-function-name-gets-a-number) — A second `Fn` with a layout whose name a program already uses is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name.
+    - [`@spec a-taken-function-name-gets-a-number`](#spec-a-taken-function-name-gets-a-number) — A second `Fn` with a layout whose name a program already uses, or the function a compile wraps the program in, is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name.
     - [`@spec return-leaves-a-void-layout-fn`](#spec-return-leaves-a-void-layout-fn) — A `Return()` in an `Fn` with a layout of type `void` leaves that function and not its caller, on every target.
     - [`@spec a-layout-fn-may-call-a-layout-fn`](#spec-a-layout-fn-may-call-a-layout-fn) — The body of an `Fn` with a layout may call another one. The program declares the callee once and ahead of the function that calls it.
     - [`@spec a-layout-fn-reads-a-uniform`](#spec-a-layout-fn-reads-a-uniform) — The body of an `Fn` with a layout reads a uniform of the program on every target.
@@ -2195,7 +2195,7 @@ This follows because WGSL keeps these in the entry point and a function there ca
 
 #### @spec a-malformed-layout-is-refused
 
-> A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier, starts with the prefix `_rmsl_`, or is a keyword or a built-in of GLSL or WGSL.
+> A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier, starts with the prefix `_rmsl_`, or is a keyword or a built-in of GLSL or WGSL. An input name is held to the same rules, and so is a call in a graph `deserialize` rebuilt, as every target compiles it.
 
 Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own)
 
@@ -2695,7 +2695,7 @@ This follows because a TSL shader that gives a helper a layout must port by chan
 
 #### @spec a-layout-fn-is-declared-once-and-called-at-each-use
 
-> GLSL and WGSL declare an `Fn` with a layout once in a program, under the name and the typed inputs of its layout. They call it at each use.
+> GLSL and WGSL declare an `Fn` with a layout once in a program, under the name and the typed inputs of its layout. They call it at each use. A call reads its arguments as any statement does, so an argument read twice is evaluated once, and a result read twice is held.
 
 #### @spec a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called
 
@@ -2725,7 +2725,7 @@ This follows because a TSL body written for a layout must run unchanged.
 
 #### @spec a-taken-function-name-gets-a-number
 
-> A second `Fn` with a layout whose name a program already uses is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name.
+> A second `Fn` with a layout whose name a program already uses, or the function a compile wraps the program in, is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name.
 
 Derives from: [`fact-tsl-numbers-a-function-whose-name-is-taken`](#fact-tsl-numbers-a-function-whose-name-is-taken)
 

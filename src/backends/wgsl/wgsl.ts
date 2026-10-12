@@ -2052,6 +2052,12 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built])[0]!));
 
   const ctx: CompileCtx = {
+    // The function the wrapper declares and its parameters are names a layout function cannot take.
+    userFns: {
+      names: new Map(),
+      taken: new Set([options.name, ...options.params.map((p) => p.name)]),
+      declarations: [],
+    },
     nextId: 0,
     shaderStage: "fragment",
     uniforms: new Map(),
