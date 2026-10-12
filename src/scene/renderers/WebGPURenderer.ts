@@ -51,6 +51,7 @@ import {
   attributeShape,
   vertexFormatOf,
   wordFormat,
+  type AttributeKind,
   type VertexFormat,
   VERTEX_FORMATS,
 } from "../../backends/vertex-format";
@@ -196,6 +197,8 @@ export class WebGPURenderer {
   private animationCallback: ((time: number) => void) | null = null;
   private animationHandle: number | null = null;
   private blankTextures = new Map<string, DataTexture>();
+  /** The value an attribute with no data reads, made at the first draw that needs it. */
+  private noDataBuffer: GPUBuffer | null = null;
 
   /** Whether the device filters a 32-bit float texture, read once since a device's features are fixed. */
   private readonly floatFilterable: boolean;
@@ -805,7 +808,7 @@ export class WebGPURenderer {
     const mirrored = isMirrored(mesh);
     let key = `${material.transparent},${material.blending},${material.depthTest},${material.depthWrite},${mirrored};`;
     for (const attribute of entry.program.attributes) {
-      key += `${this.formatOf(attribute, mesh)},`;
+      key += `${geometryAttribute(mesh, mesh.geometry, attribute.name) ? "" : "-"}${this.formatOf(attribute, mesh)},`;
     }
     const cached = entry.variants.get(key);
     if (cached) return cached;
@@ -815,14 +818,16 @@ export class WebGPURenderer {
       const { columns } = attributeShape(attribute.node._t);
       const format = this.formatOf(attribute, mesh);
       const { count, bytes } = VERTEX_FORMATS[format];
+      // An attribute with no data reads one element at every vertex: the value `setVertexBuffers` binds.
+      const stride = geometryAttribute(mesh, mesh.geometry, attribute.name) ? count * bytes : 0;
       const locations: VertexBufferLayout["attributes"] = [];
       for (let i = 0; i < columns; i++) {
-        locations.push({ shaderLocation: shaderLocation + i, offset: i * count * bytes, format });
+        locations.push({ shaderLocation: shaderLocation + i, offset: i * stride, format });
       }
       vertexFormats.push({
         name: attribute.name,
         stepMode: attribute.stepMode,
-        arrayStride: columns * count * bytes,
+        arrayStride: columns * stride,
         attributes: locations,
       });
       shaderLocation += columns;
@@ -876,7 +881,27 @@ export class WebGPURenderer {
       const layout = variant.vertexFormats[slot];
       const buffer = this.vertexBuffer(mesh, layout.name, buffers);
       if (buffer) pass.setVertexBuffer(slot, buffer);
+      else this.setNoData(pass, slot, VERTEX_FORMATS[layout.attributes[0]!.format as VertexFormat].kind);
     }
+  }
+
+  /**
+   * Binds at `slot` the value an attribute with no data reads, (0, 0, 0, 1)
+   * as `kind` holds it, which a fresh WebGL context gives such an attribute.
+   */
+  private setNoData(pass: GPURenderPassEncoder, slot: number, kind: AttributeKind): void {
+    if (!this.noDataBuffer) {
+      this.noDataBuffer = this.device.createBuffer({
+        size: 32,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      const words = new ArrayBuffer(32);
+      new Float32Array(words, 0, 4).set([0, 0, 0, 1]);
+      new Int32Array(words, 16, 4).set([0, 0, 0, 1]);
+      this.device.queue.writeBuffer(this.noDataBuffer, 0, words);
+    }
+    // The float value sits in the first 16 bytes, and the integer one, which a `sint` and a `uint` format read alike, after it.
+    pass.setVertexBuffer(slot, this.noDataBuffer, kind === "float" ? 0 : 16);
   }
 
   /**
@@ -1209,6 +1234,8 @@ export class WebGPURenderer {
       texture.removeEventListener("dispose", this.onTextureDispose);
     }
     this.depthTexture?.destroy();
+    this.noDataBuffer?.destroy();
+    this.noDataBuffer = null;
     this.pipelines.clear();
     this.meshAttributes.clear();
     this.textures.clear();

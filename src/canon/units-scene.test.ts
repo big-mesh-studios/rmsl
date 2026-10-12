@@ -159,6 +159,65 @@ globalThis.__rmslAttributeTypes = async (backend) => {
 };
 `;
 
+/**
+ * A plane filling a 16×16 canvas whose material reads an attribute of each
+ * type that its geometry lacks, and adds it to (0, 1, 0, 0). The colour is
+ * opaque green when the attribute reads (0, 0, 0, 1), a matrix column by
+ * column. Returns each type's pixel, or the error it hit.
+ */
+const ENTRY_MISSING_ATTRIBUTE = `
+import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial } from "../scene";
+import { vec4 } from "../rmsl";
+${READ_PIXEL}
+const AS_COLOUR = {
+  vec4: (v) => v,
+  ivec4: (v) => vec4(v.x.toFloat(), v.y.toFloat(), v.z.toFloat(), v.w.toFloat()),
+  mat4: (m) => m.element(0).add(m.element(1)).add(m.element(2)).add(m.element(3)).div(4),
+  mat3: (m) => vec4(m.element(0).add(m.element(1)).add(m.element(2)), 1),
+};
+globalThis.__rmslMissingAttribute = async (backend) => {
+  const results = {};
+  for (const [type, asColour] of Object.entries(AS_COLOUR)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    try {
+      const renderer = backend === "webgpu"
+        ? await WebGPURenderer.init(canvas)
+        : new WebGLRenderer(canvas, { antialias: false });
+      const errors = [];
+      renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+      const material = new MeshBasicMaterial();
+      material.vertexNode = (b) => {
+        b.varying("colour", "vec4").assign(vec4(0, 1, 0, 0).add(asColour(b.attribute("missing", type))));
+        return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+      };
+      material.fragmentNode = (b) => b.varying("colour", "vec4");
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+      const camera = new PerspectiveCamera(90, 1, 0.1, 100);
+      camera.position.set(0, 0, 0.5);
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+      if (renderer.device) {
+        await renderer.device.queue.onSubmittedWorkDone();
+        results[type] = errors.length ? { errors } : readPixel(canvas, 8, 8);
+      } else {
+        const gl = renderer.gl;
+        const pixels = new Uint8Array(4);
+        gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        const error = gl.getError();
+        results[type] = error ? { error } : { r: pixels[0], g: pixels[1], b: pixels[2], a: pixels[3] };
+      }
+    } catch (error) {
+      results[type] = { error: error.message };
+    }
+  }
+  return results;
+};
+`;
+
 describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon spec-a-changed-attribute-uploads-only-its-update-range
@@ -1921,6 +1980,28 @@ describe("a scene renderer reads an attribute as the type it declares", () => {
       new RegExp(`\\b${type}\\b`),
     );
   });
+
+  /**
+   * The stub device records the pipeline and the buffers each draw sets.
+   *
+   * @canon spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives
+   */
+  it("binds a buffer that every vertex reads at the slot of an attribute with no data on WebGPU", () => {
+    const { device, canvas, pipelines, passes } = stubDevice();
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => b.position.add(b.attribute("missing", "mat3").element(0));
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    new WebGPURenderer(canvas, device as any).render(scene, camera());
+    const buffers = pipelines[0].vertex.buffers;
+    const slot = buffers.findIndex((b: any) => b.attributes.length === 3);
+    expect(buffers[slot]).toMatchObject({
+      arrayStride: 0,
+      attributes: [0, 1, 2].map((column) => ({ offset: 0, format: "float32x3" })),
+    });
+    const set = passes[0].calls.filter((c) => c.name === "setVertexBuffer").map((c) => c.args[0]);
+    expect(set.sort()).toEqual(buffers.map((_: unknown, i: number) => i));
+  });
 });
 
 describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type on a real driver", () => {
@@ -1953,6 +2034,34 @@ describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type
         new URL(".", import.meta.url).pathname,
       );
       expect(results).toEqual(CASES);
+    },
+    60_000,
+  );
+
+  /**
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   */
+  it("gives an attribute with no data (0, 0, 0, 1) on WebGL", async () => {
+    const results = await runInGpuPage(
+      ENTRY_MISSING_ATTRIBUTE,
+      "__rmslMissingAttribute",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(results).toEqual({ vec4: GREEN, ivec4: GREEN, mat4: GREEN, mat3: GREEN });
+  }, 60_000);
+
+  /**
+   * @canon spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives
+   */
+  it.skipIf(!WEBGPU)(
+    "gives an attribute with no data (0, 0, 0, 1) on WebGPU",
+    async () => {
+      const results = await runInWebGpuPage(
+        `${ENTRY_MISSING_ATTRIBUTE}\nglobalThis.__rmslMissingAttributeOnWebGpu = () => globalThis.__rmslMissingAttribute("webgpu");`,
+        "__rmslMissingAttributeOnWebGpu",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(results).toEqual({ vec4: GREEN, ivec4: GREEN, mat4: GREEN, mat3: GREEN });
     },
     60_000,
   );
