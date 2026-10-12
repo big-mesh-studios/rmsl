@@ -168,8 +168,11 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   `vertexIndex()` and `instanceIndex()` give the vertex and instance being
   drawn. `createWgsl({ vertex, fragment, context })` binds the stages'
   storage nodes to a `WgslContext`'s buffers, so a draw reads what its
-  compute programs wrote, without a copy. GLSL has no storage buffers,
-  since WebGL2 doesn't, and throws on one.
+  compute programs wrote, without a copy. WebGL2 has no storage buffers,
+  so on GLSL a vertex or fragment stage reads one through a data texture,
+  as three.js's WebGLRenderer does, and writing one there throws.
+  `createGlsl` uploads the texture from the buffer's contents at `attach`,
+  and `setAttribute` on the buffer's slot fills it again.
 - **Post-processing** is available from the `@random-mesh/rmsl/effects`
   subpath. The effects are pure node graphs — pass sampler uniforms and
   parameters, get a color node. See [effects.md](./effects.md) for the
