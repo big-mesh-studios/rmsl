@@ -1,4 +1,12 @@
-import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import {
+  AttributeNode,
+  ReadOnlyStorageNode,
+  ShaderType,
+  StorageNode,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+} from "../core";
 import type { CpuTextureData } from "./cpu";
 
 /**
@@ -40,7 +48,7 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
    * `setUniform` this doesn't narrow `data`'s type — it only removes the
    * chance of a slot-name typo.
    */
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
 
   /**
@@ -126,8 +134,11 @@ export interface DrawClearOptions {
  */
 export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string;
 
+/** A node whose slot `setAttribute` fills: an attribute, or a storage buffer. */
+export type AttributeOrStorage<T extends ShaderType> = AttributeNode<T> | StorageNode<T> | ReadOnlyStorageNode<T>;
+
 /** Same idea as `UniformOrSlot`, for `setAttribute`. */
-export type AttributeOrSlot = AttributeNode<ShaderType> | string;
+export type AttributeOrSlot = AttributeOrStorage<ShaderType> | string;
 
 /**
  * The storage slots a `compute(out)` call asks to have read back: the keys of

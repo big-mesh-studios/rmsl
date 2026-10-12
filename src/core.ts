@@ -2967,27 +2967,29 @@ export function uniform<T extends ShaderType>(shaderType: T): UniformNode<T> {
 export type StorageAccess = "read" | "write" | "read_write";
 
 /**
- * A storage buffer node. Its own members come before its element type's, so
- * `element(i)` resolves to the buffer's element, not to a component or column
- * of the element type.
+ * A storage buffer node. Not a `Node<A>` itself: the buffer as a whole has no
+ * value, only its elements do, so it exposes `element()` rather than the
+ * operations of its element type.
  */
-export type StorageNode<A extends ShaderType> = {
+export interface StorageNode<A extends ShaderType> {
+  readonly name: string;
   readonly access: StorageAccess;
   /** The buffer this node reads and writes. Every node over the same attribute shares one buffer. */
   attribute: StorageBufferAttribute;
   element(index: IntLike | UintLike | FloatLike): Var<A>;
   /** Makes this node read-only, as TSL's `toReadOnly()`, and returns it. */
   toReadOnly(): ReadOnlyStorageNode<A>;
-} & VariableNode<A>;
+}
 
 /** A storage buffer node made read-only with `toReadOnly()`: its elements can't be assigned to. */
-export type ReadOnlyStorageNode<A extends ShaderType> = {
+export interface ReadOnlyStorageNode<A extends ShaderType> {
+  readonly name: string;
   readonly access: StorageAccess;
   /** The buffer this node reads. Every node over the same attribute shares one buffer. */
   attribute: StorageBufferAttribute;
   element(index: IntLike | UintLike | FloatLike): Node<A>;
   toReadOnly(): ReadOnlyStorageNode<A>;
-} & VariableNode<A>;
+}
 
 /** A typed-array constructor a storage buffer's elements can be stored in. */
 export type StorageArrayClass = Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor;
@@ -3060,7 +3062,8 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
   const slot = `_rmsl_b${attribute.id}`;
   const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute };
 
-  const result = node({ _t: shaderType, type: "storage", value, name: slot }) as StorageNode<T>;
+  const storageNode = node({ _t: shaderType, type: "storage", value, name: slot });
+  const result = storageNode as unknown as StorageNode<T>;
 
   Object.defineProperty(result, "access", { get: () => value.access, enumerable: true });
   result.attribute = attribute;
@@ -3068,7 +3071,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
     node({
       _t: shaderType,
       type: "storageElement",
-      params: [result, wrapValue(index) as BaseNode<ShaderType>],
+      params: [storageNode, wrapValue(index) as BaseNode<ShaderType>],
     }) as Var<T>;
   result.toReadOnly = () => {
     value.access = "read";

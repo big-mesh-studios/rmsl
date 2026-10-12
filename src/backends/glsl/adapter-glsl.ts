@@ -3,14 +3,22 @@ import {
   isSamplerType,
   Node,
   ShaderType,
-  StorageNode,
   UniformArrayNode,
   UniformNode,
   UniformValue,
   someNode,
 } from "../../core";
-import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
-import { assertOneDeclarationPerName, storageNodesOf, VertexRoot } from "../shared";
+import {
+  Adapter,
+  AttributeOrSlot,
+  AttributeOrStorage,
+  DrawClearOptions,
+  DrawCountOptions,
+  slotOf,
+  TRANSPARENT_BLACK,
+  TypedArray,
+} from "../adapter";
+import { assertOneDeclarationPerName, storageNodesOf, type StorageGraphNode, VertexRoot } from "../shared";
 import { componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
@@ -351,7 +359,7 @@ export function createGlsl(
   /** The context's MAX_TEXTURE_SIZE, read once it links. */
   let maxTextureSize = 0;
   /** The storage buffers the stages read, by slot. */
-  const storages = new Map<string, StorageNode<ShaderType>>(
+  const storages = new Map<string, StorageGraphNode>(
     storageNodesOf([vertexRoot, fragmentRoot]).map((node) => [node.name, node]),
   );
   /** The slots of the textures the stages sample. */
@@ -386,9 +394,9 @@ export function createGlsl(
     }
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
-  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+  function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     const storage = storages.get(slot);
     const sampler = uniforms.get(slot);

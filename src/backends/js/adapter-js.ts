@@ -2,6 +2,7 @@ import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, Uniform
 import {
   Adapter,
   AttributeOrSlot,
+  AttributeOrStorage,
   DrawClearOptions,
   DrawCountOptions,
   slotOf,
@@ -103,7 +104,7 @@ export interface JsComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
 }
@@ -177,7 +178,7 @@ export function createJs(
     uniforms[slotOf(uniform)] = value;
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     attributes[slotOf(attribute)] = data;
