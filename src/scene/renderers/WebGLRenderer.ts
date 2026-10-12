@@ -1,3 +1,4 @@
+import type { ShaderType, UniformValue } from "../../rmsl";
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
 import { assertHostShape } from "../../backends/host-shape";
 import {
@@ -461,7 +462,7 @@ export class WebGLRenderer {
     for (const binding of entry.program.uniforms) {
       const location = entry.uniformLocations.get(binding.node.name);
       if (location == null) continue;
-      let value: number | number[] | Float32Array | undefined;
+      let value: number[] | UniformValue<ShaderType> | undefined;
       if (binding.scope === "camera") {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
@@ -469,8 +470,7 @@ export class WebGLRenderer {
       } else if (binding.scope === "renderer") {
         value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
-        // A boolean or a typed array of another kind goes to the call as it is, which converts each component.
-        value = binding.value?.({ camera, mesh }) as number | number[] | Float32Array | undefined;
+        value = binding.value?.({ camera, mesh });
         // Only a material's value comes from the user; the renderer computes the others in their shape.
         assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       }
@@ -490,20 +490,24 @@ export class WebGLRenderer {
     }
   }
 
-  private setUniform(location: WebGLUniformLocation, type: string, value: number | number[] | Float32Array): void {
+  private setUniform(
+    location: WebGLUniformLocation,
+    type: string,
+    value: number | boolean | ArrayLike<number | boolean>,
+  ): void {
     const gl = this.gl;
-    // A scalar, a boolean included, goes to the call as it is, which converts it as its argument's type does.
+    // A boolean component reads 1 or 0, as the call would convert it.
     if (typeof value !== "object") {
       switch (type) {
         case "float":
-          gl.uniform1f(location, value);
+          gl.uniform1f(location, Number(value));
           break;
         case "int":
         case "bool":
-          gl.uniform1i(location, value);
+          gl.uniform1i(location, Number(value));
           break;
         case "uint":
-          gl.uniform1ui(location, value);
+          gl.uniform1ui(location, Number(value));
           break;
         // A bare number is not a vector or a matrix, and an unknown type is
         // skipped rather than guessed.
@@ -517,61 +521,61 @@ export class WebGLRenderer {
     // one per uniform per draw. Only the matrix forms have no component form.
     switch (type) {
       case "vec2":
-        gl.uniform2f(location, value[0], value[1]);
+        gl.uniform2f(location, Number(value[0]), Number(value[1]));
         break;
       case "vec3":
-        gl.uniform3f(location, value[0], value[1], value[2]);
+        gl.uniform3f(location, Number(value[0]), Number(value[1]), Number(value[2]));
         break;
       case "vec4":
-        gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+        gl.uniform4f(location, Number(value[0]), Number(value[1]), Number(value[2]), Number(value[3]));
         break;
       case "uvec2":
-        gl.uniform2ui(location, value[0], value[1]);
+        gl.uniform2ui(location, Number(value[0]), Number(value[1]));
         break;
       case "uvec3":
-        gl.uniform3ui(location, value[0], value[1], value[2]);
+        gl.uniform3ui(location, Number(value[0]), Number(value[1]), Number(value[2]));
         break;
       case "uvec4":
-        gl.uniform4ui(location, value[0], value[1], value[2], value[3]);
+        gl.uniform4ui(location, Number(value[0]), Number(value[1]), Number(value[2]), Number(value[3]));
         break;
       case "ivec2":
       case "bvec2":
-        gl.uniform2i(location, value[0], value[1]);
+        gl.uniform2i(location, Number(value[0]), Number(value[1]));
         break;
       case "ivec3":
       case "bvec3":
-        gl.uniform3i(location, value[0], value[1], value[2]);
+        gl.uniform3i(location, Number(value[0]), Number(value[1]), Number(value[2]));
         break;
       case "ivec4":
       case "bvec4":
-        gl.uniform4i(location, value[0], value[1], value[2], value[3]);
+        gl.uniform4i(location, Number(value[0]), Number(value[1]), Number(value[2]), Number(value[3]));
         break;
       case "mat2":
-        gl.uniformMatrix2fv(location, false, value);
+        gl.uniformMatrix2fv(location, false, floatList(value));
         break;
       case "mat3":
-        gl.uniformMatrix3fv(location, false, value);
+        gl.uniformMatrix3fv(location, false, floatList(value));
         break;
       case "mat4":
-        gl.uniformMatrix4fv(location, false, value);
+        gl.uniformMatrix4fv(location, false, floatList(value));
         break;
       case "mat2x3":
-        gl.uniformMatrix2x3fv(location, false, value);
+        gl.uniformMatrix2x3fv(location, false, floatList(value));
         break;
       case "mat2x4":
-        gl.uniformMatrix2x4fv(location, false, value);
+        gl.uniformMatrix2x4fv(location, false, floatList(value));
         break;
       case "mat3x2":
-        gl.uniformMatrix3x2fv(location, false, value);
+        gl.uniformMatrix3x2fv(location, false, floatList(value));
         break;
       case "mat3x4":
-        gl.uniformMatrix3x4fv(location, false, value);
+        gl.uniformMatrix3x4fv(location, false, floatList(value));
         break;
       case "mat4x2":
-        gl.uniformMatrix4x2fv(location, false, value);
+        gl.uniformMatrix4x2fv(location, false, floatList(value));
         break;
       case "mat4x3":
-        gl.uniformMatrix4x3fv(location, false, value);
+        gl.uniformMatrix4x3fv(location, false, floatList(value));
         break;
       default:
         // Unknown types are skipped rather than guessed.
@@ -1035,4 +1039,9 @@ function integerInternalFormat(
   if (bytes === 1) return { internalFormat: gl.RGBA8UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_BYTE };
   if (bytes === 2) return { internalFormat: gl.RGBA16UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_SHORT };
   return { internalFormat: gl.RGBA32UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT };
+}
+
+/** The components of a matrix as the matrix calls take them: a plain array or a `Float32Array` as it is, another typed array copied. */
+function floatList(value: ArrayLike<number | boolean>): Float32List {
+  return Array.isArray(value) || value instanceof Float32Array ? value : Float32Array.from(value, Number);
 }
