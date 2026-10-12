@@ -379,7 +379,7 @@ export function jsHelperSource(name: string): string {
       return `const _zeros = new Float64Array(16);`;
     // What an element of a uniform array given as nothing is read from: a component of it reads undefined.
     case "nothing":
-      return `const _nothing = [];`;
+      return `const _nothing = new Array(16).fill(undefined);`;
     // A typed array's own set copies without boxing what it reads, whatever kind of array the source is.
     case "copy":
       return `function _copy(src, out) {\n  if (src.length === out.length && ArrayBuffer.isView(out)) out.set(src);\n  else for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
@@ -1447,13 +1447,9 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
  * so. `read` gives zeros for an element of an array the host leaves out.
  */
 function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx, element = false): string[] {
-  jsRequireHelper(ctx, "zeros");
   let source = jsNewTemp(ctx, "float");
-  let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
-  if (element) {
-    jsRequireHelper(ctx, "nothing");
-    lines = [`${source} = ${read} ?? _nothing;`];
-  }
+  jsRequireHelper(ctx, element ? "nothing" : "zeros");
+  let lines = [element ? `${source} = ${read} ?? _nothing;` : `${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
   for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}];`);
   return lines;
 }
