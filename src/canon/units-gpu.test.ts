@@ -4,6 +4,7 @@ import {
   builtinPosition,
   bvec3,
   Fn,
+  Loop,
   For,
   float,
   instancedArray,
@@ -1374,6 +1375,55 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * The `Fn` is called outside the program's body, and the loop body reads
+   * its value once.
+   *
+   * @canon spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration
+   */
+  it("runs an inline Fn read once in a loop body on every iteration, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const shared = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const program = Fn(() => {
+      Loop(4, () => {
+        result.element(int(0)).addAssign(shared);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 4, value: 8 });
+    adapter.destroy();
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-where-it-is-called
+   */
+  it("runs an Fn called before a loop once, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const program = Fn(() => {
+      const shared = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(2);
+      })() as any;
+      Loop(4, () => {
+        result.element(int(0)).addAssign(shared);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 1, value: 8 });
+    adapter.destroy();
+  });
+
+  /**
    * The context gets a device whose pipeline creation is counted. Three
    * dispatches of one compute node create one pipeline.
    *
@@ -1622,7 +1672,7 @@ const bindingOf = (code: string, name: string) =>
  * entry builds it. Each entry returns what it read, or the error it hit.
  */
 const GLSL_DRAWS = `
-import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
+import { Discard, Fn, If, attribute, builtinPosition, float, uniform, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -1641,7 +1691,24 @@ const attempt = (run) => {
 };
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+const side = uniform("float");
+const inlineDiscard = () => {
+  const shared = Fn(() => { Discard(); return float(1); })();
+  return Fn(() => {
+    const colour = vec4(0, 0, 0, 1).toVar();
+    If(side.greaterThan(0), () => { colour.assign(vec4(shared, 0, 0, 1)); }).Else(() => { colour.assign(vec4(0, shared, 0, 1)); });
+    return colour;
+  })();
+};
 globalThis.__rmslGlslDraws = {
+  inlineDiscard: () => attempt(() => {
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), inlineDiscard());
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw();
+    return readPixel(target, 1, 2);
+  }),
   firstAttributeCount: () => attempt(() => {
     const target = canvas();
     const offset = attribute("vec2");
@@ -1666,7 +1733,7 @@ globalThis.__rmslGlslDraws = {
 
 /** The `createWgsl` counterparts, on a 4×4 canvas; each returns what it read, or the error it hit. */
 const WGSL_DRAWS = `
-import { Fn, attribute, builtinPosition, instancedArray, ivec2, uniform, vec2, vec4, texture } from "../rmsl";
+import { Discard, Fn, If, attribute, builtinPosition, float, instancedArray, ivec2, uniform, vec2, vec4, texture } from "../rmsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -1685,11 +1752,28 @@ const attempt = async (run) => {
 };
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+const side = uniform("float");
+const inlineDiscard = () => {
+  const shared = Fn(() => { Discard(); return float(1); })();
+  return Fn(() => {
+    const colour = vec4(0, 0, 0, 1).toVar();
+    If(side.greaterThan(0), () => { colour.assign(vec4(shared, 0, 0, 1)); }).Else(() => { colour.assign(vec4(0, shared, 0, 1)); });
+    return colour;
+  })();
+};
 const drawn = async (adapter, target) => {
   await adapter.device().queue.onSubmittedWorkDone();
   return readPixel(target, 1, 2);
 };
 globalThis.__rmslWgslDraws = {
+  inlineDiscard: () => attempt(async () => {
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: inlineDiscard() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw();
+    return drawn(adapter, target);
+  }),
   texture: () => attempt(async () => {
     const target = canvas();
     const image = uniform("sampler2D");
@@ -1771,6 +1855,16 @@ const wgslEntry = (name: string) =>
 
 describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
   /**
+   * An inline `Fn` that discards is read in both branches of an `If`, and the
+   * unset uniform takes the `Else`, so the pixel stays cleared.
+   *
+   * @canon spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+   */
+  it("drops the fragment from an inline Fn read in both branches of an If, with createGlsl", async () => {
+    expect(await glslEntry("inlineDiscard")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+  }, 120_000);
+
+  /**
    * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
    *
    * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
@@ -1791,6 +1885,16 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
 });
 
 describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
+  /**
+   * An inline `Fn` that discards is read in both branches of an `If`, and the
+   * unset uniform takes the `Else`, so the pixel stays cleared.
+   *
+   * @canon spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+   */
+  it("drops the fragment from an inline Fn read in both branches of an If, with createWgsl", async () => {
+    expect(await wgslEntry("inlineDiscard")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+  }, 120_000);
+
   /**
    * `createWgsl` samples the texture set with `setTexture`.
    *

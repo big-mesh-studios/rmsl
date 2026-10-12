@@ -376,9 +376,19 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@exception a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own) — In a fragment stage that writes its depth, a path that writes none gives the fragment's own depth. That is the depth it would have if the stage wrote none. A read of the depth before a write gives that depth too. This holds on every target.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
-    - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
-    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once on every path that reads its value. How often and where the program reads it changes nothing.
-    - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body runs where the program reads its value. Read more than once, it runs once before every read, on every target. It runs in the nearest block that holds every read, before the first statement there that holds one. A path that skips that block runs none of it. A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()` stays where each read is.
+    - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — The statements of an `Fn` called inside another `Fn`'s body run once, where the call is, whether and wherever the program reads its value. A variable it makes is declared there.
+    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
+      - [`@spec an-inline-fn-read-in-one-statement-runs-before-it`](#spec-an-inline-fn-read-in-one-statement-runs-before-it) — An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
+      - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
+      - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
+      - [`@spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs`](#spec-a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs) — A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
+        - [`@spec a-return-in-an-inline-fn-ends-the-function-where-it-runs`](#spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs) — A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
+        - [`@spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs`](#spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs) — A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
+      - [`@spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) — A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
+        - [`@spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop`](#spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop) — A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+        - [`@spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop) — A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
+        - [`@spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
+        - [`@exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused`](#exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
@@ -795,6 +805,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
+- [`@fact tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too) — TSL generates the statements of a node where it first builds the node, inside a loop body when that read is in one. A later read takes the value without them, also in a loop inside that block. A loop body, unlike a branch of an `If`, does not generate them again. A `Break()` among them acts on the loop around the first read.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 - [`@fact a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type) — TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
@@ -3024,19 +3035,81 @@ This follows because TSL builds a shader the same way.
 
 #### @spec an-inline-fn-runs-where-it-is-called
 
-> A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
+> The statements of an `Fn` called inside another `Fn`'s body run once, where the call is, whether and wherever the program reads its value. A variable it makes is declared there.
+
+This follows because the body that calls it records its statements at the call, as it records any other statement there.
 
 #### @spec an-inline-fn-runs-once
 
-> The statements of a called `Fn` run once on every path that reads its value. How often and where the program reads it changes nothing.
+> An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
 
-#### @exception an-inline-fn-read-more-than-once-runs-before-every-read
+This follows because a call of an `Fn` means one run of its statements, and the program holds no statement for that call. The innermost block that holds every read is the one place that runs before each read, on every path through it. A loop body is such a block too, and it runs again on every iteration.
 
-> An `Fn` called outside the program's body runs where the program reads its value. Read more than once, it runs once before every read, on every target. It runs in the nearest block that holds every read, before the first statement there that holds one. A path that skips that block runs none of it. A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()` stays where each read is.
+##### @spec an-inline-fn-read-in-one-statement-runs-before-it
+
+> An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
+
+##### @exception an-inline-fn-read-more-than-once-runs-before-every-read
+
+> An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
 
 Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
-This follows because a called `Fn` means one run of its statements. Where TSL generates them depends on which blocks read the value, so a path can run them twice, once or never. A jump moved ahead of its reads would skip what runs between them, or leave a different loop.
+This follows because TSL generates the statements at the first read, and again in a branch that lacks them. A path can then run them twice, once or never, where every target here runs them once.
+
+##### @spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration
+
+> An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
+
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too)
+
+This follows because the loop body is the innermost block that holds the read, and TSL generates the statements in it too. Issue #257 settled this.
+
+##### @spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs
+
+> A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
+
+This follows because the place the `Fn` runs is before every read, so every path that reads the value meets the jump first. Issue #256 settled this.
+
+###### @spec a-return-in-an-inline-fn-ends-the-function-where-it-runs
+
+> A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
+
+###### @spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+
+> A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
+
+##### @spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs
+
+> A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
+
+Derives from: [`spec-break-leaves-its-loop`](#spec-break-leaves-its-loop), [`spec-continue-starts-the-next-iteration`](#spec-continue-starts-the-next-iteration)
+
+This follows because the statements of the `Fn` run at that place, as if the program held them there. Issue #256 settled this.
+
+###### @spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop
+
+> A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+
+###### @spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop
+
+> A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
+
+###### @spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused
+
+> Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
+
+Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused)
+
+This follows because the jump would run outside every loop, which no target can run.
+
+###### @exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused
+
+> Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
+
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because the jump would act on the outer loop, while the read in the inner loop says the author meant that one. TSL compiles such a program, and its jump acts on the loop around the first read. Issue #256 settled this.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -5587,6 +5660,12 @@ This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCa
 > TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
 
 This is how three.js's TSL behaves, read from its source: `NodeBuilder.addLineFlowCodeBlock` and `addFlowCodeHierarchy` in `src/nodes/core/NodeBuilder.js`, called from `Node.build`, with the branches made in `ConditionalNode.setup` (three.js 0.186).
+
+## @fact tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too
+
+> TSL generates the statements of a node where it first builds the node, inside a loop body when that read is in one. A later read takes the value without them, also in a loop inside that block. A loop body, unlike a branch of an `If`, does not generate them again. A `Break()` among them acts on the loop around the first read.
+
+This is how three.js 0.186 behaves, read from its TSL source. `Node.build` in `src/nodes/core/Node.js` keeps the snippet of a node it generated. It adds the statements again only under a `nodeBlock`. `ConditionalNode.setup` gives each branch one. In `src/nodes/utils/LoopNode.js`, `LoopNode.setup` gives the loop body a `nodeLoop` and no `nodeBlock`. `LoopNode.generate` builds the body inside the loop's braces.
 
 ## @fact tsl-to-var-takes-a-name
 

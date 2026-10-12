@@ -24,8 +24,14 @@ const MUTABLE_READS = new Set([
   "builtinFragDepth",
 ]);
 
-/** Statements that leave the code around them. */
-const JUMPS = new Set(["break", "continue", "return", "discard"]);
+/** Statements that act on the loop around them. */
+const LOOP_JUMPS = new Set(["break", "continue"]);
+
+/** Statements that run their body again on every iteration. */
+const LOOPS = new Set(["for", "while"]);
+
+/** The name a user writes a statement of `LOOP_JUMPS` under. */
+const JUMP_NAMES: Record<string, string> = { break: "Break()", continue: "Continue()" };
 
 /** Node types that are literals, which a target folds. */
 const LITERALS = new Set(["float", "int", "uint", "bool"]);
@@ -86,9 +92,9 @@ function bodyKeys() {
  *
  * A result read inside another, or inside a statement of another, is read
  * where that one is. One placed in the same round is left for the next round.
- * A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()`
- * stays where it is read: moved ahead, the jump would skip what runs between,
- * or leave a different loop.
+ * A `Break()` or `Continue()` that a result holds outside its own loops acts on
+ * the loop around the place it runs. Such a result is refused when no loop is
+ * around that place, or when a read sits in a loop inside the one around it.
  *
  * Returns each of `blocks`, rewritten where a result was placed.
  */
@@ -105,36 +111,46 @@ function placeInlineFns(blocks: any[]): any[] {
       holdsMemo.set(n, result);
       return result;
     };
-    const jumpsMemo = new Map<any, boolean>();
-    const jumps = (n: any): boolean => {
-      if (!n || typeof n !== "object") return false;
-      if (JUMPS.has(n.type)) return true;
-      const known = jumpsMemo.get(n);
-      if (known !== undefined) return known;
-      jumpsMemo.set(n, false);
-      const result = Array.isArray(n.params) && n.params.some(jumps);
-      jumpsMemo.set(n, result);
+    const loopJumpMemo = new Map<any, string | undefined>();
+    /** The type of a `Break()` or `Continue()` that `n` holds outside every loop it holds. */
+    const loopJump = (n: any): string | undefined => {
+      if (!n || typeof n !== "object") return undefined;
+      if (LOOP_JUMPS.has(n.type)) return n.type;
+      if (LOOPS.has(n.type) || !Array.isArray(n.params)) return undefined;
+      if (loopJumpMemo.has(n)) return loopJumpMemo.get(n);
+      loopJumpMemo.set(n, undefined);
+      let result: string | undefined;
+      for (const p of n.params) if ((result ??= loopJump(p))) break;
+      loopJumpMemo.set(n, result);
       return result;
     };
 
     const reads = new Map<any, Frame[][]>();
+    /** For each read of a result, the loops around it inside the expression that holds it. */
+    const innerLoops = new Map<any, number[]>();
     const around = new Map<any, Set<any>>();
     const walked = new Set<any>();
+    /** The blocks that are the body of a loop. */
+    const loopBodies = new Set<any>();
     const key = bodyKeys();
 
-    /** Records each result `n` holds as read at `path`, inside the results in `outer`. */
-    const scan = (n: any, path: Frame[], outer: any[]): void => {
+    /** Records each result `n` holds as read at `path`, inside the results in `outer` and `loops` loops. */
+    const scan = (n: any, path: Frame[], outer: any[], loops = 0): void => {
       if (!holds(n)) return;
       if (isInlineFn(n)) {
         let paths = reads.get(n);
         if (!paths) reads.set(n, (paths = []));
         paths.push(path);
+        let counts = innerLoops.get(n);
+        if (!counts) innerLoops.set(n, (counts = []));
+        counts.push(loops);
         let held = around.get(n);
         if (!held) around.set(n, (held = new Set()));
         for (const o of outer) held.add(o);
         outer = [...outer, n];
       }
-      for (const p of n.params) scan(p, path, outer);
+      if (LOOPS.has(n.type)) loops++;
+      for (const p of n.params) scan(p, path, outer, loops);
     };
     const walkBlock = (block: any, frameBlock: any, path: Frame[]) =>
       itemsOf(block).forEach((item, index) => {
@@ -144,7 +160,10 @@ function placeInlineFns(blocks: any[]): any[] {
       });
     const walkBody = (statement: any, slot: number, path: Frame[]) => {
       const body = statement.params[slot];
-      if (body) walkBlock(body, body.type === "seq" ? body : key(statement, slot), path);
+      if (!body) return;
+      const frameBlock = body.type === "seq" ? body : key(statement, slot);
+      if (LOOPS.has(statement.type)) loopBodies.add(frameBlock);
+      walkBlock(body, frameBlock, path);
     };
     const walkStatement = (s: any, here: Frame[]) => {
       if (walked.has(s)) return;
@@ -157,10 +176,11 @@ function placeInlineFns(blocks: any[]): any[] {
           walkBody(s, 1, here);
           return walkBody(s, 2, here);
         case "for":
-          for (const p of s.params.slice(0, 3)) scan(p, here, []);
+          // The condition and the update run on every iteration, inside the loop.
+          s.params.slice(0, 3).forEach((p: any, i: number) => scan(p, here, [], i === 0 ? 0 : 1));
           return walkBody(s, 3, here);
         case "while":
-          scan(s.params[0], here, []);
+          scan(s.params[0], here, [], 1);
           return walkBody(s, 1, here);
         default:
           for (const p of s.params ?? []) scan(p, here, []);
@@ -170,12 +190,39 @@ function placeInlineFns(blocks: any[]): any[] {
 
     const placed = new Map<any, Frame>();
     for (const [fn, paths] of reads) {
-      if (paths.length < 2 || jumps(fn)) continue;
+      if (paths.length < 2) continue;
       const place = placeBefore(paths);
       if (place) placed.set(fn, place);
     }
     const nested = [...placed.keys()].filter((fn) => [...(around.get(fn) ?? [])].some((o) => placed.has(o)));
     for (const fn of nested) placed.delete(fn);
+    /** How many loops hold the place at the end of `frames`. */
+    const loopsOn = (frames: Frame[]) => frames.filter((frame) => loopBodies.has(frame.block)).length;
+    for (const [fn, paths] of reads) {
+      const jump = loopJump(fn);
+      // A result inside one placed now is checked in the next round, where it is read then.
+      if (!jump || [...(around.get(fn) ?? [])].some((o) => placed.has(o))) continue;
+      const place = placed.get(fn);
+      if (!place && paths.length > 1) continue;
+      const loops = paths.map((path, i) => loopsOn(path) + innerLoops.get(fn)![i]!);
+      const loopsAround = place
+        ? loopsOn(paths[0]!.slice(0, paths[0]!.findIndex((f) => f.block === place.block) + 1))
+        : loops[0]!;
+      if (loopsAround === 0) {
+        throw new Error(
+          `[RMSL] ${JUMP_NAMES[jump]} in an Fn called outside the program's body runs where no loop is around it: ` +
+            `at the start of the first statement that reads its value, in the innermost block that holds every read. ` +
+            `Read its value only inside the loop it acts on.`,
+        );
+      }
+      if (loops.some((n) => n > loopsAround)) {
+        throw new Error(
+          `[RMSL] ${JUMP_NAMES[jump]} in an Fn called outside the program's body acts on the loop around the first ` +
+            `statement that reads its value, but a read sits in a loop inside that one. ` +
+            `Call the Fn inside the loop it acts on.`,
+        );
+      }
+    }
     if (placed.size === 0) return blocks;
 
     /** The results to run before each item of each block, in the order the program first reads them. */

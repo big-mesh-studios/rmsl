@@ -953,7 +953,7 @@ describe("WASM backend: swizzle read", () => {
     expect(run(() => Fn(() => vec3(1, 2, 3).toVar().z as any)())).toBe(3);
   });
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it("inlines a nested Fn call's seq result used mid-expression (scalar)", () => {
     // Unlike the case above, the nested Fn call here isn't the compiled
@@ -963,7 +963,7 @@ describe("WASM backend: swizzle read", () => {
     expect(run(() => inner().add(1) as any)).toBe(7);
   });
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it("inlines a nested Fn call's seq result used mid-expression (vector)", () => {
     const inner = Fn(() => vec3(10, 20, 30).toVar());
@@ -2336,7 +2336,7 @@ describe("WASM backend: an inline Fn's statements read inside a statement", () =
   /**
    * Each program also runs on the JS target, which gives the answer.
    *
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("runs them when the statement stores into a storage element past the end", () => {
     const out = instancedArray(1, "float");
@@ -2361,7 +2361,7 @@ describe("WASM backend: an inline Fn's statements read inside a statement", () =
     expect(run(compileWasmRoutine)).toBe(2);
   });
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("runs them once when they compute a uniform array index", () => {
     let arr!: any;

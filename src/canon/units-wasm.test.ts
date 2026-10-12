@@ -10,6 +10,7 @@ import {
   Fn,
   If,
   instancedArray,
+  Loop,
   int,
   invocationIndex,
   ivec2,
@@ -508,28 +509,28 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   };
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cpuTargets)("%s: runs it once when fract reads its value twice", (_, compile) => {
     expect(run(compile, () => counted(2.75).fract())).toEqual({ runs: 1, result: 0.75 });
   });
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cpuTargets)("%s: runs it once when sign reads its value twice", (_, compile) => {
     expect(run(compile, () => counted(-3).sign())).toEqual({ runs: 1, result: -1 });
   });
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cpuTargets)("%s: runs it once when the integer abs reads its value three times", (_, compile) => {
     expect(run(compile, () => counted(-3).toInt().abs().toFloat())).toEqual({ runs: 1, result: 3 });
   });
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cpuTargets)(
     "%s: runs it once when a vector operation takes it as a scalar for every component",
@@ -539,7 +540,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   );
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cpuTargets)("%s: runs it once when clamp takes it as a scalar bound", (_, compile) => {
     expect(run(compile, () => vec3(1, 2, 3).clamp(counted(1.5), 2.5).x)).toEqual({ runs: 1, result: 1.5 });
@@ -577,7 +578,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   });
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cpuTargets)("%s: runs it once when mix takes it as the weight of every component", (_, compile) => {
     expect(run(compile, () => vec3(0, 0, 0).mix(vec3(4, 4, 4), counted(0.5)).z)).toEqual({ runs: 1, result: 2 });
@@ -606,6 +607,86 @@ describe("an inline Fn read on several paths of a program", () => {
         runs: path.runs(f, s),
         value: path.value(f, s),
       });
+    }
+  });
+});
+
+describe("an inline Fn read in a loop", () => {
+  const counter = instancedArray(1, "float");
+  const result = instancedArray(1, "float");
+  /** An `Fn` that adds one to `counter` and returns 2. */
+  const counted = Fn(() => {
+    counter.element(int(0)).addAssign(1);
+    return float(2);
+  });
+  const run = (compile: CompileCpuRoutine, build: () => any) => {
+    const runs = new Float64Array(1);
+    const value = new Float64Array(1);
+    compile(build, none)({ storages: { [counter.name]: runs, [result.name]: value } });
+    return { runs: runs[0], value: value[0] };
+  };
+
+  /**
+   * The `Fn` is called outside the program's body, and the loop body reads
+   * its value once.
+   *
+   * @canon spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration
+   */
+  it.each(cpuTargets)("%s: runs an inline Fn read once in a loop body on every iteration", (_, compile) => {
+    const build = () => {
+      const shared = counted() as any;
+      return Fn(() => {
+        Loop(4, () => {
+          result.element(int(0)).addAssign(shared);
+        });
+      })();
+    };
+    expect(run(compile, build)).toEqual({ runs: 4, value: 8 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-where-it-is-called
+   */
+  it.each(cpuTargets)("%s: runs an Fn called before a loop once", (_, compile) => {
+    const build = () =>
+      Fn(() => {
+        const shared = counted() as any;
+        Loop(4, () => {
+          result.element(int(0)).addAssign(shared);
+        });
+      })();
+    expect(run(compile, build)).toEqual({ runs: 1, value: 8 });
+  });
+});
+
+describe("an inline Fn that discards, read in both branches of an If", () => {
+  /**
+   * The `Fn` discards the fragment, and each branch reads its value, so
+   * the fragment is dropped on either path.
+   *
+   * @canon spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+   */
+  it("drops the fragment on either path, on JS and WASM", () => {
+    const side = uniform("float");
+    const build = () => {
+      const shared = Fn(() => {
+        Discard();
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const colour = vec4(0, 0, 0, 1).toVar();
+        If(side.greaterThan(0), () => {
+          colour.assign(vec4(shared, 0, 0, 1));
+        }).Else(() => {
+          colour.assign(vec4(0, shared, 0, 1));
+        });
+        return colour;
+      })();
+    };
+    for (const compile of [compileJSFragment, compileWasmFragment]) {
+      const stage = (compile as any)(build, { ...none });
+      expect(stage({ uniforms: { [side.name]: 1 } })).toBeNull();
+      expect(stage({ uniforms: { [side.name]: 0 } })).toBeNull();
     }
   });
 });

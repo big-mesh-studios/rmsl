@@ -19,6 +19,8 @@ import {
   fragCoord,
   HALF_PI,
   Break,
+  Continue,
+  For,
   If,
   instancedArray,
   int,
@@ -37,6 +39,7 @@ import {
   mat4x3,
   outputStruct,
   PI,
+  Return,
   screenSize,
   screenUV,
   select,
@@ -1433,5 +1436,163 @@ describe("each leaf on every target it claims", () => {
     expect(evaluateRecording(nested, [2])).toBe(404);
     expect(evaluateRecording(nested, [0.5])).toBe(2.5 * 110);
     expect(evaluateRecording(nested, [-5])).toBe(0);
+  });
+});
+
+describe("an inline Fn that jumps, read in several statements", () => {
+  /**
+   * The `Fn` returns early when `a` is above zero, and both branches of an `If`
+   * read its value. It runs before the `If`, so the function gives its zero
+   * value on either path.
+   *
+   * @canon spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs
+   */
+  it("ends a function from an inline Fn read in both branches of an If, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Return();
+        });
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const out = float(5).toVar();
+        If(a.lessThan(10), () => {
+          out.assign(shared.mul(2));
+        }).Else(() => {
+          out.assign(shared.mul(3));
+        });
+        return out;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(0);
+    expect(evaluateRecording(build, [20])).toBe(0);
+    expect(evaluateRecording(build, [-1])).toBe(2);
+  });
+
+  /**
+   * Both branches of an `If` in the loop body read the value of an `Fn` that
+   * breaks when `a` is above zero. It runs at the start of that `If`, on the
+   * first iteration, which takes the `Else`.
+   *
+   * @canon spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop
+   */
+  it("leaves the loop from an inline Fn read in both branches of an If in its body, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Break();
+        });
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            total.addAssign(100);
+            If(i.greaterThan(0), () => {
+              total.addAssign(shared);
+            }).Else(() => {
+              total.addAssign(shared.mul(10));
+            });
+          },
+        );
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(100);
+    expect(evaluateRecording(build, [-1])).toBe(312);
+  });
+
+  /**
+   * The `Fn` counts up to `a` in a loop of its own and breaks there. Both
+   * branches of an `If` read its value, outside every loop of the program.
+   *
+   * @canon spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop
+   */
+  it("leaves a loop of an inline Fn's own read in both branches of an If, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        const n = float(0).toVar();
+        Loop(5, () => {
+          If(n.greaterThanEqual(a), () => {
+            Break();
+          });
+          n.addAssign(1);
+        });
+        return n;
+      })() as any;
+      return Fn(() => {
+        const out = float(0).toVar();
+        If(a.greaterThan(2), () => {
+          out.assign(shared);
+        }).Else(() => {
+          out.assign(shared.mul(10));
+        });
+        return out;
+      })();
+    };
+    expect(evaluateRecording(build, [3])).toBe(3);
+    expect(evaluateRecording(build, [1])).toBe(10);
+  });
+
+  /**
+   * The value is read in two loops, one after the other, so the block that
+   * holds every read is outside both.
+   *
+   * @canon spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused
+   */
+  it.each([
+    ["Break", Break],
+    ["Continue", Continue],
+  ] as const)("refuses %s in an inline Fn read in two loops on every target", (name, jump) => {
+    const drop = uniform("float");
+    const build = () => {
+      const shared = Fn(() => {
+        If(drop.greaterThan(0), () => jump());
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(shared);
+        });
+        Loop(2, () => {
+          total.addAssign(shared.mul(10));
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, new RegExp(`${name}\\(\\) in an Fn called outside .* no loop`));
+  });
+
+  /**
+   * One read is in the loop body, the other in a loop inside it. The `Fn` runs
+   * in the outer body, where its `Break()` would leave the outer loop.
+   *
+   * @canon exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused
+   */
+  it("refuses Break in an inline Fn with a read in a loop inside the one around it, on every target", () => {
+    const drop = uniform("float");
+    const build = () => {
+      const shared = Fn(() => {
+        If(drop.greaterThan(0), () => Break());
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(shared);
+          Loop(2, () => {
+            total.addAssign(shared.mul(10));
+          });
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, /Break\(\) in an Fn called outside .* loop inside/);
   });
 });
