@@ -159,6 +159,16 @@ export function compileJS(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSRasterOptions = {},
 ): JsRasterRoutine {
+  return compileJSRasterizer("compileJS", vertexFn, fragmentFn, options);
+}
+
+/** {@link compileJS} for `caller`, the call the errors of a draw name: `compileJS` itself, or an adapter that wraps it. */
+export function compileJSRasterizer(
+  caller: string,
+  vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSRasterOptions,
+): JsRasterRoutine {
   const stageOptions = {
     params: [],
     derivatives: options.derivatives,
@@ -352,7 +362,7 @@ export function compileJS(
     const first = options.first ?? 0;
     for (let a = 0; a < attributeSlots.length; a++) {
       const slot = attributeSlots[a]!;
-      if (!attributes[slot]) throw missingAttributeError("compileJS", slot);
+      if (!attributes[slot]) throw missingAttributeError(caller, slot);
       assertHostArray("attribute", slot, vertexStage.attributeTypes[slot]!, attributes[slot], true);
     }
     // An attribute the program does not read counts for nothing, as a WebGPU

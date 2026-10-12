@@ -246,6 +246,16 @@ export function compileWasm(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmOptions = {},
 ): WasmRasterRoutine {
+  return compileWasmRasterizer("compileWasm", vertexFn, fragmentFn, options);
+}
+
+/** {@link compileWasm} for `caller`, the call the errors of a draw name: `compileWasm` itself, or an adapter that wraps it. */
+export function compileWasmRasterizer(
+  caller: string,
+  vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmOptions,
+): WasmRasterRoutine {
   const vertexCompiled = compileWasmFn(vertexFn, {
     ...options,
     name: "main",
@@ -495,7 +505,7 @@ export function compileWasm(
         continue;
       }
       const src = ctx.attributes[a.slot];
-      if (!src) throw missingAttributeError("compileWasm", a.slot);
+      if (!src) throw missingAttributeError(caller, a.slot);
       assertHostArray("attribute", a.slot, a.shaderType, src, true);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {

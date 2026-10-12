@@ -21,7 +21,7 @@ import {
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { assertHostArray } from "../vertex-format";
-import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
+import { compileJS, compileJSRasterizer, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
 
@@ -169,7 +169,7 @@ export function createJs(
   fragmentFn: (...args: any[]) => any,
   options: CompileJSRasterOptions = {},
 ): JsAdapter {
-  const routine = compileJS(vertexFn, fragmentFn, options);
+  const routine = compileJSRasterizer("createJs", vertexFn, fragmentFn, options);
 
   const uniforms: Record<string, unknown> = {};
   const attributes: Record<string, TypedArray> = {};

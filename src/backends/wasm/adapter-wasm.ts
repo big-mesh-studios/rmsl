@@ -21,7 +21,7 @@ import {
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { assertHostArray } from "../vertex-format";
-import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
+import { compileWasm, compileWasmRasterizer, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import {
   compileWasmCompute,
@@ -199,7 +199,7 @@ export function createWasm(
   fragmentFn: (...args: any[]) => any,
   options: CompileWasmOptions = {},
 ): WasmAdapter {
-  const routine = compileWasm(vertexFn, fragmentFn, options);
+  const routine = compileWasmRasterizer("createWasm", vertexFn, fragmentFn, options);
 
   const uniforms: Record<string, number | number[]> = {};
   const attributes: Record<string, TypedArray> = {};

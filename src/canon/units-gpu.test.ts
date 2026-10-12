@@ -1031,6 +1031,8 @@ const VALUE_TYPES = `
 import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
 const canvas = () => {
@@ -1161,6 +1163,14 @@ globalThis.__rmslValueTypes = {
       adapter.setAttribute(position, TRIANGLE);
     }, Fn(() => vec4(0, green, 0, 1))());
   },
+  cpuAttributeWithoutData: (target) => attempt(() => {
+    const shift = attribute("int");
+    const adapter = (target === "JS" ? createJs : createWasm)(() => shiftedVertex(shift), () => Fn(() => vec4(0, 1, 0, 1))());
+    adapter.attach(canvas());
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw({ count: 3 });
+    return { drew: true };
+  }),
   wgslAttributeWithoutData: () => {
     const shift = attribute("int");
     return wgsl(shiftedVertex(shift), (adapter) => adapter.setAttribute(position, TRIANGLE));
@@ -1295,6 +1305,26 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
     "draws with a mat3 attribute through createWgsl, counted by the matrix",
     async () => {
       expect(await wgslValueType("wgslMatrixAttribute")).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * The page gives the adapter a real 2D canvas.
+   *
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
+   */
+  it.each(["JS", "WASM"])(
+    "refuses a draw missing an attribute its vertex stage reads on the %s adapter",
+    async (target) => {
+      const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.cpuAttributeWithoutData("${target}");`;
+      expect(await runInGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual({
+        error: expect.stringMatching(
+          new RegExp(
+            `^\\[RMSL\\] ${target === "JS" ? "createJs" : "createWasm"}: draw\\(\\) is missing attribute "_rmsl_a\\d+"`,
+          ),
+        ),
+      });
     },
     120_000,
   );
