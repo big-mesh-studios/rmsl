@@ -758,6 +758,14 @@ export function createWgslCompute(
   }
 
   /** Makes the buffer of `resource` hold `elements` elements, keeping every other slot's buffer and what it holds. */
+  /** The elements of the first storage buffer the program declares, for a dispatch before the host passes one. */
+  function programStorageCount(): number {
+    for (const [slot, node] of declaredStorages) {
+      if (computeStorageResources().some((r) => r.name === slot)) return node.attribute.count;
+    }
+    return 0;
+  }
+
   function sizeStorageSlot(resource: Extract<WgslResource, { kind: "storage" }>, elements: number) {
     const existing = storageSlots.get(resource.name);
     if (existing && existing.elements === elements) return existing;
@@ -888,7 +896,13 @@ export function createWgslCompute(
 
       // A slot the host never sets, such as one the program only writes, starts as the array of its attribute,
       // as TSL's buffer does: zeros for `instancedArray(count, type)`. It has a buffer to bind either way.
+      // A slot the host set before attach is sized for its data, which the replay below writes.
       for (const resource of computeStorageResources()) {
+        const pending = pendingAttributes.get(resource.name);
+        if (pending) {
+          sizeStorageSlot(resource, Math.ceil(pending.length / componentCountOf(resource.shaderType)));
+          continue;
+        }
         const attribute = declaredStorages.get(resource.name)?.attribute;
         const state = sizeStorageSlot(resource, attribute?.count ?? 0);
         if (attribute)
@@ -915,7 +929,7 @@ export function createWgslCompute(
       // Checked before the dispatch, so a refusal leaves the buffers as they were.
       let reads = out && readbacksOf(out);
       let workgroupSize = options.workgroupSize ?? 64;
-      let invocations = count ?? firstStorageCount;
+      let invocations = count ?? (firstStorageSeen ? firstStorageCount : programStorageCount());
       let encoder = device.createCommandEncoder();
       let pass = encoder.beginComputePass();
       pass.setPipeline(computePipeline);

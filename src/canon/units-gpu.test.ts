@@ -2450,6 +2450,25 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * No buffer is set, so the dispatch covers the first the program declares.
+   *
+   * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+   */
+  it("given no count covers the program's first buffer before the host sets one on createWgslCompute", async () => {
+    const out = instancedArray(3, "float");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        out.element(invocationIndex()).assign(float(5));
+      })(),
+    );
+    await adapter.attach();
+    const read = { [out.name]: new Float32Array(3) };
+    await adapter.compute(read);
+    expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
+    adapter.destroy();
+  });
+
+  /**
    * Setting one slot to a length of its own keeps what the other slots hold.
    *
    * @canon spec-setting-one-storage-slot-keeps-the-others

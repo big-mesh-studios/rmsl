@@ -170,6 +170,7 @@ export function createWasmCompute(
     compute: computeRoutine,
     boxedUniforms: true,
     guard: hostInputGuard(compute, true),
+    float: options.float,
   });
 }
 

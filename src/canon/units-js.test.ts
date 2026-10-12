@@ -2520,4 +2520,45 @@ describe("a storage buffer the host never sets on a CPU compute adapter", () => 
     adapter.compute(read, 2);
     expect(Array.from(read[out.name]!)).toEqual([11, 12]);
   });
+  /**
+   * The adapters compute floats in f64 by default, so a float buffer the
+   * host never sets holds a third as an f64 does, as one the host sets as a
+   * `Float64Array` would.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s holds a float buffer the host never set at the width it computes in", (_, create) => {
+    const out = instancedArray(1, "float");
+    const adapter = create(
+      Fn(() => {
+        out.element(int(0)).assign(float(1).div(3));
+      })(),
+    );
+    const read = { [out.name]: new Float64Array(1) };
+    adapter.compute(read, 1);
+    expect(read[out.name]![0]).toBe(1 / 3);
+  });
+
+  /**
+   * No buffer is set, so the dispatch covers the first the program declares.
+   *
+   * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s given no count covers the program's first buffer before the host sets one", (_, create) => {
+    const out = instancedArray(3, "float");
+    const adapter = create(
+      Fn(() => {
+        out.element(invocationIndex()).assign(float(5));
+      })(),
+    );
+    const read = { [out.name]: new Float32Array(3) };
+    adapter.compute(read);
+    expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
+  });
 });

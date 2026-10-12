@@ -568,9 +568,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scene-renderer-refuses-a-material-that-reads-storage`](#spec-a-scene-renderer-refuses-a-material-that-reads-storage) — Both renderers of `./scene` refuse a [node material](#term-node-material) whose graph reads a storage buffer, as they build its program. The error names the buffer. A scene renderer binds no storage buffer.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
-    - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
+    - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer. That is the first the host passed, or the program's first before the host passes one.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
-      - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
+      - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count. Before the host passes one, the count is that of the first storage buffer the program declares.
       - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
   - [`@spec a-webgl-caller-restores-the-context-state-only-when-asked`](#spec-a-webgl-caller-restores-the-context-state-only-when-asked) — `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
@@ -4310,7 +4310,7 @@ This follows because every adapter draws one program the same way, and the raste
 
 #### @spec a-compute-call-dispatches-the-count-it-is-given
 
-> A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
+> A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer. That is the first the host passed, or the program's first before the host passes one.
 
 Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
@@ -4322,7 +4322,7 @@ This follows because the application owns the data it uploads and decides how ma
 
 ##### @spec a-compute-call-takes-its-count-from-the-first-storage-buffer
 
-> A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
+> A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count. Before the host passes one, the count is that of the first storage buffer the program declares.
 
 ##### @spec a-vector-storage-buffer-counts-its-elements
 
