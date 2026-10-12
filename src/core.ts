@@ -97,47 +97,45 @@ export type BooleanValue = boolean | 0 | 1;
  */
 export type UniformValue<A extends ShaderType> = UniformValues[A];
 
-/** The value of each `ShaderType`, which `UniformValue` looks up. */
-interface UniformValues {
-  float: number;
-  int: number;
-  uint: number;
-  bool: BooleanValue;
-  vec2: Components<2> | FloatArray;
-  vec3: Components<3> | FloatArray;
-  vec4: Components<4> | FloatArray;
-  ivec2: Components<2> | Int32Array;
-  ivec3: Components<3> | Int32Array;
-  ivec4: Components<4> | Int32Array;
-  uvec2: Components<2> | Uint32Array;
-  uvec3: Components<3> | Uint32Array;
-  uvec4: Components<4> | Uint32Array;
-  bvec2: [BooleanValue, BooleanValue] | Int32Array | Uint32Array;
-  bvec3: [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array;
-  bvec4: [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array;
-  mat2: MatrixComponents<2, 2> | FloatArray;
-  mat2x3: MatrixComponents<2, 3> | FloatArray;
-  mat2x4: MatrixComponents<2, 4> | FloatArray;
-  mat3x2: MatrixComponents<3, 2> | FloatArray;
-  mat3: MatrixComponents<3, 3> | FloatArray;
-  mat3x4: MatrixComponents<3, 4> | FloatArray;
-  mat4x2: MatrixComponents<4, 2> | FloatArray;
-  mat4x3: MatrixComponents<4, 3> | FloatArray;
-  mat4: MatrixComponents<4, 4> | FloatArray;
-  sampler2D: never;
-  sampler3D: never;
-  samplerCube: never;
-  isampler2D: never;
-  isampler3D: never;
-  isamplerCube: never;
-  usampler2D: never;
-  usampler3D: never;
-  usamplerCube: never;
-  void: never;
-}
+/**
+ * The value of each `ShaderType`, which `UniformValue` looks up. An interface,
+ * so that a lookup of a generic key stays a lookup rather than turning back
+ * into the conditional each entry is computed by.
+ */
+interface UniformValues extends VectorValues, MatrixValues, NoValues {}
 
-/** A tuple of `N` numbers: the components of a vector or matrix value, given as a plain array. */
-type Components<N extends number, T extends number[] = []> = T["length"] extends N ? T : Components<N, [...T, number]>;
+/** The value of each scalar and vector type, by its width in `VECTOR_WIDTHS`. */
+type VectorValues = { [A in keyof typeof VECTOR_WIDTHS]: VectorValue<A, (typeof VECTOR_WIDTHS)[A]> };
+
+/** The value of each matrix type, by its columns and rows in `MATRIX_SHAPES`. */
+type MatrixValues = {
+  [A in keyof typeof MATRIX_SHAPES]:
+    MatrixComponents<(typeof MATRIX_SHAPES)[A][0], (typeof MATRIX_SHAPES)[A][1]> | FloatArray;
+};
+
+/** The types with no numeric uniform value: the samplers and `void`. */
+type NoValues = { [A in Exclude<ShaderType, keyof typeof VECTOR_WIDTHS | keyof typeof MATRIX_SHAPES>]: never };
+
+/** The value of a scalar or vector type `A` of `N` components: booleans for a `bool` kind, integers in their own typed array. */
+type VectorValue<A extends ShaderType, N extends number> = N extends 1
+  ? A extends "bool"
+    ? BooleanValue
+    : number
+  : A extends `bvec${string}`
+    ? Components<N, [], BooleanValue> | Int32Array | Uint32Array
+    : Components<N> | (A extends `ivec${string}` ? Int32Array : A extends `uvec${string}` ? Uint32Array : FloatArray);
+
+/** Holds only when `A` and `B` are the same type. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+/** Fails to compile when the table has a key `ShaderType` lacks, or lacks one it has. */
+type UniformValuesCoverEveryShaderType = AssertTrue<Same<keyof UniformValues, ShaderType>>;
+type AssertTrue<T extends true> = T;
+
+/** A tuple of `N` components of type `C`: a vector or matrix value, given as a plain array. */
+type Components<N extends number, T extends C[] = [], C = number> = T["length"] extends N
+  ? T
+  : Components<N, [...T, C], C>;
 
 /** A tuple of the components of a matrix of `C` columns of `R` rows, a plain array of them column after column. */
 type MatrixComponents<
