@@ -51,6 +51,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does) — The compiler computes a node once for several reads only where that changes nothing. It gives the results and the side effects that computing the node at each read gives. Sharing changes neither how often a statement runs nor the value a read sees.
     - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
       - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
+      - [`@spec nested-inline-fns-compile-in-time-that-grows-with-the-levels`](#spec-nested-inline-fns-compile-in-time-that-grows-with-the-levels) — A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
       - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
       - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
       - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
@@ -385,7 +386,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop`](#spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop) — An `Fn` called outside the program's body, whose value both the condition and the body of a `For` read, runs once, before the loop. This holds when the condition is that value itself. Each test then reads what the `Fn` returned.
       - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
       - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
-      - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs.
+      - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when roots that share no block read that other `Fn`.
       - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
       - [`@spec an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test) — An `Fn` called outside the program's body runs before every test of a `While` loop when only the statements of its condition read its value. The condition is one given as a function.
       - [`@spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs`](#spec-a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs) — A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
@@ -1123,6 +1124,12 @@ This follows because the output and the work at run time then grow with the node
 ##### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
 
 > A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
+
+##### @spec nested-inline-fns-compile-in-time-that-grows-with-the-levels
+
+> A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
+
+This follows because the compiler walks the statements of each such `Fn` once, whatever number of reads it has. It places a read inside an `Fn` from the statements around that read.
 
 ##### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
@@ -3108,7 +3115,7 @@ This follows because the loop body is the innermost block that holds the read, a
 
 ##### @spec an-inline-fn-read-only-inside-another-runs-in-the-block-there
 
-> An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs.
+> An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when roots that share no block read that other `Fn`.
 
 Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
 

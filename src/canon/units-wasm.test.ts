@@ -868,6 +868,88 @@ describe("an inline Fn read more than once in a For condition", () => {
   );
 });
 
+describe("an inline Fn read more than once only inside another read from two roots", () => {
+  /**
+   * The outer `Fn` reads the inner one in both branches of an `If`, and two
+   * roots read the outer one. The inner one runs before that `If`, inside the
+   * outer one, so it runs on either branch.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it.each(cpuTargets)("%s: runs it once in the block there that holds every read", (_, compile) => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(2, "float");
+    const taken = uniform("float");
+    const build = () => {
+      const g = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(2);
+      })() as any;
+      const f = Fn(() => {
+        const t = float(0).toVar();
+        If(taken.greaterThan(0), () => {
+          t.assign(g);
+        }).Else(() => {
+          t.assign(g.mul(10));
+        });
+        return t;
+      })() as any;
+      return [
+        Fn(() => {
+          result.element(int(0)).assign(f);
+        })(),
+        Fn(() => {
+          result.element(int(1)).assign(f.add(1));
+        })(),
+      ];
+    };
+    for (const [branch, value] of [
+      [1, 2],
+      [0, 20],
+    ]) {
+      const runs = new Float64Array(1);
+      const data = new Float64Array(2);
+      compile(build as any, none)({
+        storages: { [counter.name]: runs, [result.name]: data },
+        uniforms: { [taken.name]: branch },
+      });
+      expect({ runs: runs[0], values: Array.from(data) }).toEqual({ runs: 1, values: [value, value + 1] });
+    }
+  });
+});
+
+describe("an inline Fn read in the program and inside another read twice", () => {
+  /**
+   * The program reads the inner `Fn` once, and twice the outer one, whose
+   * statements read the inner one. Every read is in the program's block.
+   *
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   */
+  it.each(cpuTargets)("%s: runs it once, before the first read", (_, compile) => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(3, "float");
+    const build = () => {
+      const g = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(2);
+      })() as any;
+      const f = Fn(() => {
+        const t = g.mul(10).toVar();
+        return t;
+      })() as any;
+      return Fn(() => {
+        result.element(int(0)).assign(g);
+        result.element(int(1)).assign(f);
+        result.element(int(2)).assign(f.add(1));
+      })();
+    };
+    const runs = new Float64Array(1);
+    const data = new Float64Array(3);
+    compile(build, none)({ storages: { [counter.name]: runs, [result.name]: data } });
+    expect({ runs: runs[0], values: Array.from(data) }).toEqual({ runs: 1, values: [2, 20, 21] });
+  });
+});
+
 describe("an inline Fn that discards, read in both branches of an If", () => {
   /**
    * The `Fn` discards the fragment, and each branch reads its value, so

@@ -63,7 +63,7 @@ function placeBefore(paths: Frame[][]): Frame | undefined {
     const frames = paths.map((path) => path[depth]);
     const block = frames[0]?.block;
     if (frames.some((frame) => !frame || frame.block !== block)) return place;
-    const index = Math.min(...frames.map((frame) => frame!.index));
+    const index = frames.reduce((least, frame) => Math.min(least, frame!.index), Infinity);
     place = { block, index };
     if (frames.some((frame) => frame!.index !== index)) return place;
   }
@@ -83,6 +83,13 @@ function bodyKeys() {
 }
 
 /**
+ * A read of an inline `Fn` result: the result whose statements hold it, or
+ * `undefined` for a block of the program, the frames from that block in, and
+ * 1 when it sits in a `While` condition, which its frames do not show.
+ */
+type Read = { within: any; path: Frame[]; header: number };
+
+/**
  * Makes the statements of each inline `Fn` result that the program reads more
  * than once statements of the program, run once before every read: in the
  * nearest block that holds every read, before the first item there that holds
@@ -91,12 +98,17 @@ function bodyKeys() {
  * statements keep their place among those of the operation that reads it.
  *
  * A result is a block of its own, so one read only inside another runs in
- * the nearest block there that holds every read, and never outside it. One
- * inside a result placed in the same round is left for the next round, where
- * the statements of that one are statements of the program.
+ * the nearest block there that holds every read, and never outside it. This
+ * holds when roots that share no block read the other one too. One inside a
+ * result placed in the same round is left for the next round, where the
+ * statements of that one are statements of the program.
  * A `Break()` or `Continue()` that a result holds outside its own loops acts on
  * the loop around the place it runs. Such a result is refused when no loop is
  * around that place, or when a read sits in a loop inside the one around it.
+ *
+ * The statements of each result are walked once a round, however often it is
+ * read, and a read inside them is placed from the frames inside it. So nested
+ * results that each read the next twice cost work in proportion to the levels.
  *
  * Returns each of `blocks`, rewritten where a result was placed.
  */
@@ -127,105 +139,140 @@ function placeInlineFns(blocks: any[]): any[] {
       return result;
     };
 
-    const reads = new Map<any, Frame[][]>();
-    /** For each read of a result, 1 when it sits in a `While` condition, which its frames do not show. */
-    const inHeader = new Map<any, number[]>();
-    const around = new Map<any, Set<any>>();
+    const reads = new Map<any, Read[]>();
     const walked = new Set<any>();
     /** The blocks that run on every iteration of a loop, a result its `While` condition reads among them. */
     const loopBodies = new Set<any>();
     const key = bodyKeys();
 
     /**
-     * Records each result `n` holds as read at `path`, inside the results in
-     * `outer`, and in a `While` condition when `header` is 1. A result is a block:
-     * the results it reads are read at a place inside it.
+     * Records each result `n` holds as read at `path` inside `within`, and in a
+     * `While` condition when `header` is 1. A result is a block: the results
+     * its statements read are read inside it, at frames from its own block.
      */
-    const scan = (n: any, path: Frame[], outer: any[], header = 0): void => {
+    const scan = (n: any, within: any, path: Frame[], header = 0): void => {
       if (!holds(n)) return;
       if (!isInlineFn(n)) {
-        for (const p of n.params) scan(p, path, outer, header);
+        for (const p of n.params) scan(p, within, path, header);
         return;
       }
-      let paths = reads.get(n);
-      if (!paths) reads.set(n, (paths = []));
-      paths.push(path);
-      let headers = inHeader.get(n);
-      if (!headers) inHeader.set(n, (headers = []));
-      headers.push(header);
-      let held = around.get(n);
-      if (!held) around.set(n, (held = new Set()));
-      for (const o of outer) held.add(o);
+      let known = reads.get(n);
+      if (!known) {
+        reads.set(n, (known = []));
+        walkBlock(n, n, [], n);
+      }
+      known.push({ within, path, header });
       if (header) loopBodies.add(n);
-      walkBlock(n, n, path, [...outer, n]);
     };
-    const walkBlock = (block: any, frameBlock: any, path: Frame[], outer: any[] = []) =>
+    const walkBlock = (block: any, frameBlock: any, path: Frame[], within: any) =>
       itemsOf(block).forEach((item, index) => {
         const here = [...path, { block: frameBlock, index }];
-        if (isStatement(item)) walkStatement(item, here, outer);
-        else scan(item, here, outer);
+        if (isStatement(item)) walkStatement(item, here, within);
+        else scan(item, within, here);
       });
     /** Walks slot `slot` of `statement` as a block, one that runs on every iteration when `repeats`. */
-    const walkBody = (statement: any, slot: number, path: Frame[], outer: any[], repeats = false) => {
+    const walkBody = (statement: any, slot: number, path: Frame[], within: any, repeats = false) => {
       const body = statement.params[slot];
       if (!body) return;
       const frameBlock = body.type === "seq" ? body : key(statement, slot);
       if (repeats) loopBodies.add(frameBlock);
-      walkBlock(body, frameBlock, path, outer);
+      walkBlock(body, frameBlock, path, within);
     };
     /** Walks statement `s` at `here`; one that several roots hold, outside every result, once. */
-    const walkStatement = (s: any, here: Frame[], outer: any[]) => {
-      if (outer.length === 0) {
+    const walkStatement = (s: any, here: Frame[], within: any) => {
+      if (within === undefined) {
         if (walked.has(s)) return;
         walked.add(s);
       }
       switch (s.type) {
         case "seq":
-          return walkBlock(s, s, here, outer);
+          return walkBlock(s, s, here, within);
         case "if":
-          scan(s.params[0], here, outer);
-          walkBody(s, 1, here, outer);
-          return walkBody(s, 2, here, outer);
+          scan(s.params[0], within, here);
+          walkBody(s, 1, here, within);
+          return walkBody(s, 2, here, within);
         case "for": {
           // The init runs once, and the condition, the update and the body on every iteration.
-          walkBody(s, 0, here, outer);
+          walkBody(s, 0, here, within);
           // The condition is one item, read where it is, so a condition that is a result counts as a read of it.
           const condition = key(s, 1);
           loopBodies.add(condition);
-          scan(s.params[1], [...here, { block: condition, index: 0 }], outer);
-          walkBody(s, 2, here, outer, true);
-          return walkBody(s, 3, here, outer, true);
+          scan(s.params[1], within, [...here, { block: condition, index: 0 }]);
+          walkBody(s, 2, here, within, true);
+          return walkBody(s, 3, here, within, true);
         }
         case "while":
-          scan(s.params[0], here, outer, 1);
-          return walkBody(s, 1, here, outer, true);
+          scan(s.params[0], within, here, 1);
+          return walkBody(s, 1, here, within, true);
         default:
-          for (const p of s.params ?? []) scan(p, here, outer);
+          for (const p of s.params ?? []) scan(p, within, here);
       }
     };
-    for (const block of blocks) if (block?.type === "seq") walkBlock(block, block, []);
+    for (const block of blocks) if (block?.type === "seq") walkBlock(block, block, [], undefined);
 
+    const anchors = new Map<any, { anchor: any; prefix: Frame[] }>();
+    /**
+     * Where the statements of result `fn` sit: the nearest result around them
+     * read more than once, or `undefined` for the program, and the frames from
+     * there to `fn`'s own block. A result read once runs where it is read.
+     */
+    const anchorOf = (fn: any): { anchor: any; prefix: Frame[] } => {
+      let known = anchors.get(fn);
+      if (known) return known;
+      const only = reads.get(fn)!;
+      if (only.length !== 1) known = { anchor: fn, prefix: [] };
+      else {
+        const outer = only[0]!.within === undefined ? { anchor: undefined, prefix: [] } : anchorOf(only[0]!.within);
+        known = { anchor: outer.anchor, prefix: [...outer.prefix, ...only[0]!.path] };
+      }
+      anchors.set(fn, known);
+      return known;
+    };
+    /** A read with its frames from its anchor in. */
+    const lift = (read: Read) => {
+      if (read.within === undefined) return { anchor: undefined, path: read.path, header: read.header };
+      const { anchor, prefix } = anchorOf(read.within);
+      return { anchor, path: [...prefix, ...read.path], header: read.header };
+    };
+    const aroundMemo = new Map<any, Set<any>>();
+    /** The results whose statements hold a read of `fn`, at any depth. */
+    const around = (fn: any): Set<any> => {
+      let known = aroundMemo.get(fn);
+      if (known) return known;
+      aroundMemo.set(fn, (known = new Set()));
+      for (const { within } of reads.get(fn)!) {
+        if (within === undefined) continue;
+        known.add(within);
+        for (const o of around(within)) known.add(o);
+      }
+      return known;
+    };
+
+    const lifted = new Map<any, { anchor: any; path: Frame[]; header: number }[]>();
+    for (const [fn, list] of reads) lifted.set(fn, list.map(lift));
     const placed = new Map<any, Frame>();
-    for (const [fn, paths] of reads) {
-      if (paths.length < 2) continue;
-      const place = placeBefore(paths);
+    for (const [fn, list] of lifted) {
+      if (list.length < 2 || list.some((read) => read.anchor !== list[0]!.anchor)) continue;
+      const place = placeBefore(list.map((read) => read.path));
       if (place) placed.set(fn, place);
     }
-    const nested = [...placed.keys()].filter((fn) => [...(around.get(fn) ?? [])].some((o) => placed.has(o)));
+    const nested = [...placed.keys()].filter((fn) => [...around(fn)].some((o) => placed.has(o)));
     for (const fn of nested) placed.delete(fn);
     /** How many loops hold the place at the end of `frames`. */
     const loopsOn = (frames: Frame[]) => frames.filter((frame) => loopBodies.has(frame.block)).length;
-    for (const [fn, paths] of reads) {
+    for (const [fn, list] of lifted) {
       const jump = loopJump(fn);
       // A result inside one placed now is checked in the next round, where it is read then.
-      if (!jump || [...(around.get(fn) ?? [])].some((o) => placed.has(o))) continue;
+      if (!jump || [...around(fn)].some((o) => placed.has(o))) continue;
       const place = placed.get(fn);
-      if (!place && paths.length > 1) continue;
-      const loops = paths.map((path, i) => loopsOn(path) + inHeader.get(fn)![i]!);
+      if (!place && list.length > 1) continue;
+      const paths = list.map((read) => read.path);
+      const loops = list.map((read) => loopsOn(read.path) + read.header);
       const loopsAround = place
         ? loopsOn(paths[0]!.slice(0, paths[0]!.findIndex((f) => f.block === place.block) + 1))
         : loops[0]!;
-      if (loopsAround === 0) {
+      // Inside a result read from roots that share no block, the loops around that result are not counted.
+      if (loopsAround === 0 && list[0]!.anchor === undefined) {
         throw new Error(
           `[RMSL] ${JUMP_NAMES[jump]} in an Fn called outside the program's body runs where no loop is around it: ` +
             `at the start of the first statement that reads its value, in the innermost block that holds every read. ` +

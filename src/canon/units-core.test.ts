@@ -329,6 +329,33 @@ describe("what a program does with a node it reads more than once", () => {
   });
 
   /**
+   * Each level is an `Fn` called outside the program's body that reads the one
+   * below twice, so 24 levels hold 2^24 paths to the innermost one. A compile
+   * that walked each path would not finish in the bound.
+   *
+   * @canon spec-nested-inline-fns-compile-in-time-that-grows-with-the-levels
+   */
+  it.each([
+    ["GLSL", (build: any) => compileGlslFn(build, param).length],
+    ["WGSL", (build: any) => compileWgslFn(build, param).length],
+    ["JS", (build: any) => compileJSFn(build, param).length],
+    ["WASM", (build: any) => compileWasmFn(build, param).bytes.length],
+  ] as const)("compiles inline Fns nested 24 levels, each reading the one below twice, on %s", (_target, size) => {
+    const nestedFns = (levels: number) => (a: Node<"float">) => {
+      let f: any = Fn(() => a.mul(2).toVar())();
+      for (let i = 0; i < levels; i++) {
+        const below = f;
+        f = Fn(() => below.add(below.mul(3)).toVar())();
+      }
+      return f;
+    };
+    const start = performance.now();
+    const deep = size(nestedFns(24));
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(deep / size(nestedFns(12))).toBeLessThan(4);
+  });
+
+  /**
    * @canon spec-output-grows-in-proportion-to-the-levels-of-nested-reads
    */
   it.each([
