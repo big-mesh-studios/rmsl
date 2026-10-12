@@ -28,7 +28,7 @@ import {
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
-import { CompileCtx, storageNodesOf, uniformDeclarationsOf, VertexRoot } from "../shared";
+import { attributeTypesOf, CompileCtx, storageNodesOf, uniformDeclarationsOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -308,6 +308,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let vertexBuffers = new Map<string, { buffer: GPUBuffer; componentCount: number }>();
   let vertexCount = 0;
   let countSlot: string | undefined;
+  /** The type of each attribute the vertex stage reads, by slot, which an array set by slot is checked against. */
+  const attributeTypes = attributeTypesOf(options.vertex);
   /** The storage nodes the stages read, in the order the program created their buffers. */
   const storageNodes = storageNodesOf([options.vertex, options.fragment]);
   /** The storage attributes the stages read, by slot, and the buffers they bind. */
@@ -457,6 +459,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     assertNodeArray(attribute, data);
+    let attributeType = attributeTypes.get(slot);
+    if (attributeType !== undefined) assertHostArray("attribute", slot, attributeType, data);
     let storage = storages.get(slot);
     if (storage) assertHostArray("storage buffer", slot, storage.elementType!, data);
     if (!device) {
@@ -466,7 +470,6 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let attrInfo = vertexAttributes.find((a) => a.slot === slot);
     if (attrInfo) {
-      assertHostArray("attribute", slot, attrInfo.shaderType, data);
       let componentCount = componentCountOf(attrInfo.shaderType);
       let bytes = data.length * 4;
       let existing = vertexBuffers.get(slot);

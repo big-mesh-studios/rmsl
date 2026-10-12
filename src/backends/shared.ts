@@ -1055,6 +1055,15 @@ export function uniformDeclarationsOf(roots: unknown): Map<string, UniformDeclar
   return declarations;
 }
 
+/** The type of each attribute reachable from the roots, by slot. */
+export function attributeTypesOf(roots: unknown): Map<string, string> {
+  const types = new Map<string, string>();
+  someNode(roots, (node) => {
+    if (node.type === "attribute") types.set(node.value.slot, node.value.shaderType);
+  });
+  return types;
+}
+
 /** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
 export function storageNodesOf(roots: unknown): StorageGraphNode[] {
   return storageBuffersOf(roots).map((buffer) => buffer.node);

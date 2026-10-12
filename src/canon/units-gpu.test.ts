@@ -790,6 +790,9 @@ describe("the array a GPU adapter takes for an attribute", () => {
       const { device, canvas } = stubDevice();
       const vertex = Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))();
       const adapter = createWgsl({ context: { device } as any, vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() });
+      // Before attach, the adapter checks a slot against the program it was given, and holds only what it takes.
+      expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
+      adapter.setAttribute(flags.name, Uint32Array.of(1));
       await adapter.attach(canvas);
       expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
         /\bivec2\b.*Int32Array.*Float32Array/,
