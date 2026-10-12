@@ -44,6 +44,7 @@ import {
   COMPONENT_INDEX,
   isLeafLiteral,
   resolveSwizzleTarget,
+  LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE,
 } from "../shared";
 import { shareNodes } from "../share";
 import { MATRIX_HELPER_FORMULAS, type Formula, type MatrixHelper } from "../matrix-formulas";
@@ -4169,12 +4170,12 @@ export function compileWasmFn(
       }
       case "break": {
         const top = loopStack[loopStack.length - 1];
-        if (!top) throw new Error('[RMSL] compileWasmFn: "Break" outside a loop');
+        if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.break);
         return [WASM_OP.br, ...wasmUleb128(depth - top.breakDepth)];
       }
       case "continue": {
         const top = loopStack[loopStack.length - 1];
-        if (!top) throw new Error('[RMSL] compileWasmFn: "Continue" outside a loop');
+        if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.continue);
         return [WASM_OP.br, ...wasmUleb128(depth - top.continueDepth)];
       }
       case "return":
