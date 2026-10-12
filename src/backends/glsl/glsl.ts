@@ -1,6 +1,8 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
+import { BaseNode, FnDefinition, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   assertAssignable,
+  bodyContext,
+  declareFn,
   parameterNode,
   CompileCtx,
   CompileFnOptions,
@@ -799,6 +801,16 @@ export function compileGLSLNode(
       return { decls: [], body: ["return;"], expr: "0.0" };
     }
 
+    case "call": {
+      const name = declareGlslFn(node.value as FnDefinition, ctx);
+      const args = (node.params ?? []).map((p: any): CompiledNode => compileGLSLStage(p, ctx));
+      const decls = args.flatMap((a: CompiledNode) => a.decls);
+      const body = args.flatMap((a: CompiledNode) => a.body);
+      const call = `${name}(${args.map((a: CompiledNode) => a.expr).join(", ")})`;
+      if (node._t === "void") return { decls, body: [...body, `${call};`], expr: "0.0" };
+      return { decls, body, expr: call, prec: PREC_ATOM };
+    }
+
     case "storage":
     case "storageElement":
       throw new Error("[RMSL] GLSL has no storage buffers (WebGL2 doesn't support them); use the WGSL backend");
@@ -810,6 +822,26 @@ export function compileGLSLNode(
       // this means the compiler lost one.
       throw new Error(`[RMSL] Unsupported node type in GLSL compiler: "${node.type}"`);
   }
+}
+
+/**
+ * Declares the function of an `Fn` with a layout once, from its body compiled
+ * in a context of its own, and gives the name it is called by.
+ */
+function declareGlslFn(definition: FnDefinition, ctx: CompileCtx): string {
+  return declareFn(ctx, definition, (name) => {
+    const child = bodyContext(ctx);
+    const root = numberClashingVariables(
+      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>])[0]!),
+    );
+    const compiled = compileGLSLStage(root, child);
+    ctx.nextId = child.nextId;
+    const returnType = glslType(definition.type);
+    const params = definition.inputs.map((input) => `${glslType(input.type)} ${input.name}`).join(", ");
+    const lines = [...compiled.decls, ...compiled.body];
+    if (definition.type !== "void") lines.push(`return ${compiled.expr};`);
+    return `${returnType} ${name}(${params}) {\n${lines.map((l) => `  ${l}`).join("\n")}\n}`;
+  });
 }
 
 export function binaryGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
@@ -1062,6 +1094,8 @@ export function compileGLSLWithStage(
     lines.push("");
   }
 
+  for (const declaration of ctx.userFns?.declarations ?? []) lines.push(declaration, "");
+
   if (shaderStage === "vertex") {
     lines.push("void main(void) {");
     for (let line of allBody) {
@@ -1160,6 +1194,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   if (ctx.uniforms.size > 0) {
     code += "\n";
   }
+  for (const declaration of ctx.userFns?.declarations ?? []) code += `${declaration}\n\n`;
   code += `${returnType} ${options.name}(${paramStr}) {\n`;
   for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;

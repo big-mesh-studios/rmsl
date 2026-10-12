@@ -1,0 +1,34 @@
+const words = (list: string) => list.split(/\s+/).filter(Boolean);
+
+/**
+ * The names a function cannot be declared under in GLSL ES 3.00 or WGSL: the
+ * keywords, the words kept for later and the built-in functions and types of
+ * either language. One list serves both, so a program names its functions alike
+ * on every target.
+ */
+export const RESERVED_FUNCTION_NAMES: ReadonlySet<string> = new Set([
+  ...words(`attribute const uniform varying break continue do for while switch case default if else in out inout
+    float int void bool true false invariant discard return mat2 mat3 mat4 mat2x2 mat2x3 mat2x4 mat3x2 mat3x3 mat3x4
+    mat4x2 mat4x3 mat4x4 vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uint uvec2 uvec3 uvec4 lowp mediump highp
+    precision sampler2D sampler3D samplerCube sampler2DShadow samplerCubeShadow sampler2DArray sampler2DArrayShadow
+    isampler2D isampler3D isamplerCube isampler2DArray usampler2D usampler3D usamplerCube usampler2DArray struct
+    layout centroid flat smooth common partition active asm class union enum typedef template this resource goto
+    inline noinline public static extern external interface long short double half fixed unsigned superp input
+    output hvec2 hvec3 hvec4 dvec2 dvec3 dvec4 fvec2 fvec3 fvec4 sampler1D sampler1DShadow sampler1DArray
+    sampler2DRect sampler2DRectShadow sizeof cast namespace using filter main`),
+  ...words(`radians degrees sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh pow exp log exp2 log2 sqrt
+    inversesqrt abs sign floor trunc round roundEven ceil fract mod modf min max clamp mix step smoothstep isnan
+    isinf floatBitsToInt floatBitsToUint intBitsToFloat uintBitsToFloat length distance dot cross normalize
+    faceforward reflect refract matrixCompMult outerProduct transpose determinant inverse lessThan lessThanEqual
+    greaterThan greaterThanEqual equal notEqual any all not texture textureProj textureLod textureOffset
+    textureProjLod texelFetch textureSize textureGrad dFdx dFdy fwidth packSnorm2x16 unpackSnorm2x16 packUnorm2x16
+    unpackUnorm2x16 packHalf2x16 unpackHalf2x16`),
+  ...words(`alias case const const_assert continue continuing default diagnostic discard else enable false fn for if
+    let loop override requires return struct switch true var while f32 f16 i32 u32 array ptr atomic sampler
+    sampler_comparison texture_2d texture_3d texture_cube texture_storage_2d texture_depth_2d acosh asinh atanh
+    arrayLength atan2 faceForward fma frexp inverseSqrt ldexp quantizeToF16 reverseBits saturate select
+    textureDimensions textureLoad textureNumLevels textureSample textureSampleLevel textureStore workgroupBarrier
+    storageBarrier atomicLoad atomicStore atomicAdd extractBits insertBits countOneBits countLeadingZeros
+    countTrailingZeros firstLeadingBit firstTrailingBit pack4x8snorm unpack4x8snorm fwidthCoarse fwidthFine
+    dpdx dpdy self`),
+]);

@@ -4,7 +4,19 @@ import { node, var_ } from "../core";
 const SHARED_NAME_PREFIX = "_rmsl_gen_";
 
 /** Node types that are statements, whose parameters are blocks or expressions the pass places by kind. */
-const STATEMENTS = new Set(["seq", "let", "assign", "if", "for", "while", "break", "continue", "return", "discard"]);
+const STATEMENTS = new Set([
+  "seq",
+  "let",
+  "assign",
+  "if",
+  "for",
+  "while",
+  "scope",
+  "break",
+  "continue",
+  "return",
+  "discard",
+]);
 
 /**
  * Node types read where they are, however often. A swizzle or an element reads
@@ -34,7 +46,7 @@ const MUTABLE_READS = new Set([
 /** Node types that are literals, which a target folds. */
 const LITERALS = new Set(["float", "int", "uint", "bool"]);
 
-const isStatement = (n: any) => STATEMENTS.has(n.type);
+const isStatement = (n: any) => STATEMENTS.has(n.type) || (n.type === "call" && n._t === "void");
 
 /** Whether `n` is a literal, or an expression of literals alone, which a target folds into one. */
 function isConstant(n: any, memo: Map<any, boolean>): boolean {
@@ -136,6 +148,10 @@ export function shareNodes<T>(roots: T): T {
       case "while":
         expanded.add(statement);
         count(statement.params[1]);
+        return;
+      case "scope":
+        expanded.add(statement);
+        count(statement.params[0]);
         return;
       default:
         expanded.add(statement);
@@ -259,6 +275,12 @@ export function shareNodes<T>(roots: T): T {
         const params = s.params.slice();
         params[params.length - 1] = enclosed(params[params.length - 1]);
         if (!sameParams(params, s.params)) result = copyOf(s, params);
+        epoch++;
+        break;
+      }
+      case "scope": {
+        const body = enclosed(s.params[0]);
+        if (body !== s.params[0]) result = copyOf(s, [body]);
         epoch++;
         break;
       }

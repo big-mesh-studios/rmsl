@@ -243,6 +243,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
+    - [`@spec a-call-must-fit-its-layout`](#spec-a-call-must-fit-its-layout) — A call of an `Fn` with a layout is refused as the program builds it when its arguments or its result do not fit the layout. The error names the function.
+      - [`@spec a-call-with-the-wrong-number-of-arguments-is-refused`](#spec-a-call-with-the-wrong-number-of-arguments-is-refused) — A call that passes more or fewer arguments than the layout has inputs is refused.
+      - [`@spec a-call-with-an-argument-of-the-wrong-type-is-refused`](#spec-a-call-with-an-argument-of-the-wrong-type-is-refused) — A call that passes an argument whose type differs from the type of its input is refused. A number given for a `float` input is a `float`.
+      - [`@spec a-body-that-returns-another-type-than-its-layout-is-refused`](#spec-a-body-that-returns-another-type-than-its-layout-is-refused) — A body that returns a value of another type than the `type` of its layout, or a value where the type is `void`, is refused.
+    - [`@spec a-layout-fn-names-no-variable-of-its-caller`](#spec-a-layout-fn-names-no-variable-of-its-caller) — An `Fn` with a layout whose body reads or writes a variable declared outside it is refused, and the error names the variable. An input, a variable the body declares, a uniform, a texture and a storage buffer are not refused. The refusal comes as the call is built, and again as a program compiles on any target, a rebuilt graph included.
+      - [`@spec a-layout-fn-that-reads-a-variable-of-its-caller-is-refused`](#spec-a-layout-fn-that-reads-a-variable-of-its-caller-is-refused) — A body that reads a variable declared outside it is refused, with an error that names the variable.
+      - [`@spec a-layout-fn-that-writes-a-variable-of-its-caller-is-refused`](#spec-a-layout-fn-that-writes-a-variable-of-its-caller-is-refused) — A body that assigns a variable declared outside it is refused, with an error that names the variable.
+      - [`@spec a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller`](#spec-a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller) — Every target refuses a graph whose `Fn` with a layout names a variable declared outside it as it compiles, a graph `deserialize` rebuilt included.
+    - [`@spec return-in-a-layout-fn-that-gives-a-value-is-refused`](#spec-return-in-a-layout-fn-that-gives-a-value-is-refused) — A `Return()` in an `Fn` with a layout whose type is not `void` is refused, with an error that names the function.
+    - [`@spec a-layout-fn-uses-no-input-or-output-of-its-stage`](#spec-a-layout-fn-uses-no-input-or-output-of-its-stage) — An `Fn` with a layout whose body uses an attribute, a varying, a stage output, the position, the fragment depth or a built-in input such as `fragCoord()` is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input.
+    - [`@spec a-malformed-layout-is-refused`](#spec-a-malformed-layout-is-refused) — A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier, starts with the prefix `_rmsl_`, or is a keyword or a built-in of GLSL or WGSL.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -332,6 +343,18 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
       - [`@bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it`](#bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it) — On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
+  - [`@spec an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own) — An `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, is a function of its own, as in TSL. GLSL and WGSL declare it once in a program and call it at each use. The CPU targets run its body where it is called. An `Fn` without a layout stays inline.
+    - [`@spec a-layout-fn-is-declared-once-and-called-at-each-use`](#spec-a-layout-fn-is-declared-once-and-called-at-each-use) — GLSL and WGSL declare an `Fn` with a layout once in a program, under the name and the typed inputs of its layout. They call it at each use.
+    - [`@spec a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called`](#spec-a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called) — JavaScript and WebAssembly compile a call of an `Fn` with a layout as its body, run where the call is. The arguments are bound to its inputs.
+    - [`@spec a-layout-fn-computes-the-same-on-every-target`](#spec-a-layout-fn-computes-the-same-on-every-target) — A program that calls an `Fn` with a layout computes the same value on every target.
+    - [`@spec a-layout-fn-takes-its-inputs-as-an-array-and-by-name`](#spec-a-layout-fn-takes-its-inputs-as-an-array-and-by-name) — The body of an `Fn` with a layout receives its inputs as one value that destructures as an array, `([a, b])`, and as an object, `({ a, b })`. A call passes them by position or as one object keyed by input name.
+    - [`@spec a-layout-fn-without-a-name-gets-one`](#spec-a-layout-fn-without-a-name-gets-one) — A layout that gives no `name` gets a generated name, and its function is declared under it.
+    - [`@spec a-taken-function-name-gets-a-number`](#spec-a-taken-function-name-gets-a-number) — A second `Fn` with a layout whose name a program already uses is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name.
+    - [`@spec return-leaves-a-void-layout-fn`](#spec-return-leaves-a-void-layout-fn) — A `Return()` in an `Fn` with a layout of type `void` leaves that function and not its caller, on every target.
+    - [`@spec a-layout-fn-may-call-a-layout-fn`](#spec-a-layout-fn-may-call-a-layout-fn) — The body of an `Fn` with a layout may call another one. The program declares the callee once and ahead of the function that calls it.
+    - [`@spec a-layout-fn-reads-a-uniform`](#spec-a-layout-fn-reads-a-uniform) — The body of an `Fn` with a layout reads a uniform of the program on every target.
+    - [`@spec a-layout-fn-writes-a-storage-element`](#spec-a-layout-fn-writes-a-storage-element) — The body of an `Fn` with a layout of type `void` writes an element of a storage buffer. Every target that has storage buffers compiles it.
+    - [`@spec a-graph-with-a-layout-fn-survives-json`](#spec-a-graph-with-a-layout-fn-survives-json) — `serialize` and `deserialize` keep a call of an `Fn` with a layout, so the restored graph compiles to the same code on every target. The calls that shared one function share one again.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
@@ -701,6 +724,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
+- [`@fact tsl-a-layout-makes-an-fn-a-function-of-its-own`](#fact-tsl-a-layout-makes-an-fn-a-function-of-its-own) — TSL's `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, builds its body once into a function of the layout's name, type and inputs. The shader declares that function once and calls it at each use. An `Fn` without a layout runs its body at each call. A `Return()` in the body writes `return` into that function.
+- [`@fact tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name`](#fact-tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name) — The body of a TSL `Fn` with a layout receives its inputs as one value that destructures both as an array, `([a, b])`, and as an object, `({ a, b })`. The call passes them by position or as one object.
+- [`@fact tsl-numbers-a-function-whose-name-is-taken`](#fact-tsl-numbers-a-function-whose-name-is-taken) — TSL declares a second function under a name already taken with a number appended: two layouts named `dup` give `dup` and `dup_1`.
+- [`@fact tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it`](#fact-tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it) — A variable of the caller that the body of a TSL `Fn` with a layout reads is declared and set again inside the function TSL emits. The function does not read the variable of the caller.
+- [`@fact glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals`](#fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals) — A GLSL ES 3.00 or WGSL function names its parameters, its own locals and the globals of the module. It has no closure, so a variable that the calling function declared is out of its scope, and a shader that names one fails to compile.
+- [`@fact a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage`](#fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage) — In WGSL the attributes, the varyings a fragment stage reads and the built-in inputs are parameters of the entry point, and the outputs are its return value. A function it calls reaches them only if the entry point passes them. In GLSL ES 3.00 they are globals.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
@@ -2108,6 +2137,70 @@ Derives from: [`fact-wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-ju
 
 This follows because the update slot of a GLSL or WGSL `for` takes none of these statements, and the program must run on every target.
 
+#### @spec a-call-must-fit-its-layout
+
+> A call of an `Fn` with a layout is refused as the program builds it when its arguments or its result do not fit the layout. The error names the function.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own)
+
+This follows because GLSL and WGSL type the parameters and the result of a function, and the program must run on every target.
+
+##### @spec a-call-with-the-wrong-number-of-arguments-is-refused
+
+> A call that passes more or fewer arguments than the layout has inputs is refused.
+
+##### @spec a-call-with-an-argument-of-the-wrong-type-is-refused
+
+> A call that passes an argument whose type differs from the type of its input is refused. A number given for a `float` input is a `float`.
+
+##### @spec a-body-that-returns-another-type-than-its-layout-is-refused
+
+> A body that returns a value of another type than the `type` of its layout, or a value where the type is `void`, is refused.
+
+#### @spec a-layout-fn-names-no-variable-of-its-caller
+
+> An `Fn` with a layout whose body reads or writes a variable declared outside it is refused, and the error names the variable. An input, a variable the body declares, a uniform, a texture and a storage buffer are not refused. The refusal comes as the call is built, and again as a program compiles on any target, a rebuilt graph included.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own), [`fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals`](#fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals), [`fact-tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it`](#fact-tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it)
+
+This follows because a function cannot reach a variable of its caller. TSL declares the variable again inside the function, so the shader computes something else than the program says.
+
+##### @spec a-layout-fn-that-reads-a-variable-of-its-caller-is-refused
+
+> A body that reads a variable declared outside it is refused, with an error that names the variable.
+
+##### @spec a-layout-fn-that-writes-a-variable-of-its-caller-is-refused
+
+> A body that assigns a variable declared outside it is refused, with an error that names the variable.
+
+##### @spec a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller
+
+> Every target refuses a graph whose `Fn` with a layout names a variable declared outside it as it compiles, a graph `deserialize` rebuilt included.
+
+#### @spec return-in-a-layout-fn-that-gives-a-value-is-refused
+
+> A `Return()` in an `Fn` with a layout whose type is not `void` is refused, with an error that names the function.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own)
+
+This follows because `Return()` carries no value, and GLSL and WGSL refuse a `return` with no value in a function that gives one.
+
+#### @spec a-layout-fn-uses-no-input-or-output-of-its-stage
+
+> An `Fn` with a layout whose body uses an attribute, a varying, a stage output, the position, the fragment depth or a built-in input such as `fragCoord()` is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own), [`fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage`](#fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage)
+
+This follows because WGSL keeps these in the entry point and a function there cannot reach them, and the program must run on every target.
+
+#### @spec a-malformed-layout-is-refused
+
+> A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier, starts with the prefix `_rmsl_`, or is a keyword or a built-in of GLSL or WGSL.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own)
+
+This follows because a function the compiler declares from a malformed layout fails in the driver, with a message about code the user never wrote.
+
 ### @spec a-case-is-added-in-the-block-of-its-switch
 
 > A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
@@ -2591,6 +2684,90 @@ This follows because TSL builds a shader the same way.
 > On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
 
 Issue: #205
+
+### @spec an-fn-with-a-layout-is-a-function-of-its-own
+
+> An `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, is a function of its own, as in TSL. GLSL and WGSL declare it once in a program and call it at each use. The CPU targets run its body where it is called. An `Fn` without a layout stays inline.
+
+Derives from: [`fact-tsl-a-layout-makes-an-fn-a-function-of-its-own`](#fact-tsl-a-layout-makes-an-fn-a-function-of-its-own)
+
+This follows because a TSL shader that gives a helper a layout must port by changing its import. A large helper called in several places also grows the shader and its compile time when each call copies it.
+
+#### @spec a-layout-fn-is-declared-once-and-called-at-each-use
+
+> GLSL and WGSL declare an `Fn` with a layout once in a program, under the name and the typed inputs of its layout. They call it at each use.
+
+#### @spec a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called
+
+> JavaScript and WebAssembly compile a call of an `Fn` with a layout as its body, run where the call is. The arguments are bound to its inputs.
+
+This follows because a CPU target compiles a program into one function, and a call there gains no smaller program.
+
+#### @spec a-layout-fn-computes-the-same-on-every-target
+
+> A program that calls an `Fn` with a layout computes the same value on every target.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a call changes where the body is placed, and the program means the same on every target.
+
+#### @spec a-layout-fn-takes-its-inputs-as-an-array-and-by-name
+
+> The body of an `Fn` with a layout receives its inputs as one value that destructures as an array, `([a, b])`, and as an object, `({ a, b })`. A call passes them by position or as one object keyed by input name.
+
+Derives from: [`fact-tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name`](#fact-tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name)
+
+This follows because a TSL body written for a layout must run unchanged.
+
+#### @spec a-layout-fn-without-a-name-gets-one
+
+> A layout that gives no `name` gets a generated name, and its function is declared under it.
+
+#### @spec a-taken-function-name-gets-a-number
+
+> A second `Fn` with a layout whose name a program already uses is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name.
+
+Derives from: [`fact-tsl-numbers-a-function-whose-name-is-taken`](#fact-tsl-numbers-a-function-whose-name-is-taken)
+
+This follows because TSL numbers a second function of a taken name in this way, and a shader that ports must name its functions alike.
+
+#### @spec return-leaves-a-void-layout-fn
+
+> A `Return()` in an `Fn` with a layout of type `void` leaves that function and not its caller, on every target.
+
+Derives from: [`spec-break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves)
+
+This follows because the function is the unit `Return` leaves, and the program means the same on every target.
+
+#### @spec a-layout-fn-may-call-a-layout-fn
+
+> The body of an `Fn` with a layout may call another one. The program declares the callee once and ahead of the function that calls it.
+
+This follows because a helper built from helpers is as ordinary in TSL as a helper.
+
+#### @spec a-layout-fn-reads-a-uniform
+
+> The body of an `Fn` with a layout reads a uniform of the program on every target.
+
+Derives from: [`fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals`](#fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals)
+
+This follows because a uniform is a global of the module, and a function sees the globals.
+
+#### @spec a-layout-fn-writes-a-storage-element
+
+> The body of an `Fn` with a layout of type `void` writes an element of a storage buffer. Every target that has storage buffers compiles it.
+
+Derives from: [`fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals`](#fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals)
+
+This follows because a storage buffer is a global of the module, and a function sees the globals.
+
+#### @spec a-graph-with-a-layout-fn-survives-json
+
+> `serialize` and `deserialize` keep a call of an `Fn` with a layout, so the restored graph compiles to the same code on every target. The calls that shared one function share one again.
+
+Derives from: [`spec-a-graph-survives-json`](#spec-a-graph-survives-json)
+
+This follows because the function is part of the graph, and the graph survives JSON.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -4797,6 +4974,38 @@ This is how three.js's TSL behaves, read from its source (`LoopNode` and `Discar
 > TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 
 This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCallNodeInternal` in `TSLCore`, three.js 0.186).
+
+## @fact tsl-a-layout-makes-an-fn-a-function-of-its-own
+
+> TSL's `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, builds its body once into a function of the layout's name, type and inputs. The shader declares that function once and calls it at each use. An `Fn` without a layout runs its body at each call. A `Return()` in the body writes `return` into that function.
+
+This is how three.js's TSL behaves, read from its source (`ShaderNode`, `FnNode` in `TSLCore`) and checked by running its code generator for GLSL and WGSL (three.js 0.186).
+
+## @fact tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name
+
+> The body of a TSL `Fn` with a layout receives its inputs as one value that destructures both as an array, `([a, b])`, and as an object, `({ a, b })`. The call passes them by position or as one object.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186).
+
+## @fact tsl-numbers-a-function-whose-name-is-taken
+
+> TSL declares a second function under a name already taken with a number appended: two layouts named `dup` give `dup` and `dup_1`.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186).
+
+## @fact tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it
+
+> A variable of the caller that the body of a TSL `Fn` with a layout reads is declared and set again inside the function TSL emits. The function does not read the variable of the caller.
+
+This is how three.js's TSL behaves, checked by running its code generator for GLSL and WGSL (three.js 0.186).
+
+## @fact glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals
+
+> A GLSL ES 3.00 or WGSL function names its parameters, its own locals and the globals of the module. It has no closure, so a variable that the calling function declared is out of its scope, and a shader that names one fails to compile.
+
+## @fact a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage
+
+> In WGSL the attributes, the varyings a fragment stage reads and the built-in inputs are parameters of the entry point, and the outputs are its return value. A function it calls reaches them only if the entry point passes them. In GLSL ES 3.00 they are globals.
 
 ## @fact tsl-to-var-takes-a-name
 

@@ -1,3 +1,5 @@
+import { RESERVED_FUNCTION_NAMES } from "./backends/reserved-names";
+
 export const __brand = Symbol();
 
 // === Shader Types (strings, not TS enums) ===
@@ -887,6 +889,7 @@ export const NODE_TYPES: ReadonlySet<string> = new Set([
   "bvec2",
   "bvec3",
   "bvec4",
+  "call",
   "ceil",
   "clamp",
   "construct",
@@ -958,6 +961,7 @@ export const NODE_TYPES: ReadonlySet<string> = new Set([
   "refract",
   "return",
   "round",
+  "scope",
   "select",
   "seq",
   "shiftLeft",
@@ -2011,6 +2015,260 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
 }
 
 /**
+ * The signature of an `Fn` that is a function of its own, as TSL's `setLayout`
+ * gives it: the `name` it is declared under, the `type` it returns and the
+ * typed `inputs` it takes. A layout without a `name` gets a generated one.
+ */
+export interface FnLayout {
+  name?: string;
+  type: ShaderType;
+  inputs: readonly { name: string; type: ShaderType }[];
+}
+
+/**
+ * What a call of an `Fn` with a layout holds in its `value`: the layout, and
+ * the `body` the call shares with every other call of that `Fn`. The body is a
+ * `seq` whose last element is the value the function returns, and its inputs
+ * are the variables of the layout's names that the body reads.
+ */
+export interface FnDefinition {
+  name: string | undefined;
+  type: string;
+  inputs: readonly { name: string; type: string }[];
+  body: BaseNode<ShaderType>;
+}
+
+/** The types an input of an `Fn` with a layout, and its result, can have. */
+const LAYOUT_VALUE_TYPES: ReadonlySet<string> = new Set([
+  "float",
+  "vec2",
+  "vec3",
+  "vec4",
+  "int",
+  "uint",
+  "bool",
+  "ivec2",
+  "ivec3",
+  "ivec4",
+  "uvec2",
+  "uvec3",
+  "uvec4",
+  "bvec2",
+  "bvec3",
+  "bvec4",
+  "mat2",
+  "mat2x3",
+  "mat2x4",
+  "mat3x2",
+  "mat3",
+  "mat3x4",
+  "mat4x2",
+  "mat4x3",
+  "mat4",
+]);
+
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** What an error calls the function of a layout. */
+function describeFn(name: string | undefined): string {
+  return name === undefined ? "an Fn with a layout" : `the Fn "${name}"`;
+}
+
+/**
+ * Throws unless `layout` is one a function can be declared from: a result type,
+ * and inputs that each have a type and a name no other input has. A name is an
+ * identifier that does not start with the prefix the compiler keeps for its own.
+ */
+function assertLayout(layout: unknown): asserts layout is FnLayout {
+  const fail = (why: string): never => {
+    throw new Error(`[RMSL] The layout of ${describeFn((layout as FnLayout)?.name)} ${why}.`);
+  };
+  if (layout === null || typeof layout !== "object") {
+    throw new Error("[RMSL] A layout is an object, { name, type, inputs }.");
+  }
+  const { name, type, inputs } = layout as FnLayout;
+  const validName = (n: unknown) => typeof n === "string" && IDENTIFIER.test(n) && !n.startsWith(RESERVED_VAR_PREFIX);
+  if (name !== undefined && !validName(name)) {
+    fail(`has the name ${JSON.stringify(name)}, which is no identifier or starts with "${RESERVED_VAR_PREFIX}"`);
+  }
+  if (name !== undefined && RESERVED_FUNCTION_NAMES.has(name)) {
+    fail(`has the name "${name}", which is a keyword or a built-in of GLSL or WGSL`);
+  }
+  if (type !== "void" && !LAYOUT_VALUE_TYPES.has(type as string)) {
+    fail(`has the type ${JSON.stringify(type)}, which no function returns`);
+  }
+  if (!Array.isArray(inputs)) fail("has no inputs list");
+  const seen = new Set<string>();
+  for (const input of inputs) {
+    if (!validName(input?.name)) {
+      fail(
+        `has an input with the name ${JSON.stringify(input?.name)}, which is no identifier or starts with "${RESERVED_VAR_PREFIX}"`,
+      );
+    }
+    if (!LAYOUT_VALUE_TYPES.has(input.type))
+      fail(`has the input "${input.name}" of the type ${JSON.stringify(input.type)}, which no function takes`);
+    if (seen.has(input.name)) fail(`has two inputs named "${input.name}"`);
+    seen.add(input.name);
+  }
+}
+
+/**
+ * Throws if the body of `definition` reads or writes a variable declared
+ * outside it. A GLSL or WGSL function sees its parameters, its own variables
+ * and the globals of the module, and a uniform, a texture and a storage buffer
+ * are globals. The body of a call inside it is checked on its own.
+ */
+export function assertFnIsClosed(definition: FnDefinition): void {
+  const declared = new Set<string>(definition.inputs.map((input) => input.name));
+  const read: any[] = [];
+  const seen = new Set<unknown>();
+  const walk = (n: any): void => {
+    if (!n || typeof n !== "object" || seen.has(n)) return;
+    seen.add(n);
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (n.type === "let") declared.add(n.params[0].value.varName);
+    if (n.type === "var") read.push(n);
+    n.params?.forEach(walk);
+  };
+  walk(definition.body);
+  const outside = read.find((n) => !declared.has(n.value.varName));
+  if (outside) {
+    throw new Error(
+      `[RMSL] ${describeFn(definition.name)} uses the variable "${outside.value.varName}", which is declared outside it. ` +
+        `A function sees its inputs, its own variables and the uniforms, textures and storage buffers of the program. ` +
+        `Pass the variable in as an input, and return the new value if the function changes it.`,
+    );
+  }
+}
+
+/**
+ * Throws unless `call` is a call that fits the function it holds: a body, and
+ * arguments of the types of its inputs. A call `Fn` builds always does, so a
+ * call that does not came from data `serialize` could not have produced.
+ */
+export function assertCallFits(call: BaseNode<ShaderType>): void {
+  const definition = call.value as FnDefinition | undefined;
+  const args = call.params ?? [];
+  const fits =
+    isNode(definition?.body) &&
+    Array.isArray(definition.inputs) &&
+    definition.inputs.length === args.length &&
+    definition.inputs.every((input, i) => (args[i] as any)?._t === input.type) &&
+    (definition.body as any)._t === definition.type &&
+    definition.type === call._t;
+  if (!fits) {
+    throw new Error(
+      "[RMSL] A call of an Fn with a layout does not fit its layout: its body, its inputs or its arguments disagree.",
+    );
+  }
+}
+
+/** The value of `x` as the input `input` of a function, or throws if it has another type. */
+function fitArgument(
+  name: string | undefined,
+  input: { name: string; type: string },
+  x: unknown,
+): BaseNode<ShaderType> {
+  const value = wrapValue(x as any) as BaseNode<ShaderType>;
+  if (!isNode(value) || value._t !== input.type) {
+    const got = isNode(value) && value._t !== "void" ? `a ${value._t}` : "nothing";
+    throw new Error(
+      `[RMSL] The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
+        `Convert it to a ${input.type}.`,
+    );
+  }
+  return value;
+}
+
+/** The arguments of a call of a function with `layout`, in the order of its inputs, whether passed by position or as one object. */
+function callArguments(layout: FnLayout, args: unknown[]): unknown[] {
+  const keyed =
+    args.length === 1 && typeof args[0] === "object" && args[0] !== null && !isNode(args[0]) && !Array.isArray(args[0]);
+  if (keyed) {
+    const named = args[0] as Record<string, unknown>;
+    const unknown_ = Object.keys(named).find((key) => !layout.inputs.some((input) => input.name === key));
+    if (unknown_ !== undefined) {
+      throw new Error(`[RMSL] ${describeFn(layout.name)} has no input "${unknown_}".`);
+    }
+    return layout.inputs.map((input) => named[input.name]);
+  }
+  if (args.length !== layout.inputs.length) {
+    throw new Error(
+      `[RMSL] ${describeFn(layout.name)} takes ${layout.inputs.length} input${layout.inputs.length === 1 ? "" : "s"}, and the call passes ${args.length}.`,
+    );
+  }
+  return args;
+}
+
+/**
+ * Builds the body of an `Fn` with a layout once, from variables of the names of
+ * its inputs. The body receives them as one value that destructures as an array
+ * and as an object, as TSL passes them. It runs in a block of its own, apart
+ * from the block of the caller.
+ */
+function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): FnDefinition {
+  const parameters = layout.inputs.map((input) => {
+    const parameter = var_(input.name, input.type);
+    (parameter as any).value.parameter = true;
+    return parameter;
+  });
+  const inputs: any[] = [...parameters];
+  layout.inputs.forEach((input, i) => {
+    if (!(input.name in inputs)) Object.defineProperty(inputs, input.name, { value: parameters[i] });
+  });
+
+  const oldBlockScope = blockScope;
+  const oldElseIfVariables = elseIfVariables;
+  if (oldBlockScope === undefined) {
+    usedVarNames.clear();
+    elseIfVariables = [];
+  }
+  try {
+    const scope: BaseNode<ShaderType>[] = [];
+    blockScope = scope;
+    // An input is a name of the function, so a variable of its body cannot take it.
+    for (const input of layout.inputs) usedVarNames.add(input.name);
+    const returned = fn(inputs);
+    if (Array.isArray(returned)) {
+      throw new Error(`[RMSL] ${describeFn(layout.name)} returns a list, and a function returns one value.`);
+    }
+    const value = wrapValue(returned as any) as BaseNode<ShaderType>;
+    if (value._t !== layout.type) {
+      throw new Error(
+        `[RMSL] ${describeFn(layout.name)} has the type ${layout.type}, and its body returns ${value._t === "void" ? "nothing" : `a ${value._t}`}.`,
+      );
+    }
+    const definition: FnDefinition = {
+      name: layout.name,
+      type: layout.type,
+      inputs: layout.inputs.map(({ name, type }) => ({ name, type })),
+      body: node({ _t: layout.type, type: "seq", params: [...scope, value] }) as BaseNode<ShaderType>,
+    };
+    assertFnIsClosed(definition);
+    return definition;
+  } finally {
+    blockScope = oldBlockScope;
+    elseIfVariables = oldElseIfVariables;
+  }
+}
+
+/**
+ * A call of the function `definition` with `args`. Inside the body of an `Fn`
+ * a call of a function that gives a value is held in a variable, so the
+ * function runs once where it is called, and a call of a `void` function is a
+ * statement of the block.
+ */
+function callFn(definition: FnDefinition, args: BaseNode<ShaderType>[]): unknown {
+  const call = node({ _t: definition.type, type: "call", params: args, value: definition }) as Node<ShaderType>;
+  if (blockScope === undefined) return call;
+  if (definition.type === "void") {
+    blockScope.push(call as BaseNode<ShaderType>);
+    return node({ _t: "void", type: "void" });
+  }
+  return call.toVar();
+}
+
+/**
  * Captures a function body's statements into a `seq` node.
  *
  * Supports a single return (`Fn(() => { ...; return x; })` becomes
@@ -2023,9 +2281,34 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
  * Called inside another Fn, its statements go into the caller's block where
  * it is called, and the call gives back its return alone, so they run there
  * once, whether or where the return is read.
+ *
+ * Given a layout, by `Fn(fn, layout)` or `.setLayout(layout)`, it is a function
+ * of its own instead: its body is built once from its inputs, which it receives
+ * as one array, `([a, b]) => ...`, and each call is a call of that function.
  */
-export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => FnResult<R> {
-  return (...args: T): any => {
+export function Fn<I extends readonly unknown[], const R>(
+  fn: (inputs: I) => R,
+  layout: FnLayout,
+): (...args: I) => FnResult<R>;
+export function Fn<T extends any[], const R>(fn: (...args: T) => R): FnCallable<T, R>;
+export function Fn(fn: (...args: any[]) => unknown, layout?: FnLayout): any {
+  let current: FnLayout | undefined;
+  let definition: FnDefinition | undefined;
+  const setLayout = (next: FnLayout) => {
+    assertLayout(next);
+    current = next;
+    definition = undefined;
+    return callable;
+  };
+  const callable: any = (...args: any[]): any => {
+    if (current !== undefined) {
+      definition ??= buildFnDefinition(fn as (...args: any[]) => unknown, current);
+      const given = callArguments(current, args);
+      return callFn(
+        definition,
+        current.inputs.map((input, i) => fitArgument(current!.name, input, given[i])),
+      );
+    }
     let oldBlockScope = blockScope;
     // A top-level Fn starts a fresh name registry, so each compiled program
     // gets its own deterministic set of user-named variables. Nested Fns keep
@@ -2069,7 +2352,22 @@ export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T
       elseIfVariables = oldElseIfVariables;
     }
   };
+  callable.setLayout = setLayout;
+  if (layout !== undefined) setLayout(layout);
+  return callable;
 }
+
+/**
+ * What `Fn` gives back: the function that builds the program, with the
+ * `setLayout` that makes it a function of its own. A body that takes its
+ * inputs as one tuple, `([a, b]) => ...`, is called with them spread, as a
+ * function with a layout is.
+ */
+export type FnCallable<T extends any[], R> = ((...args: T) => FnResult<R>) & {
+  setLayout(
+    layout: FnLayout,
+  ): (...args: T extends [infer Inputs extends readonly unknown[]] ? Inputs : T) => FnResult<R>;
+};
 
 /**
  * Whether `T` is `any`. Nothing else makes `1 & T` accept `0`: intersecting
@@ -3372,7 +3670,11 @@ export function someNode(roots: unknown, visit: (node: any) => boolean | void, s
     if (!node || typeof node !== "object" || visited.has(node)) return false;
     visited.add(node);
     if (Array.isArray(node)) return node.some(walk);
-    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
+    return (
+      visit(node) === true ||
+      (Array.isArray(node.params) && node.params.some(walk)) ||
+      (node.type === "call" && walk(node.value.body))
+    );
   };
   return walk(roots);
 }

@@ -504,7 +504,32 @@ run before every test.
 - **`Discard()`** - fragment discard (like GLSL `discard`)
 - **`Break()`** - break from a loop
 - **`Continue()`** - continue to the next iteration
-- **`Return()`** - early return from an `Fn`
+- **`Return()`** - early return from an `Fn`. In an `Fn` with a layout it leaves that function only, and the layout's type must be `"void"`.
+
+### Functions with a layout
+
+An `Fn` without a layout is inlined: its body is copied into the caller at each call. Given a layout, as in TSL, by `Fn(fn, layout)` or `.setLayout(layout)`, it is a function of its own:
+
+```ts
+const shade = Fn(([n, l]) => n.dot(l).max(0)).setLayout({
+  name: "shade",
+  type: "float",
+  inputs: [
+    { name: "n", type: "vec3" },
+    { name: "l", type: "vec3" },
+  ],
+});
+
+const a = shade(normalWorld, lightA); // called, not copied
+const b = shade(normalWorld, lightB);
+```
+
+GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS, WASM) run its body where it is called. The result is the same on every target.
+
+- The body receives its inputs as one value that destructures as an array, `([n, l])`, and as an object, `({ n, l })`. A call passes them by position or as one object, `shade({ n, l })`.
+- A layout without a `name` gets a generated one. Two functions with one name get `_1`, `_2`, … appended. A name that is a keyword or a built-in of GLSL or WGSL is refused.
+- The arguments must have the types of the inputs, and the body must return the layout's type. A number is a `float`.
+- The body sees its inputs, its own variables and the program's uniforms, textures and storage buffers. A variable of the caller is refused with its name; pass it in as an input and return the new value. Attributes, varyings, stage outputs, the position and built-in inputs such as `fragCoord()` are refused too: pass their values in.
 
 ## I/O
 
