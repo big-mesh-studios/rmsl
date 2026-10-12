@@ -856,6 +856,7 @@ describe("the array a GPU adapter takes for a storage buffer", () => {
         vertex,
         fragment,
       });
+      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrow(/Uint32Array.*Int32Array/);
       await adapter.attach(canvas);
       expect(() => adapter.setAttribute(flags, new Float32Array(4) as any)).toThrow(
         /\buvec2\b storage buffer.*Uint32Array.*Float32Array/,
@@ -921,8 +922,9 @@ describe("the shape of a value a GPU adapter takes for a uniform", () => {
   });
 
   /**
-   * The adapter knows the type of a slot once it attaches, on a stub device
-   * here. A value set by slot before then is refused as it attaches.
+   * The adapter knows the type of a slot from the program it is given, so a
+   * value set by slot before `attach` is refused at the call. The stub device
+   * stands in for the GPU once it attaches.
    *
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
    */
@@ -930,13 +932,9 @@ describe("the shape of a value a GPU adapter takes for a uniform", () => {
     vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
     vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
     try {
-      const { fragment, refuses, tint } = uniformShapes();
+      const { fragment, refuses } = uniformShapes();
       const vertex = () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))();
-      const early = createWgsl({ context: { device: stubDevice().device } as any, vertex: vertex(), fragment });
-      early.setUniform(tint.name, [1, 2]);
-      await expect(early.attach(stubDevice().canvas)).rejects.toThrow(
-        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
-      );
+      refuses((uniform, value) => createWgsl({ vertex: vertex(), fragment }).setUniform(uniform, value as any));
       const { device, canvas } = stubDevice();
       const createRenderPipeline = device.createRenderPipeline;
       (device as any).createRenderPipeline = (d: any) => ({
@@ -1797,21 +1795,16 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
-   * The adapter knows the type of a slot once it attaches. A value set by
-   * slot before then is refused as it attaches.
+   * The adapter knows the type of a slot from the program it is given, so a
+   * value set by slot before `attach` is refused at the call.
    *
    * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
    */
   it("refuses a uniform value of another shape through setUniform on createWgslCompute, by node or by slot", async () => {
-    const { fragment, refuses, tint } = uniformShapes();
+    const { fragment, refuses } = uniformShapes();
     const out = instancedArray(1, "vec4");
     const program = () => Fn(() => out.element(invocationIndex()).assign(fragment))();
-    const early = createWgslCompute(program());
-    early.setUniform(tint.name, [1, 2] as any);
-    await expect(early.attach()).rejects.toThrow(
-      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
-    );
-    early.destroy();
+    refuses((uniform, value) => createWgslCompute(program()).setUniform(uniform, value as any));
     const adapter = createWgslCompute(program());
     await adapter.attach();
     refuses((uniform, value) => adapter.setUniform(uniform, value as any));
@@ -2031,6 +2024,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
         counts.element(invocationIndex()).assign(counts.element(invocationIndex()).add(1));
       })(),
     );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
     await adapter.attach();
     expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
       /\bint\b storage buffer.*Int32Array.*Float32Array/,

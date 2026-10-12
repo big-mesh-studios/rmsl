@@ -7,8 +7,6 @@ import {
   UniformNode,
   UniformValue,
   UniformSlotValue,
-  isSamplerType,
-  someNode,
 } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import {
@@ -29,7 +27,7 @@ import {
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
-import { CompileCtx, storageNodesOf, type StorageGraphNode, type UniformDeclaration, VertexRoot } from "../shared";
+import { CompileCtx, storageNodesOf, uniformDeclarationsOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -309,8 +307,10 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let vertexBuffers = new Map<string, { buffer: GPUBuffer; componentCount: number }>();
   let vertexCount = 0;
   let countSlot: string | undefined;
+  /** The storage nodes the stages read, in the order the program created their buffers. */
+  const storageNodes = storageNodesOf([options.vertex, options.fragment]);
   /** The storage attributes the stages read, by slot, and the buffers they bind. */
-  let storages = new Map<string, StorageBufferAttribute>();
+  const storages = new Map(storageNodes.map((node) => [node.name, node.attribute]));
   let ownStorageBuffers = new Map<StorageBufferAttribute, GPUBuffer>();
   /** Bind groups by group index; a gap below the storage group is an empty group. */
   let renderBindGroups: (GPUBindGroup | null)[] = [];
@@ -332,8 +332,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
   let pendingTextures = new Map<string, CpuTextureData>();
-  /** The type of each uniform the stages read, by slot, known once `attach` reflects them. */
-  const renderUniformDeclarations = new Map<string, UniformDeclaration>();
+  /** The type of each uniform the stages read, by slot, which a value set by slot is checked against. */
+  const renderUniformDeclarations = uniformDeclarationsOf([options.vertex, options.fragment]);
   /** The textures the program reads, in binding order. */
   let textureDeclarations: ReturnType<typeof sharedSamplerDeclarations> = [];
   /** The GPU texture, and sampler for a float one, of each sampler the host has set. */
@@ -453,6 +453,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     assertNodeArray(attribute, data);
+    let storage = storages.get(slot);
+    if (storage) assertHostArray("storage buffer", slot, storage.elementType!, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;
@@ -476,9 +478,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       return;
     }
 
-    let storage = storages.get(slot);
     if (storage) {
-      assertHostArray("storage buffer", slot, storage.elementType!, data);
       // The buffer is laid out as WGSL lays out a storage array, so a vec3 leaves a slot empty after each element.
       const { slot: first, data: slots } = spread(data, 0, storageLayout(storage));
       device.queue.writeBuffer(storageBuffer(storage), first * 4, slots as BufferSource);
@@ -521,9 +521,6 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) {
         (isWgslTexture(u.type) ? sharedTextures : sharedUniforms).set(u.slot, u);
       }
-      for (const u of sharedUniforms.values())
-        renderUniformDeclarations.set(u.slot, (u.node as { value: unknown }).value as UniformDeclaration);
-      for (const [slot, value] of pendingUniforms) assertUniformShape(slot, value, renderUniformDeclarations.get(slot));
       let renderDeclarations = [...sharedUniforms.values()].sort((a, b) => a.order - b.order);
       let renderUniforms = renderDeclarations.map((u) => u.node);
       // A texture takes a binding of its own, in the order of the whole program's textures.
@@ -531,8 +528,6 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         .sort((a, b) => a.order - b.order)
         .map((u) => u.node as UniformNode<WgslTextureType>);
       textureDeclarations = sharedSamplerDeclarations(textureNodes);
-      let storageNodes = storageNodesOf([options.vertex, options.fragment]);
-      storages = new Map(storageNodes.map((node) => [node.name, node.attribute]));
       let storageOrder = storageNodes.map((node) => node.name);
       let stageOptions = {
         ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
@@ -731,8 +726,10 @@ export function createWgslCompute(
 
   let computePipeline: GPUComputePipeline | null = null;
   let computeResources: WgslResource[] = [];
-  /** The type of each uniform the program reads, by slot, known once `attach` walks it. */
-  const computeUniformDeclarations = new Map<string, UniformDeclaration>();
+  /** The type of each uniform the program reads, by slot, which a value set by slot is checked against. */
+  const computeUniformDeclarations = uniformDeclarationsOf(compute);
+  /** A storage node of each buffer the program reads, by slot. */
+  const declaredStorages = new Map(storageNodesOf(compute).map((node) => [node.name, node]));
   /** Elements of the first storage buffer the host passed, the dispatch's
    *  count when the caller names none. */
   let firstStorageCount = 0;
@@ -829,6 +826,8 @@ export function createWgslCompute(
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
     assertNodeArray(attribute, data);
+    const declared = declaredStorages.get(slot);
+    if (declared) assertHostArray("storage buffer", slot, declared._t, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;
@@ -836,7 +835,6 @@ export function createWgslCompute(
 
     const resource = computeStorageResources().find((r) => r.name === slot);
     if (resource) {
-      assertHostArray("storage buffer", slot, resource.shaderType, data);
       const elements = Math.ceil(data.length / componentCountOf(resource.shaderType));
       const state = sizeStorageSlot(resource, elements);
       // The dispatch covers the first buffer the host passed, in elements:
@@ -864,15 +862,6 @@ export function createWgslCompute(
       // Compiled and checked before the device is requested, so a program that throws leaves no device behind.
       let program = compile({ stage: "compute", workgroupSize: options.workgroupSize ?? 64 }, compute);
       assertStorageBufferLimit(gpuAdapter.limits, program.resources, "createWgslCompute");
-      const declared = new Map<string, StorageBufferAttribute>();
-      someNode(compute, (node) => {
-        if (node.type === "storage") declared.set(node.value.slot, (node as StorageGraphNode).attribute);
-        else if ((node.type === "uniform" || node.type === "uniformArray") && !isSamplerType(node.value.shaderType)) {
-          computeUniformDeclarations.set(node.value.slot, node.value);
-        }
-      });
-      for (const [slot, value] of pendingUniforms)
-        assertUniformShape(slot, value, computeUniformDeclarations.get(slot));
       device = await requestComputeDevice(gpuAdapter);
       let module = device.createShaderModule({ code: program.code });
       computePipeline = device.createComputePipeline({
@@ -895,7 +884,7 @@ export function createWgslCompute(
       // A slot the host never sets, such as one the program only writes, is as long as the program declared it:
       // `instancedArray(count, type)`, as TSL's buffer is. It has a buffer to bind either way.
       for (const resource of computeStorageResources())
-        sizeStorageSlot(resource, declared.get(resource.name)?.count ?? 0);
+        sizeStorageSlot(resource, declaredStorages.get(resource.name)?.attribute.count ?? 0);
       // A program with no storage binds an empty group, which its compute() still dispatches against.
       if (computeStorageResources().length === 0) {
         computeBindGroup1 = device.createBindGroup({ layout: computePipeline.getBindGroupLayout(1), entries: [] });
