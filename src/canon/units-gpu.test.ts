@@ -1192,7 +1192,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
  * error it hit.
  */
 const VALUE_TYPES = `
-import { Fn, attribute, builtinPosition, float, select, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, instancedArray, int, select, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
@@ -1414,6 +1414,15 @@ globalThis.__rmslValueTypes = {
       return [set, readPixel(target, 1, 2).g === 255];
     });
   }),
+  glslUnsetStorage: () => {
+    const green = instancedArray(Float32Array.of(0, 1), "float");
+    return glsl(Fn(() => vec4(0, green.element(int(1)), 0, 1))(), () => {});
+  },
+  wgslUnsetStorage: () => {
+    const green = instancedArray(Float32Array.of(0, 1), "float");
+    const fragment = Fn(() => vec4(0, green.element(int(1)), 0, 1))();
+    return wgsl(plainVertex(), (adapter) => adapter.setAttribute(position, TRIANGLE), fragment);
+  },
   typedVector: () => {
     const colour = uniform("vec4");
     return glsl(Fn(() => colour)(), (a) => a.setUniform(colour, Float32Array.of(0, 1, 0, 1)));
@@ -1560,6 +1569,20 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
     "draws with a mat3 attribute through createWgsl, counted by the matrix",
     async () => {
       expect(await wgslValueType("wgslMatrixAttribute")).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createGlsl", () => glslValueType("glslUnsetStorage")],
+    ["createWgsl", () => wgslValueType("wgslUnsetStorage")],
+  ])(
+    "reads a storage buffer the host never set as its array in a render stage on %s",
+    async (_, drawn) => {
+      expect(await drawn()).toEqual(GREEN);
     },
     120_000,
   );
@@ -2331,6 +2354,37 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     adapter.destroy();
     expect(Array.from(out[points.name]!)).toEqual([2, 3, 4, 5, 6, 7]);
   }, 60_000);
+
+  /**
+   * The program reads one buffer made from data and one made from a count,
+   * writes a third, and reads back all three, with no `setAttribute`.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it("starts each storage buffer the host never set as its array on createWgslCompute", async () => {
+    const given = instancedArray(Float32Array.of(1, 2), "float");
+    const zeroed = instancedArray(2, "float");
+    const out = instancedArray(2, "float");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        const i = invocationIndex();
+        out.element(i).assign(given.element(i).add(zeroed.element(i)).add(7));
+        zeroed.element(i).assign(float(3));
+      })(),
+    );
+    await adapter.attach();
+    const read = {
+      [given.name]: new Float32Array(2),
+      [zeroed.name]: new Float32Array(2),
+      [out.name]: new Float32Array(2),
+    };
+    await adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([8, 9]);
+    expect(Array.from(read[given.name]!)).toEqual([1, 2]);
+    expect(Array.from(read[zeroed.name]!)).toEqual([3, 3]);
+    expect(Array.from(zeroed.attribute.array)).toEqual([0, 0]);
+    adapter.destroy();
+  });
 
   /**
    * Setting one slot to a length of its own keeps what the other slots hold.

@@ -90,12 +90,21 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   const storageTypes = programs.compute?.storageTypes ?? {};
 
   let firstStorage: string | undefined;
-  /** Components per element of each slot the host passed by node, from the
-   *  node's own type; a slot passed by name falls back to the program's. */
+  /** Components per element of each slot, from the type of the program's node
+   *  or of the node the host passed; a slot passed by name falls back to the program's. */
   const elementWidths = new Map<string, number>();
+  /**
+   * Each storage buffer the program uses, by slot. One the host never sets
+   * starts as a copy of the array of its attribute, as a GPU buffer does.
+   */
   const storages: Record<string, TypedArray> = {};
-  /** The slots of `storages`, in the order the host first passed them. */
+  /** The slots of `storages`: the program's, in the order it created them, then any other the host passed. */
   const storageSlots: string[] = [];
+  for (const [slot, node] of programs.guard.storages) {
+    storages[slot] = node.attribute.array.slice();
+    storageSlots.push(slot);
+    elementWidths.set(slot, componentCountOf(node._t));
+  }
   const uniforms: Record<string, number | number[]> = programs.boxedUniforms ? Object.create(null) : {};
   const textures: Record<string, CpuTextureData> = {};
   /** The stage takes the host's own flat arrays, so one context serves every dispatch. */

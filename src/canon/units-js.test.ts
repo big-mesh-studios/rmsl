@@ -2484,3 +2484,40 @@ describe("the readback array a CPU compute adapter takes", () => {
     expect(Array.from(out)).toEqual([2, 3, 4, 0]);
   });
 });
+
+describe("a storage buffer the host never sets on a CPU compute adapter", () => {
+  /**
+   * The program reads one buffer made from data and one made from a count,
+   * writes a third, and reads back all three, with no `setAttribute`. The
+   * write to the buffer made from a count leaves its node's array as it was.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s starts each storage buffer the host never set as its array", (_, create) => {
+    const given = instancedArray(Float32Array.of(1, 2), "float");
+    const zeroed = instancedArray(2, "float");
+    const out = instancedArray(2, "float");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        out.element(i).assign(given.element(i).add(zeroed.element(i)).add(7));
+        zeroed.element(i).assign(float(3));
+      })(),
+    );
+    const read = {
+      [given.name]: new Float32Array(2),
+      [zeroed.name]: new Float32Array(2),
+      [out.name]: new Float32Array(2),
+    };
+    adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([8, 9]);
+    expect(Array.from(read[given.name]!)).toEqual([1, 2]);
+    expect(Array.from(read[zeroed.name]!)).toEqual([3, 3]);
+    expect(Array.from(zeroed.attribute.array)).toEqual([0, 0]);
+    adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([11, 12]);
+  });
+});

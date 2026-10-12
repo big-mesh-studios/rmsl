@@ -451,6 +451,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
     - [`@spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes`](#spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes) — A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
     - [`@spec a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array) — A `StorageBufferAttribute` and a `StorageInstancedBufferAttribute` made from a count hold a zeroed typed array of `count * itemSize` elements, of the array class they are given, `Float32Array` by default. The array is the buffer's contents on the host, which the application fills. One made from a typed array holds that array.
+    - [`@spec a-storage-buffer-the-host-never-sets-starts-as-its-array`](#spec-a-storage-buffer-the-host-never-sets-starts-as-its-array) — Every adapter starts each storage buffer its program uses as the array of the buffer's attribute, until the host sets it with `setAttribute`. That is zeros for a buffer made from a count. A compute adapter reads such a buffer back with `compute(out)`, as it reads one the host set. A program's writes change the adapter's buffer, never the attribute's array. This holds for `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute` and `createWasmCompute`.
     - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
@@ -842,6 +843,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-has-no-boolean-uniform`](#fact-tsl-has-no-boolean-uniform) — TSL builds no uniform of `bool` or `bvecN`. `NodeBuilder.getNodeUniform` throws `Uniform "bool" not implemented` for one.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
 - [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
+- [`@fact tsl-starts-a-storage-buffer-as-the-array-of-its-attribute`](#fact-tsl-starts-a-storage-buffer-as-the-array-of-its-attribute) — three.js's WebGPU renderer makes the GPU buffer of a storage attribute the first time it binds it, mapped at creation, and copies the attribute's `array` into it. So a storage buffer the application never writes starts as that array: zeros for one made from a count.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 - [`@fact a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location) — A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
 - [`@fact a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing) — A WGSL compute entry point returns nothing. A function that declares a return type must give that type an entry point IO attribute, and a compute entry point has none to give.
@@ -3599,6 +3601,14 @@ Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-s
 
 This follows because a program that fills the array of a buffer it made from a count ports from TSL by changing its import, and a graph keeps the contents of its buffers through `serialize`.
 
+#### @spec a-storage-buffer-the-host-never-sets-starts-as-its-array
+
+> Every adapter starts each storage buffer its program uses as the array of the buffer's attribute, until the host sets it with `setAttribute`. That is zeros for a buffer made from a count. A compute adapter reads such a buffer back with `compute(out)`, as it reads one the host set. A program's writes change the adapter's buffer, never the attribute's array. This holds for `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute` and `createWasmCompute`.
+
+Derives from: [`spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array), [`fact-tsl-starts-a-storage-buffer-as-the-array-of-its-attribute`](#fact-tsl-starts-a-storage-buffer-as-the-array-of-its-attribute), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the array of the attribute is the buffer's contents on the host, and TSL starts the GPU buffer from it. Each adapter knows its storage buffers from the program, so a buffer the program only writes is one the host can read back without setting it first.
+
 #### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
 
 > `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
@@ -5992,6 +6002,12 @@ This is how three.js's TSL behaves, read from its source (`UniformNode` and `Uni
 > The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 
 This is how three.js's TSL behaves, read from its source (`src/renderers/common/StorageBufferAttribute.js` and `StorageInstancedBufferAttribute.js`, with `src/nodes/accessors/Arrays.js` for the functions).
+
+## @fact tsl-starts-a-storage-buffer-as-the-array-of-its-attribute
+
+> three.js's WebGPU renderer makes the GPU buffer of a storage attribute the first time it binds it, mapped at creation, and copies the attribute's `array` into it. So a storage buffer the application never writes starts as that array: zeros for one made from a count.
+
+This is how three.js r186 behaves, read from its source (`src/renderers/webgpu/utils/WebGPUAttributeUtils.js`, `createAttribute`).
 
 ## @fact tsl-takes-a-compute-count-from-its-caller
 

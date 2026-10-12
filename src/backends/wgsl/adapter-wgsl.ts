@@ -886,10 +886,14 @@ export function createWgslCompute(
         });
       }
 
-      // A slot the host never sets, such as one the program only writes, is as long as the program declared it:
-      // `instancedArray(count, type)`, as TSL's buffer is. It has a buffer to bind either way.
-      for (const resource of computeStorageResources())
-        sizeStorageSlot(resource, declaredStorages.get(resource.name)?.attribute.count ?? 0);
+      // A slot the host never sets, such as one the program only writes, starts as the array of its attribute,
+      // as TSL's buffer does: zeros for `instancedArray(count, type)`. It has a buffer to bind either way.
+      for (const resource of computeStorageResources()) {
+        const attribute = declaredStorages.get(resource.name)?.attribute;
+        const state = sizeStorageSlot(resource, attribute?.count ?? 0);
+        if (attribute)
+          device.queue.writeBuffer(state.buffer, 0, spread(attribute.array, 0, state.layout).data as BufferSource);
+      }
       // A program with no storage binds an empty group, which its compute() still dispatches against.
       if (computeStorageResources().length === 0) {
         computeBindGroup1 = device.createBindGroup({ layout: computePipeline.getBindGroupLayout(1), entries: [] });
