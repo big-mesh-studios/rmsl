@@ -10,7 +10,7 @@ import {
   WasmFloatWidth,
   WasmParam,
 } from "./wasm";
-import type { UniformDeclaration } from "../shared";
+import { type UniformDeclaration, uniformDeclarationsOf } from "../shared";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -258,14 +258,17 @@ export function compileWasmRasterizer(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmOptions,
 ): WasmRasterRoutine {
-  const vertexCompiled = compileWasmFn(vertexFn, {
+  // Each stage is built once, so the declarations below come from the graph that was compiled.
+  const vertexRoots = vertexFn();
+  const vertexCompiled = compileWasmFn(() => vertexRoots, {
     ...options,
     name: "main",
     params: [],
     stage: "vertex",
     scalarsInMemory: true,
   });
-  const fragmentCompiled = compileWasmFn(fragmentFn, {
+  const fragmentRoots = fragmentFn();
+  const fragmentCompiled = compileWasmFn(() => fragmentRoots, {
     ...options,
     name: "main",
     params: [],
@@ -593,11 +596,5 @@ export function compileWasmRasterizer(
   const attributeTypes = Object.fromEntries(
     attrParams.filter((p) => p.slot !== VERTEX_INDEX_SLOT).map((p) => [p.slot, p.shaderType]),
   );
-  const uniformDeclarations = new Map<string, UniformDeclaration>();
-  for (const p of [...vertexCompiled.params, ...fragmentCompiled.params]) {
-    if (p.kind === "uniform" || p.kind === "uniformMemory" || p.kind === "uniformArrayMemory") {
-      uniformDeclarations.set(p.slot, p);
-    }
-  }
-  return { draw, attributeTypes, uniformDeclarations };
+  return { draw, attributeTypes, uniformDeclarations: uniformDeclarationsOf([vertexRoots, fragmentRoots]) };
 }
