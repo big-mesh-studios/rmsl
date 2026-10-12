@@ -175,8 +175,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
   - [`@spec wgsl-splats-a-scalar-bitwise-operand-beside-a-vector`](#spec-wgsl-splats-a-scalar-bitwise-operand-beside-a-vector) — On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
-  - [`@spec a-uniform-array-element-the-host-leaves-out-reads-zero`](#spec-a-uniform-array-element-the-host-leaves-out-reads-zero) — An element past the end of a shorter array the host passes for a uniform array reads zero.
-  - [`@spec a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) — A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
+  - [`@spec a-host-value-takes-the-conversion-of-a-typed-slot-of-its-kind`](#spec-a-host-value-takes-the-conversion-of-a-typed-slot-of-its-kind) — Every target converts each component the host passes as a store into a typed slot of its kind converts it. That holds for a parameter, a uniform, an attribute and a varying. An `int` converts as into an `Int32Array`, and a `uint` as into a `Uint32Array`. A float converts as into a `Float64Array`, or a `Float32Array` at `float: "f32"`. A `bool` converts as into an `Int32Array`, and reads true where the result is not zero.
+    - [`@spec an-integer-host-value-truncates-and-wraps`](#spec-an-integer-host-value-truncates-and-wraps) — An `int` or `uint` component the host gives with a fraction truncates toward zero on every target. One outside the range of its type wraps modulo 2³². NaN and the infinities read 0. So -1 given to a `uint` reads 4294967295.
+    - [`@spec a-float-host-value-converts-to-a-number`](#spec-a-float-host-value-converts-to-a-number) — A float component the host gives as a string or a boolean reads as the number it converts to, on every target. So `"2"` reads 2 and `true` reads 1. A string that spells no number reads NaN.
+    - [`@spec a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer) — A `bool` component reads true on every target where the host's value converts to an `int` that is not zero. Its value as a number is then 1. So `true`, 1, 2 and -1 read true. `false`, 0, 0.5 and a string such as `"x"` read false. The type of a `bool` value is `boolean | 0 | 1`, the values that encode one exactly.
+    - [`@spec an-undefined-component-converts-as-a-typed-slot-does`](#spec-an-undefined-component-converts-as-a-typed-slot-does) — A component of a vector or matrix that the host gives as `undefined` reads as a typed slot of its kind holds it, on every target. That is NaN in a float type, 0 in an `int` or `uint` type, and false in a `bool` type. A component it gives as `null` reads 0, or false.
+  - [`@spec a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) — A vector, matrix or uniform array the host leaves out, or gives as `undefined` or `null`, reads zero in every component, on every call. That holds for a uniform, a parameter, an attribute and a varying. It holds for a uniform the host passes to any adapter's `setUniform` as `undefined` or `null` too.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -270,9 +274,24 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
   - [`@spec a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused`](#spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm`, or of a `compileJS` or `compileWasm` rasterizer, is refused when its vertex stage reads an attribute the host never gave data for. The error names the attribute, as `draw() is missing attribute "<slot>"` after the name of the call.
-  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every way the host passes an attribute or a storage buffer refuses an array whose components are of another kind than its declared type. The refusal names the type. A float type takes a `Float32Array`, an `int` or `ivecN` type an `Int32Array`, and a `uint` or `uvecN` type a `Uint32Array`. A CPU target takes a `Float64Array` for a float type too. The type checker refuses any other array that the host passes with the node.
-    - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind, and so do the draws of `compileJS` and `compileWasm`. The CPU ones take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits.
-    - [`@spec a-storage-buffer-takes-only-an-array-of-its-element-kind`](#spec-a-storage-buffer-takes-only-an-array-of-its-element-kind) — Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. A slot name is checked once the adapter knows the type of its slot.
+  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, and a `Uint32Array` for `uint` or `uvecN`. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
+    - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it. The scene renderers take the arrays and formats the declared type admits.
+    - [`@spec a-storage-buffer-takes-only-an-array-of-its-element-kind`](#spec-a-storage-buffer-takes-only-an-array-of-its-element-kind) — Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. The adapter checks a slot name where `setAttribute` is called, before `attach` as after it, against the type of its slot in its program.
+    - [`@spec the-type-of-a-programs-storages-admits-only-typed-arrays`](#spec-the-type-of-a-programs-storages-admits-only-typed-arrays) — The type of `ctx.storages`, the storage arrays the host passes a program from `compileJS*` or `compileWasm*`, admits only a `Float32Array`, a `Float64Array`, an `Int32Array` and a `Uint32Array`. The type checker refuses a plain array there. The program checks nothing at run time.
+    - [`@spec a-readback-array-takes-only-an-array-of-its-element-kind`](#spec-a-readback-array-takes-only-an-array-of-its-element-kind) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` of another kind than the element type of its slot, before it runs anything. The CPU ones take a `Float64Array` for float elements too.
+    - [`@spec a-readback-array-holds-at-least-the-values-of-its-slot`](#spec-a-readback-array-holds-at-least-the-values-of-its-slot) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` that holds fewer values than its slot, before it runs anything. The error reads `out["<slot>"] holds <length> values, and the slot has <count>`.
+    - [`@spec a-context-write-takes-only-the-array-of-its-attributes-kind`](#spec-a-context-write-takes-only-the-array-of-its-attributes-kind) — `write` on `createWgslContext` and `createWasmContext` refuses an array of another kind than the attribute's own array, before it writes anything. `createWasmContext` takes a `Float64Array` for a float attribute too. The type of `write` admits only those typed arrays.
+    - [`@spec a-value-takes-only-the-shape-of-its-type`](#spec-a-value-takes-only-the-shape-of-its-type) — Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type. The check is one length comparison for each value, and allocates nothing unless it refuses.
+      - [`@spec a-shape-refusal-names-what-the-host-gave`](#spec-a-shape-refusal-names-what-the-host-gave) — A refusal of a value of another shape names the input, its type and what the host gave. It names an array by its length, another object by its class, and a scalar by its value.
+      - [`@spec a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set`](#spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set) — Each CPU adapter refuses in `setUniform` a value of another shape than the uniform's type. These are `createJs` and `createWasm`, and the grid, compute and routine adapters of both targets. A slot name is checked against the type of its slot in the program the adapter compiled. The routine adapters refuse in `run` a parameter of another shape than its type. A draw, a dispatch or a run checks no uniform again.
+      - [`@spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape) — `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
+      - [`@spec a-renderer-refuses-a-uniform-value-of-another-shape`](#spec-a-renderer-refuses-a-uniform-value-of-another-shape) — A scene renderer refuses a value a material gives a uniform of another shape than its type, at the draw that would upload it. It checks no value of the camera, the object or the renderer, which it computes itself. A camera, object or renderer name it gives no value for keeps the value it had, which is zero until set.
+      - [`@spec the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape) — Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+      - [`@spec the-types-admit-a-uniform-set-to-nothing`](#spec-the-types-admit-a-uniform-set-to-nothing) — On every adapter and context, the type of `setUniform` takes `null` or `undefined` for a uniform set by its node or as an array. An adapter also takes it by slot name.
+      - [`@spec every-adapter-shares-one-type-of-setuniform`](#spec-every-adapter-shares-one-type-of-setuniform) — Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
+      - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
+    - [`@spec a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) — A program the host calls with its inputs in a context checks neither the shape of a value nor the kind of an array. These programs are the function `compileJSFn` gives, which `precompileJS` ships, the program `precompileWasm` ships, and the routines, grids, stages and draws of `compileJS*` and `compileWasm*`. Their inputs include `ctx.storages` and the attribute arrays of a draw. A value of another shape, or an array of another kind, gives what that target gives. Each component it reads still converts as a typed slot of its kind does.
+  - [`@spec a-message-puts-the-article-its-sound-takes-before-a-name`](#spec-a-message-puts-the-article-its-sound-takes-before-a-name) — A refusal puts before a name of a type, a class or a kind of value the article its sound takes. Examples are `an int`, `an Int32Array`, `an object`, `an HTMLElement`, `a uint`, `a uvec3`, `a usampler2D`, `a unorm8x4`, `a Uint32Array` and `a URL`. It reads a name that opens with two capitals letter by letter.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
@@ -407,7 +426,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-compiles-a-compute-node-to-a-compute-entry-point`](#spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point) — On WGSL, a compute node compiles to an `@compute` entry point of its workgroup size. The global invocation id is its index. Its storage buffers and uniforms are its resources.
     - [`@spec a-compute-context-runs-programs-over-shared-buffers`](#spec-a-compute-context-runs-programs-over-shared-buffers) — A compute context runs compute nodes over storage buffers that stay on its device or in its memory, shared by every program that uses them. A batch of programs runs in order, and each sees what the ones before it wrote.
     - [`@spec a-context-keeps-a-uniform-until-it-is-set-again`](#spec-a-context-keeps-a-uniform-until-it-is-set-again) — A context passes a uniform to every program that reads it, laid out as each target reads it. It keeps the value until the host sets it again.
-    - [`@spec a-context-writes-a-buffer-and-reads-it-back`](#spec-a-context-writes-a-buffer-and-reads-it-back) — A context writes host data into a buffer, converted to the buffer's type, and reads the buffer back in the layout of its attribute. A write past the end of the buffer is refused.
+    - [`@spec a-context-writes-a-buffer-and-reads-it-back`](#spec-a-context-writes-a-buffer-and-reads-it-back) — A context writes host data into a buffer, and reads the buffer back in the layout of its attribute. A write past the end of the buffer is refused.
     - [`@spec a-context-runs-no-program-it-cannot-bind`](#spec-a-context-runs-no-program-it-cannot-bind) — A context refuses a program that samples a texture, and a program over a buffer laid out before a storage node named its type. It refuses a dispatch past the device's limits on workgroup size or count.
     - [`@spec a-wgsl-compute-program-declares-its-storage-in-group-one`](#spec-a-wgsl-compute-program-declares-its-storage-in-group-one) — A WGSL compute program declares its storage buffers in group 1.
     - [`@spec a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform`](#spec-a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform) — A uniform resource of a compiled WGSL compute program carries the rmsl type of the uniform in `shaderType`, so an `int` is `"int"` and not `"i32"`. The adapter lays it out in the WGSL spelling.
@@ -426,6 +445,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-camera-builds-its-projection`](#spec-a-camera-builds-its-projection) — A perspective or orthographic camera builds its projection matrix and the inverse of its view matrix as three.js does.
     - [`@spec a-light-is-a-coloured-scene-node`](#spec-a-light-is-a-coloured-scene-node) — A light is a node of the scene with a colour and an intensity, and a directional light has a target. A scene has a background colour.
     - [`@spec the-math-classes-follow-three-js`](#spec-the-math-classes-follow-three-js) — `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+    - [`@spec the-math-classes-type-their-arrays-as-tuples`](#spec-the-math-classes-type-their-arrays-as-tuples) — `Matrix3.elements` and `Matrix4.elements` are typed `Matrix3Tuple` and `Matrix4Tuple`, tuples of 9 and 16 numbers. On `Matrix3`, `Matrix4`, `Vector2`, `Vector3`, `Vector4`, `Color` and `Quaternion`, `toArray()` with no argument is typed a tuple of the class's length. `toArray(array, offset)` is typed as `array`. So these arrays set a uniform of their type with no cast. The type checker refuses one of another length.
     - [`@spec the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values) — The wrapping, filtering and blending constants of `./scene` carry the numbers three.js gives them.
     - [`@spec the-lighting-terms-compile-on-both-gpu-targets`](#spec-the-lighting-terms-compile-on-both-gpu-targets) — `lambertDiffuse`, `standardLight` and `pointLightAttenuation` build the lighting terms of the built-in materials as nodes, which compile on GLSL and WGSL and give finite values on the CPU.
     - [`@spec a-geometry-builds-the-vertices-three-js-builds`](#spec-a-geometry-builds-the-vertices-three-js-builds) — A geometry primitive builds the positions, normals and indices of its three.js counterpart. A `BufferGeometry` holds attributes and an index, typed as 32-bit once an index passes 65535.
@@ -457,7 +477,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them. A slot that the program has no storage for is refused.
     - [`@spec compute-copies-back-only-the-named-slots`](#spec-compute-copies-back-only-the-named-slots) — `compute(out)` fills only the slots `out` names.
     - [`@spec overlapping-compute-calls-each-read-back-their-own-result`](#spec-overlapping-compute-calls-each-read-back-their-own-result) — Two `compute(out)` calls on one WGSL adapter, the second made before the first resolves, each fill their own `out` with what their own dispatch left in the buffers.
-    - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for.
+    - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for, before it runs anything.
     - [`@spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes`](#spec-a-wasm-routine-copies-back-only-the-buffers-the-program-writes) — A WASM routine marks a storage buffer as written only when its program assigns to it, and copies back only the buffers so marked.
     - [`@spec setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others) — `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
     - [`@spec a-wasm-routine-copies-back-a-buffer-another-node-reads-only`](#spec-a-wasm-routine-copies-back-a-buffer-another-node-reads-only) — A WASM routine copies back a buffer the program writes through one node, even when another node over that buffer is read-only.
@@ -532,7 +552,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses`](#spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses) — The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
-    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
+    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix, square or not, as an array. An integer uniform goes up as an integer, and each column of three components is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
     - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture only if its sampler state changed.
@@ -735,6 +755,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
+- [`@fact a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves`](#fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves) — `TypedArray.prototype.set` throws a `RangeError` for a source array that holds more elements than fit after its offset. It writes only the elements a shorter source holds, and leaves the rest of the target as it was.
+- [`@fact a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it) — JavaScript converts a value it stores in a typed slot, such as a typed array element, a `DataView` write, a WebAssembly parameter or a WebGL argument. A signed 32-bit slot such as `Int32Array`, `i32` or `GLint` takes ToInt32, and an unsigned one such as `Uint32Array` or `GLuint` takes ToUint32. A float slot such as `Float64Array` or `f64` takes ToNumber, which a 32-bit one such as `Float32Array` or `GLfloat` rounds to 32 bits. ToNumber turns `true` into 1, `"2"` into 2 and a string that spells no number into NaN. ToInt32 and ToUint32 truncate toward zero, wrap modulo 2³², and give 0 for NaN and the infinities.
 - [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
 - [`@fact v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds) — V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
 - [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
@@ -764,6 +786,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-keeps-no-value-for-an-attribute-without-a-buffer`](#fact-webgpu-keeps-no-value-for-an-attribute-without-a-buffer) — A WebGPU draw needs a vertex buffer set at every slot of its pipeline's vertex layout, and fails validation when one is missing. WebGPU keeps no value for a vertex input, as WebGL keeps one for each location. A vertex buffer layout with an `arrayStride` of 0 gives every vertex the same element.
 - [`@fact a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column) — GLSL ES 3.00 gives a matrix vertex input one location for each column, consecutive from its first location. Each location reads a vector of the column's rows. WGSL takes no matrix as a vertex input, so a WGSL vertex stage reads a matrix as one vector input for each column.
 - [`@fact three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns) — three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
+- [`@fact three-js-types-its-matrix-elements-as-tuples`](#fact-three-js-types-its-matrix-elements-as-tuples) — `@types/three` 0.186 types `Matrix3.elements` and `Matrix4.elements` as tuples of 9 and 16 numbers, `Matrix3Tuple` and `Matrix4Tuple`. On those two classes, `toArray()` with no argument is typed that tuple, and `toArray(array, offset)` the type of `array`. It exports `Vector2Tuple`, `Vector3Tuple`, `Vector4Tuple` and `QuaternionTuple`, but types `toArray()` on those classes, and on `Color`, as `number[]`.
 - [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
 - [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
 - [`@fact glsl-defines-most-math-functions-for-floats-only`](#fact-glsl-defines-most-math-functions-for-floats-only) — GLSL ES 3.00 defines its math functions for floats and float vectors only. The exceptions are `abs` and `sign` of a signed integer, and `min`, `max` and `clamp` of either integer kind. Its bitwise operators, `~` and shifts take integers and integer vectors only.
@@ -774,6 +797,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector) — A WGSL bitwise operator refuses a vector and a scalar as its two operands.
 - [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
 - [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
+- [`@fact tsl-writes-a-uniform-through-a-typed-array-of-its-kind`](#fact-tsl-writes-a-uniform-through-a-typed-array-of-its-kind) — TSL's WebGPU renderer writes the value of a number or vector uniform into a typed array over the uniform buffer, and checks nothing about it. It writes an `int` or `ivecN` through an `Int32Array`, and a `uint` or `uvecN` through a `Uint32Array`. It writes every other type through a `Float32Array`. So a fraction given to an integer type truncates, an integer out of range wraps, and a string becomes a number.
+- [`@fact tsl-has-no-boolean-uniform`](#fact-tsl-has-no-boolean-uniform) — TSL builds no uniform of `bool` or `bvecN`. `NodeBuilder.getNodeUniform` throws `Uniform "bool" not implemented` for one.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
 - [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
@@ -1857,21 +1882,41 @@ Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a
 
 This follows because WGSL broadcasts no scalar across a vector for a bitwise operator, and converts nothing implicitly.
 
-### @spec a-uniform-array-element-the-host-leaves-out-reads-zero
+### @spec a-host-value-takes-the-conversion-of-a-typed-slot-of-its-kind
 
-> An element past the end of a shorter array the host passes for a uniform array reads zero.
+> Every target converts each component the host passes as a store into a typed slot of its kind converts it. That holds for a parameter, a uniform, an attribute and a varying. An `int` converts as into an `Int32Array`, and a `uint` as into a `Uint32Array`. A float converts as into a `Float64Array`, or a `Float32Array` at `float: "f32"`. A `bool` converts as into an `Int32Array`, and reads true where the result is not zero.
 
-Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
+Derives from: [`fact-a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it), [`fact-tsl-writes-a-uniform-through-a-typed-array-of-its-kind`](#fact-tsl-writes-a-uniform-through-a-typed-array-of-its-kind)
 
-This follows because an element the host leaves out is a uniform it never set, and an unset uniform reads zero.
+This follows because WebAssembly, WebGL and WebGPU convert what the host passes in this way already. They take it through a typed array, a WebAssembly parameter or the argument of a WebGL call. A JS target that read the value as it is would compute with a fraction or a string. Every other target computes with a value of the type. TSL writes a uniform through a typed array of its kind too, so a value ported from TSL reads as it read there.
+
+#### @spec an-integer-host-value-truncates-and-wraps
+
+> An `int` or `uint` component the host gives with a fraction truncates toward zero on every target. One outside the range of its type wraps modulo 2³². NaN and the infinities read 0. So -1 given to a `uint` reads 4294967295.
+
+#### @spec a-float-host-value-converts-to-a-number
+
+> A float component the host gives as a string or a boolean reads as the number it converts to, on every target. So `"2"` reads 2 and `true` reads 1. A string that spells no number reads NaN.
+
+#### @spec a-bool-host-value-reads-true-for-a-nonzero-integer
+
+> A `bool` component reads true on every target where the host's value converts to an `int` that is not zero. Its value as a number is then 1. So `true`, 1, 2 and -1 read true. `false`, 0, 0.5 and a string such as `"x"` read false. The type of a `bool` value is `boolean | 0 | 1`, the values that encode one exactly.
+
+Derives from: [`fact-tsl-has-no-boolean-uniform`](#fact-tsl-has-no-boolean-uniform), [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host)
+
+This follows because WebGL takes a `bool` uniform through `uniform1i`, whose argument is a `GLint`, and WGSL carries one as a `u32`. So the GPU targets test the converted integer against zero. TSL has no boolean uniform to follow.
+
+#### @spec an-undefined-component-converts-as-a-typed-slot-does
+
+> A component of a vector or matrix that the host gives as `undefined` reads as a typed slot of its kind holds it, on every target. That is NaN in a float type, 0 in an `int` or `uint` type, and false in a `bool` type. A component it gives as `null` reads 0, or false.
 
 ### @spec a-component-the-host-leaves-out-reads-zero
 
-> A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
+> A vector, matrix or uniform array the host leaves out, or gives as `undefined` or `null`, reads zero in every component, on every call. That holds for a uniform, a parameter, an attribute and a varying. It holds for a uniform the host passes to any adapter's `setUniform` as `undefined` or `null` too.
 
 Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero), [`spec-an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero)
 
-This follows because a component the host leaves out has no value, as an input it leaves out has none, and zero is what an unset uniform reads.
+This follows because an input the host leaves out has no value, and zero is what an unset uniform reads.
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
@@ -2412,15 +2457,19 @@ This follows because an adapter draws no geometry, so an attribute without data 
 
 ### @spec host-data-of-another-kind-is-refused
 
-> Every way the host passes an attribute or a storage buffer refuses an array whose components are of another kind than its declared type. The refusal names the type. A float type takes a `Float32Array`, an `int` or `ivecN` type an `Int32Array`, and a `uint` or `uvecN` type a `Uint32Array`. A CPU target takes a `Float64Array` for a float type too. The type checker refuses any other array that the host passes with the node.
+> Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, and a `Uint32Array` for `uint` or `uvecN`. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
-This follows because a float array read as integers gives values the host never wrote. A target that converted would disagree with one that reads the bytes. A copy into an array of the right kind would make a new array at every refill. Also, three.js reads an attribute in a format its array's type picks, so the array decides the kind the shader reads. A CPU target computes floats in 64 bits, so a `Float64Array` reaches it as it is.
+This follows because a float array read as integers gives values the host never wrote. A target that converted would disagree with one that reads the bytes. A value of another shape leaves components out or holds more, and each target fills or drops them in its own way. A copy into an array of the right kind would make a new array at every refill.
+
+A check where the host sets a value runs once, and no draw that reads the value checks it again. An adapter reads the types of its uniforms, attributes and storage buffers from its stages in one walk of the graph. It checks a value against the type of its slot there, and a node its stages do not read against the node's own type. A compiled program records none of these types. A program the host calls with its inputs in a context checks nothing, as [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) states.
+
+Also, three.js reads an attribute in a format its array's type picks, so the array decides the kind the shader reads. A CPU target computes floats in 64 bits, so a `Float64Array` reaches it as it is.
 
 #### @spec an-attribute-takes-only-an-array-of-its-own-kind
 
-> The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind, and so do the draws of `compileJS` and `compileWasm`. The CPU ones take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits.
+> The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it. The scene renderers take the arrays and formats the declared type admits.
 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type)
 
@@ -2428,11 +2477,111 @@ This follows because an attribute is host data a draw reads at every vertex.
 
 #### @spec a-storage-buffer-takes-only-an-array-of-its-element-kind
 
-> Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. A slot name is checked once the adapter knows the type of its slot.
+> Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. The adapter checks a slot name where `setAttribute` is called, before `attach` as after it, against the type of its slot in its program.
 
 Derives from: [`fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array)
 
 This follows because a storage buffer holds its elements in the typed array of their component type, as a storage node's own attribute does.
+
+#### @spec the-type-of-a-programs-storages-admits-only-typed-arrays
+
+> The type of `ctx.storages`, the storage arrays the host passes a program from `compileJS*` or `compileWasm*`, admits only a `Float32Array`, a `Float64Array`, an `Int32Array` and a `Uint32Array`. The type checker refuses a plain array there. The program checks nothing at run time.
+
+This follows because a type costs the program nothing as it runs.
+
+#### @spec a-readback-array-takes-only-an-array-of-its-element-kind
+
+> `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` of another kind than the element type of its slot, before it runs anything. The CPU ones take a `Float64Array` for float elements too.
+
+This follows because a readback writes the elements into the host's array, and an array of another kind would hold values the program never wrote.
+
+#### @spec a-readback-array-holds-at-least-the-values-of-its-slot
+
+> `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` that holds fewer values than its slot, before it runs anything. The error reads `out["<slot>"] holds <length> values, and the slot has <count>`.
+
+This follows because a shorter array has no room for every element of the slot. A target would drop the rest, or throw while it copies them, after the dispatch has changed the buffers.
+
+#### @spec a-context-write-takes-only-the-array-of-its-attributes-kind
+
+> `write` on `createWgslContext` and `createWasmContext` refuses an array of another kind than the attribute's own array, before it writes anything. `createWasmContext` takes a `Float64Array` for a float attribute too. The type of `write` admits only those typed arrays.
+
+Derives from: [`fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array)
+
+This follows because a write fills the buffer of a storage attribute, which holds its elements in the typed array of their component type.
+
+#### @spec a-value-takes-only-the-shape-of-its-type
+
+> Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type. The check is one length comparison for each value, and allocates nothing unless it refuses.
+
+Derives from: [`fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves`](#fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves)
+
+This follows because the targets copy a value into typed memory in different ways. WebGPU writes a vector through `TypedArray.set`, which throws on a longer array and keeps stale components past a shorter one. WebAssembly and JS copy one component at a time. Only a value of the right shape reads the same on each.
+
+##### @spec a-shape-refusal-names-what-the-host-gave
+
+> A refusal of a value of another shape names the input, its type and what the host gave. It names an array by its length, another object by its class, and a scalar by its value.
+
+Site: `host-shape.ts:assertHostShape`
+
+This follows because a refusal names its cause, and the class of an object tells the host which value it passed where an array belongs.
+
+##### @spec a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+
+> Each CPU adapter refuses in `setUniform` a value of another shape than the uniform's type. These are `createJs` and `createWasm`, and the grid, compute and routine adapters of both targets. A slot name is checked against the type of its slot in the program the adapter compiled. The routine adapters refuse in `run` a parameter of another shape than its type. A draw, a dispatch or a run checks no uniform again.
+
+This follows because the host gives a uniform through `setUniform` and a parameter through `run`, so each is checked where it is given.
+
+##### @spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+
+> `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
+
+This follows because the adapter holds its program from the start, so it knows the type of each slot before it has a device. A check at `attach` would come after the adapter asked for a device and configured the canvas.
+
+##### @spec a-renderer-refuses-a-uniform-value-of-another-shape
+
+> A scene renderer refuses a value a material gives a uniform of another shape than its type, at the draw that would upload it. It checks no value of the camera, the object or the renderer, which it computes itself. A camera, object or renderer name it gives no value for keeps the value it had, which is zero until set.
+
+This follows because only a material's value function comes from the user. A material reads its value live, as a function, so the renderer can check it only once it calls the function, at the draw. The values it computes itself have the shape of their type, and a check of them would cost every draw and refuse nothing.
+
+##### @spec the-types-hold-a-uniform-value-to-its-shape
+
+> Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+
+##### @spec the-types-admit-a-uniform-set-to-nothing
+
+> On every adapter and context, the type of `setUniform` takes `null` or `undefined` for a uniform set by its node or as an array. An adapter also takes it by slot name.
+
+Derives from: [`spec-a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero)
+
+This follows because every adapter sets a uniform given nothing to zero, so the types admit what the adapters do.
+
+##### @spec every-adapter-shares-one-type-of-setuniform
+
+> Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
+
+Derives from: [`spec-the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape)
+
+This follows because every adapter takes a uniform in the same shapes, so one type states them once. A host that wraps an adapter names that type, and a change to what `setUniform` takes reaches every adapter at once. A context runs whatever program it is handed, so it knows no slot ahead of time. It takes a uniform only by its node, whose type it checks.
+
+##### @spec the-types-hold-a-routine-parameter-to-its-shape
+
+> A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
+
+This follows because `run` checks the shape of each parameter it receives, and the type checker refuses the same mistake earlier wherever it knows the type.
+
+#### @spec a-compiled-program-trusts-its-inputs
+
+> A program the host calls with its inputs in a context checks neither the shape of a value nor the kind of an array. These programs are the function `compileJSFn` gives, which `precompileJS` ships, the program `precompileWasm` ships, and the routines, grids, stages and draws of `compileJS*` and `compileWasm*`. Their inputs include `ctx.storages` and the attribute arrays of a draw. A value of another shape, or an array of another kind, gives what that target gives. Each component it reads still converts as a typed slot of its kind does.
+
+Derives from: [`axiom-a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs)
+
+This follows because such a program runs once for each pixel or invocation, and a check there would cost every one of those calls. A check in the function `precompileJS` ships would ship with the application too. The adapters are the path that checks. An adapter checks a value once, where the host sets it, so a host that wants the check pays for it once.
+
+### @spec a-message-puts-the-article-its-sound-takes-before-a-name
+
+> A refusal puts before a name of a type, a class or a kind of value the article its sound takes. Examples are `an int`, `an Int32Array`, `an object`, `an HTMLElement`, `a uint`, `a uvec3`, `a usampler2D`, `a unorm8x4`, `a Uint32Array` and `a URL`. It reads a name that opens with two capitals letter by letter.
+
+This follows because a refusal names its cause for a reader, who hears the article of a word by its sound, not its first letter.
 
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
@@ -3200,7 +3349,7 @@ This follows because a TSL compute shader ports only if its dispatch means the s
 
 #### @spec a-context-writes-a-buffer-and-reads-it-back
 
-> A context writes host data into a buffer, converted to the buffer's type, and reads the buffer back in the layout of its attribute. A write past the end of the buffer is refused.
+> A context writes host data into a buffer, and reads the buffer back in the layout of its attribute. A write past the end of the buffer is refused.
 
 #### @spec a-context-runs-no-program-it-cannot-bind
 
@@ -3305,6 +3454,16 @@ This follows because WebGL keeps one value at each location, and a matrix reads 
 #### @spec the-math-classes-follow-three-js
 
 > `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+
+#### @spec the-math-classes-type-their-arrays-as-tuples
+
+> `Matrix3.elements` and `Matrix4.elements` are typed `Matrix3Tuple` and `Matrix4Tuple`, tuples of 9 and 16 numbers. On `Matrix3`, `Matrix4`, `Vector2`, `Vector3`, `Vector4`, `Color` and `Quaternion`, `toArray()` with no argument is typed a tuple of the class's length. `toArray(array, offset)` is typed as `array`. So these arrays set a uniform of their type with no cast. The type checker refuses one of another length.
+
+Derives from: [`fact-three-js-types-its-matrix-elements-as-tuples`](#fact-three-js-types-its-matrix-elements-as-tuples), [`spec-the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape)
+
+This follows because a uniform set by its node is typed an exact tuple of its components. The arrays of the math classes are what a host most often sets a uniform from. A `number[]` would need a cast at every such call, which hides a wrong length as well as a right one.
+
+The matrices are typed as `@types/three` types them. The vectors, the colour and the quaternion go further, with the tuples `@types/three` already exports. A tuple still reads wherever three.js code expects a `number[]`.
 
 #### @spec the-three-js-constants-carry-three-js-values
 
@@ -3488,7 +3647,7 @@ This follows because each call's promise stands for that call's result.
 
 #### @spec compute-refuses-a-slot-with-no-storage
 
-> `compute(out)` refuses a slot that the program has no storage buffer for.
+> `compute(out)` refuses a slot that the program has no storage buffer for, before it runs anything.
 
 #### @spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes
 
@@ -3940,7 +4099,7 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 
 #### @spec a-uniform-uploads-in-the-shape-its-type-has
 
-> A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
+> A renderer uploads a scalar uniform as a scalar and a vector or matrix, square or not, as an array. An integer uniform goes up as an integer, and each column of three components is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
 
 #### @spec an-instanced-attribute-comes-from-its-mesh
 
@@ -5220,6 +5379,18 @@ This is a fact of the WebAssembly specification, not a choice.
 
 This is a fact of the WebAssembly specification, not a choice.
 
+## @fact a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves
+
+> `TypedArray.prototype.set` throws a `RangeError` for a source array that holds more elements than fit after its offset. It writes only the elements a shorter source holds, and leaves the rest of the target as it was.
+
+This is a fact of the ECMAScript specification (`SetTypedArrayFromArrayLike`), not a choice.
+
+## @fact a-typed-slot-converts-the-value-stored-in-it
+
+> JavaScript converts a value it stores in a typed slot, such as a typed array element, a `DataView` write, a WebAssembly parameter or a WebGL argument. A signed 32-bit slot such as `Int32Array`, `i32` or `GLint` takes ToInt32, and an unsigned one such as `Uint32Array` or `GLuint` takes ToUint32. A float slot such as `Float64Array` or `f64` takes ToNumber, which a 32-bit one such as `Float32Array` or `GLfloat` rounds to 32 bits. ToNumber turns `true` into 1, `"2"` into 2 and a string that spells no number into NaN. ToInt32 and ToUint32 truncate toward zero, wrap modulo 2³², and give 0 for NaN and the infinities.
+
+This is a fact of three specifications, not a choice. ECMAScript defines `ToNumber`, `ToInt32`, `ToUint32` and the element types of a typed array. The WebAssembly JavaScript interface defines `ToWebAssemblyValue`. Web IDL defines the conversion of `long`, `unsigned long` and `unrestricted float`.
+
 ## @fact v8-boxes-a-float-it-reads-by-a-variable-key
 
 > V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
@@ -5394,6 +5565,12 @@ This is a fact of the GLSL ES 3.00 and WGSL specifications.
 
 This is how three.js behaves, read from its source: `setupVertexAttributes` in `src/renderers/webgl/WebGLBindingStates.js`, and `_getVertexFormat` in `src/renderers/webgpu/utils/WebGPUAttributeUtils.js`, in three.js 0.186.
 
+## @fact three-js-types-its-matrix-elements-as-tuples
+
+> `@types/three` 0.186 types `Matrix3.elements` and `Matrix4.elements` as tuples of 9 and 16 numbers, `Matrix3Tuple` and `Matrix4Tuple`. On those two classes, `toArray()` with no argument is typed that tuple, and `toArray(array, offset)` the type of `array`. It exports `Vector2Tuple`, `Vector3Tuple`, `Vector4Tuple` and `QuaternionTuple`, but types `toArray()` on those classes, and on `Color`, as `number[]`.
+
+This is how the types of three.js read, from `src/math/Matrix3.d.ts`, `Matrix4.d.ts`, `Vector3.d.ts`, `Quaternion.d.ts` and `Color.d.ts` in `@types/three` 0.186.
+
 ## @fact wgsl-refuses-an-i32-literal-out-of-its-range
 
 > A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
@@ -5453,6 +5630,18 @@ This is a fact of the WGSL specification, not a choice. Dawn refuses each case i
 > GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 
 This is a fact of the GLSL ES 3.00 specification, not a choice. WebGL refuses the integer overload.
+
+## @fact tsl-writes-a-uniform-through-a-typed-array-of-its-kind
+
+> TSL's WebGPU renderer writes the value of a number or vector uniform into a typed array over the uniform buffer, and checks nothing about it. It writes an `int` or `ivecN` through an `Int32Array`, and a `uint` or `uvecN` through a `Uint32Array`. It writes every other type through a `Float32Array`. So a fraction given to an integer type truncates, an integer out of range wraps, and a string becomes a number.
+
+This is how three.js's TSL behaves, read from its source: `updateNumber` and `_getBufferForType` in `src/renderers/common/UniformsGroup.js`, in three.js 0.186.
+
+## @fact tsl-has-no-boolean-uniform
+
+> TSL builds no uniform of `bool` or `bvecN`. `NodeBuilder.getNodeUniform` throws `Uniform "bool" not implemented` for one.
+
+This is how three.js's TSL behaves, read from its source: `getNodeUniform` in `src/nodes/core/NodeBuilder.js`, in three.js 0.186.
 
 ## @fact tsl-uniforms-hold-their-values
 

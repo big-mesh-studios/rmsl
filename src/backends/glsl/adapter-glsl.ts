@@ -1,13 +1,4 @@
-import {
-  AttributeNode,
-  isSamplerType,
-  Node,
-  ShaderType,
-  UniformArrayNode,
-  UniformNode,
-  UniformValue,
-  someNode,
-} from "../../core";
+import { Node, ShaderType, UniformNode } from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -17,12 +8,13 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
-  assertNodeArray,
+  hostInputGuard,
   missingAttributeError,
+  UniformOrSlot,
 } from "../adapter";
-import { assertOneDeclarationPerName, storageNodesOf, type StorageGraphNode, VertexRoot } from "../shared";
-import { componentKindOf, type CpuTextureData } from "../cpu";
-import { assertHostArray, type AttributeKind } from "../vertex-format";
+import { assertOneDeclarationPerName, VertexRoot } from "../shared";
+import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
+import type { AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
 import { drawToCanvas, GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
@@ -262,8 +254,19 @@ function uniformSetter(
 function setUniformValue(gl: WebGL2RenderingContext, slot: string, info: UniformInfo, value: unknown): void {
   const set = uniformSetter(gl, info.type);
   if (!set) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
-  const values = (Array.isArray(value) ? value.flat(2) : [value]).map(Number);
+  const values: number[] = [];
+  addComponents(value, values);
   set(info.location, values);
+}
+
+/** Adds the components of `value` to `into`: a scalar, or each component of a plain or typed array, or of arrays of them. */
+function addComponents(value: unknown, into: number[]): void {
+  if (typeof value !== "object" || value === null) {
+    into.push(Number(value));
+    return;
+  }
+  const list = value as ArrayLike<unknown>;
+  for (let i = 0; i < list.length; i++) addComponents(list[i], into);
 }
 
 /** The RMSL type of a reflected attribute, from the kind and count of the components each of its `locations` reads. */
@@ -361,24 +364,20 @@ export function createGlsl(
   const storageTexels = new Map<string, Float32Array | Int32Array | Uint32Array>();
   /** The context's MAX_TEXTURE_SIZE, read once it links. */
   let maxTextureSize = 0;
-  /** The storage buffers the stages read, by slot. */
-  const storages = new Map<string, StorageGraphNode>(
-    storageNodesOf([vertexRoot, fragmentRoot]).map((node) => [node.name, node]),
-  );
-  /** The slots of the textures the stages sample. */
-  const textureSlots = new Set<string>();
-  someNode([vertexRoot, fragmentRoot], (node) => {
-    if (node.type === "uniform" && isSamplerType(node.value.shaderType)) textureSlots.add(node.value.slot);
-  });
+  /** What a value or an array the host sets is checked against, and the storage buffers and textures the stages read. */
+  const guard = hostInputGuard([vertexRoot, fragmentRoot]);
+  const storages = guard.storages;
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
+  function setUniform(uniform: UniformOrSlot, value: unknown): void {
     const slot = slotOf(uniform);
     if (storages.has(slot))
       throw new Error(`[RMSL] setUniform: "${slot}" is a storage buffer, which setAttribute sets`);
-    if (textureSlots.has(slot)) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
+    if (guard.textures.has(slot)) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
+    guard.uniform(uniform, value);
+    const declared = guard.uniforms.get(slot);
+    // A value left out, or null, reads zero, as an unset uniform does.
+    if (value == null && declared)
+      value = new Array(componentCountOf(declared.shaderType) * (declared.length ?? 1)).fill(0);
     const info = uniforms.get(slot);
     if (!gl || !program || !info) {
       pendingUniforms.set(slot, value as number | number[]);
@@ -401,9 +400,8 @@ export function createGlsl(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    assertNodeArray(attribute, data);
+    guard.array(attribute, data);
     const storage = storages.get(slot);
-    if (storage) assertHostArray("storage buffer", slot, storage._t, data);
     const sampler = uniforms.get(slot);
     if (gl && program && storage && sampler) {
       state?.begin(GlState.activeTexture | GlState.unpack | GlState.program);
@@ -419,7 +417,6 @@ export function createGlsl(
       pendingAttributes.set(slot, data);
       return;
     }
-    assertHostArray("attribute", slot, info.type, data);
     state?.begin(GlState.vertexArray | GlState.arrayBuffer);
     try {
       gl.bindVertexArray(vao);

@@ -1,3 +1,4 @@
+import { withArticle } from "../../article";
 import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
@@ -601,11 +602,16 @@ function emitLiteralStores(node: any, addr: number): number[] {
   return out;
 }
 
-/**
- * What a vector or matrix the host leaves out is read from: an array with no
- * components, each of which is written as zero.
- */
-const ZERO_COMPONENTS: readonly number[] = [];
+/** What a vector or matrix the host leaves out is read from: a zero for each component of a `mat4`. */
+const ZERO_COMPONENTS: readonly number[] = new Array(16).fill(0);
+
+/** What a uniform array the host leaves out is read from: an array with no elements, each of which is written as zero. */
+const NO_ELEMENTS: readonly unknown[] = [];
+
+/** A bool the host passes, as 1 where it converts to an `int` that is not zero, as WebGL and WGSL test it, and 0 elsewhere. */
+function hostBoolean(value: unknown): number {
+  return ((value as number) | 0) !== 0 ? 1 : 0;
+}
 
 /**
  * Host-side: packs an array value into linear memory. With `narrow` plus a
@@ -623,17 +629,16 @@ function writeAggregateToMemory(
   const kind = elementKindOf(shaderType);
 
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
-  // A value the host leaves out, or a component past the end of a shorter one, is written as zero.
+  // A value the host leaves out is written as zero. A component converts as the DataView stores it.
   const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
   const count = componentCountOf(shaderType);
   for (let i = 0; i < count; i++) {
-    const raw = (i < arr.length ? arr[i] : 0) ?? 0;
-    const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
+    const num = arr[i] as number;
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
       else view.setFloat64(address + i * compSize, round32 ? Math.fround(num) : num, true);
     } else {
-      view.setInt32(address + i * compSize, num, true);
+      view.setInt32(address + i * compSize, kind === "bool" ? hostBoolean(num) : num, true);
     }
   }
 }
@@ -652,10 +657,10 @@ function writeArrayToMemory(
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  // An element past the end of a shorter array the host passes, or of one it leaves out, is written as zero.
-  const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<any>;
+  // An element the host leaves out is written as zero. A component converts as the DataView stores it.
+  const arr = (value ?? NO_ELEMENTS) as ArrayLike<any>;
   for (let i = 0; i < length; i++) {
-    const el = i < arr.length ? arr[i] : undefined;
+    const el = arr[i];
     const base = address + i * elementStride;
     if (width === 1) {
       const num = typeof el === "boolean" ? (el ? 1 : 0) : ((el as number | undefined) ?? 0);
@@ -663,18 +668,17 @@ function writeArrayToMemory(
         if (narrow) view.setFloat32(base, num, true);
         else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
       } else {
-        view.setInt32(base, num, true);
+        view.setInt32(base, kind === "bool" ? hostBoolean(num) : num, true);
       }
     } else {
       for (let k = 0; k < width; k++) {
-        const raw = el?.[k];
-        const num = typeof raw === "boolean" ? (raw ? 1 : 0) : ((raw as number | undefined) ?? 0);
+        const num = el == null ? 0 : el[k];
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);
           else view.setFloat64(at, round32 ? Math.fround(num) : num, true);
         } else {
-          view.setInt32(at, num, true);
+          view.setInt32(at, kind === "bool" ? hostBoolean(num) : num, true);
         }
       }
     }
@@ -735,7 +739,7 @@ function writeScalarToMemory(
   if (kind === "float") {
     if (narrow) view.setFloat32(address, num, true);
     else view.setFloat64(address, round32 ? Math.fround(num) : num, true);
-  } else view.setInt32(address, num, true);
+  } else view.setInt32(address, kind === "bool" ? hostBoolean(num) : num, true);
 }
 
 /** Host-side: writes a value (scalar or aggregate) into memory — the write-side counterpart of readValueFromMemory. */
@@ -4335,9 +4339,11 @@ export function createWasmInputMarshaller(
   const storageLengths: number[] = new Array(storageParams.length).fill(0);
   let memoryView = new DataView(memory.buffer);
 
-  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`. */
+  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`, and a bool as 1 or 0. */
   function scalarArg(shaderType: ShaderType, value: number): number {
-    return float32 && scalarKindOf(shaderType) === "float" ? Math.fround(value) : value;
+    const kind = scalarKindOf(shaderType);
+    if (kind === "bool") return hostBoolean(value);
+    return float32 && kind === "float" ? Math.fround(value) : value;
   }
 
   /** A view of the memory, made again only when the memory grows and its buffer changes. */
@@ -4419,7 +4425,8 @@ export function createWasmInputMarshaller(
           const value = (ctx.uniforms as any)?.[p.slot];
           if (value === undefined || typeof value !== "number" || isAggregate(p.shaderType)) {
             writeValueToMemory(view, p.address, p.shaderType, value, p.narrow, float32);
-          } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
+          } else if (scalarKindOf(p.shaderType) === "bool") view.setInt32(p.address, hostBoolean(value), true);
+          else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
           else if (p.narrow) view.setFloat32(p.address, value, true);
           else view.setFloat64(p.address, float32 ? Math.fround(value) : value, true);
           break;
@@ -4707,7 +4714,7 @@ export function instantiateWasmProgram(
     if (out && out.buffer === memory.buffer) {
       if (!(out instanceof DrawArray)) {
         throw new Error(
-          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not a ${out.constructor.name}.`,
+          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not ${withArticle(out.constructor.name)}.`,
         );
       }
       const n = copyArgs(drawArgs, args);

@@ -1,4 +1,5 @@
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
+import { assertHostShape } from "../../backends/host-shape";
 import {
   drawToCanvas,
   GlState,
@@ -460,7 +461,7 @@ export class WebGLRenderer {
     for (const binding of entry.program.uniforms) {
       const location = entry.uniformLocations.get(binding.node.name);
       if (location == null) continue;
-      let value: number | number[] | Float32Array;
+      let value: number | number[] | Float32Array | undefined;
       if (binding.scope === "camera") {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
@@ -468,9 +469,12 @@ export class WebGLRenderer {
       } else if (binding.scope === "renderer") {
         value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
-        value = binding.value?.({ camera, mesh }) ?? [];
+        value = binding.value?.({ camera, mesh });
+        // Only a material's value comes from the user; the renderer computes the others in their shape.
+        assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       }
-      if (Array.isArray(value) && value.length === 0) continue;
+      // A name the renderer has no value for leaves the uniform as it was, zero until set.
+      if (value === undefined) continue;
       this.setUniform(location, binding.node._t as string, value);
     }
 
@@ -487,9 +491,8 @@ export class WebGLRenderer {
 
   private setUniform(location: WebGLUniformLocation, type: string, value: number | number[] | Float32Array): void {
     const gl = this.gl;
-    // `value[0]` on a bare scalar is undefined, which would upload NaN — so
-    // scalars are uploaded directly rather than treated as arrays.
-    if (typeof value === "number") {
+    // A scalar, a boolean included, goes to the call as it is, which converts it as its argument's type does.
+    if (typeof value !== "object") {
       switch (type) {
         case "float":
           gl.uniform1f(location, value);
@@ -512,18 +515,6 @@ export class WebGLRenderer {
     // forms (`uniform3fv`) — those take a typed array, which meant allocating
     // one per uniform per draw. Only the matrix forms have no component form.
     switch (type) {
-      case "float":
-        gl.uniform1f(location, value[0]);
-        break;
-      case "int":
-        gl.uniform1i(location, value[0]);
-        break;
-      case "uint":
-        gl.uniform1ui(location, value[0]);
-        break;
-      case "bool":
-        gl.uniform1i(location, value[0]);
-        break;
       case "vec2":
         gl.uniform2f(location, value[0], value[1]);
         break;
@@ -562,6 +553,24 @@ export class WebGLRenderer {
         break;
       case "mat4":
         gl.uniformMatrix4fv(location, false, value);
+        break;
+      case "mat2x3":
+        gl.uniformMatrix2x3fv(location, false, value);
+        break;
+      case "mat2x4":
+        gl.uniformMatrix2x4fv(location, false, value);
+        break;
+      case "mat3x2":
+        gl.uniformMatrix3x2fv(location, false, value);
+        break;
+      case "mat3x4":
+        gl.uniformMatrix3x4fv(location, false, value);
+        break;
+      case "mat4x2":
+        gl.uniformMatrix4x2fv(location, false, value);
+        break;
+      case "mat4x3":
+        gl.uniformMatrix4x3fv(location, false, value);
         break;
       default:
         // Unknown types are skipped rather than guessed.

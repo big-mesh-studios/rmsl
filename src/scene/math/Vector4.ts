@@ -1,3 +1,6 @@
+/** A tuple of the four components of a `Vector4`, `[x, y, z, w]`. */
+export type Vector4Tuple = [number, number, number, number];
+
 export class Vector4 {
   x: number;
   y: number;
@@ -103,7 +106,11 @@ export class Vector4 {
     return this;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The components as a new tuple. */
+  toArray(): Vector4Tuple;
+  /** Writes the components into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     array[offset] = this.x;
     array[offset + 1] = this.y;
     array[offset + 2] = this.z;

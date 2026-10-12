@@ -1,3 +1,4 @@
+import { withArticle } from "../article";
 import {
   assertForUpdateNode,
   BaseNode,
@@ -889,7 +890,7 @@ export function assertConstantIndexInRange(
   const items = array !== undefined ? "elements" : shape ? "columns" : "components";
   const k = Math.trunc(Number(constant.value));
   if (!(k >= 0 && k < count)) {
-    throw new Error(`[RMSL] index ${k} is outside a ${what}'s ${items} 0 to ${count - 1}`);
+    throw new Error(`[RMSL] index ${k} is outside ${withArticle(what)}'s ${items} 0 to ${count - 1}`);
   }
   return k;
 }
@@ -1039,6 +1040,9 @@ export function storageBuffersOf(roots: unknown): { node: StorageGraphNode; acce
   return [...buffers.values()].sort((a, b) => a.node.attribute.id - b.node.attribute.id);
 }
 
+/** The type of a uniform, and the length of a uniform array, as its node's value holds them. */
+export type UniformDeclaration = { readonly shaderType: string; readonly length?: number };
+
 /** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
 export function storageNodesOf(roots: unknown): StorageGraphNode[] {
   return storageBuffersOf(roots).map((buffer) => buffer.node);
@@ -1047,12 +1051,11 @@ export function storageNodesOf(roots: unknown): StorageGraphNode[] {
 /** What a uniform, attribute or varying node declares, in the words of an error about its name. */
 function describeNamed(node: any): string | undefined {
   const value = node.value;
-  const article = /^[aeiou]/.test(value?.shaderType ?? "") ? "an" : "a";
   const precision = value?.precision ? ` of precision "${value.precision}"` : "";
-  if (node.type === "uniform") return `${article} ${value.shaderType} uniform${precision}`;
+  if (node.type === "uniform") return `${withArticle(value.shaderType)} uniform${precision}`;
   if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}${precision}`;
-  if (node.type === "attribute") return `${article} ${value.shaderType} attribute`;
-  if (node.type === "varying") return `${article} ${value.shaderType} varying`;
+  if (node.type === "attribute") return `${withArticle(value.shaderType)} attribute`;
+  if (node.type === "varying") return `${withArticle(value.shaderType)} varying`;
   return undefined;
 }
 

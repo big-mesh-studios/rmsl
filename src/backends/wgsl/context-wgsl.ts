@@ -1,3 +1,4 @@
+import { withArticle } from "../../article";
 import {
   isSamplerType,
   someNode,
@@ -7,11 +8,11 @@ import {
   type ShaderType,
   type UniformArrayNode,
   type UniformNode,
-  type UniformValue,
 } from "../../core";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import { compile, type WgslResource } from "../../wgsl";
-import { slotOf, type TypedArray } from "../adapter";
+import { assertUniformShape, type SetUniformByNode, slotOf } from "../adapter";
+import { assertWriteKind } from "../vertex-format";
 import { assertWriteFits } from "../shared";
 import {
   assertStorageBufferLimit,
@@ -42,10 +43,9 @@ export interface WgslContext {
    * Sets a uniform for every program that reads it. A value applies to every
    * dispatch in the next `compute()`, as in TSL, not to individual dispatches.
    */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform: SetUniformByNode;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
-  write(attribute: StorageBufferAttribute, data: TypedArray, offset?: number): void;
+  write(attribute: StorageBufferAttribute, data: Float32Array | Int32Array | Uint32Array, offset?: number): void;
   /**
    * The attribute's buffer contents, copied back from the GPU, as TSL's
    * `getArrayBufferAsync()`, laid out as the attribute holds them.
@@ -143,7 +143,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     for (const r of storages) {
       if (resident(r.attribute).layout.stride !== storageLayout(r.attribute).stride) {
         throw new Error(
-          `[RMSL] createWgslContext: a ${r.shaderType} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
+          `[RMSL] createWgslContext: ${withArticle(r.shaderType)} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
         );
       }
     }
@@ -188,7 +188,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     uniforms.uploaded = { version: uniformVersion, count: node.count };
     for (const resource of uniforms.resources) {
       const value = resource.name === node.countNode.name ? node.count : uniformValues.get(resource.name);
-      if (value !== undefined) writeUniformMember(uniforms.scratch, resourcePlacement(resource), value);
+      writeUniformMember(uniforms.scratch, resourcePlacement(resource), value);
     }
     gpu.queue.writeBuffer(uniforms.buffer, 0, uniforms.scratch.f32 as BufferSource);
   }
@@ -232,17 +232,17 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
+      assertUniformShape(uniform, value);
       // Copied, so changing the array afterwards doesn't reach a program without another setUniform().
       uniformValues.set(slotOf(uniform), structuredClone(value) as number | number[]);
       uniformVersion++;
     },
 
     write(attribute, data, offset = 0) {
+      assertWriteKind(attribute, data);
       assertWriteFits(attribute, data.length, offset);
-      // Converted to the attribute's own array type, so values arrive as numbers, not reinterpreted bits.
-      const values = data instanceof attribute.arrayClass ? data : attribute.arrayClass.from(data as ArrayLike<number>);
       const { buffer, layout } = resident(attribute);
-      const { slot, data: slots } = spread(values, offset * attribute.itemSize, layout);
+      const { slot, data: slots } = spread(data, offset * attribute.itemSize, layout);
       gpu.queue.writeBuffer(buffer, slot * 4, slots as BufferSource);
     },
 

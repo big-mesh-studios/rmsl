@@ -1,3 +1,4 @@
+import { withArticle } from "./article";
 export const __brand = Symbol();
 
 // === Shader Types (strings, not TS enums) ===
@@ -78,6 +79,9 @@ export type ISamplerCubeLike = BaseNode<"isamplerCube"> | Node<"isamplerCube">;
 export type USampler2DLike = BaseNode<"usampler2D"> | Node<"usampler2D">;
 export type USamplerCubeLike = BaseNode<"usamplerCube"> | Node<"usamplerCube">;
 
+/** What the host gives a boolean component: `true` or `false`, or 1 or 0, which encode them exactly. */
+export type BooleanValue = boolean | 0 | 1;
+
 /**
  * The plain-JS shape `setUniform`/`setUniform` on a uniform array element
  * accepts for a given `ShaderType` — a scalar for scalar types, a fixed-width
@@ -86,17 +90,61 @@ export type USamplerCubeLike = BaseNode<"usamplerCube"> | Node<"usamplerCube">;
  * they resolve to `never` — set a sampler through its own binding, not
  * `setUniform`.
  */
-export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint" | "bool"
+export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint"
   ? number
-  : A extends "vec2" | "ivec2" | "uvec2" | "bvec2"
-    ? [number, number]
-    : A extends "vec3" | "ivec3" | "uvec3" | "bvec3"
-      ? [number, number, number]
-      : A extends "vec4" | "ivec4" | "uvec4" | "bvec4"
-        ? [number, number, number, number]
-        : A extends "mat2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4"
-          ? number[]
-          : never;
+  : A extends "bool"
+    ? BooleanValue
+    : A extends "bvec2"
+      ? [BooleanValue, BooleanValue] | Int32Array | Uint32Array
+      : A extends "bvec3"
+        ? [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
+        : A extends "bvec4"
+          ? [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
+          : A extends keyof typeof MATRIX_SHAPES
+            ? MatrixComponents<(typeof MATRIX_SHAPES)[A][0], (typeof MATRIX_SHAPES)[A][1]> | HostVectorArray<A>
+            : A extends keyof typeof VECTOR_WIDTHS
+              ? Components<(typeof VECTOR_WIDTHS)[A]> | HostVectorArray<A>
+              : never;
+
+/** A tuple of `N` numbers: the components of a vector or matrix value, given as a plain array. */
+type Components<N extends number, T extends number[] = []> = T["length"] extends N ? T : Components<N, [...T, number]>;
+
+/** A tuple of the components of a matrix of `C` columns of `R` rows, a plain array of them column after column. */
+type MatrixComponents<
+  C extends number,
+  R extends number,
+  T extends unknown[] = [],
+  Columns extends unknown[] = [],
+> = Columns["length"] extends C ? T : MatrixComponents<C, R, [...T, ...Components<R>], [...Columns, unknown]>;
+
+/** The typed arrays that hold a vector or matrix of type `A` as it is: integers in their own kind, floats at either width. */
+type HostVectorArray<A extends ShaderType> = A extends `ivec${string}`
+  ? Int32Array
+  : A extends `uvec${string}`
+    ? Uint32Array
+    : Float32Array | Float64Array;
+
+/**
+ * Any value `setUniform` takes by slot name, where the type of the slot is
+ * not known: a scalar, a vector or matrix, or a uniform array of them, or
+ * `null` or `undefined`, which set it to zero. The adapter checks its shape
+ * against the slot's type.
+ */
+export type UniformSlotValue =
+  number | boolean | ArrayLike<number | boolean> | readonly ArrayLike<number | boolean>[] | null | undefined;
+
+/** A parameter of a routine, as the host names it where the routine is compiled. */
+export type RoutineParam = { readonly name: string; readonly type: ShaderType };
+
+/**
+ * The parameters `run` takes, by name. Given parameters whose names are
+ * known, each takes the value a uniform of its type takes, and may be left
+ * out or `null`, which reads zero. Otherwise any name takes any value a
+ * parameter can hold.
+ */
+export type RoutineParams<P extends readonly RoutineParam[]> = string extends P[number]["name"]
+  ? Record<string, UniformSlotValue>
+  : { [K in P[number] as K["name"]]?: UniformValue<K["type"]> | null };
 
 // === BaseNode ===
 export interface BaseNode<A extends ShaderType> {
@@ -1029,7 +1077,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         });
       }
       throw new Error(
-        `[RMSL] A ${this._t} cannot multiply a ${otherType}: the vector must have ` +
+        `[RMSL] A ${this._t} cannot multiply ${withArticle(otherType)}: the vector must have ` +
           `the matrix's column width or one fewer component (a position with its ` +
           `homogeneous coordinate implied).`,
       );
@@ -1040,7 +1088,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       let [c2, r2] = otherShape;
       if (c1 !== r2) {
         throw new Error(
-          `[RMSL] A ${this._t} cannot multiply a ${otherType}: the left has ${c1} ` +
+          `[RMSL] A ${this._t} cannot multiply ${withArticle(otherType)}: the left has ${c1} ` +
             `column(s) but the right has ${r2} row(s), and a matrix product needs ` +
             `the left's columns to equal the right's rows.`,
         );
@@ -1324,7 +1372,9 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === Uniform precision ===
   setPrecision(precision: UniformPrecision): any {
     if (this.type !== "uniform" && this.type !== "uniformArray") {
-      throw new Error(`[RMSL] setPrecision: only a uniform has a precision of its own, not a ${this.type} node`);
+      throw new Error(
+        `[RMSL] setPrecision: only a uniform has a precision of its own, not ${withArticle(this.type)} node`,
+      );
     }
     if (precision !== "low" && precision !== "medium" && precision !== "high") {
       throw new Error(
@@ -1334,7 +1384,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     const shaderType = (this.value as { shaderType: string }).shaderType;
     if (shaderType === "bool" || shaderType.startsWith("bvec")) {
       throw new Error(
-        `[RMSL] setPrecision: a ${shaderType} uniform takes no precision, which GLSL gives only to numbers`,
+        `[RMSL] setPrecision: ${withArticle(shaderType)} uniform takes no precision, which GLSL gives only to numbers`,
       );
     }
     (this.value as { precision?: UniformPrecision }).precision = precision;
@@ -1594,7 +1644,7 @@ const ARRAY_TYPES: Record<number, "vec2" | "vec3" | "vec4" | "mat3" | "mat4"> = 
 function describeElement(element: unknown): string {
   if (element === undefined) return "an empty or undefined element";
   if (Array.isArray(element)) return "a nested array";
-  return `a ${typeof element}, ${JSON.stringify(element)}`;
+  return `${withArticle(typeof element)}, ${JSON.stringify(element)}`;
 }
 
 /**
@@ -1623,7 +1673,7 @@ export function wrapValue<V>(x: V, operation?: string): Node<ExtractType<V>> {
     const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
     if (at >= 0) {
       throw new Error(
-        `[RMSL] A JavaScript array${givenTo} as a ${type} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
+        `[RMSL] A JavaScript array${givenTo} as ${withArticle(type)} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
       );
     }
     if (x.every((element) => typeof element === "number")) return node({ _t: type, type, value: x }) as any;
@@ -1681,8 +1731,8 @@ export function resultType(op: string, operandType: string): string {
   return typeof reducing === "function" ? reducing(operandType) : reducing;
 }
 
-/** Component count per type, for the operations whose width follows it. */
-export const TYPE_WIDTH: Record<string, number> = {
+/** Component count of each scalar and vector type, as literals the types read. */
+const VECTOR_WIDTHS = {
   float: 1,
   int: 1,
   uint: 1,
@@ -1699,7 +1749,10 @@ export const TYPE_WIDTH: Record<string, number> = {
   bvec2: 2,
   bvec3: 3,
   bvec4: 4,
-};
+} as const satisfies Record<string, number>;
+
+/** Component count per type, for the operations whose width follows it. */
+export const TYPE_WIDTH: Record<string, number> = VECTOR_WIDTHS;
 
 /**
  * Where an op's defining operand sits, when it is not the first.
@@ -2487,7 +2540,7 @@ function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<
   if (TYPE_WIDTH[vector._t] !== columns * rows) {
     throw new Error(
       `[RMSL] ${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
-        `${columns * rows} components, not a ${vector._t}.`,
+        `${columns * rows} components, not ${withArticle(vector._t)}.`,
     );
   }
   const floats = asFloatVector(vector) as any;
@@ -2521,7 +2574,7 @@ export function makeMatConstructor<T extends ShaderType>(
       for (const column of args as BaseNode<ShaderType>[]) {
         if (!/^[iub]?vec[234]$/.test(column._t) || TYPE_WIDTH[column._t] !== rows) {
           throw new Error(
-            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not a ${column._t}.`,
+            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not ${withArticle(column._t)}.`,
           );
         }
       }
@@ -2958,11 +3011,13 @@ export function unpremultiplyAlpha(color: MathLike): any {
 function assertSampledTexture(fn: string, value: BaseNode<ShaderType>): void {
   const type = (value as { _t?: string } | undefined)?._t;
   if (type === undefined || !isSamplerType(type)) {
-    const what = type === undefined ? "not a node" : `${/^[aeiou]/.test(type) ? "an" : "a"} ${type}`;
+    const what = type === undefined ? "not a node" : withArticle(type);
     throw new Error(`[RMSL] ${fn}: its first argument is ${what}, not a sampler`);
   }
   if (type === "isamplerCube" || type === "usamplerCube") {
-    throw new Error(`[RMSL] ${fn}: an ${type} is an integer cube map, which neither GLSL nor WGSL can read a texel of`);
+    throw new Error(
+      `[RMSL] ${fn}: ${withArticle(type)} is an integer cube map, which neither GLSL nor WGSL can read a texel of`,
+    );
   }
 }
 
@@ -3234,7 +3289,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
   assertStorageLayout(attribute, shaderType);
   if (attribute.elementType !== null && attribute.elementType !== shaderType) {
     throw new Error(
-      `[RMSL] an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be a ${shaderType}`,
+      `[RMSL] an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be ${withArticle(shaderType)}`,
     );
   }
   attribute.elementType = shaderType;
@@ -3281,13 +3336,13 @@ function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: Shad
   const components = componentsOf(shaderType);
   if (attribute.itemSize !== components) {
     throw new Error(
-      `[RMSL] a ${shaderType} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
+      `[RMSL] ${withArticle(shaderType)} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
     );
   }
   const arrayClass = storageArrayClass(shaderType);
   if (attribute.arrayClass !== arrayClass) {
     throw new Error(
-      `[RMSL] a ${shaderType} storage node needs a ${arrayClass.name} attribute, but its attribute holds a ${attribute.arrayClass.name}`,
+      `[RMSL] ${withArticle(shaderType)} storage node needs ${withArticle(arrayClass.name)} attribute, but its attribute holds ${withArticle(attribute.arrayClass.name)}`,
     );
   }
 }
@@ -3876,7 +3931,7 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
 function assertWholeBound(value: number, type: string): void {
   if (!Number.isInteger(value)) {
     throw new Error(
-      `[RMSL] Loop: ${value} is not a whole number, but the index is ${type === "int" ? "an" : "a"} ${type}. Use a whole number, or a float node, which converts to the index's type`,
+      `[RMSL] Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
     );
   }
 }
@@ -4019,7 +4074,7 @@ export function Return(): void {
  *
  * Every matrix type is listed.
  */
-export const MATRIX_DIMENSIONS: Record<string, [number, number]> = {
+const MATRIX_SHAPES = {
   mat2: [2, 2],
   mat2x3: [2, 3],
   mat2x4: [2, 4],
@@ -4029,7 +4084,10 @@ export const MATRIX_DIMENSIONS: Record<string, [number, number]> = {
   mat4x2: [4, 2],
   mat4x3: [4, 3],
   mat4: [4, 4],
-};
+} as const satisfies Record<string, readonly [number, number]>;
+
+/** `[columns, rows]` per matrix type, looked up by any type name. */
+export const MATRIX_DIMENSIONS: Readonly<Record<string, readonly [number, number]>> = MATRIX_SHAPES;
 
 /**
  * Whether a uniform is a texture, which cannot go in the uniform address space

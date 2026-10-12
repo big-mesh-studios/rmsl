@@ -188,6 +188,8 @@ export type {
   UniformArrayNode,
   UniformNode,
   UniformPrecision,
+  UniformSlotValue,
+  UniformValue,
   USampler3DLike,
   UVec2Like,
   UVec3Like,
@@ -208,4 +210,4 @@ export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 
 // Each backend's compile()/create() pair lives at its own subpath (see
 // glsl.ts, wgsl.ts, js.ts, wasm.ts), not duplicated here per backend.
-export type { Adapter, TypedArray } from "./backends/adapter";
+export type { Adapter, SetUniform, SetUniformByNode, TypedArray } from "./backends/adapter";

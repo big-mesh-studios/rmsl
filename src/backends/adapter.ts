@@ -6,10 +6,15 @@ import {
   UniformArrayNode,
   UniformNode,
   UniformValue,
+  UniformSlotValue,
   StorageBufferAttribute,
+  isSamplerType,
+  someNode,
 } from "../core";
 import type { CpuTextureData } from "./cpu";
 import { assertHostArray } from "./vertex-format";
+import { assertHostShape } from "./host-shape";
+import type { StorageGraphNode, UniformDeclaration } from "./shared";
 
 /**
  * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
@@ -32,16 +37,8 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
    */
   attach(canvas?: HTMLCanvasElement): void | Promise<void>;
 
-  /**
-   * Passing the `uniform()`/`uniformArray()` node itself (rather than its
-   * slot name) lets `value`'s type be inferred from the node's own
-   * `ShaderType` instead of widened to `number | number[]`. The plain-string
-   * overload stays for `uniformRaw()` slots or callers that only have a
-   * name on hand — there the value shape is on the caller to get right.
-   */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+  /** Sets a uniform, named by its node or its slot. See {@link SetUniform}. */
+  setUniform: SetUniform;
 
   /**
    * Same reasoning as `setUniform`: passing the `attribute()` or storage node
@@ -89,6 +86,29 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
   draw(options?: TDrawOptions): void | Promise<void>;
 
   destroy(): void;
+}
+
+/**
+ * `setUniform` of an adapter or a context, which takes a uniform by its node.
+ * The node's `ShaderType` types the value: an exact tuple of its components,
+ * or a typed array of its kind, for a vector or matrix. `null` or `undefined`
+ * sets the uniform to zero. The adapter refuses a value of another shape than
+ * the node's type, where it is given.
+ */
+export interface SetUniformByNode {
+  <T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  <T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
+}
+
+/**
+ * `setUniform` of an adapter, which also takes a uniform by its slot name, as
+ * a `uniformRaw()` slot or a caller with only the name on hand has it. Its
+ * type cannot know the slot's, so it takes any {@link UniformSlotValue}, and
+ * the adapter refuses one of another shape than the slot's type in its
+ * program, where it is given.
+ */
+export interface SetUniform extends SetUniformByNode {
+  (slot: string, value: UniformSlotValue): void;
 }
 
 /**
@@ -156,20 +176,82 @@ export type AttributeOrStorage<T extends ShaderType> = AttributeNode<T> | Storag
 export type AttributeOrSlot = AttributeOrStorage<ShaderType> | string;
 
 /**
- * Refuses `data` for a node `setAttribute` was given unless it is the array
- * of the node's kind: an attribute's declared type, or a storage buffer's
- * element type. A slot name passes here, to be checked where the adapter
- * learns its type. `float64` admits a `Float64Array` for float components.
+ * What an adapter checks a host value against where the host gives it, read
+ * from the stages of its program in one walk of the graph, by slot.
  */
-export function assertNodeArray(attribute: AttributeOrSlot, data: ArrayLike<number>, float64 = false): void {
-  if (typeof attribute === "string") return;
-  if ("attribute" in attribute && attribute.attribute instanceof StorageBufferAttribute) {
-    const type = attribute.attribute.elementType;
-    if (type) assertHostArray("storage buffer", attribute.name, type, data, float64);
-    return;
-  }
-  const type = attributeTypeOf(attribute);
-  if (type !== undefined) assertHostArray("attribute", attribute.name, type, data, float64);
+export interface HostInputGuard {
+  /** The declaration of each uniform the stages read that holds a value, not a texture. */
+  readonly uniforms: ReadonlyMap<string, UniformDeclaration>;
+  /** The slots of the textures the stages sample. */
+  readonly textures: ReadonlySet<string>;
+  /** A node of each storage buffer the stages read, in the order the program created the buffers. */
+  readonly storages: ReadonlyMap<string, StorageGraphNode>;
+  /** The type of each attribute the stages read. */
+  readonly attributes: ReadonlyMap<string, string>;
+  /**
+   * Refuses a value `setUniform` was given of another shape than the type of
+   * its slot in the stages. A node the stages do not read is checked against
+   * its own type, and a slot name they do not read passes.
+   */
+  uniform(uniform: UniformOrSlot, value: unknown): void;
+  /**
+   * Refuses an array `setAttribute` was given of another kind than the
+   * attribute or storage buffer of its slot in the stages. A node the stages
+   * do not read is checked against its own type, and a slot name they do not
+   * read passes.
+   */
+  array(attribute: AttributeOrSlot, data: ArrayLike<number>): void;
+}
+
+/**
+ * The {@link HostInputGuard} of the stages `roots`. `float64` admits a
+ * `Float64Array` for float components, as a CPU target takes.
+ */
+export function hostInputGuard(roots: unknown, float64 = false): HostInputGuard {
+  const uniforms = new Map<string, UniformDeclaration>();
+  const textures = new Set<string>();
+  const attributes = new Map<string, string>();
+  const storageNodes = new Map<string, StorageGraphNode>();
+  someNode(roots, (node) => {
+    if (node.type === "uniform" || node.type === "uniformArray") {
+      if (isSamplerType(node.value.shaderType)) textures.add(node.value.slot);
+      else uniforms.set(node.value.slot, node.value);
+    } else if (node.type === "attribute") {
+      attributes.set(node.value.slot, node.value.shaderType);
+    } else if (node.type === "storage" && !storageNodes.has(node.value.slot)) {
+      storageNodes.set(node.value.slot, node);
+    }
+  });
+  const storages = new Map([...storageNodes].sort(([, a], [, b]) => a.attribute.id - b.attribute.id));
+  return {
+    uniforms,
+    textures,
+    storages,
+    attributes,
+    uniform(uniform, value) {
+      const slot = slotOf(uniform);
+      const declared =
+        uniforms.get(slot) ??
+        (typeof uniform === "string" ? undefined : ((uniform as { value: unknown }).value as UniformDeclaration));
+      if (declared !== undefined) assertHostShape("uniform", slot, declared.shaderType, value, declared.length);
+    },
+    array(attribute, data) {
+      const slot = slotOf(attribute);
+      const attributeType = attributes.get(slot) ?? attributeTypeOf(attribute);
+      if (attributeType !== undefined) return assertHostArray("attribute", slot, attributeType, data, float64);
+      const elementType = storages.get(slot)?._t ?? storageElementTypeOf(attribute);
+      if (elementType !== undefined) assertHostArray("storage buffer", slot, elementType, data, float64);
+    },
+  };
+}
+
+/** Refuses a value given for the uniform node `uniform` of another shape than the node's own type. */
+export function assertUniformShape(
+  uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>,
+  value: unknown,
+): void {
+  const declared = (uniform as { value: unknown }).value as UniformDeclaration;
+  assertHostShape("uniform", uniform.name, declared.shaderType, value, declared.length);
 }
 
 /** The error a draw of `caller` throws when its vertex stage reads the attribute `slot` and the host gave it no data. */
@@ -178,10 +260,18 @@ export function missingAttributeError(caller: string, slot: string): Error {
 }
 
 /** The declared type of an attribute node, or nothing for a storage node or a slot name. */
-export function attributeTypeOf(attribute: AttributeOrSlot): string | undefined {
+function attributeTypeOf(attribute: AttributeOrSlot): string | undefined {
   if (typeof attribute === "string") return undefined;
   const node = attribute as { type?: string; _t?: string };
   return node.type === "attribute" ? node._t : undefined;
+}
+
+/** The element type of a storage node, or nothing for an attribute node or a slot name. */
+function storageElementTypeOf(attribute: AttributeOrSlot): string | undefined {
+  if (typeof attribute === "string" || !("attribute" in attribute)) return undefined;
+  return attribute.attribute instanceof StorageBufferAttribute
+    ? (attribute.attribute.elementType ?? undefined)
+    : undefined;
 }
 
 /**
@@ -205,6 +295,13 @@ export function unknownStorageSlots(out: object, slots: Iterable<string>): Error
     `[RMSL] compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
       `Its storage slots are: ${[...known].map((s) => `"${s}"`).join(", ") || "none"}.`,
   );
+}
+
+/** Refuses `target`, the array `compute(out)` reads the storage slot `slot` back into, when it holds fewer than the slot's `count` values. */
+export function assertReadbackFits(slot: string, target: ArrayLike<number>, count: number): void {
+  if (target.length < count) {
+    throw new RangeError(`[RMSL] out["${slot}"] holds ${target.length} values, and the slot has ${count}`);
+  }
 }
 
 export function slotOf(uniformOrAttribute: UniformOrSlot | AttributeOrSlot): string {

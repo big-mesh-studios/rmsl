@@ -1,14 +1,18 @@
-import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import { RoutineParam, RoutineParams, ShaderType, UniformNode } from "../core";
 import {
   Adapter,
-  assertNodeArray,
   AttributeOrSlot,
   AttributeOrStorage,
+  assertReadbackFits,
+  HostInputGuard,
+  SetUniform,
   slotOf,
   TypedArray,
+  UniformOrSlot,
   unknownStorageSlots,
 } from "./adapter";
 import { assertHostArray } from "./vertex-format";
+import { assertHostShape } from "./host-shape";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -44,6 +48,8 @@ export interface CpuAdapterPrograms {
    * invocation, is faster without it.
    */
   boxedUniforms?: boolean;
+  /** What a uniform or an array the host sets is checked against: the guard of the program's stages. */
+  guard: HostInputGuard;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -106,20 +112,16 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     return Math.floor(storages[firstStorage]!.length / elementWidths.get(firstStorage)!);
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
-    uniforms[slotOf(uniform)] = _value as number | number[];
+  function setUniform(uniform: UniformOrSlot, value: unknown): void {
+    programs.guard.uniform(uniform, value);
+    uniforms[slotOf(uniform)] = value as number | number[];
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    assertNodeArray(attribute, data, true);
-    const slotType = typeof attribute === "string" ? storageTypes[slot] : undefined;
-    if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, data, true);
+    programs.guard.array(attribute, data);
     if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
     const elementType =
@@ -150,12 +152,22 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
+      // An out array is checked before the dispatch, so a refusal leaves the storages as they were.
+      if (out) {
+        for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
+        for (let i = 0; i < storageSlots.length; i++) {
+          const slot = storageSlots[i]!;
+          if (!Object.hasOwn(out, slot)) continue;
+          const slotType = storageTypes[slot];
+          if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, out[slot]!, true);
+          assertReadbackFits(slot, out[slot]!, storages[slot]!.length);
+        }
+      }
       computeStep(stepContext, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
       if (!out) return;
-      for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
       for (let i = 0; i < storageSlots.length; i++) {
         const slot = storageSlots[i]!;
         if (Object.hasOwn(out, slot)) out[slot]!.set(storages[slot]!);
@@ -184,34 +196,50 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
  * An adapter of a routine: it keeps the uniforms and the textures the host
  * sets, and `run` calls the routine with them and the parameters it is given,
  * so the host does not build a context for each call. `run` answers at once.
+ * `setUniform` refuses a value of another shape than its uniform's type, and
+ * `run` a parameter of another shape than its type.
  */
-export interface CpuRoutineAdapter<A extends ShaderType = ShaderType, W extends FloatWidth = "f64"> {
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+export interface CpuRoutineAdapter<
+  A extends ShaderType = ShaderType,
+  W extends FloatWidth = "f64",
+  P extends readonly RoutineParam[] = readonly RoutineParam[],
+> {
+  setUniform: SetUniform;
   setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
   /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
-  run(params?: Record<string, number | number[]>): CpuValue<A, W>;
+  run(params?: RoutineParams<P>): CpuValue<A, W>;
   destroy(): void;
 }
 
-/** Wraps a routine in a {@link CpuRoutineAdapter}. */
-export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWidth = "f64">(
-  routine: CpuRoutine<A, W>,
-): CpuRoutineAdapter<A, W> {
+/**
+ * Wraps a routine in a {@link CpuRoutineAdapter}, which checks a uniform
+ * with `guard` where it is set, and each of `params` where `run` is given it.
+ */
+export function createCpuRoutineAdapter<
+  A extends ShaderType,
+  W extends FloatWidth = "f64",
+  P extends readonly RoutineParam[] = readonly RoutineParam[],
+>(routine: CpuRoutine<A, W>, params: P, guard: HostInputGuard): CpuRoutineAdapter<A, W, P> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
+  function setUniform(uniform: UniformOrSlot, value: unknown): void {
+    guard.uniform(uniform, value);
     uniforms[slotOf(uniform)] = value as number | number[];
   }
 
   return {
-    setUniform: setUniform as CpuRoutineAdapter<A, W>["setUniform"],
+    setUniform,
     setTexture(sampler, texture) {
       textures[slotOf(sampler)] = texture;
     },
-    run: (params) => routine({ params, uniforms, textures }),
+    run(given) {
+      for (let i = 0; i < params.length; i++) {
+        const param = params[i]!;
+        assertHostShape("parameter", param.name, param.type, (given as Record<string, unknown>)?.[param.name]);
+      }
+      return routine({ params: given, uniforms, textures });
+    },
     destroy() {},
   };
 }

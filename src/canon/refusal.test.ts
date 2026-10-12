@@ -418,12 +418,10 @@ describe("a mistake is refused before the program runs", () => {
       })();
     expect(computeWgsl(build())).toContain("continuing");
     for (const compile of [compileJSCompute, compileWasmCompute]) {
-      const storages = { [scalars.name]: [9, 9, 9, 9], [triples.name]: new Array(12).fill(0) };
+      const storages = { [scalars.name]: Float64Array.of(9, 9, 9, 9), [triples.name]: new Float64Array(12) };
       compile(build, { name: "main", params: [] })({ storages }, 1);
-      expect(storages).toEqual({
-        [scalars.name]: [0, 1, 2, 3],
-        [triples.name]: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-      });
+      expect(Array.from(storages[scalars.name]!)).toEqual([0, 1, 2, 3]);
+      expect(Array.from(storages[triples.name]!)).toEqual([1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0]);
     }
   });
 
