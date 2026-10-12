@@ -129,7 +129,14 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   converts one operand to the type of the other instead. Convert it yourself,
   with `toFloat()`, `toInt()`, `toUint()` or a vector conversion. A bare number
   still takes the type beside it, and a shift amount may be an `int` or a
-  `uint` beside a value of either.
+  `uint` beside a value of either. A float operand of a bitwise operator or a
+  shift is refused too, where TSL converts it to an `int`.
+- **A function defined only for floats refuses an integer.** `sin`, `floor`,
+  `pow`, `mix`, `step`, `normalize`, `cross` and every other math function that
+  GLSL and WGSL define only for floats throw on an `int`, `uint` or `bool`
+  operand, where TSL emits the call and the driver refuses it (`cross` excepted:
+  TSL converts its operands to `vec3`). `abs` and `sign` take an `int`, and
+  `min`, `max` and `clamp` either integer kind.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.

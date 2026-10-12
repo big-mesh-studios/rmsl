@@ -10,6 +10,7 @@ import {
   StorageBufferAttribute,
   TYPE_WIDTH,
   node,
+  operandRefusal,
   someNode,
   swizzleWritePlace,
   var_,
@@ -680,7 +681,8 @@ function refuseWholeStorageRead(storage: any): never {
 
 /**
  * Checks every node of `roots`, in one walk, for the refusals every compiler
- * shares: a storage node read as a whole rather than through `.element(i)`
+ * shares: an operation on operands it does not take, see {@link operandRefusal},
+ * a storage node read as a whole rather than through `.element(i)`
  * (an assignment to one has its own refusal, in `assertAssignable`), a node of
  * a `for` update that the update slot of a `for` cannot take, and a write by
  * index through a swizzle that its read would refuse. It gives each such write
@@ -707,6 +709,8 @@ function checkRoots(roots: readonly unknown[]): {
     visited[+inUpdate]!.add(node);
     if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
     if (inUpdate) assertForUpdateNode(node);
+    const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
+    if (refusal) throw new Error(`[RMSL] ${refusal}`);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     if (node.type === "return") holdsReturn = true;
     if (STAGE_WRITES.has(node.type)) holdsStageWrite = true;

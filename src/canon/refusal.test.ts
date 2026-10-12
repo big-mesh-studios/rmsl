@@ -256,6 +256,79 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
+   * A graph `deserialize` rebuilt never met the builders that refuse an
+   * operand of the wrong kind, so every target refuses it as it compiles. The
+   * data is edited by hand so that a node reads an operand no builder lets it.
+   */
+  const rewired = (build: () => Node<"vec4">, type: string, from: string) => {
+    const graph = serialize(build());
+    const node = graph.nodes.find((n) => n.type === type)!;
+    node.params![node.params!.length - 1] = graph.nodes.findIndex((n) => n.type === "uniform" && n._t === from);
+    return graph;
+  };
+  const refusedOnEveryTarget = (graph: ReturnType<typeof serialize>, refusal: RegExp) => {
+    const none = { name: "main", params: [] };
+    expect(() => compileGlsl.fragment(deserialize(graph) as Node<"vec4">)).toThrow(refusal);
+    expect(() => compileWgsl.fragment(deserialize(graph) as Node<"vec4">)).toThrow(refusal);
+    expect(() => compileJSFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrow(refusal);
+    expect(() => compileWasmFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrow(refusal);
+  };
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   */
+  it("refuses a deserialized sum of an int and a uint on every target", () => {
+    const count = uniform("int");
+    const mask = uniform("uint");
+    const build = () => Fn(() => vec4(count.add(count).toFloat(), mask.toFloat(), 0, 1))();
+    refusedOnEveryTarget(rewired(build, "add", "uint"), /add\(\) takes operands of one kind, not int and uint/);
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("refuses a deserialized minimum of an int and a float on every target", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4(count.min(count).toFloat(), scale, 0, 1))();
+    refusedOnEveryTarget(rewired(build, "min", "float"), /min\(\) takes operands of one kind, not int and float/);
+  });
+
+  /**
+   * @canon spec-operands-of-different-widths-are-refused
+   */
+  it("refuses a deserialized sum of vectors of different widths on every target", () => {
+    const short = uniform("vec2");
+    const long = uniform("vec3");
+    const build = () => Fn(() => vec4(short.add(short).x, long.x, 0, 1))();
+    refusedOnEveryTarget(rewired(build, "add", "vec3"), /one width/);
+  });
+
+  /**
+   * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
+   */
+  it("refuses a deserialized power of two ints on every target", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4(scale.pow(scale), count.toFloat(), 0, 1))();
+    const graph = rewired(build, "pow", "int");
+    graph.nodes.find((n) => n.type === "pow")!.params![0] = graph.nodes.findIndex((n) => n._t === "int");
+    refusedOnEveryTarget(graph, /pow\(\) takes a float or a float vector, not int/);
+  });
+
+  /**
+   * @canon spec-an-integer-operation-refuses-a-float-operand
+   */
+  it("refuses a deserialized bitwise and of floats on every target", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4(count.bitAnd(count).toFloat(), scale, 0, 1))();
+    const graph = rewired(build, "bitAnd", "float");
+    graph.nodes.find((n) => n.type === "bitAnd")!.params![0] = graph.nodes.findIndex((n) => n._t === "float");
+    refusedOnEveryTarget(graph, /bitAnd\(\) takes an integer or an integer vector, not float/);
+  });
+
+  /**
    * A `For` whose update leaves the loop or the function is refused as it is
    * built, and as every target compiles it, a graph `deserialize` rebuilt
    * included: the update slot of a GLSL, WGSL or JavaScript `for` takes no

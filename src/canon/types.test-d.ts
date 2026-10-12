@@ -19,6 +19,18 @@ import {
   dot,
   length,
   distance,
+  sin,
+  floor,
+  pow,
+  mix,
+  step,
+  smoothstep,
+  normalize,
+  cross,
+  bitAnd,
+  bitNot,
+  shiftLeft,
+  ivec3,
   screenSize,
   type Node,
   type UniformNode,
@@ -116,6 +128,49 @@ describe("refusals the types make", () => {
     expectTypeOf(uint(1).shiftRight(int(2))).toEqualTypeOf<Node<"uint">>();
     expectTypeOf(ivec2(1, 2).shiftLeft(uvec2(1, 2))).toEqualTypeOf<Node<"ivec2">>();
     expectTypeOf(uvec2(1, 2).shiftRight(int(1))).toEqualTypeOf<Node<"uvec2">>();
+  });
+
+  /**
+   * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
+   */
+  it("refuses an integer operand of a function defined only for floats", () => {
+    // @ts-expect-error an int has no sine
+    sin(int(1));
+    // @ts-expect-error nor a uint a floor
+    floor(uint(1));
+    // @ts-expect-error nor an int a power
+    pow(int(2), 3);
+    // @ts-expect-error nor two ints a blend
+    mix(int(1), int(2), 0.5);
+    // @ts-expect-error nor an int a step
+    step(0, int(1));
+    // @ts-expect-error nor an int a smooth step
+    smoothstep(0, 1, int(1));
+    // @ts-expect-error nor an ivec3 a direction
+    normalize(ivec3(1, 2, 3));
+    // @ts-expect-error nor two ivec3s a cross product
+    cross(ivec3(1, 2, 3), ivec3(1, 2, 3));
+    // @ts-expect-error nor an int a method of floats
+    int(1).sin();
+    sin(1);
+    pow(float(2), 3);
+    mix(vec3(1, 2, 3), [0, 0, 0], 0.5);
+  });
+
+  /**
+   * @canon spec-an-integer-operation-refuses-a-float-operand
+   */
+  it("refuses a float operand of an integer operation", () => {
+    // @ts-expect-error a float has no bitwise and
+    bitAnd(float(1), 2);
+    // @ts-expect-error nor a vec2 a bitwise not
+    bitNot(vec2(1, 2));
+    // @ts-expect-error nor an int a shift by a float
+    shiftLeft(int(1), float(2));
+    // @ts-expect-error nor a float a method of integers
+    float(1).bitAnd(1);
+    bitAnd(int(1), 2);
+    shiftLeft(uint(1), int(2));
   });
 
   /**
