@@ -158,6 +158,12 @@ export interface CompileCtx {
   fragCoordUsed: boolean;
   /** What an early `Return()` compiles to: the function's zero value, in the form its last return takes. */
   returnStatement?: string;
+  /**
+   * The declarations of the variables the update of a GLSL `for` makes, while
+   * that update compiles. The update is an expression, so each variable is
+   * declared ahead of the loop and assigned in the update.
+   */
+  forUpdateDeclarations?: string[];
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
   vertexIndexUsed?: boolean;
   instanceIndexUsed?: boolean;

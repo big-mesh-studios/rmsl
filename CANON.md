@@ -297,6 +297,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-for-loops-over-a-variable-its-init-is-given`](#spec-a-for-loops-over-a-variable-its-init-is-given) — A `For` whose init makes no statement, such as one handed a variable made before the loop, loops over that variable as it is.
       - [`@spec a-for-runs-its-body-and-update-while-its-condition-holds`](#spec-a-for-runs-its-body-and-update-while-its-condition-holds) — A `For` makes its loop variable once, then runs its body and its update, in that order, for as long as its condition holds.
       - [`@spec a-variable-a-for-condition-makes-stays-in-scope`](#spec-a-variable-a-for-condition-makes-stays-in-scope) — The update of a `For`, and the code after the loop, can read a variable that its condition makes.
+      - [`@spec a-variable-a-for-update-makes-compiles-on-every-target`](#spec-a-variable-a-for-update-makes-compiles-on-every-target) — A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. On GLSL it is declared before the loop and assigned in the update.
       - [`@spec a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test) — A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
       - [`@spec continue-in-a-for-runs-the-update`](#spec-continue-in-a-for-runs-the-update) — `Continue` in the body of a `For` runs the update, then the condition.
       - [`@spec for-is-a-loop-of-rmsls-own`](#spec-for-is-a-loop-of-rmsls-own) — rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
@@ -850,6 +851,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+- [`@fact glsl-takes-no-declaration-in-a-for-update`](#fact-glsl-takes-no-declaration-in-a-for-update) — The update of a GLSL `for` is an expression, so a declaration in it is a syntax error. An assignment to a variable declared before the loop is an expression.
 - [`@fact wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update) — The update of a WGSL `for` is an assignment, an increment, a decrement or a function call. A `break`, `continue`, `discard` or `return` in it is a syntax error.
 - [`@fact glsl-takes-no-jump-in-a-for-update`](#fact-glsl-takes-no-jump-in-a-for-update) — The update of a GLSL `for` is an expression, so a `break`, `continue`, `discard` or `return` in it is a syntax error.
 - [`@fact glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order) — GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
@@ -2604,6 +2606,14 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 ##### @spec a-variable-a-for-condition-makes-stays-in-scope
 
 > The update of a `For`, and the code after the loop, can read a variable that its condition makes.
+
+##### @spec a-variable-a-for-update-makes-compiles-on-every-target
+
+> A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. On GLSL it is declared before the loop and assigned in the update.
+
+Derives from: [`fact-glsl-takes-no-declaration-in-a-for-update`](#fact-glsl-takes-no-declaration-in-a-for-update)
+
+This follows because a `Continue` must still run the update, so the update stays in the update slot of a GLSL `for`, which takes no declaration.
 
 ##### @spec a-loop-condition-runs-its-statements-before-every-test
 
@@ -5952,6 +5962,12 @@ This is a fact of the WGSL specification, not a choice.
 > The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 
 Chromium's WebGL 2 compiler refuses `for (int i = 0; i < 3; if (true) { i++; }) { }` with `'if' : syntax error`, and accepts `for (int i = 0; i < 3; i++) { }`.
+
+## @fact glsl-takes-no-declaration-in-a-for-update
+
+> The update of a GLSL `for` is an expression, so a declaration in it is a syntax error. An assignment to a variable declared before the loop is an expression.
+
+This is a fact of the GLSL ES 3.00 grammar, where the update of a `for` is an expression. Chromium's WebGL 2 compiler refuses an update that declares `highp float _rmsl_6 = ...` with `'_rmsl_6' : syntax error`, and accepts the same update once the variable is declared before the loop.
 
 ## @fact wgsl-takes-no-jump-in-a-for-update
 

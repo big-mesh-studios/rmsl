@@ -1656,3 +1656,53 @@ describe("an inline Fn that jumps, read in several statements", () => {
     expectOnEveryTarget("fragment", build, /Break\(\) in an Fn called outside .* loop inside/);
   });
 });
+
+describe("a variable the update of a For makes", () => {
+  /**
+   * The update reads the value of an `Fn` that makes a variable twice, so the
+   * `Fn` runs in the update, where GLSL takes no declaration.
+   *
+   * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
+   */
+  it("steps a For by an inline Fn its update reads twice, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const step = Fn(() => a.mul(2).toVar())() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(10),
+          (i) => i.assign(i.add(step).add(step)),
+          () => {
+            total.addAssign(1);
+          },
+        );
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(3);
+  });
+
+  /**
+   * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
+   */
+  it("steps a For by a variable its update makes, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(10),
+          (i) => {
+            const step = i.add(a).toVar();
+            i.assign(step.add(step));
+          },
+          () => {
+            total.addAssign(1);
+          },
+        );
+        return total;
+      })();
+    expect(evaluateRecording(build, [1])).toBe(3);
+  });
+});

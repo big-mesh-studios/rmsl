@@ -698,6 +698,14 @@ export function compileGLSLNode(
       if (lhs.expr.startsWith(SHARED_NAME_PREFIX) && /^(float|u?int|[iu]?vec\d|mat\d(x\d)?)$/.test(t)) {
         t = `highp ${t}`;
       }
+      if (ctx.forUpdateDeclarations) {
+        ctx.forUpdateDeclarations.push(`${t} ${lhs.expr};`);
+        return {
+          decls: [...lhs.decls, ...rhs.decls],
+          body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${rhsExpr};`],
+          expr: lhs.expr,
+        };
+      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `${t} ${lhs.expr} = ${rhsExpr};`],
@@ -758,7 +766,11 @@ export function compileGLSLNode(
     case "for": {
       let init = compileGLSLStage(node.params![0], ctx);
       let cond = compileGLSLStage(node.params![1], ctx);
+      const updateDeclarations: string[] = [];
+      const outerDeclarations = ctx.forUpdateDeclarations;
+      ctx.forUpdateDeclarations = updateDeclarations;
       let update = compileGLSLStage(node.params![2], ctx);
+      ctx.forUpdateDeclarations = outerDeclarations;
       let body = compileGLSLStage(node.params![3], ctx);
       // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
       let initExpr = "";
@@ -776,6 +788,7 @@ export function compileGLSLNode(
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
+          ...updateDeclarations,
           `for (${initExpr}; ${header}; ${update.body.map(withoutSemicolon).join(", ")}) {`,
           ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
