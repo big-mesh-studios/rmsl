@@ -122,6 +122,14 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
 - **`builtinFragDepth()`** starts from the fragment's own depth, so a path that
   writes none keeps it, where TSL gives such a path 0 on WebGPU and an
   undefined depth on WebGL.
+- **Operands of two kinds are refused.** An operation on a float and an
+  integer, or on an `int` and a `uint` (or their vectors), throws on every
+  target: arithmetic and bitwise operators, comparisons, `select`, and math
+  functions of several operands such as `clamp`, `mix`, `pow` and `step`. TSL
+  converts one operand to the type of the other instead. Convert it yourself,
+  with `toFloat()`, `toInt()`, `toUint()` or a vector conversion. A bare number
+  still takes the type beside it, and a shift amount may be an `int` or a
+  `uint` beside a value of either.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.

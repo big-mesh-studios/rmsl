@@ -254,9 +254,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
-    - [`@spec operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused) — An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead.
+    - [`@spec operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused) — An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead. The operations are the arithmetic and bitwise operators, the comparisons, `select`, and the math functions of several operands, such as `clamp`, `mix`, `pow` and `step`.
       - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target.
       - [`@spec a-signed-and-an-unsigned-integer-operand-are-refused`](#spec-a-signed-and-an-unsigned-integer-operand-are-refused) — An operation on an `int` or `ivecN` operand and a `uint` or `uvecN` operand is refused, by the type checker and on every target.
+      - [`@spec a-shift-amount-may-be-of-either-integer-kind`](#spec-a-shift-amount-may-be-of-either-integer-kind) — A shift takes an amount of either integer kind beside a value of either, by the type checker and on every target. Its result has the type of the value. A float beside an integer is refused there too, and the error names the conversion of the float alone.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
@@ -289,7 +290,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
-    - [`@exception an-operation-refuses-an-operand-tsl-would-convert`](#exception-an-operation-refuses-an-operand-tsl-would-convert) — An arithmetic operation, `min`, `max` or a comparison on operands of two kinds is refused, where TSL converts one operand to the type of the other.
+    - [`@exception an-operation-refuses-an-operand-tsl-would-convert`](#exception-an-operation-refuses-an-operand-tsl-would-convert) — An operation on operands of two kinds is refused, where TSL converts one operand to the type of the other. This holds for an arithmetic or bitwise operator, a comparison, `select`, and a math function of several operands.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
@@ -744,6 +745,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four) — WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
 - [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
 - [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
+- [`@fact glsl-takes-a-shift-amount-of-either-signedness`](#fact-glsl-takes-a-shift-amount-of-either-signedness) — A GLSL ES 3.00 shift lets one operand be signed and the other unsigned, and its result has the type of the left operand. The operands of `&`, `|` and `^` must both be signed or both be unsigned.
+- [`@fact glsl-has-no-implicit-conversion`](#fact-glsl-has-no-implicit-conversion) — GLSL ES 3.00 converts no value to another type implicitly.
 - [`@fact a-wgsl-shift-takes-an-unsigned-amount`](#fact-a-wgsl-shift-takes-an-unsigned-amount) — A WGSL shift takes its amount as a `u32` or a vector of `u32`, and refuses an `i32` amount.
 - [`@fact a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector) — A WGSL bitwise operator refuses a vector and a scalar as its two operands.
 - [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
@@ -776,7 +779,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 - [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
 - [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
-- [`@fact tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other) — TSL builds both operands of an arithmetic operator, and of `min` and `max`, as one type. That is the type of the first operand, unless the second is the longer vector. `int + uint` converts the `uint` to an `int`, and `int + float` converts the `float` to an `int`. A comparison of two scalars of different types converts both to `float`.
+- [`@fact tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other) — TSL builds the operands of an operation as one type, and converts each operand of another type to it. An arithmetic or bitwise operator takes the type of its first operand, unless the second is the longer vector, so `int + uint` converts the `uint` to an `int`. A math function such as `clamp`, `pow` or `step` takes the type of its longest operand, and `select` that of its longer branch, the first on a tie. Two scalars of different types compare as `float`. A shift converts its amount to `uint`, and `mix` its weight to `float` when the weight is a scalar.
 - [`@fact tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node) — TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
 - [`@fact tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes) — TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
 - [`@fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter) — A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
@@ -2261,23 +2264,31 @@ This follows because a scalar beside a vector broadcasts, and widening it once i
 
 #### @spec operands-of-different-kinds-are-refused
 
-> An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead.
+> An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead. The operations are the arithmetic and bitwise operators, the comparisons, `select`, and the math functions of several operands, such as `clamp`, `mix`, `pow` and `step`.
 
-Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
+Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion), [`fact-glsl-has-no-implicit-conversion`](#fact-glsl-has-no-implicit-conversion)
 
-This follows because WGSL converts nothing implicitly, so a target that compiled such an operation would choose a conversion the others need not share. Which operand to convert is the user's choice, so the error offers both.
+This follows because neither GPU language converts implicitly, so a target that compiled such an operation would choose a conversion the others need not share. Which operand to convert is the user's choice, so the error offers both.
 
 ##### @spec an-integer-and-a-float-operand-are-refused
 
 > An operation on an integer operand and a float operand is refused, by the type checker and on every target.
 
-This follows because GLSL converts the integer to a float, so a target that compiled it would give a result the others do not.
+This follows because the result differs with the side converted: `int(7) / float(2)` is `3` as an integer division and `3.5` as a float one.
 
 ##### @spec a-signed-and-an-unsigned-integer-operand-are-refused
 
 > An operation on an `int` or `ivecN` operand and a `uint` or `uvecN` operand is refused, by the type checker and on every target.
 
 This follows because WGSL would convert the unsigned operand to a signed one, and JavaScript would add the raw numbers. The sum of `-1` and `4294967295` would be `-2` on one and `4294967294` on the other.
+
+##### @spec a-shift-amount-may-be-of-either-integer-kind
+
+> A shift takes an amount of either integer kind beside a value of either, by the type checker and on every target. Its result has the type of the value. A float beside an integer is refused there too, and the error names the conversion of the float alone.
+
+Derives from: [`fact-glsl-takes-a-shift-amount-of-either-signedness`](#fact-glsl-takes-a-shift-amount-of-either-signedness), [`spec-wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned)
+
+This follows because the amount counts bits rather than joining the value, so its kind changes nothing the shift computes. A shift of a float has no meaning, so converting the integer to a float fixes nothing.
 
 #### @spec a-for-update-that-holds-a-block-is-refused
 
@@ -2479,7 +2490,7 @@ This follows because a TSL shader ports by changing its import only if each oper
 
 #### @exception an-operation-refuses-an-operand-tsl-would-convert
 
-> An arithmetic operation, `min`, `max` or a comparison on operands of two kinds is refused, where TSL converts one operand to the type of the other.
+> An operation on operands of two kinds is refused, where TSL converts one operand to the type of the other. This holds for an arithmetic or bitwise operator, a comparison, `select`, and a math function of several operands.
 
 Derives from: [`spec-operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused), [`fact-tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
@@ -5213,6 +5224,18 @@ This is a fact of the WGSL specification, not a choice. Dawn refuses each case i
 
 This is a fact of the WGSL specification, not a choice. Dawn refuses each case it names.
 
+## @fact glsl-takes-a-shift-amount-of-either-signedness
+
+> A GLSL ES 3.00 shift lets one operand be signed and the other unsigned, and its result has the type of the left operand. The operands of `&`, `|` and `^` must both be signed or both be unsigned.
+
+This is a fact of the GLSL ES 3.00 specification, revision 6, section 5.9, not a choice.
+
+## @fact glsl-has-no-implicit-conversion
+
+> GLSL ES 3.00 converts no value to another type implicitly.
+
+This is a fact of the GLSL ES 3.00 specification, revision 6, chapter 4, not a choice.
+
 ## @fact a-wgsl-shift-takes-an-unsigned-amount
 
 > A WGSL shift takes its amount as a `u32` or a vector of `u32`, and refuses an `i32` amount.
@@ -5415,9 +5438,9 @@ This is how three.js's TSL behaves, read from its source (`Normal`, `NodeMateria
 
 ## @fact tsl-converts-an-operand-to-the-type-of-the-other
 
-> TSL builds both operands of an arithmetic operator, and of `min` and `max`, as one type. That is the type of the first operand, unless the second is the longer vector. `int + uint` converts the `uint` to an `int`, and `int + float` converts the `float` to an `int`. A comparison of two scalars of different types converts both to `float`.
+> TSL builds the operands of an operation as one type, and converts each operand of another type to it. An arithmetic or bitwise operator takes the type of its first operand, unless the second is the longer vector, so `int + uint` converts the `uint` to an `int`. A math function such as `clamp`, `pow` or `step` takes the type of its longest operand, and `select` that of its longer branch, the first on a tie. Two scalars of different types compare as `float`. A shift converts its amount to `uint`, and `mix` its weight to `float` when the weight is a scalar.
 
-This is how three.js's TSL behaves, read from its source (`OperatorNode`, `generate`, and `MathNode`, `getInputType`, three.js 0.186).
+This is how three.js's TSL behaves, read from its source (`OperatorNode`, `generate`, `MathNode`, `getInputType` and `generate`, and `ConditionalNode`, `generate`, three.js 0.186).
 
 ## @fact tsl-turns-a-number-into-a-constant-node
 

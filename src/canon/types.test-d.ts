@@ -80,6 +80,42 @@ describe("refusals the types make", () => {
     expectTypeOf(int(1).add(2)).toEqualTypeOf<Node<"int">>();
     expectTypeOf(uint(1).add(2)).toEqualTypeOf<Node<"uint">>();
     expectTypeOf(uvec2(1, 2).add(2)).toEqualTypeOf<Node<"uvec2">>();
+    // @ts-expect-error nor an int and a uint a bitwise and
+    int(1).bitAnd(uint(2));
+    // @ts-expect-error nor a uvec2 and an ivec2 a bitwise or
+    uvec2(1, 2).bitOr(ivec2(1, 2));
+    // @ts-expect-error nor an int between uint bounds a clamp
+    int(1).clamp(uint(0), uint(2));
+    // @ts-expect-error nor an int and a uint a choice
+    bool(true).select(int(1), uint(2));
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("refuses an integer beside a float in a function of several operands", () => {
+    // @ts-expect-error a float has no power of an int
+    float(2).pow(int(3));
+    // @ts-expect-error nor a float a clamp between int bounds
+    float(2).clamp(int(0), int(1));
+    // @ts-expect-error nor a vec3 a blend by an int weight
+    vec3(1, 2, 3).mix(vec3(1, 2, 3), int(1));
+    // @ts-expect-error nor an int and a float a bitwise and
+    int(1).bitAnd(float(2));
+    // @ts-expect-error nor an int a shift by a float
+    int(1).shiftLeft(float(2));
+    // @ts-expect-error nor an int and a float a choice
+    bool(true).select(int(1), float(2));
+  });
+
+  /**
+   * @canon spec-a-shift-amount-may-be-of-either-integer-kind
+   */
+  it("takes a shift amount of either integer kind", () => {
+    expectTypeOf(int(1).shiftLeft(uint(2))).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(uint(1).shiftRight(int(2))).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(ivec2(1, 2).shiftLeft(uvec2(1, 2))).toEqualTypeOf<Node<"ivec2">>();
+    expectTypeOf(uvec2(1, 2).shiftRight(int(1))).toEqualTypeOf<Node<"uvec2">>();
   });
 
   /**

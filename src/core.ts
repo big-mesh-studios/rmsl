@@ -651,6 +651,9 @@ export interface RectMatOps<
   transpose(): Node<Transposed>;
 }
 
+/** The amount of a vector shift: an integer or integer vector of either kind. */
+type ShiftAmount = IntLike | UintLike | IVec2Like | IVec3Like | IVec4Like | UVec2Like | UVec3Like | UVec4Like;
+
 export interface IntOps {
   add(other: IntLike): Node<"int">;
   sub(other: IntLike): Node<"int">;
@@ -665,8 +668,8 @@ export interface IntOps {
   bitAnd(other: IntLike): Node<"int">;
   bitOr(other: IntLike): Node<"int">;
   bitXor(other: IntLike): Node<"int">;
-  shiftLeft(other: IntLike): Node<"int">;
-  shiftRight(other: IntLike): Node<"int">;
+  shiftLeft(other: IntLike | UintLike): Node<"int">;
+  shiftRight(other: IntLike | UintLike): Node<"int">;
   bitNot(): Node<"int">;
   lessThan(other: IntLike): Node<"bool">;
   greaterThan(other: IntLike): Node<"bool">;
@@ -688,8 +691,8 @@ export interface UintOps {
   bitAnd(other: UintLike): Node<"uint">;
   bitOr(other: UintLike): Node<"uint">;
   bitXor(other: UintLike): Node<"uint">;
-  shiftLeft(other: UintLike): Node<"uint">;
-  shiftRight(other: UintLike): Node<"uint">;
+  shiftLeft(other: UintLike | IntLike): Node<"uint">;
+  shiftRight(other: UintLike | IntLike): Node<"uint">;
   bitNot(): Node<"uint">;
   lessThan(other: UintLike): Node<"bool">;
   greaterThan(other: UintLike): Node<"bool">;
@@ -718,8 +721,8 @@ export interface IVecOps<A extends "ivec2" | "ivec3" | "ivec4"> {
   bitAnd(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
   bitOr(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
   bitXor(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
-  shiftLeft(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
-  shiftRight(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
+  shiftLeft(other: ShiftAmount): Node<A>;
+  shiftRight(other: ShiftAmount): Node<A>;
   bitNot(): Node<A>;
   element(i: IntLike): Node<"int">;
 }
@@ -736,8 +739,8 @@ export interface UVecOps<A extends "uvec2" | "uvec3" | "uvec4"> {
   bitAnd(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   bitOr(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   bitXor(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
-  shiftLeft(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
-  shiftRight(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
+  shiftLeft(other: ShiftAmount): Node<A>;
+  shiftRight(other: ShiftAmount): Node<A>;
   bitNot(): Node<A>;
   element(i: IntLike): Node<"uint">;
 }
@@ -806,9 +809,31 @@ export interface NodeMethods<A extends ShaderType> {
    */
   select<T extends ShaderType>(
     ifTrue: BaseNode<T> | number | VectorArray,
-    ifFalse: BaseNode<T> | number | VectorArray,
+    ifFalse: (BaseNode<T> | number | VectorArray) & OfOneKind<T>,
   ): Node<T>;
 }
+
+/** The kind of the components of `T`: `"int"`, `"uint"`, `"bool"`, or `"float"` for a float, float vector or matrix. */
+type ComponentKindOf<T extends ShaderType> = T extends "int" | "ivec2" | "ivec3" | "ivec4"
+  ? "int"
+  : T extends "uint" | "uvec2" | "uvec3" | "uvec4"
+    ? "uint"
+    : T extends "bool" | "bvec2" | "bvec3" | "bvec4"
+      ? "bool"
+      : "float";
+
+/**
+ * `unknown` when every type in `T` has one component kind, `never` when `T`
+ * mixes two. Two numbers leave `T` at every shader type, which mixes nothing.
+ */
+type OfOneKind<T extends ShaderType> = ShaderType extends T
+  ? unknown
+  : true extends IsUnion<ComponentKindOf<T>>
+    ? never
+    : unknown;
+
+/** Whether `T` is a union of two or more types. */
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
 
 // === NodeImpl - defines all methods, Node<A> hides typed subset ===
 /**
@@ -1447,6 +1472,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   select(ifTrue: any, ifFalse: any): any {
     let a = toNodeBeside(ifTrue, ifFalse) as BaseNode<ShaderType>;
     let b = typedOperand(ifFalse, (a as any)?._t ?? "float");
+    assertSameKind("select", [a, b]);
     // The result type follows the branches, not the condition. `vec3(0).equal(1).select(v, w)`
     // is a vec3 no matter that the selector is a bvec3.
     let t = (a as any)?._t || (b as any)?._t || this._t;
@@ -1727,7 +1753,31 @@ export function typedOperand(value: any, operandType: string): BaseNode<ShaderTy
 }
 
 /** The operations whose operands share one component kind: signed integer, unsigned integer or float. */
-const SAME_KIND_OPS = new Set(["add", "sub", "mul", "div", "mod", "min", "max"]);
+const SAME_KIND_OPS = new Set([
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "mod",
+  "min",
+  "max",
+  "clamp",
+  "bitAnd",
+  "bitOr",
+  "bitXor",
+  "pow",
+  "mix",
+  "step",
+  "smoothstep",
+  "atan2",
+  "reflect",
+  "refract",
+  "faceForward",
+  "cross",
+]);
+
+/** The shifts, whose amount may be of either integer kind beside a value of either. */
+const SHIFT_OPS = new Set(["shiftLeft", "shiftRight"]);
 
 type ComponentKind = "int" | "uint" | "float";
 
@@ -1748,19 +1798,26 @@ function conversionTo(type: string, kind: ComponentKind): string | undefined {
   return `to${{ int: "Int", uint: "Uint", float: "Float" }[kind]}()`;
 }
 
-/** Refuse an operation on operands of two component kinds, which no two targets convert the same way. */
+/**
+ * Refuse an operation on operands of two component kinds, which no two targets
+ * convert the same way. A shift takes its two operands as integers of either
+ * kind, so only a float beside an integer is refused there, and only the float
+ * converts.
+ */
 function assertSameKind(type: string, params: BaseNode<ShaderType>[]): void {
+  let shift = SHIFT_OPS.has(type);
   let typed = params.flatMap((p) => {
     let t = (p as any)?._t as string | undefined;
     let kind = componentKind(t);
     return kind ? [{ t: t!, kind }] : [];
   });
-  let other = typed.find((p) => p.kind !== typed[0].kind);
+  let differs = (a: ComponentKind, b: ComponentKind) => a !== b && (!shift || a === "float" || b === "float");
+  let other = typed.find((p) => differs(p.kind, typed[0].kind));
   if (!other) return;
   let first = typed[0];
   let fixes = [
-    [first.t, conversionTo(first.t, other.kind)],
-    [other.t, conversionTo(other.t, first.kind)],
+    [first.t, shift && other.kind === "float" ? undefined : conversionTo(first.t, other.kind)],
+    [other.t, shift && first.kind === "float" ? undefined : conversionTo(other.t, first.kind)],
   ].filter(([, fix]) => fix !== undefined);
   throw new Error(
     `[RMSL] ${type}() takes operands of one kind, not ${first.t} and ${other.t}. ` +
@@ -1783,7 +1840,7 @@ export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0]) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT))];
-  if (SAME_KIND_OPS.has(type)) assertSameKind(type, params);
+  if (SAME_KIND_OPS.has(type) || SHIFT_OPS.has(type)) assertSameKind(type, params);
   assertSameWidth(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
   // vector keeps the vector type (`1 - vec3` is still vec3).

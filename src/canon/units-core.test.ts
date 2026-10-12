@@ -588,6 +588,87 @@ describe("an integer and a float operand", () => {
   });
 });
 
+describe("operands of two kinds in an operation that takes several", () => {
+  const count = uniform("int") as any;
+  const mask = uniform("uint") as any;
+  const scale = uniform("float") as any;
+  const direction = uniform("vec3") as any;
+  const steps = uniform("ivec3") as any;
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it.each([
+    ["bitAnd", () => count.bitAnd(mask)],
+    ["bitOr", () => mask.bitOr(count)],
+    ["bitXor", () => count.bitXor(mask)],
+    ["clamp", () => count.clamp(mask, mask)],
+    ["clamp, by its bounds", () => count.clamp(0, mask)],
+    ["select", () => select(count.lessThan(0), count, mask)],
+    ["select, as a method", () => count.lessThan(0).select(mask, count)],
+  ])("refuses an int beside a uint in %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
+    expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+    expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it.each([
+    ["bitAnd", () => count.bitAnd(scale).toFloat()],
+    ["clamp", () => scale.clamp(count, count)],
+    ["select", () => select(count.lessThan(0), scale, count).toFloat()],
+    ["pow", () => scale.pow(count)],
+    ["mix", () => rmsl.mix(scale, count, 0.5)],
+    ["mix, by its weight", () => rmsl.mix(direction, direction, count).x],
+    ["step", () => rmsl.step(count, scale)],
+    ["smoothstep", () => rmsl.smoothstep(count, count, scale)],
+    ["atan", () => rmsl.atan(scale, count)],
+    ["reflect", () => rmsl.reflect(direction, steps).x],
+    ["refract", () => rmsl.refract(direction, direction, count).x],
+    ["faceForward", () => rmsl.faceForward(direction, steps, direction).x],
+    ["cross", () => rmsl.cross(direction, steps).x],
+    ["shiftLeft, by a float amount", () => count.shiftLeft(scale).toFloat()],
+    ["shiftRight, of a float", () => scale.shiftRight(mask).toFloat()],
+  ])("refuses an integer beside a float in %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value(), 0, 0, 1))();
+    expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+    expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+  });
+
+  /**
+   * @canon spec-a-shift-amount-may-be-of-either-integer-kind
+   */
+  it("names only the conversion of the float for a shift", () => {
+    expect(() => count.shiftLeft(scale)).toThrow(
+      "shiftLeft() takes operands of one kind, not int and float. Convert the float with toInt() first.",
+    );
+  });
+});
+
+describe("the amount of a shift", () => {
+  /**
+   * @canon spec-a-shift-amount-may-be-of-either-integer-kind
+   */
+  it("may be a uint beside an int value, or an int beside a uint value, on every target", () => {
+    const signed = (a: Node<"float">) => a.toInt().shiftLeft(a.toUint()).toFloat();
+    const unsigned = (a: Node<"float">) => a.toUint().shiftRight(a.toInt().sub(1)).toFloat();
+    expect(evaluateRecording(signed, [3])).toBe(24);
+    expect(evaluateRecording(unsigned, [3])).toBe(0);
+    expect(evaluateRecording((a) => a.mul(4).toUint().shiftRight(a.toInt()).toFloat(), [3])).toBe(1);
+    const wasm = (build: any) => compileWasmRoutine((a: any) => Fn(() => build(a))(), param);
+    expect(wasm(signed)({ params: { a: 3 } })).toBe(24);
+    expect(wasm(unsigned)({ params: { a: 3 } })).toBe(0);
+  });
+});
+
 describe("a signed and an unsigned integer operand", () => {
   /**
    * An int beside a uint, or an ivec beside a uvec, reaches the compilers only
