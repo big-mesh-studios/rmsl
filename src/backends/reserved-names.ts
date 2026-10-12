@@ -32,3 +32,26 @@ export const RESERVED_FUNCTION_NAMES: ReadonlySet<string> = new Set([
     countTrailingZeros firstLeadingBit firstTrailingBit pack4x8snorm unpack4x8snorm fwidthCoarse fwidthFine
     dpdx dpdy self`),
 ]);
+
+/**
+ * Whether `name` cannot be declared in GLSL ES 3.00 or WGSL, as a function or a
+ * variable: a word of {@link RESERVED_FUNCTION_NAMES}, a name GLSL keeps for
+ * itself with the prefix `gl_` or two underscores in a row, or a name WGSL keeps
+ * with two leading underscores.
+ */
+export const isReservedName = (name: string): boolean =>
+  RESERVED_FUNCTION_NAMES.has(name) || name.startsWith("gl_") || name.includes("__");
+
+/**
+ * The name a program declares in place of `name` when GLSL or WGSL cannot
+ * declare `name`: a name is a hint the compiler may change. It is `name` unless
+ * that is {@link isReservedName}, and then `name` with every run of underscores
+ * made one, a `gl_` prefix made `_gl_`, and a keyword or built-in followed by an
+ * underscore. Two names can map to one, so the caller numbers the clashes.
+ */
+export function safeName(name: string): string {
+  if (!isReservedName(name)) return name;
+  let safe = name.replace(/_{2,}/g, "_");
+  if (safe.startsWith("gl_")) safe = `_${safe}`;
+  return RESERVED_FUNCTION_NAMES.has(safe) ? `${safe}_` : safe;
+}

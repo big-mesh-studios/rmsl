@@ -1,4 +1,4 @@
-import { RESERVED_FUNCTION_NAMES } from "./backends/reserved-names";
+import { isReservedName, safeName } from "./backends/reserved-names";
 
 export const __brand = Symbol();
 
@@ -1958,17 +1958,27 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * Throws unless the names `n` holds, a variable's or a slot's, are identifiers.
  * GLSL and WGSL print them as they are, so a graph that skipped the builders,
- * such as one rebuilt from JSON, cannot put text of its own into a shader.
+ * such as one rebuilt from JSON, cannot put text of its own into a shader. A
+ * slot is a name the program must declare as it stands, as `uniformRaw` gives,
+ * so it is also refused when GLSL or WGSL cannot declare it. A variable is a
+ * name the compiler changes if it must, see {@link safeName}.
  * `where` says which node of the data it is, for an error.
  */
 export function assertNodeNames(n: any, where = ""): void {
-  for (const name of [n?.type === "var" ? n.value?.varName : undefined, n?.value?.slot]) {
+  const slot = n?.value?.slot;
+  for (const name of [n?.type === "var" ? n.value?.varName : undefined, slot]) {
     if (name !== undefined && !(typeof name === "string" && IDENTIFIER.test(name))) {
       throw new Error(
         `[RMSL] ${where}a ${n.type} node is named ${JSON.stringify(name)}, which is no identifier ` +
           `(letters, digits and underscore, not starting with a digit).`,
       );
     }
+  }
+  if (typeof slot === "string" && isReservedName(slot) && !slot.startsWith(RESERVED_VAR_PREFIX)) {
+    throw new Error(
+      `[RMSL] ${where}a ${n.type} node is named "${slot}", which is a keyword or a built-in of GLSL or WGSL, ` +
+        `or starts with "gl_" or holds two underscores in a row, and a name given as it stands cannot be changed.`,
+    );
   }
 }
 
@@ -2095,10 +2105,11 @@ function describeFn(name: string | undefined): string {
 /**
  * Throws unless `layout` is one a function can be declared from: a result type,
  * and inputs that each have a type and a name no other input has. A name is an
- * identifier that does not start with the prefix the compiler keeps for its own
- * and is no keyword or built-in of GLSL or WGSL, for an input as for the function.
+ * identifier that does not start with the prefix the compiler keeps for its own.
+ * A `strict` layout, one of a graph that did not come from `Fn`, also holds
+ * names GLSL and WGSL can declare, as `Fn` changes the others, see {@link safeName}.
  */
-function assertLayout(layout: unknown): asserts layout is FnLayout {
+function assertLayout(layout: unknown, strict = false): asserts layout is FnLayout {
   const fail = (why: string): never => {
     throw new Error(`[RMSL] The layout of ${describeFn((layout as FnLayout)?.name)} ${why}.`);
   };
@@ -2110,7 +2121,7 @@ function assertLayout(layout: unknown): asserts layout is FnLayout {
   if (name !== undefined && !validName(name)) {
     fail(`has the name ${JSON.stringify(name)}, which is no identifier or starts with "${RESERVED_VAR_PREFIX}"`);
   }
-  if (name !== undefined && RESERVED_FUNCTION_NAMES.has(name)) {
+  if (strict && name !== undefined && isReservedName(name)) {
     fail(`has the name "${name}", which is a keyword or a built-in of GLSL or WGSL`);
   }
   if (type !== "void" && !LAYOUT_VALUE_TYPES.has(type as string)) {
@@ -2124,7 +2135,7 @@ function assertLayout(layout: unknown): asserts layout is FnLayout {
         `has an input with the name ${JSON.stringify(input?.name)}, which is no identifier or starts with "${RESERVED_VAR_PREFIX}"`,
       );
     }
-    if (RESERVED_FUNCTION_NAMES.has(input.name)) {
+    if (strict && isReservedName(input.name)) {
       fail(`has the input "${input.name}", which is a keyword or a built-in of GLSL or WGSL`);
     }
     if (!LAYOUT_VALUE_TYPES.has(input.type))
@@ -2172,7 +2183,7 @@ export function assertCallFits(call: BaseNode<ShaderType>): void {
   const definition = call.value as FnDefinition | undefined;
   // The names and types go into the shader text, so data that skipped `Fn` is held to the layout rules too.
   if (definition !== null && typeof definition === "object") {
-    assertLayout({ name: definition.name, type: definition.type, inputs: definition.inputs });
+    assertLayout({ name: definition.name, type: definition.type, inputs: definition.inputs }, true);
   }
   const args = call.params ?? [];
   const fits =
@@ -2233,8 +2244,16 @@ function callArguments(layout: FnLayout, args: unknown[]): unknown[] {
  * from the block of the caller.
  */
 function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): FnDefinition {
-  const parameters = layout.inputs.map((input) => {
-    const parameter = var_(input.name, input.type);
+  // The body reads an input by the name the layout gives, and the function declares the name GLSL and WGSL can.
+  const declared = new Set(layout.inputs.map((input) => input.name).filter((name) => !isReservedName(name)));
+  const names = layout.inputs.map((input) => {
+    let name = safeName(input.name);
+    for (let i = 1; name !== input.name && declared.has(name); i++) name = `${safeName(input.name)}${i}`;
+    declared.add(name);
+    return name;
+  });
+  const parameters = layout.inputs.map((input, i) => {
+    const parameter = var_(names[i]!, input.type);
     (parameter as any).value.parameter = true;
     return parameter;
   });
@@ -2253,7 +2272,7 @@ function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): F
     const scope: BaseNode<ShaderType>[] = [];
     blockScope = scope;
     // An input is a name of the function, so a variable of its body cannot take it.
-    for (const input of layout.inputs) usedVarNames.add(input.name);
+    for (const name of names) usedVarNames.add(name);
     const returned = fn(inputs);
     if (Array.isArray(returned)) {
       throw new Error(`[RMSL] ${describeFn(layout.name)} returns a list, and a function returns one value.`);
@@ -2265,9 +2284,9 @@ function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): F
       );
     }
     const definition: FnDefinition = {
-      name: layout.name,
+      name: layout.name === undefined ? undefined : safeName(layout.name),
       type: layout.type,
-      inputs: layout.inputs.map(({ name, type }) => ({ name, type })),
+      inputs: layout.inputs.map(({ type }, i) => ({ name: names[i]!, type })),
       body: node({ _t: layout.type, type: "seq", params: [...scope, value] }) as BaseNode<ShaderType>,
     };
     assertFnIsClosed(definition);

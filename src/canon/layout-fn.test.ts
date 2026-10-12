@@ -538,28 +538,8 @@ describe("a mistake in a function with a layout is refused", () => {
       },
       /two inputs named "x"/,
     ],
-    [
-      "an input that is a GLSL keyword",
-      { name: "f", type: "float", inputs: [{ name: "in", type: "float" }] },
-      /input "in", which is a keyword or a built-in/,
-    ],
-    [
-      "an input that is a WGSL keyword",
-      { name: "f", type: "float", inputs: [{ name: "var", type: "float" }] },
-      /input "var", which is a keyword or a built-in/,
-    ],
     ["a name that is no identifier", { name: "1f", type: "float", inputs: [] }, /no identifier/],
     ["a name with the reserved prefix", { name: "_rmsl_f", type: "float", inputs: [] }, /starts with "_rmsl_"/],
-    [
-      "a name that is a GLSL keyword",
-      { name: "double", type: "float", inputs: [] },
-      /"double", which is a keyword or a built-in/,
-    ],
-    [
-      "a name that is a WGSL built-in",
-      { name: "saturate", type: "float", inputs: [] },
-      /"saturate", which is a keyword or a built-in/,
-    ],
   ] as const)("refuses a layout with %s", (_, malformed, refusal) => {
     expect(() => Fn(() => float(1)).setLayout(malformed as any)).toThrow(refusal);
     expect(() => Fn(() => float(1), malformed as any)).toThrow(refusal);
@@ -646,5 +626,54 @@ describe("a mistake in a function with a layout is refused", () => {
     }) as (...args: any[]) => any;
     expect(() => next(3)).toThrow(/is a int, and the call passes a float\. Convert it to a int, as int\(3\) does/);
     expect(() => next(int(3))).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-taken-function-name-gets-a-number
+   */
+  it("numbers a variable named like a function with a layout, so the call is not hidden", () => {
+    const shade = Fn(([x]: [Node<"float">]) => x.mul(2)).setLayout({
+      name: "shade",
+      type: "float",
+      inputs: [{ name: "x", type: "float" }],
+    });
+    const build = () =>
+      Fn(() => {
+        const mine = float(1).toVar("shade");
+        return vec4(shade(mine), 0, 0, 1);
+      })();
+    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
+      expect(code).toMatch(/\bshade\(/);
+      expect(code).toMatch(/\bshade1\b/);
+      expect(code).not.toMatch(/float shade =|var shade:/);
+    }
+  });
+
+  /**
+   * @canon spec-a-taken-function-name-gets-a-number
+   */
+  it("declares a function and its inputs under names GLSL and WGSL can, whatever the layout calls them", () => {
+    const f = Fn(([a, b]: [Node<"float">, Node<"float">]) => a.mul(2).add(b)).setLayout({
+      name: "float",
+      type: "float",
+      inputs: [
+        { name: "in", type: "float" },
+        { name: "gl_b", type: "float" },
+      ],
+    });
+    const build = () => Fn(() => vec4(f(uniform("float"), uniform("float")), 0, 0, 1))();
+    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
+      expect(code).toMatch(/\bfloat_\(/);
+      expect(code).not.toMatch(/float float\b|fn float\b|\bin\b[:,)]|float in\b|(?<![\w])gl_b/);
+    }
+    const byName = Fn(({ in: a, gl_b: b }: { in: Node<"float">; gl_b: Node<"float"> }) => a.sub(b)).setLayout({
+      name: "diff",
+      type: "float",
+      inputs: [
+        { name: "in", type: "float" },
+        { name: "gl_b", type: "float" },
+      ],
+    });
+    expect(() => (byName as any)({ in: float(3), gl_b: float(1) })).not.toThrow();
   });
 });

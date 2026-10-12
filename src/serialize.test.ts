@@ -356,4 +356,34 @@ describe("serialize/deserialize", () => {
     expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrow(/is no identifier/);
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/is no identifier/);
   });
+
+  /**
+   * @canon spec-deserialize-refuses-data-serialize-could-not-have-produced
+   */
+  it.each(["float", "main", "gl_position", "a__b", "__x"])(
+    "declares a variable named %s, which GLSL or WGSL cannot declare, under a name they can",
+    (name) => {
+      const build = () =>
+        Fn(() => {
+          const v = float(1).toVar(name);
+          return vec4(v, v, 0, 1);
+        })();
+      const graph = serialize(build()) as any;
+      const restored = deserialize(JSON.parse(JSON.stringify(graph))) as any;
+      for (const root of [build(), restored]) {
+        const code = compileGlsl.fragment(root);
+        expect(code).not.toMatch(new RegExp(`float ${name}\\b`));
+        expect(compile({ stage: "compute", workgroupSize: 64 }, root).code).not.toMatch(new RegExp(`var ${name}:`));
+      }
+    },
+  );
+
+  /**
+   * @canon spec-deserialize-refuses-data-serialize-could-not-have-produced
+   */
+  it("refuses a uniform named as it stands by a name GLSL or WGSL cannot declare", () => {
+    const graph = serialize(Fn(() => uniformRaw("ok", "float"))()) as any;
+    graph.nodes.find((n: any) => n.type === "uniform").value.slot = "float";
+    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrow(/keyword or a built-in/);
+  });
 });

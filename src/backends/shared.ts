@@ -1,3 +1,4 @@
+import { safeName } from "./reserved-names";
 import {
   assertCallFits,
   assertFnIsClosed,
@@ -1035,6 +1036,9 @@ export function assertOneDeclarationPerName(roots: unknown): void {
  * two `Fn`s compiled as the roots of one program can each take `color`, and the
  * program would declare it twice. The first variable keeps its name and each
  * later one gets the next free number appended, as `toVar` does within one `Fn`.
+ * A variable named like a function with a layout is numbered too, as a variable
+ * of that name would hide the function where it is called, and a variable named
+ * like a keyword or built-in is renamed, see {@link safeName}.
  *
  * A variable is one node, so a renamed copy of it takes the place of every read.
  * The roots come back as copies where a variable was renamed, and the graph the
@@ -1042,27 +1046,36 @@ export function assertOneDeclarationPerName(roots: unknown): void {
  */
 export function numberClashingVariables<T>(roots: T): T {
   const byName = new Map<string, any[]>();
+  const functions = new Set<string>();
   someNode(roots, (node) => {
+    if (node.type === "call" && node.value.name !== undefined) functions.add(node.value.name);
     if (node.type !== "var" || node.value.parameter) return;
-    const group = byName.get(node.value.varName);
-    if (group === undefined) byName.set(node.value.varName, [node]);
+    // A name GLSL or WGSL cannot declare is a hint, and the variable declares the name that stands for it.
+    const name = safeName(node.value.varName);
+    const group = byName.get(name);
+    if (group === undefined) byName.set(name, [node]);
     else if (!group.includes(node)) group.push(node);
   });
-  const taken = new Set(byName.keys());
+  const taken = new Set([...byName.keys(), ...functions]);
   const renamed = new Map<any, any>();
   for (const [name, variables] of byName) {
-    for (const variable of variables.slice(1)) {
-      let number = 1;
-      while (taken.has(`${name}${number}`)) number++;
-      const varName = `${name}${number}`;
-      taken.add(varName);
+    // A function keeps the name it is declared and called by, so a variable of that name is renamed.
+    variables.forEach((variable, i) => {
+      let varName = name;
+      if (i > 0 || functions.has(name)) {
+        let number = 1;
+        while (taken.has(`${name}${number}`)) number++;
+        varName = `${name}${number}`;
+        taken.add(varName);
+      }
+      if (varName === variable.value.varName) return;
       renamed.set(
         variable,
         Object.assign(Object.create(Object.getPrototypeOf(variable)), variable, {
           value: { ...variable.value, varName },
         }),
       );
-    }
+    });
   }
   return substituteNodes(roots, renamed);
 }
