@@ -2463,7 +2463,7 @@ Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`
 
 This follows because a float array read as integers gives values the host never wrote. A target that converted would disagree with one that reads the bytes. A value of another shape leaves components out or holds more, and each target fills or drops them in its own way. A copy into an array of the right kind would make a new array at every refill.
 
-A check where the host sets a value runs once, and no draw that reads the value checks it again. An adapter reads the type of each uniform, attribute and storage buffer from the stages it is given, in one walk of the graph when it is made. It checks a value against the type of its slot there, and a node its stages do not read against the node's own type. A compiled program records none of these types. A program the host calls with its inputs in a context checks nothing, as [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) states.
+A check where the host sets a value runs once, and no draw that reads the value checks it again. An adapter reads the types of its uniforms, attributes and storage buffers from its stages in one walk of the graph. It checks a value against the type of its slot there, and a node its stages do not read against the node's own type. A compiled program records none of these types. A program the host calls with its inputs in a context checks nothing, as [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) states.
 
 Also, three.js reads an attribute in a format its array's type picks, so the array decides the kind the shader reads. A CPU target computes floats in 64 bits, so a `Float64Array` reaches it as it is.
 
@@ -2559,7 +2559,7 @@ This follows because every adapter sets a uniform given nothing to zero, so the 
 
 Derives from: [`spec-the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape)
 
-This follows because every adapter takes a uniform in the same shapes, so one type states them once. A host that wraps an adapter names that type, and a change to what `setUniform` takes reaches every adapter at once. A context compiles no program of its own until it runs one, so it has no slot to check a name against, and takes a uniform only by its node.
+This follows because every adapter takes a uniform in the same shapes, so one type states them once. A host that wraps an adapter names that type, and a change to what `setUniform` takes reaches every adapter at once. A context runs whatever program it is handed, so it knows no slot ahead of time. It takes a uniform only by its node, whose type it checks.
 
 ##### @spec the-types-hold-a-routine-parameter-to-its-shape
 
