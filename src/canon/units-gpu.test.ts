@@ -765,6 +765,9 @@ describe("the array a GPU adapter takes for an attribute", () => {
       Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))() as any,
       Fn(() => vec4(0, 1, 0, 1))() as any,
     );
+    // Before attach, the adapter checks a slot against the program it was given, and holds only what it takes.
+    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
+    adapter.setAttribute(flags.name, Uint32Array.of(1));
     adapter.attach({ getContext: () => gl } as any);
     expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
       /\bivec2\b.*Int32Array.*Float32Array/,

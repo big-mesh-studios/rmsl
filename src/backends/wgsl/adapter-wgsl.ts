@@ -1,12 +1,11 @@
 import {
-  AttributeNode,
   Node,
   ShaderType,
   StorageBufferAttribute,
   UniformArrayNode,
   UniformNode,
-  UniformValue,
   UniformSlotValue,
+  UniformValue,
 } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import {
@@ -19,16 +18,16 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
-  assertNodeArray,
   HostArray,
+  hostInputGuard,
   missingAttributeError,
   assertReadbackFits,
-  assertUniformShape,
+  UniformOrSlot,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
-import { attributeTypesOf, CompileCtx, storageNodesOf, uniformDeclarationsOf, VertexRoot } from "../shared";
+import { CompileCtx, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -308,10 +307,10 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let vertexBuffers = new Map<string, { buffer: GPUBuffer; componentCount: number }>();
   let vertexCount = 0;
   let countSlot: string | undefined;
-  /** The type of each attribute the vertex stage reads, by slot, which an array set by slot is checked against. */
-  const attributeTypes = attributeTypesOf(options.vertex);
+  /** What a value or an array the host sets is checked against, and the storage buffers the stages read. */
+  const guard = hostInputGuard([options.vertex, options.fragment]);
   /** The storage nodes the stages read, in the order the program created their buffers. */
-  const storageNodes = storageNodesOf([options.vertex, options.fragment]);
+  const storageNodes = [...guard.storages.values()];
   /** The storage attributes the stages read, by slot, and the buffers they bind. */
   const storages = new Map(storageNodes.map((node) => [node.name, node.attribute]));
   let ownStorageBuffers = new Map<StorageBufferAttribute, GPUBuffer>();
@@ -335,8 +334,6 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
   let pendingTextures = new Map<string, CpuTextureData>();
-  /** The type of each uniform the stages read, by slot, which a value set by slot is checked against. */
-  const renderUniformDeclarations = uniformDeclarationsOf([options.vertex, options.fragment]);
   /** The textures the program reads, in binding order. */
   let textureDeclarations: ReturnType<typeof sharedSamplerDeclarations> = [];
   /** The GPU texture, and sampler for a float one, of each sampler the host has set. */
@@ -428,16 +425,10 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     texturesChanged = false;
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  function setUniform<T extends ShaderType>(
-    uniform: UniformArrayNode<T>,
-    value: UniformValue<T>[] | null | undefined,
-  ): void;
-  function setUniform(slot: string, value: UniformSlotValue): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
+  function setUniform(uniform: UniformOrSlot, _value: unknown): void {
     const slot = slotOf(uniform);
     const value = _value as number | number[];
-    assertUniformShape(uniform, value, renderUniformDeclarations.get(slot));
+    guard.uniform(uniform, value);
     if (!device) {
       pendingUniforms.set(slot, value);
       return;
@@ -458,11 +449,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    assertNodeArray(attribute, data);
-    let attributeType = attributeTypes.get(slot);
-    if (attributeType !== undefined) assertHostArray("attribute", slot, attributeType, data);
+    guard.array(attribute, data);
     let storage = storages.get(slot);
-    if (storage) assertHostArray("storage buffer", slot, storage.elementType!, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;
@@ -733,10 +721,9 @@ export function createWgslCompute(
 
   let computePipeline: GPUComputePipeline | null = null;
   let computeResources: WgslResource[] = [];
-  /** The type of each uniform the program reads, by slot, which a value set by slot is checked against. */
-  const computeUniformDeclarations = uniformDeclarationsOf(compute);
-  /** A storage node of each buffer the program reads, by slot. */
-  const declaredStorages = new Map(storageNodesOf(compute).map((node) => [node.name, node]));
+  /** What a value or an array the host sets is checked against, and a storage node of each buffer the program reads, by slot. */
+  const guard = hostInputGuard(compute);
+  const declaredStorages = guard.storages;
   /** Elements of the first storage buffer the host passed, the dispatch's
    *  count when the caller names none. */
   let firstStorageCount = 0;
@@ -826,16 +813,10 @@ export function createWgslCompute(
       });
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  function setUniform<T extends ShaderType>(
-    uniform: UniformArrayNode<T>,
-    value: UniformValue<T>[] | null | undefined,
-  ): void;
-  function setUniform(slot: string, value: UniformSlotValue): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
+  function setUniform(uniform: UniformOrSlot, _value: unknown): void {
     const slot = slotOf(uniform);
     const value = _value as number | number[];
-    assertUniformShape(uniform, value, computeUniformDeclarations.get(slot));
+    guard.uniform(uniform, value);
     if (!device) {
       pendingUniforms.set(slot, value);
       return;
@@ -859,9 +840,7 @@ export function createWgslCompute(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    assertNodeArray(attribute, data);
-    const declared = declaredStorages.get(slot);
-    if (declared) assertHostArray("storage buffer", slot, declared._t, data);
+    guard.array(attribute, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;

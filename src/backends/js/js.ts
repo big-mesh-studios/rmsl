@@ -51,8 +51,6 @@ import {
   resolveSwizzleTarget,
   roundHalfToEven,
   tryFold,
-  type UniformDeclaration,
-  uniformDeclarationsOf,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
@@ -2581,7 +2579,6 @@ function compileJSFnDetailed(
   storageTypes: Record<string, ShaderType>;
   resultTypes: JsResultTypes;
   writesDepth: boolean;
-  uniformDeclarations: ReadonlyMap<string, UniformDeclaration>;
 } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
@@ -2715,7 +2712,6 @@ function compileJSFnDetailed(
   return {
     source: parts.join("\n\n"),
     writesDepth: ctx.fragDepthWritten ?? false,
-    uniformDeclarations: uniformDeclarationsOf(rawNodes),
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
@@ -2748,8 +2744,6 @@ export interface JsProgram extends CpuProgram {
   readonly varyingTypes: Readonly<Record<string, string>>;
   /** Whether a fragment stage can write its depth, so a rasterizer tests the depth it writes. */
   readonly writesDepth: boolean;
-  /** The declaration of each uniform the program reads that holds a value, by slot. */
-  readonly uniformDeclarations: ReadonlyMap<string, UniformDeclaration>;
 }
 
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
@@ -2877,10 +2871,7 @@ export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes, writesDepth, uniformDeclarations } = compileJSFnDetailed(
-    fn,
-    options,
-  );
+  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
@@ -2971,7 +2962,6 @@ export function compileJSProgram(
     attributeTypes: resultTypes.attributes,
     varyingTypes: resultTypes.varyings,
     writesDepth,
-    uniformDeclarations,
   };
 }
 

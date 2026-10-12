@@ -1,27 +1,25 @@
 import {
-  AttributeNode,
   RoutineParam,
   RoutineParams,
   ShaderType,
   UniformArrayNode,
   UniformNode,
-  UniformValue,
   UniformSlotValue,
+  UniformValue,
 } from "../core";
 import {
   Adapter,
-  assertNodeArray,
   AttributeOrSlot,
   AttributeOrStorage,
   assertReadbackFits,
-  assertUniformShape,
+  HostInputGuard,
   slotOf,
   TypedArray,
+  UniformOrSlot,
   unknownStorageSlots,
 } from "./adapter";
 import { assertHostArray } from "./vertex-format";
 import { assertHostShape } from "./host-shape";
-import type { UniformDeclaration } from "./shared";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -57,8 +55,8 @@ export interface CpuAdapterPrograms {
    * invocation, is faster without it.
    */
   boxedUniforms?: boolean;
-  /** The declaration of each uniform the program reads, by slot, which a value set by slot is checked against. */
-  uniformDeclarations?: ReadonlyMap<string, UniformDeclaration>;
+  /** What a uniform or an array the host sets is checked against: the guard of the program's stages. */
+  guard: HostInputGuard;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -121,25 +119,16 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     return Math.floor(storages[firstStorage]!.length / elementWidths.get(firstStorage)!);
   }
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  function setUniform<T extends ShaderType>(
-    uniform: UniformArrayNode<T>,
-    value: UniformValue<T>[] | null | undefined,
-  ): void;
-  function setUniform(slot: string, value: UniformSlotValue): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
-    const slot = slotOf(uniform);
-    assertUniformShape(uniform, _value, programs.uniformDeclarations?.get(slot));
-    uniforms[slot] = _value as number | number[];
+  function setUniform(uniform: UniformOrSlot, value: unknown): void {
+    programs.guard.uniform(uniform, value);
+    uniforms[slotOf(uniform)] = value as number | number[];
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    assertNodeArray(attribute, data, true);
-    const slotType = typeof attribute === "string" ? storageTypes[slot] : undefined;
-    if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, data, true);
+    programs.guard.array(attribute, data);
     if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
     const elementType =
@@ -231,29 +220,23 @@ export interface CpuRoutineAdapter<
 
 /**
  * Wraps a routine in a {@link CpuRoutineAdapter}, which checks a uniform
- * against `uniformDeclarations` where it is set, and each of `params` where
- * `run` is given it.
+ * with `guard` where it is set, and each of `params` where `run` is given it.
  */
 export function createCpuRoutineAdapter<
   A extends ShaderType,
   W extends FloatWidth = "f64",
   P extends readonly RoutineParam[] = readonly RoutineParam[],
->(
-  routine: CpuRoutine<A, W>,
-  params: P,
-  uniformDeclarations: ReadonlyMap<string, UniformDeclaration>,
-): CpuRoutineAdapter<A, W, P> {
+>(routine: CpuRoutine<A, W>, params: P, guard: HostInputGuard): CpuRoutineAdapter<A, W, P> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
-    const slot = slotOf(uniform);
-    assertUniformShape(uniform, value, uniformDeclarations.get(slot));
-    uniforms[slot] = value as number | number[];
+  function setUniform(uniform: UniformOrSlot, value: unknown): void {
+    guard.uniform(uniform, value);
+    uniforms[slotOf(uniform)] = value as number | number[];
   }
 
   return {
-    setUniform: setUniform as CpuRoutineAdapter<A, W, P>["setUniform"],
+    setUniform,
     setTexture(sampler, texture) {
       textures[slotOf(sampler)] = texture;
     },

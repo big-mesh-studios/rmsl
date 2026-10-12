@@ -1,14 +1,4 @@
-import {
-  AttributeNode,
-  isSamplerType,
-  Node,
-  ShaderType,
-  UniformArrayNode,
-  UniformNode,
-  UniformValue,
-  UniformSlotValue,
-  someNode,
-} from "../../core";
+import { Node, ShaderType, UniformNode } from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -18,19 +8,13 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
-  assertNodeArray,
+  hostInputGuard,
   missingAttributeError,
-  assertUniformShape,
+  UniformOrSlot,
 } from "../adapter";
-import {
-  assertOneDeclarationPerName,
-  storageNodesOf,
-  type StorageGraphNode,
-  uniformDeclarationsOf,
-  VertexRoot,
-} from "../shared";
+import { assertOneDeclarationPerName, VertexRoot } from "../shared";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
-import { assertHostArray, type AttributeKind } from "../vertex-format";
+import type { AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
 import { drawToCanvas, GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
@@ -380,31 +364,17 @@ export function createGlsl(
   const storageTexels = new Map<string, Float32Array | Int32Array | Uint32Array>();
   /** The context's MAX_TEXTURE_SIZE, read once it links. */
   let maxTextureSize = 0;
-  /** The storage buffers the stages read, by slot. */
-  const storages = new Map<string, StorageGraphNode>(
-    storageNodesOf([vertexRoot, fragmentRoot]).map((node) => [node.name, node]),
-  );
-  /** The slots of the textures the stages sample. */
-  const textureSlots = new Set<string>();
-  someNode([vertexRoot, fragmentRoot], (node) => {
-    if (node.type === "uniform" && isSamplerType(node.value.shaderType)) textureSlots.add(node.value.slot);
-  });
-  /** The type of each other uniform the stages read, by slot, which a value set by slot is checked against. */
-  const uniformDeclarations = uniformDeclarationsOf([vertexRoot, fragmentRoot]);
+  /** What a value or an array the host sets is checked against, and the storage buffers and textures the stages read. */
+  const guard = hostInputGuard([vertexRoot, fragmentRoot]);
+  const storages = guard.storages;
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  function setUniform<T extends ShaderType>(
-    uniform: UniformArrayNode<T>,
-    value: UniformValue<T>[] | null | undefined,
-  ): void;
-  function setUniform(slot: string, value: UniformSlotValue): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
+  function setUniform(uniform: UniformOrSlot, value: unknown): void {
     const slot = slotOf(uniform);
     if (storages.has(slot))
       throw new Error(`[RMSL] setUniform: "${slot}" is a storage buffer, which setAttribute sets`);
-    if (textureSlots.has(slot)) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
-    const declared = uniformDeclarations.get(slot);
-    assertUniformShape(uniform, value, declared);
+    if (guard.textures.has(slot)) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
+    guard.uniform(uniform, value);
+    const declared = guard.uniforms.get(slot);
     // A value left out, or null, reads zero, as an unset uniform does.
     if (value == null && declared)
       value = new Array(componentCountOf(declared.shaderType) * (declared.length ?? 1)).fill(0);
@@ -430,9 +400,8 @@ export function createGlsl(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
-    assertNodeArray(attribute, data);
+    guard.array(attribute, data);
     const storage = storages.get(slot);
-    if (storage) assertHostArray("storage buffer", slot, storage._t, data);
     const sampler = uniforms.get(slot);
     if (gl && program && storage && sampler) {
       state?.begin(GlState.activeTexture | GlState.unpack | GlState.program);
@@ -448,7 +417,6 @@ export function createGlsl(
       pendingAttributes.set(slot, data);
       return;
     }
-    assertHostArray("attribute", slot, info.type, data);
     state?.begin(GlState.vertexArray | GlState.arrayBuffer);
     try {
       gl.bindVertexArray(vao);

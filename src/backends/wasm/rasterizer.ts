@@ -10,7 +10,6 @@ import {
   WasmFloatWidth,
   WasmParam,
 } from "./wasm";
-import { type UniformDeclaration, uniformDeclarationsOf } from "../shared";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -224,8 +223,6 @@ export interface WasmRasterRoutine {
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
   /** The type of each attribute the vertex stage reads, by slot. */
   readonly attributeTypes: Readonly<Record<string, string>>;
-  /** The declaration of each uniform either stage reads that holds a value, by slot. */
-  readonly uniformDeclarations: ReadonlyMap<string, UniformDeclaration>;
 }
 
 function align8(n: number): number {
@@ -596,5 +593,5 @@ export function compileWasmRasterizer(
   const attributeTypes = Object.fromEntries(
     attrParams.filter((p) => p.slot !== VERTEX_INDEX_SLOT).map((p) => [p.slot, p.shaderType]),
   );
-  return { draw, attributeTypes, uniformDeclarations: uniformDeclarationsOf([vertexRoots, fragmentRoots]) };
+  return { draw, attributeTypes };
 }

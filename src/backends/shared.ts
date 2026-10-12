@@ -2,7 +2,6 @@ import { withArticle } from "../article";
 import {
   assertForUpdateNode,
   BaseNode,
-  isSamplerType,
   MATRIX_DIMENSIONS,
   Node,
   NodeImpl,
@@ -1043,26 +1042,6 @@ export function storageBuffersOf(roots: unknown): { node: StorageGraphNode; acce
 
 /** The type of a uniform, and the length of a uniform array, as its node's value holds them. */
 export type UniformDeclaration = { readonly shaderType: string; readonly length?: number };
-
-/** The declaration of each uniform reachable from the roots that holds a value, not a texture, by slot. */
-export function uniformDeclarationsOf(roots: unknown): Map<string, UniformDeclaration> {
-  const declarations = new Map<string, UniformDeclaration>();
-  someNode(roots, (node) => {
-    if ((node.type === "uniform" || node.type === "uniformArray") && !isSamplerType(node.value.shaderType)) {
-      declarations.set(node.value.slot, node.value);
-    }
-  });
-  return declarations;
-}
-
-/** The type of each attribute reachable from the roots, by slot. */
-export function attributeTypesOf(roots: unknown): Map<string, string> {
-  const types = new Map<string, string>();
-  someNode(roots, (node) => {
-    if (node.type === "attribute") types.set(node.value.slot, node.value.shaderType);
-  });
-  return types;
-}
 
 /** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
 export function storageNodesOf(roots: unknown): StorageGraphNode[] {
