@@ -2429,4 +2429,31 @@ describe("the readback array a CPU compute adapter takes", () => {
     adapter.compute({ [counts.name]: out });
     expect(Array.from(out)).toEqual([2, 3]);
   });
+
+  /**
+   * The refusal comes before the dispatch, so the storage the adapter holds keeps its values.
+   *
+   * @canon spec-a-readback-array-holds-at-least-the-values-of-its-slot
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an out array shorter than its slot", (_, create) => {
+    const counts = instancedArray(3, "int");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    const held = Int32Array.of(1, 2, 3);
+    adapter.setAttribute(counts, held);
+    expect(() => adapter.compute({ [counts.name]: new Int32Array(2) })).toThrow(
+      `[RMSL] out["${counts.name}"] holds 2 values, and the slot has 3`,
+    );
+    expect(Array.from(held)).toEqual([1, 2, 3]);
+    const out = new Int32Array(4);
+    adapter.compute({ [counts.name]: out });
+    expect(Array.from(out)).toEqual([2, 3, 4, 0]);
+  });
 });

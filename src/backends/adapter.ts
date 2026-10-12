@@ -220,6 +220,13 @@ export function unknownStorageSlots(out: object, slots: Iterable<string>): Error
   );
 }
 
+/** Refuses `target`, the array `compute(out)` reads the storage slot `slot` back into, when it holds fewer than the slot's `count` values. */
+export function assertReadbackFits(slot: string, target: ArrayLike<number>, count: number): void {
+  if (target.length < count) {
+    throw new RangeError(`[RMSL] out["${slot}"] holds ${target.length} values, and the slot has ${count}`);
+  }
+}
+
 export function slotOf(uniformOrAttribute: UniformOrSlot | AttributeOrSlot): string {
   return typeof uniformOrAttribute === "string" ? uniformOrAttribute : uniformOrAttribute.name;
 }

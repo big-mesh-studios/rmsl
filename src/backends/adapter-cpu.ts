@@ -4,6 +4,7 @@ import {
   assertNodeArray,
   AttributeOrSlot,
   AttributeOrStorage,
+  assertReadbackFits,
   assertUniformShape,
   slotOf,
   TypedArray,
@@ -162,10 +163,10 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
         for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
         for (let i = 0; i < storageSlots.length; i++) {
           const slot = storageSlots[i]!;
+          if (!Object.hasOwn(out, slot)) continue;
           const slotType = storageTypes[slot];
-          if (slotType !== undefined && Object.hasOwn(out, slot)) {
-            assertHostArray("storage buffer", slot, slotType, out[slot]!, true);
-          }
+          if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, out[slot]!, true);
+          assertReadbackFits(slot, out[slot]!, storages[slot]!.length);
         }
       }
       computeStep(stepContext, count ?? elementCount());

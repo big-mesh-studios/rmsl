@@ -279,6 +279,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-storage-buffer-takes-only-an-array-of-its-element-kind`](#spec-a-storage-buffer-takes-only-an-array-of-its-element-kind) — Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. The adapter checks a slot name where `setAttribute` is called, before `attach` as after it, against the type of its slot in its program.
     - [`@spec the-type-of-a-programs-storages-admits-only-typed-arrays`](#spec-the-type-of-a-programs-storages-admits-only-typed-arrays) — The type of `ctx.storages`, the storage arrays the host passes a program from `compileJS*` or `compileWasm*`, admits only a `Float32Array`, a `Float64Array`, an `Int32Array` and a `Uint32Array`. The type checker refuses a plain array there. The program checks nothing at run time.
     - [`@spec a-readback-array-takes-only-an-array-of-its-element-kind`](#spec-a-readback-array-takes-only-an-array-of-its-element-kind) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` of another kind than the element type of its slot, before it runs anything. The CPU ones take a `Float64Array` for float elements too.
+    - [`@spec a-readback-array-holds-at-least-the-values-of-its-slot`](#spec-a-readback-array-holds-at-least-the-values-of-its-slot) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` that holds fewer values than its slot, before it runs anything. The error reads `out["<slot>"] holds <length> values, and the slot has <count>`.
     - [`@spec a-context-write-takes-only-the-array-of-its-attributes-kind`](#spec-a-context-write-takes-only-the-array-of-its-attributes-kind) — `write` on `createWgslContext` and `createWasmContext` refuses an array of another kind than the attribute's own array, before it writes anything. `createWasmContext` takes a `Float64Array` for a float attribute too. The type of `write` admits only those typed arrays.
     - [`@spec a-value-takes-only-the-shape-of-its-type`](#spec-a-value-takes-only-the-shape-of-its-type) — Every adapter and scene renderer refuses a value of a uniform or a parameter of another shape than its type, where the host sets it. A scalar takes one value and no array. A vector or matrix takes a plain or typed array of exactly its components, a matrix's column after column. A uniform array takes an array of exactly its elements, each of the shape of its element type. The check is one length comparison for each value, and allocates nothing unless it refuses.
       - [`@spec a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set`](#spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set) — Each CPU adapter refuses in `setUniform` a value of another shape than the uniform's type. These are `createJs` and `createWasm`, and the grid, compute and routine adapters of both targets. A slot name is checked against the type of its slot in the program the adapter compiled. The routine adapters refuse in `run` a parameter of another shape than its type. A draw, a dispatch or a run checks no uniform again.
@@ -470,7 +471,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them. A slot that the program has no storage for is refused.
     - [`@spec compute-copies-back-only-the-named-slots`](#spec-compute-copies-back-only-the-named-slots) — `compute(out)` fills only the slots `out` names.
     - [`@spec overlapping-compute-calls-each-read-back-their-own-result`](#spec-overlapping-compute-calls-each-read-back-their-own-result) — Two `compute(out)` calls on one WGSL adapter, the second made before the first resolves, each fill their own `out` with what their own dispatch left in the buffers.
-    - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for.
+    - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for, before it runs anything.
     - [`@spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes`](#spec-a-wasm-routine-copies-back-only-the-buffers-the-program-writes) — A WASM routine marks a storage buffer as written only when its program assigns to it, and copies back only the buffers so marked.
     - [`@spec setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others) — `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
     - [`@spec a-wasm-routine-copies-back-a-buffer-another-node-reads-only`](#spec-a-wasm-routine-copies-back-a-buffer-another-node-reads-only) — A WASM routine copies back a buffer the program writes through one node, even when another node over that buffer is read-only.
@@ -2487,6 +2488,12 @@ This follows because a type costs the program nothing as it runs.
 
 This follows because a readback writes the elements into the host's array, and an array of another kind would hold values the program never wrote.
 
+#### @spec a-readback-array-holds-at-least-the-values-of-its-slot
+
+> `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` that holds fewer values than its slot, before it runs anything. The error reads `out["<slot>"] holds <length> values, and the slot has <count>`.
+
+This follows because a shorter array has no room for every element of the slot. A target would drop the rest, or throw while it copies them, after the dispatch has changed the buffers.
+
 #### @spec a-context-write-takes-only-the-array-of-its-attributes-kind
 
 > `write` on `createWgslContext` and `createWasmContext` refuses an array of another kind than the attribute's own array, before it writes anything. `createWasmContext` takes a `Float64Array` for a float attribute too. The type of `write` admits only those typed arrays.
@@ -3585,7 +3592,7 @@ This follows because each call's promise stands for that call's result.
 
 #### @spec compute-refuses-a-slot-with-no-storage
 
-> `compute(out)` refuses a slot that the program has no storage buffer for.
+> `compute(out)` refuses a slot that the program has no storage buffer for, before it runs anything.
 
 #### @spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes
 

@@ -1860,6 +1860,52 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * The refusal comes before the dispatch, so the buffer keeps the values set before it.
+   *
+   * @canon spec-a-readback-array-holds-at-least-the-values-of-its-slot
+   */
+  it("refuses an out array shorter than its slot on createWgslCompute", async () => {
+    const counts = instancedArray(3, "int");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    await adapter.attach();
+    adapter.setAttribute(counts, Int32Array.of(1, 2, 3));
+    await expect(adapter.compute({ [counts.name]: new Int32Array(2) })).rejects.toThrow(
+      `[RMSL] out["${counts.name}"] holds 2 values, and the slot has 3`,
+    );
+    const out = { [counts.name]: new Int32Array(4) };
+    await adapter.compute(out);
+    expect(Array.from(out[counts.name]!)).toEqual([2, 3, 4, 0]);
+    adapter.destroy();
+  });
+
+  /**
+   * The refusal comes before the dispatch, so the buffer keeps the values set before it.
+   *
+   * @canon spec-compute-refuses-a-slot-with-no-storage
+   */
+  it("refuses a slot with no storage before it dispatches on createWgslCompute", async () => {
+    const counts = instancedArray(2, "int");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    await adapter.attach();
+    adapter.setAttribute(counts, Int32Array.of(1, 2));
+    await expect(adapter.compute({ other: new Int32Array(2) })).rejects.toThrow(/"other".*no storage slot/);
+    const out = { [counts.name]: new Int32Array(2) };
+    await adapter.compute(out);
+    expect(Array.from(out[counts.name]!)).toEqual([2, 3]);
+    adapter.destroy();
+  });
+
+  /**
    * The context gets a device whose pipeline creation is counted. Three
    * dispatches of one compute node create one pipeline.
    *
@@ -1973,10 +2019,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     await expect(adapter.compute({ [points.name]: new Float32Array(2) })).rejects.toThrow(RangeError);
     const out = { [points.name]: new Float32Array(6) };
     // The dispatch covers the whole elements of the array, here one, so the half element is not computed.
-    // The refused call still dispatched, so the first element has been incremented twice.
     await adapter.compute(out);
     adapter.destroy();
-    expect(Array.from(out[points.name]!.subarray(0, 3))).toEqual([3, 4, 5]);
+    expect(Array.from(out[points.name]!.subarray(0, 3))).toEqual([2, 3, 4]);
   }, 60_000);
 
   /**

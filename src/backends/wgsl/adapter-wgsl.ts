@@ -22,6 +22,7 @@ import {
   assertNodeArray,
   HostArray,
   missingAttributeError,
+  assertReadbackFits,
   assertUniformShape,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
@@ -795,6 +796,30 @@ export function createWgslCompute(
     return slot;
   }
 
+  /**
+   * The slots `compute(out)` reads back, each a GPU round trip: the ones `out`
+   * names, each refused unless its array is of the slot's kind and holds every
+   * value of the slot.
+   */
+  function readbacksOf(out: AdapterResult) {
+    const requested = new Set(
+      requestedStorageSlots(
+        out,
+        computeStorageResources().map((r) => r.name),
+      ),
+    );
+    return computeStorageResources()
+      .filter((r) => requested.has(r.name))
+      .map((resource) => {
+        const state = storageSlots.get(resource.name)!;
+        const target = out[resource.name]!;
+        const valueCount = state.elements * state.itemSize;
+        assertHostArray("storage buffer", resource.name, resource.shaderType, target);
+        assertReadbackFits(resource.name, target, valueCount);
+        return { resource, state, target, valueCount, bytes: Math.max(4, state.elements * state.layout.stride * 4) };
+      });
+  }
+
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   function setUniform(slot: string, value: UniformSlotValue): void;
@@ -903,12 +928,8 @@ export function createWgslCompute(
       if (!device || !computePipeline || !computeBindGroup1) {
         throw new Error("[RMSL] createWgslCompute: attach() was never called");
       }
-      if (out) {
-        for (const resource of computeStorageResources()) {
-          const target = out[resource.name];
-          if (target !== undefined) assertHostArray("storage buffer", resource.name, resource.shaderType, target);
-        }
-      }
+      // Checked before the dispatch, so a refusal leaves the buffers as they were.
+      let reads = out && readbacksOf(out);
       let workgroupSize = options.workgroupSize ?? 64;
       let invocations = count ?? firstStorageCount;
       let encoder = device.createCommandEncoder();
@@ -926,32 +947,10 @@ export function createWgslCompute(
       // No `out` means the caller means to keep the result GPU-resident —
       // read via `buffer(slot)` from a draw pass, never mapped back to the
       // CPU at all.
-      if (!out) return;
+      if (!reads) return;
 
-      // Only the slots `out` names are copied and mapped: each one is a GPU
-      // round trip.
-      let requested = new Set(
-        requestedStorageSlots(
-          out,
-          computeStorageResources().map((r) => r.name),
-        ),
-      );
       // Each call takes staging buffers no other call holds, so a call made
       // before another resolves maps none of the other's.
-      let reads = computeStorageResources()
-        .filter((r) => requested.has(r.name))
-        .map((resource) => {
-          const state = storageSlots.get(resource.name)!;
-          const target = out[resource.name]!;
-          const valueCount = state.elements * state.itemSize;
-          // Checked before any buffer is copied, so a refusal reads nothing back.
-          if (target.length < valueCount) {
-            throw new RangeError(
-              `[RMSL] out["${resource.name}"] holds ${target.length} values, and the slot has ${valueCount}`,
-            );
-          }
-          return { resource, state, target, valueCount, bytes: Math.max(4, state.elements * state.layout.stride * 4) };
-        });
       let readEncoder = device.createCommandEncoder();
       let stagings = reads.map(({ resource, state, bytes }) => {
         let staging = takeStaging(resource.name, bytes);
