@@ -301,7 +301,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-for-loops-over-a-variable-its-init-is-given`](#spec-a-for-loops-over-a-variable-its-init-is-given) — A `For` whose init makes no statement, such as one handed a variable made before the loop, loops over that variable as it is.
       - [`@spec a-for-runs-its-body-and-update-while-its-condition-holds`](#spec-a-for-runs-its-body-and-update-while-its-condition-holds) — A `For` makes its loop variable once, then runs its body and its update, in that order, for as long as its condition holds.
       - [`@spec a-variable-a-for-condition-makes-stays-in-scope`](#spec-a-variable-a-for-condition-makes-stays-in-scope) — The update of a `For`, and the code after the loop, can read a variable that its condition makes.
-      - [`@spec a-variable-a-for-update-makes-compiles-on-every-target`](#spec-a-variable-a-for-update-makes-compiles-on-every-target) — A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. This holds for an update of one statement or several. On GLSL it is declared before the loop and assigned in the update. On WGSL an update that makes one goes in a continuing block.
+      - [`@spec a-variable-a-for-update-makes-compiles-on-every-target`](#spec-a-variable-a-for-update-makes-compiles-on-every-target) — A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. This holds for an update of one statement or several. On GLSL and WGSL it is declared before the loop and assigned in the update. On WGSL an update of several statements goes in a continuing block.
+      - [`@spec a-variable-a-for-update-makes-stays-in-scope`](#spec-a-variable-a-for-update-makes-stays-in-scope) — On every target, the code after a `For` can read a variable that its update makes. Its body can read it on every iteration after the first.
       - [`@spec a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test) — A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
       - [`@spec continue-in-a-for-runs-the-update`](#spec-continue-in-a-for-runs-the-update) — `Continue` in the body of a `For` runs the update, then the condition.
       - [`@spec for-is-a-loop-of-rmsls-own`](#spec-for-is-a-loop-of-rmsls-own) — rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
@@ -2660,11 +2661,19 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 ##### @spec a-variable-a-for-update-makes-compiles-on-every-target
 
-> A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. This holds for an update of one statement or several. On GLSL it is declared before the loop and assigned in the update. On WGSL an update that makes one goes in a continuing block.
+> A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. This holds for an update of one statement or several. On GLSL and WGSL it is declared before the loop and assigned in the update. On WGSL an update of several statements goes in a continuing block.
 
 Derives from: [`fact-glsl-takes-no-declaration-in-a-for-update`](#fact-glsl-takes-no-declaration-in-a-for-update), [`fact-wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update)
 
 This follows because a `Continue` must still run the update. So the update stays in the update slot of a GLSL `for`, which takes no declaration. A WGSL `for` takes no declaration in that slot either, and its continuing block runs after a `continue` too.
+
+##### @spec a-variable-a-for-update-makes-stays-in-scope
+
+> On every target, the code after a `For` can read a variable that its update makes. Its body can read it on every iteration after the first.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-a-variable-a-for-update-makes-compiles-on-every-target`](#spec-a-variable-a-for-update-makes-compiles-on-every-target)
+
+This follows because a variable declared before the loop is in scope in the body and after the loop. JavaScript and WASM declare it for the whole function, so GLSL and WGSL declare it before the loop too, not inside the loop. On the first iteration the update has not run, so the body reads no value it set.
 
 ##### @spec a-loop-condition-runs-its-statements-before-every-test
 

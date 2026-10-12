@@ -1956,4 +1956,35 @@ describe("a variable the update of a For makes", () => {
       })();
     expect(evaluateRecording(build, [1])).toBe(3);
   });
+
+  /**
+   * The update makes a variable, which the body reads from the second
+   * iteration on, and the code after the loop reads once the loop ends.
+   * WGSL declared it in the loop's continuing block, where neither saw it.
+   *
+   * @canon spec-a-variable-a-for-update-makes-stays-in-scope
+   */
+  it("reads a variable the update of a For makes in its body and after the loop, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        let made: any;
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => {
+            made = i.mul(10).add(a).toVar();
+            i.addAssign(1);
+          },
+          (i) => {
+            If(i.greaterThan(0), () => {
+              total.addAssign(made);
+            });
+          },
+        );
+        return total.add(made.mul(100));
+      })();
+    // The body reads a and 10 + a; after the loop the variable holds 20 + a.
+    expect(evaluateRecording(build, [1])).toBe(1 + 11 + 2100);
+  });
 });
