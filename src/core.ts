@@ -1,3 +1,4 @@
+import { withArticle } from "./article";
 export const __brand = Symbol();
 
 // === Shader Types (strings, not TS enums) ===
@@ -1029,7 +1030,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         });
       }
       throw new Error(
-        `[RMSL] A ${this._t} cannot multiply a ${otherType}: the vector must have ` +
+        `[RMSL] A ${this._t} cannot multiply ${withArticle(otherType)}: the vector must have ` +
           `the matrix's column width or one fewer component (a position with its ` +
           `homogeneous coordinate implied).`,
       );
@@ -1040,7 +1041,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       let [c2, r2] = otherShape;
       if (c1 !== r2) {
         throw new Error(
-          `[RMSL] A ${this._t} cannot multiply a ${otherType}: the left has ${c1} ` +
+          `[RMSL] A ${this._t} cannot multiply ${withArticle(otherType)}: the left has ${c1} ` +
             `column(s) but the right has ${r2} row(s), and a matrix product needs ` +
             `the left's columns to equal the right's rows.`,
         );
@@ -1324,7 +1325,9 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === Uniform precision ===
   setPrecision(precision: UniformPrecision): any {
     if (this.type !== "uniform" && this.type !== "uniformArray") {
-      throw new Error(`[RMSL] setPrecision: only a uniform has a precision of its own, not a ${this.type} node`);
+      throw new Error(
+        `[RMSL] setPrecision: only a uniform has a precision of its own, not ${withArticle(this.type)} node`,
+      );
     }
     if (precision !== "low" && precision !== "medium" && precision !== "high") {
       throw new Error(
@@ -1334,7 +1337,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     const shaderType = (this.value as { shaderType: string }).shaderType;
     if (shaderType === "bool" || shaderType.startsWith("bvec")) {
       throw new Error(
-        `[RMSL] setPrecision: a ${shaderType} uniform takes no precision, which GLSL gives only to numbers`,
+        `[RMSL] setPrecision: ${withArticle(shaderType)} uniform takes no precision, which GLSL gives only to numbers`,
       );
     }
     (this.value as { precision?: UniformPrecision }).precision = precision;
@@ -1594,7 +1597,7 @@ const ARRAY_TYPES: Record<number, "vec2" | "vec3" | "vec4" | "mat3" | "mat4"> = 
 function describeElement(element: unknown): string {
   if (element === undefined) return "an empty or undefined element";
   if (Array.isArray(element)) return "a nested array";
-  return `a ${typeof element}, ${JSON.stringify(element)}`;
+  return `${withArticle(typeof element)}, ${JSON.stringify(element)}`;
 }
 
 /**
@@ -1623,7 +1626,7 @@ export function wrapValue<V>(x: V, operation?: string): Node<ExtractType<V>> {
     const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
     if (at >= 0) {
       throw new Error(
-        `[RMSL] A JavaScript array${givenTo} as a ${type} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
+        `[RMSL] A JavaScript array${givenTo} as ${withArticle(type)} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
       );
     }
     if (x.every((element) => typeof element === "number")) return node({ _t: type, type, value: x }) as any;
@@ -2487,7 +2490,7 @@ function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<
   if (TYPE_WIDTH[vector._t] !== columns * rows) {
     throw new Error(
       `[RMSL] ${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
-        `${columns * rows} components, not a ${vector._t}.`,
+        `${columns * rows} components, not ${withArticle(vector._t)}.`,
     );
   }
   const floats = asFloatVector(vector) as any;
@@ -2521,7 +2524,7 @@ export function makeMatConstructor<T extends ShaderType>(
       for (const column of args as BaseNode<ShaderType>[]) {
         if (!/^[iub]?vec[234]$/.test(column._t) || TYPE_WIDTH[column._t] !== rows) {
           throw new Error(
-            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not a ${column._t}.`,
+            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not ${withArticle(column._t)}.`,
           );
         }
       }
@@ -2958,11 +2961,13 @@ export function unpremultiplyAlpha(color: MathLike): any {
 function assertSampledTexture(fn: string, value: BaseNode<ShaderType>): void {
   const type = (value as { _t?: string } | undefined)?._t;
   if (type === undefined || !isSamplerType(type)) {
-    const what = type === undefined ? "not a node" : `${/^[aeiou]/.test(type) ? "an" : "a"} ${type}`;
+    const what = type === undefined ? "not a node" : withArticle(type);
     throw new Error(`[RMSL] ${fn}: its first argument is ${what}, not a sampler`);
   }
   if (type === "isamplerCube" || type === "usamplerCube") {
-    throw new Error(`[RMSL] ${fn}: an ${type} is an integer cube map, which neither GLSL nor WGSL can read a texel of`);
+    throw new Error(
+      `[RMSL] ${fn}: ${withArticle(type)} is an integer cube map, which neither GLSL nor WGSL can read a texel of`,
+    );
   }
 }
 
@@ -3234,7 +3239,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
   assertStorageLayout(attribute, shaderType);
   if (attribute.elementType !== null && attribute.elementType !== shaderType) {
     throw new Error(
-      `[RMSL] an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be a ${shaderType}`,
+      `[RMSL] an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be ${withArticle(shaderType)}`,
     );
   }
   attribute.elementType = shaderType;
@@ -3281,13 +3286,13 @@ function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: Shad
   const components = componentsOf(shaderType);
   if (attribute.itemSize !== components) {
     throw new Error(
-      `[RMSL] a ${shaderType} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
+      `[RMSL] ${withArticle(shaderType)} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
     );
   }
   const arrayClass = storageArrayClass(shaderType);
   if (attribute.arrayClass !== arrayClass) {
     throw new Error(
-      `[RMSL] a ${shaderType} storage node needs a ${arrayClass.name} attribute, but its attribute holds a ${attribute.arrayClass.name}`,
+      `[RMSL] ${withArticle(shaderType)} storage node needs ${withArticle(arrayClass.name)} attribute, but its attribute holds ${withArticle(attribute.arrayClass.name)}`,
     );
   }
 }

@@ -1,3 +1,4 @@
+import { withArticle } from "../article";
 import type { CpuTextureData } from "./cpu";
 
 /** A texture's texels as a GPU target uploads them, four channels each. */
@@ -29,7 +30,8 @@ const INTEGER_ARRAYS = [Int8Array, Uint8Array, Int16Array, Uint16Array, Int32Arr
  * @throws When the data is not an array that sampler type can read.
  */
 export function textureImage(texture: CpuTextureData, samplerType: string): TextureImage {
-  if (samplerType.endsWith("Cube")) throw new Error(`[RMSL] setTexture: a ${samplerType} texture is not supported`);
+  if (samplerType.endsWith("Cube"))
+    throw new Error(`[RMSL] setTexture: ${withArticle(samplerType)} texture is not supported`);
   const data = texture.data as ArrayBufferView & ArrayLike<number>;
   const integer = samplerType.startsWith("isampler") || samplerType.startsWith("usampler");
   const signed = samplerType.startsWith("isampler");
@@ -37,7 +39,7 @@ export function textureImage(texture: CpuTextureData, samplerType: string): Text
   let normalized = false;
   if (!integer) {
     if (!(data instanceof Uint8Array || data instanceof Uint8ClampedArray)) {
-      throw new Error(`[RMSL] setTexture: a ${samplerType} texture takes Uint8Array data on a GPU target`);
+      throw new Error(`[RMSL] setTexture: ${withArticle(samplerType)} texture takes Uint8Array data on a GPU target`);
     }
     bits = 8;
     normalized = true;
@@ -45,7 +47,7 @@ export function textureImage(texture: CpuTextureData, samplerType: string): Text
     const kind = INTEGER_ARRAYS.find((array) => data instanceof array);
     if (!kind || (kind.name.startsWith("Int") ? !signed : signed)) {
       throw new Error(
-        `[RMSL] setTexture: a ${samplerType} texture takes ${signed ? "Int8Array, Int16Array or Int32Array" : "Uint8Array, Uint16Array or Uint32Array"} data`,
+        `[RMSL] setTexture: ${withArticle(samplerType)} texture takes ${signed ? "Int8Array, Int16Array or Int32Array" : "Uint8Array, Uint16Array or Uint32Array"} data`,
       );
     }
     bits = (kind.BYTES_PER_ELEMENT * 8) as 8 | 16 | 32;

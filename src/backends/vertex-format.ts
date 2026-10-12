@@ -1,3 +1,4 @@
+import { withArticle } from "../article";
 import { MATRIX_DIMENSIONS } from "../core";
 import { componentKindOf } from "./cpu";
 
@@ -159,11 +160,11 @@ export function vertexFormatOf(attr: VertexSource, type: string): VertexFormat {
   if (format === undefined) throw new Error(`rmsl: no vertex format "${named}"`);
   if (format.kind !== kind) {
     throw new Error(
-      `rmsl: ${type.startsWith("i") ? "an" : "a"} ${type} attribute cannot read its ${arrayTypeName(attr.array)} in the format ${named}, ` +
+      `rmsl: ${withArticle(type)} attribute cannot read its ${arrayTypeName(attr.array)} in the format ${named}, ` +
         `which holds ${format.kind === "float" ? "floats" : `${format.kind} components`}. ` +
         (kind === "float"
           ? "An integer array reaches a float attribute only when it is scaled on the way in: set `normalized: true`, or set `format` to say what its bytes hold."
-          : `Give it an ${kind === "int" ? "Int32Array" : "Uint32Array"}, or set \`format\` to a ${kind === "int" ? "sint" : "uint"} format.`),
+          : `Give it ${withArticle(kind === "int" ? "Int32Array" : "Uint32Array")}, or set \`format\` to a ${kind === "int" ? "sint" : "uint"} format.`),
     );
   }
   return named;
@@ -181,7 +182,7 @@ function formatName(attr: VertexSource, count: number): VertexFormat {
   const name = count === 1 && prefix.endsWith("32") ? prefix : `${prefix}x${count}`;
   if (!(name in VERTEX_FORMATS)) {
     throw new Error(
-      `rmsl: no vertex format "${name}" for a ${arrayTypeName(attr.array)} ` +
+      `rmsl: no vertex format "${name}" for ${withArticle(arrayTypeName(attr.array))} ` +
         `attribute of ${count} component${count === 1 ? "" : "s"}. A buffer ` +
         "carrying one attribute must have a stride that is a multiple of four, " +
         "so a narrow attribute packs into the spare lanes of a four-component " +
@@ -225,12 +226,7 @@ export function assertHostArray(
   if (float64 && kind === "float" && data instanceof Float64Array) return;
   const takes = `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
   throw new Error(
-    `[RMSL] the ${type} ${what} "${slot}" takes ${articled(takes)}, not ${articled(arrayTypeName(data))}. ` +
+    `[RMSL] the ${type} ${what} "${slot}" takes ${withArticle(takes)}, not ${withArticle(arrayTypeName(data))}. ` +
       "No target converts host data, so give it an array that holds the components as the program reads them.",
   );
-}
-
-/** `name` after the article it takes. */
-function articled(name: string): string {
-  return `${/^[AEIOU]/i.test(name) ? "an" : "a"} ${name}`;
 }

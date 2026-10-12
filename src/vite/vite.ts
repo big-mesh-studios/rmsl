@@ -1,3 +1,4 @@
+import { withArticle } from "../article";
 import { build } from "esbuild";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
@@ -327,7 +328,9 @@ function notJsonData(value: unknown, path: string): string | undefined {
     }
     return undefined;
   }
-  const what = typeof value === "object" ? `a ${(value as object).constructor?.name ?? "object"}` : `a ${typeof value}`;
+  const what = withArticle(
+    typeof value === "object" ? ((value as object).constructor?.name ?? "object") : typeof value,
+  );
   return `${what} at ${path}`;
 }
 

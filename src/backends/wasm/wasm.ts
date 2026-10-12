@@ -1,3 +1,4 @@
+import { withArticle } from "../../article";
 import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
@@ -4707,7 +4708,7 @@ export function instantiateWasmProgram(
     if (out && out.buffer === memory.buffer) {
       if (!(out instanceof DrawArray)) {
         throw new Error(
-          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not a ${out.constructor.name}.`,
+          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not ${withArticle(out.constructor.name)}.`,
         );
       }
       const n = copyArgs(drawArgs, args);

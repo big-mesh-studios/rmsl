@@ -1,3 +1,4 @@
+import { withArticle } from "../../article";
 import {
   isSamplerType,
   someNode,
@@ -143,7 +144,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     for (const r of storages) {
       if (resident(r.attribute).layout.stride !== storageLayout(r.attribute).stride) {
         throw new Error(
-          `[RMSL] createWgslContext: a ${r.shaderType} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
+          `[RMSL] createWgslContext: ${withArticle(r.shaderType)} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
         );
       }
     }

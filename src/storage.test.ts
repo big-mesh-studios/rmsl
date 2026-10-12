@@ -52,6 +52,21 @@ describe("storage buffers", () => {
   });
 
   /**
+   * @canon spec-a-buffer-holds-one-element-type
+   */
+  it("names the array an element type needs with the article its sound takes", () => {
+    expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "int")).toThrow(
+      "an int storage node needs an Int32Array attribute, but its attribute holds a Float32Array",
+    );
+    expect(() => storage(new StorageBufferAttribute(4, 1, Int32Array), "uint")).toThrow(
+      "a uint storage node needs a Uint32Array attribute, but its attribute holds an Int32Array",
+    );
+    expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "ivec2")).toThrow(
+      "an ivec2 storage node needs 2 components per element",
+    );
+  });
+
+  /**
    * @canon spec-a-storage-buffer-holds-no-bool
    */
   it("rejects bool elements, which a WGSL storage buffer can't hold", () => {
