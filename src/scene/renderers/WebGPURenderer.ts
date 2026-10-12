@@ -443,10 +443,11 @@ export class WebGPURenderer {
         value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
         value = binding.value?.({ camera, mesh });
+        // Only a material's value comes from the user; the renderer computes the others in their shape.
+        assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       }
       // A name the renderer has no value for reads zero, as the scratch was cleared.
       if (value === undefined) continue;
-      assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       writeUniformMember(scratch, member, value);
     }
     this.device.queue.writeBuffer(

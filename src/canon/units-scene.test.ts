@@ -247,6 +247,24 @@ describe("the values a scene renderer uploads", () => {
       );
     }
   });
+
+  /**
+   * The camera's projection is cut to fifteen elements, which a check of the
+   * values the renderer computes itself would refuse.
+   *
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
+   */
+  it("checks no camera, object or renderer value, which it computes itself", () => {
+    const { device, canvas } = stubDevice();
+    const renderers = [new WebGPURenderer(canvas, device as any), stubWebGl().renderer];
+    for (const renderer of renderers) {
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+      const view = camera();
+      (view.projectionMatrix as any).elements = view.projectionMatrix.elements.slice(0, 15);
+      expect(() => renderer.render(scene, view)).not.toThrow();
+    }
+  });
 });
 
 describe("a scene renderer manages what it uploads", () => {
