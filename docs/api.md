@@ -527,7 +527,7 @@ const b = shade(normalWorld, lightB);
 GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS, WASM) run its body where it is called. The result is the same on every target.
 
 - The body receives its inputs as one value that destructures as an array, `([n, l])`, and as an object, `({ n, l })`. A call passes them by position or as one object, `shade({ n, l })`.
-- A layout without a `name` gets a generated one. Two functions with one name get `_1`, `_2`, … appended. A name that is a keyword or a built-in of GLSL or WGSL is refused.
+- A layout without a `name` gets a generated one. Two functions with one name get `_1`, `_2`, … appended. A function, input or variable name that GLSL or WGSL cannot declare, such as a keyword or a built-in, is declared under a name they can, as `float_` for `float`; the body still reads an input by the name the layout gives.
 - The arguments must have the types of the inputs, and the body must return the layout's type. A number is a `float`.
 - The body sees its inputs, its own variables and the program's uniforms, textures and storage buffers. A variable of the caller is refused with its name; pass it in as an input and return the new value. Attributes, varyings, stage outputs, the position and built-in inputs such as `fragCoord()` are refused too: pass their values in.
 
