@@ -803,6 +803,69 @@ describe("an inline Fn read more than once in a For condition", () => {
     compile(build, none)({ storages: { [counter.name]: runs } });
     expect(runs[0]).toBe(4);
   });
+
+  /**
+   * The condition is the value of the `Fn` itself, which counts its runs and
+   * stops the loop at the third.
+   *
+   * @canon spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
+   */
+  it.each(cpuTargets)("%s: runs it before every test of a condition that is its value", (_, compile) => {
+    const counter = instancedArray(1, "float");
+    const build = () => {
+      const f = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return counter.element(int(0)).lessThan(3);
+      })() as any;
+      return Fn(() => {
+        For(
+          () => int(0).toVar(),
+          () => f,
+          (i) => i.addAssign(1),
+          () => {},
+        );
+      })();
+    };
+    const runs = new Float64Array(1);
+    compile(build, none)({ storages: { [counter.name]: runs } });
+    expect(runs[0]).toBe(3);
+  });
+
+  /**
+   * The condition is the value of the `Fn`, and the body reads it too, once or
+   * twice. The `For` is the innermost block's statement that holds every read,
+   * so the `Fn` runs once, before the loop, and the condition tests what it returns.
+   *
+   * @canon spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop
+   */
+  it.each(cpuTargets.flatMap(([name, compile]) => [1, 2].map((reads) => [name, reads, compile] as const)))(
+    "%s: runs it once before a For whose condition is its value and whose body reads it %i times",
+    (_, reads, compile) => {
+      const counter = instancedArray(1, "float");
+      const steps = instancedArray(1, "float");
+      const build = () => {
+        const f = Fn(() => {
+          counter.element(int(0)).addAssign(1);
+          return steps.element(int(0)).lessThan(3);
+        })() as any;
+        return Fn(() => {
+          For(
+            () => int(0).toVar(),
+            () => f,
+            (i) => i.addAssign(1),
+            () => {
+              steps.element(int(0)).addAssign(1);
+              for (let k = 0; k < reads; k++) steps.element(int(0)).addAssign(select(f, float(0), float(0)));
+            },
+          );
+        })();
+      };
+      const runs = new Float64Array(1);
+      const taken = new Float64Array(1);
+      compile(build, none)({ storages: { [counter.name]: runs, [steps.name]: taken } });
+      expect({ runs: runs[0], steps: taken[0] }).toEqual({ runs: 1, steps: 3 });
+    },
+  );
 });
 
 describe("an inline Fn that discards, read in both branches of an If", () => {

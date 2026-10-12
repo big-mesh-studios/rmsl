@@ -1512,6 +1512,38 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
+   * The condition is the value of the `Fn`, and the body reads it twice.
+   *
+   * @canon spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop
+   */
+  it("runs an inline Fn once before a For whose condition is its value and whose body reads it, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const steps = instancedArray(1, "float");
+    const f = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return steps.element(int(0)).lessThan(3);
+    })() as any;
+    const program = Fn(() => {
+      For(
+        () => int(0).toVar(),
+        () => f,
+        (i) => i.addAssign(1),
+        () => {
+          steps.element(int(0)).addAssign(1);
+          steps.element(int(0)).addAssign(select(f, float(0), float(0)));
+          steps.element(int(0)).addAssign(select(f, float(0), float(0)));
+        },
+      );
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [steps.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], steps: out[steps.name]![0] }).toEqual({ runs: 1, steps: 3 });
+    adapter.destroy();
+  });
+
+  /**
    * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("runs an Fn called before a loop once, on WGSL", async () => {

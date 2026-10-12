@@ -186,10 +186,16 @@ function placeInlineFns(blocks: any[]): any[] {
           scan(s.params[0], here, outer);
           walkBody(s, 1, here, outer);
           return walkBody(s, 2, here, outer);
-        case "for":
+        case "for": {
           // The init runs once, and the condition, the update and the body on every iteration.
-          for (const slot of [0, 1, 2, 3]) walkBody(s, slot, here, outer, slot > 0);
-          return;
+          walkBody(s, 0, here, outer);
+          // The condition is one item, read where it is, so a condition that is a result counts as a read of it.
+          const condition = key(s, 1);
+          loopBodies.add(condition);
+          scan(s.params[1], [...here, { block: condition, index: 0 }], outer);
+          walkBody(s, 2, here, outer, true);
+          return walkBody(s, 3, here, outer, true);
+        }
         case "while":
           scan(s.params[0], here, outer, 1);
           return walkBody(s, 1, here, outer, true);
@@ -244,14 +250,12 @@ function placeInlineFns(blocks: any[]): any[] {
       at.set(index, [...(at.get(index) ?? []), fn]);
     }
     const copies = new Map<any, any>();
+    /** The statements of the results placed before item `index` of `frameBlock`, rewritten. */
+    const placedAt = (frameBlock: any, index: number): any[] =>
+      (before.get(frameBlock)?.get(index) ?? []).flatMap((fn: any) => fn.params.slice(0, -1).map(rewrite));
     /** The items of `block`, rewritten, with the statements of each result placed before an item ahead of it. */
-    const items = (block: any, frameBlock: any): any[] => {
-      const at = before.get(frameBlock);
-      return itemsOf(block).flatMap((item, index) => [
-        ...(at?.get(index) ?? []).flatMap((fn: any) => fn.params.slice(0, -1).map(rewrite)),
-        rewrite(item),
-      ]);
-    };
+    const items = (block: any, frameBlock: any): any[] =>
+      itemsOf(block).flatMap((item, index) => [...placedAt(frameBlock, index), rewrite(item)]);
     /**
      * A slot of `statement` walked as a block, rewritten: a block of its own,
      * ending in what it held, when statements are placed before what it holds.
@@ -261,8 +265,16 @@ function placeInlineFns(blocks: any[]): any[] {
       if (!b || b.type === "seq" || !before.has(key(statement, slot))) return rewrite(b);
       return node({ _t: b._t, type: "seq", params: items(b, key(statement, slot)) });
     };
+    /** The condition of `statement`, a `For`, rewritten, the statements of the results placed before it ahead. */
+    const condition = (statement: any) => {
+      const tested = rewrite(statement.params[1]);
+      const ahead = placedAt(key(statement, 1), 0);
+      if (ahead.length === 0) return tested;
+      const own = tested.type === "seq" ? tested.params : [tested];
+      return node({ _t: tested._t, type: "seq", params: [...ahead, ...own] });
+    };
     const bodySlots = (s: any): number[] =>
-      s.type === "if" ? [1, 2] : s.type === "for" ? [0, 1, 2, 3] : s.type === "while" ? [1] : [];
+      s.type === "if" ? [1, 2] : s.type === "for" ? [0, 2, 3] : s.type === "while" ? [1] : [];
     const rewrite = (n: any): any => {
       if (!n || typeof n !== "object" || !Array.isArray(n.params)) return n;
       const known = copies.get(n);
@@ -275,7 +287,9 @@ function placeInlineFns(blocks: any[]): any[] {
         const params =
           n.type === "seq" && before.has(n)
             ? items(n, n)
-            : n.params.map((p: any, i: number) => (slots.includes(i) ? body(n, i) : rewrite(p)));
+            : n.params.map((p: any, i: number) =>
+                n.type === "for" && i === 1 ? condition(n) : slots.includes(i) ? body(n, i) : rewrite(p),
+              );
         result =
           params.length === n.params.length && params.every((p: any, i: number) => p === n.params[i])
             ? n
