@@ -867,6 +867,25 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * The `Fn` returns a sum, and the program multiplies it. The fuzz found
+   * this with seed 1931: JavaScript wrote the sum into the product without
+   * brackets, so it multiplied only its last term, and a loop whose condition
+   * read such a value never ended.
+   *
+   * @canon spec-the-value-of-an-inline-fn-is-read-whole
+   */
+  it("multiplies the whole value an inline Fn returns, a sum, on every target (seed 1931)", () => {
+    const build = (a: Node<"float">) => {
+      const sum = Fn(() => {
+        const t = a.toVar();
+        return t.add(1);
+      })() as any;
+      return Fn(() => sum.mul(2))();
+    };
+    expect(evaluateRecording(build, [3])).toBe(8);
+  });
+
+  /**
    * @canon spec-var-is-to-var
    */
   it("makes a variable with var() on every target", () => {

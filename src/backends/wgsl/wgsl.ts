@@ -1195,13 +1195,16 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0.0";
+      let prec: number | undefined;
       for (let p of params) {
         let r = compileWGSLStage(p, ctx);
         allDecls.push(...r.decls);
         allBody.push(...r.body);
         expr = r.expr;
+        prec = r.prec;
       }
-      return { decls: allDecls, body: allBody, expr };
+      // The value keeps the precedence of its operator, so an operation that reads it brackets it.
+      return { decls: allDecls, body: allBody, expr, prec };
     }
 
     case "if": {

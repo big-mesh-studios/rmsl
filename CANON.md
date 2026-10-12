@@ -384,6 +384,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@exception a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own) — In a fragment stage that writes its depth, a path that writes none gives the fragment's own depth. That is the depth it would have if the stage wrote none. A read of the depth before a write gives that depth too. This holds on every target.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
+    - [`@spec the-value-of-an-inline-fn-is-read-whole`](#spec-the-value-of-an-inline-fn-is-read-whole) — An operation that reads the value of an `Fn` called outside the program's body reads it as one operand, on every target. A value that is a sum, read by a product, is multiplied whole.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — The statements of an `Fn` called inside another `Fn`'s body run once, where the call is, whether and wherever the program reads its value. A variable it makes is declared there.
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
       - [`@spec an-inline-fn-read-in-one-statement-runs-before-it`](#spec-an-inline-fn-read-in-one-statement-runs-before-it) — An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
@@ -3128,6 +3129,14 @@ This follows because TSL builds a shader the same way.
 #### @spec an-fn-returns-what-its-body-returns
 
 > A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
+
+#### @spec the-value-of-an-inline-fn-is-read-whole
+
+> An operation that reads the value of an `Fn` called outside the program's body reads it as one operand, on every target. A value that is a sum, read by a product, is multiplied whole.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the value is one node of the program, whatever statements come before it.
 
 #### @spec an-inline-fn-runs-where-it-is-called
 

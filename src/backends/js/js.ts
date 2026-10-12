@@ -2421,6 +2421,7 @@ export function compileJSNode(
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0";
+      let prec: number | undefined;
       let saved = ctx.outTarget;
       for (let [i, p] of params.entries()) {
         // Only the value goes to the target; a statement before it has its own.
@@ -2430,8 +2431,10 @@ export function compileJSNode(
         allDecls.push(...r.decls);
         allBody.push(...r.body);
         expr = r.expr;
+        prec = r.prec;
       }
-      return { decls: allDecls, body: allBody, expr };
+      // The value keeps the precedence of its operator, so an operation that reads it brackets it.
+      return { decls: allDecls, body: allBody, expr, prec };
     }
 
     case "if": {
