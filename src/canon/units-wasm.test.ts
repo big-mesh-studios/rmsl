@@ -934,7 +934,10 @@ describe("an inline Fn read more than once only inside another read from two roo
     ]) {
       const runs = new Float64Array(1);
       const data = new Float64Array(2);
-      compile(build as any, none)({
+      compile(
+        build as any,
+        none,
+      )({
         storages: { [counter.name]: runs, [result.name]: data },
         uniforms: { [taken.name]: branch },
       });
