@@ -1352,7 +1352,10 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+   * @canon exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
+   * @canon spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it("runs an inline Fn read on several paths once on every path that reads it, on WGSL", async () => {
     const { counter, result, first, second, paths } = inlineFnPaths();

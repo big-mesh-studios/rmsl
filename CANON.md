@@ -384,7 +384,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
       - [`@spec an-inline-fn-read-in-one-statement-runs-before-it`](#spec-an-inline-fn-read-in-one-statement-runs-before-it) — An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
       - [`@spec an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop`](#spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop) — An `Fn` called outside the program's body, whose value both the condition and the body of a `For` read, runs once, before the loop. This holds when the condition is that value itself. Each test then reads what the `Fn` returned.
-      - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
+      - [`@spec an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first`](#spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several statements of one block read, runs once, at the start of the first of them. The later statements read what it returned.
+      - [`@exception an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if`](#exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value both branches of an `If` read, runs once, before the `If`, on every target.
+      - [`@exception an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if`](#exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value a branch of an `If` and a statement after the `If` read, runs once, before the `If`, on every target.
       - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
       - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when roots that share no block read that other `Fn`.
       - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
@@ -813,8 +815,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path) — TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
-- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
+- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL r187 generates the statements of an `Fn` called outside the program's body in each branch of an `If` that reads its value.
 - [`@fact tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too) — TSL generates the statements of a node where it first builds the node, inside a loop body when that read is in one. A later read takes the value without them, also in a loop inside that block. A loop body, unlike a branch of an `If`, does not generate them again. A `Break()` among them acts on the loop around the first read.
+- [`@fact tsl-generates-an-inline-fn-read-twice-in-one-block-once`](#fact-tsl-generates-an-inline-fn-read-twice-in-one-block-once) — TSL generates the statements of an `Fn` called outside the program's body once, at the first of two reads of its value in one block. The second read takes the value it returned.
+- [`@fact tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it`](#fact-tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it) — TSL r187 generates the statements of an `Fn` called outside the program's body in a branch of an `If` that reads its value. A statement after the `If` that reads the value generates them again. So they run twice when the branch runs. A read after a loop whose body reads the value generates them again too.
+- [`@fact three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left`](#fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left) — three.js 0.186 can reuse, after an `If` or a loop, a variable that only the branch or the loop body set, without setting it again. When the branch did not run, or the loop ran no iteration, the read takes a variable never set.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 - [`@fact a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type) — TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
@@ -3098,13 +3103,29 @@ This follows because a call of an `Fn` means one run of its statements, and the 
 
 This follows because the condition and the body are blocks of their own inside the `For`. The innermost block that holds both reads is the one that holds the `For`.
 
-##### @exception an-inline-fn-read-more-than-once-runs-before-every-read
+##### @spec an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first
 
-> An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
+> An `Fn` called outside the program's body, whose value several statements of one block read, runs once, at the start of the first of them. The later statements read what it returned.
 
-Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
+Derives from: [`fact-tsl-generates-an-inline-fn-read-twice-in-one-block-once`](#fact-tsl-generates-an-inline-fn-read-twice-in-one-block-once)
 
-This follows because TSL generates the statements at the first read, and again in a branch that lacks them. A path can then run them twice, once or never, where every target here runs them once.
+This follows because that block is the innermost one that holds every read. TSL also generates the statements once there and reuses the value.
+
+##### @exception an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+
+> An `Fn` called outside the program's body, whose value both branches of an `If` read, runs once, before the `If`, on every target.
+
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the block that holds the `If` is the innermost one that holds both reads. TSL r187 generates the statements in each branch. TSL 0.186 generates them in each branch too. When the `Fn` holds a loop, it generates them once, before the `If`. rmsl keeps its one rule, since TSL's placement is still changing upstream.
+
+##### @exception an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
+
+> An `Fn` called outside the program's body, whose value a branch of an `If` and a statement after the `If` read, runs once, before the `If`, on every target.
+
+Derives from: [`fact-tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it`](#fact-tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it), [`fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left`](#fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the block that holds the `If` is the innermost one that holds both reads. TSL r187 runs the statements in the branch and again after the `If`, so twice when the branch runs. TSL 0.186 can instead read a variable that only the branch set. Both are defects, and one run before the `If` has neither.
 
 ##### @spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration
 
@@ -3188,7 +3209,7 @@ This follows because the jump would run outside every loop, which no target can 
 
 Derives from: [`fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
 
-This follows because the jump would act on the outer loop, while the read in the inner loop says the author meant that one. TSL compiles such a program, and its jump acts on the loop around the first read. Issue #256 settled this.
+This follows because the jump would act on the outer loop, while the read in the inner loop says the author meant that one. TSL 0.186 and r187 compile such a program, and the jump acts on the loop around the first read. Which loop a jump leaves then hangs on where the first read sits, which is a defect, so every target refuses the program instead. Issue #256 settled this.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -5736,15 +5757,37 @@ This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCa
 
 ## @fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them
 
-> TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
+> TSL r187 generates the statements of an `Fn` called outside the program's body in each branch of an `If` that reads its value.
 
-This is how three.js's TSL behaves, read from its source: `NodeBuilder.addLineFlowCodeBlock` and `addFlowCodeHierarchy` in `src/nodes/core/NodeBuilder.js`, called from `Node.build`, with the branches made in `ConditionalNode.setup` (three.js 0.186).
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. r187's own reference output for its case `functionWithoutStackSharedConditionalUse`, in `test/unit/tsl/reference.wgsl`, shows the same. The code is `Node.build` in `src/nodes/core/Node.js` and `NodeBuilder.addFlowCodeHierarchy`, with the branches made in `ConditionalNode.setup`.
+
+three.js 0.186, run through the same generator, does the same for an `Fn` with no loop of its own. The `Fn` above, which holds a loop, it generates once, before the `If`.
 
 ## @fact tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too
 
 > TSL generates the statements of a node where it first builds the node, inside a loop body when that read is in one. A later read takes the value without them, also in a loop inside that block. A loop body, unlike a branch of an `If`, does not generate them again. A `Break()` among them acts on the loop around the first read.
 
-This is how three.js 0.186 behaves, read from its TSL source. `Node.build` in `src/nodes/core/Node.js` keeps the snippet of a node it generated. It adds the statements again only under a `nodeBlock`. `ConditionalNode.setup` gives each branch one. In `src/nodes/utils/LoopNode.js`, `LoopNode.setup` gives the loop body a `nodeLoop` and no `nodeBlock`. `LoopNode.generate` builds the body inside the loop's braces.
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. The program read it in a loop body, and in a loop inside that body. In `src/nodes/utils/LoopNode.js`, `LoopNode.generate` builds the body inside the loop's braces.
+
+three.js 0.186, run through the same generator, does the same for an `Fn` with no loop of its own. Its source shows why. `Node.build` in `src/nodes/core/Node.js` keeps the snippet of a node it generated. It adds the statements again only under a `nodeBlock`. `LoopNode.setup` gives the loop body a `nodeLoop` and no `nodeBlock`. The `Fn` above, which holds a loop, 0.186 generates once, before the statement that holds both reads.
+
+## @fact tsl-generates-an-inline-fn-read-twice-in-one-block-once
+
+> TSL generates the statements of an `Fn` called outside the program's body once, at the first of two reads of its value in one block. The second read takes the value it returned.
+
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. three.js 0.186, run through the same generator, does the same.
+
+## @fact tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it
+
+> TSL r187 generates the statements of an `Fn` called outside the program's body in a branch of an `If` that reads its value. A statement after the `If` that reads the value generates them again. So they run twice when the branch runs. A read after a loop whose body reads the value generates them again too.
+
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. three.js 0.186 also generates them again after the `If`, but can reuse a variable that only the branch set, as [`fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left`](#fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left) states.
+
+## @fact three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left
+
+> three.js 0.186 can reuse, after an `If` or a loop, a variable that only the branch or the loop body set, without setting it again. When the branch did not run, or the loop ran no iteration, the read takes a variable never set.
+
+This is how three.js 0.186 behaves, run through r187's code generator, `generateCode` in `test/unit/tsl/code.js`. The `Fn` `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`, read in a loop body and after the loop, leaves its value in a variable that only the loop body sets. The read after the loop takes that variable. An `Fn` that adds one to a variable made outside it, read in a branch and after the `If`, sets that variable only in the branch. Upstream PR mrdoob/three.js#34339, still open, describes this defect for a node that sibling branches read. r187 generates the statements again instead.
 
 ## @fact tsl-to-var-takes-a-name
 

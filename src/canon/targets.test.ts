@@ -1391,7 +1391,8 @@ describe("each leaf on every target it claims", () => {
    * variable that GLSL and WGSL refuse to read outside the block that declares
    * it. `a` above zero takes the first branch, and above one the nested one.
    *
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+   * @canon exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
    */
   it("runs an inline Fn read on several paths where every read sees its variable, on every target", () => {
     const program = (body: (shared: any, a: Node<"float">, out: any) => void) => (a: Node<"float">) => {

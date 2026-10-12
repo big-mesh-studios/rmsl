@@ -2127,7 +2127,7 @@ describe("an early Return in a function on the CPU targets", () => {
 
 describe("an inline Fn read in both branches of an If on JS", () => {
   /**
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
    */
   it("runs an inline Fn read in both branches of an If once, before the If, on JS", () => {
     const counter = instancedArray(1, "float");

@@ -549,7 +549,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   });
 
   /**
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
    */
   it("runs it once before an If whose branches both read its value, on WASM", () => {
     const taken = uniform("float");
@@ -594,7 +594,10 @@ describe("an inline Fn read on several paths of a program", () => {
   );
 
   /**
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+   * @canon exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
+   * @canon spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it.each(cases)("%s: runs an inline Fn read %s once on every path that reads it", (_, __, compile, path) => {
     const routine = compile(path.build, none);
@@ -923,7 +926,7 @@ describe("an inline Fn read in the program and inside another read twice", () =>
    * The program reads the inner `Fn` once, and twice the outer one, whose
    * statements read the inner one. Every read is in the program's block.
    *
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first
    */
   it.each(cpuTargets)("%s: runs it once, before the first read", (_, compile) => {
     const counter = instancedArray(1, "float");
