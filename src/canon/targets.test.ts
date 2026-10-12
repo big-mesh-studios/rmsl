@@ -776,9 +776,11 @@ describe("each leaf on every target it claims", () => {
    * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
    */
   it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
-    expect(buildLoop(() => Loop(2.5, () => {}))).toThrow(/2\.5 is not a whole number/);
+    expect(buildLoop(() => Loop(2.5, () => {}))).toThrow(/2\.5 is not a whole number, but the index is an int\b/);
     expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrow(/2\.5 is not a whole number/);
-    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrow(/0\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrow(
+      /0\.5 is not a whole number, but the index is a uint\b/,
+    );
     expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrow(/1\.5 is not a whole number/);
     const build = (a: Node<"float">) =>
       Fn(() => {

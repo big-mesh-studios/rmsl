@@ -100,34 +100,22 @@ export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "ui
         ? [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
         : A extends "bvec4"
           ? [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
-          : A extends keyof typeof TYPE_COMPONENTS
-            ? Components<(typeof TYPE_COMPONENTS)[A]> | HostVectorArray<A>
-            : never;
-
-/** The components of each vector and matrix type, a matrix's counted column after column. */
-const TYPE_COMPONENTS = {
-  vec2: 2,
-  vec3: 3,
-  vec4: 4,
-  ivec2: 2,
-  ivec3: 3,
-  ivec4: 4,
-  uvec2: 2,
-  uvec3: 3,
-  uvec4: 4,
-  mat2: 4,
-  mat2x3: 6,
-  mat2x4: 8,
-  mat3x2: 6,
-  mat3: 9,
-  mat3x4: 12,
-  mat4x2: 8,
-  mat4x3: 12,
-  mat4: 16,
-} as const;
+          : A extends keyof typeof MATRIX_SHAPES
+            ? MatrixComponents<(typeof MATRIX_SHAPES)[A][0], (typeof MATRIX_SHAPES)[A][1]> | HostVectorArray<A>
+            : A extends keyof typeof VECTOR_WIDTHS
+              ? Components<(typeof VECTOR_WIDTHS)[A]> | HostVectorArray<A>
+              : never;
 
 /** A tuple of `N` numbers: the components of a vector or matrix value, given as a plain array. */
 type Components<N extends number, T extends number[] = []> = T["length"] extends N ? T : Components<N, [...T, number]>;
+
+/** A tuple of the components of a matrix of `C` columns of `R` rows, a plain array of them column after column. */
+type MatrixComponents<
+  C extends number,
+  R extends number,
+  T extends unknown[] = [],
+  Columns extends unknown[] = [],
+> = Columns["length"] extends C ? T : MatrixComponents<C, R, [...T, ...Components<R>], [...Columns, unknown]>;
 
 /** The typed arrays that hold a vector or matrix of type `A` as it is: integers in their own kind, floats at either width. */
 type HostVectorArray<A extends ShaderType> = A extends `ivec${string}`
@@ -1743,8 +1731,8 @@ export function resultType(op: string, operandType: string): string {
   return typeof reducing === "function" ? reducing(operandType) : reducing;
 }
 
-/** Component count per type, for the operations whose width follows it. */
-export const TYPE_WIDTH: Record<string, number> = {
+/** Component count of each scalar and vector type, as literals the types read. */
+const VECTOR_WIDTHS = {
   float: 1,
   int: 1,
   uint: 1,
@@ -1761,7 +1749,10 @@ export const TYPE_WIDTH: Record<string, number> = {
   bvec2: 2,
   bvec3: 3,
   bvec4: 4,
-};
+} as const satisfies Record<string, number>;
+
+/** Component count per type, for the operations whose width follows it. */
+export const TYPE_WIDTH: Record<string, number> = VECTOR_WIDTHS;
 
 /**
  * Where an op's defining operand sits, when it is not the first.
@@ -3940,7 +3931,7 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
 function assertWholeBound(value: number, type: string): void {
   if (!Number.isInteger(value)) {
     throw new Error(
-      `[RMSL] Loop: ${value} is not a whole number, but the index is ${type === "int" ? "an" : "a"} ${type}. Use a whole number, or a float node, which converts to the index's type`,
+      `[RMSL] Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
     );
   }
 }
@@ -4083,7 +4074,7 @@ export function Return(): void {
  *
  * Every matrix type is listed.
  */
-export const MATRIX_DIMENSIONS: Record<string, [number, number]> = {
+const MATRIX_SHAPES = {
   mat2: [2, 2],
   mat2x3: [2, 3],
   mat2x4: [2, 4],
@@ -4093,7 +4084,10 @@ export const MATRIX_DIMENSIONS: Record<string, [number, number]> = {
   mat4x2: [4, 2],
   mat4x3: [4, 3],
   mat4: [4, 4],
-};
+} as const satisfies Record<string, readonly [number, number]>;
+
+/** `[columns, rows]` per matrix type, looked up by any type name. */
+export const MATRIX_DIMENSIONS: Readonly<Record<string, readonly [number, number]>> = MATRIX_SHAPES;
 
 /**
  * Whether a uniform is a texture, which cannot go in the uniform address space

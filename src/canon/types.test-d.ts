@@ -552,6 +552,10 @@ describe("the value setUniform takes for a vector or matrix uniform", () => {
     glsl.setUniform(frame, [1, 0, 0, 1, 0, 0]);
     // @ts-expect-error a mat3x2 takes six components
     glsl.setUniform(frame, [1, 0, 0, 1]);
+    const wide = uniform("mat4x3");
+    glsl.setUniform(wide, [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
+    // @ts-expect-error a mat4x3 takes twelve components, four columns of three
+    glsl.setUniform(wide, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
     glsl.setUniform(ids, Int32Array.of(1, 2));
     // @ts-expect-error an ivec2 takes an Int32Array, not a float array
     glsl.setUniform(ids, Float32Array.of(1, 2));
