@@ -8,6 +8,7 @@ import {
   slotOf,
   TypedArray,
   UniformOrSlot,
+  attributeTypeOf,
 } from "../adapter";
 import {
   AdapterResult,
@@ -18,6 +19,7 @@ import {
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
+import { assertAttributeArray } from "../vertex-format";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
@@ -153,7 +155,7 @@ export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions {
  * draw state, `attach` opens a 2D canvas context, and `draw()` runs one
  * frame into it. See {@link JsDrawOptions} for `count`/`first`/`clear`/`clearDepth`.
  */
-export interface JsAdapter extends Adapter<void, JsDrawOptions> {
+export interface JsAdapter extends Adapter<void, JsDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: JsDrawOptions): void;
 }
@@ -181,7 +183,10 @@ export function createJs(
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
-    attributes[slotOf(attribute)] = data;
+    const slot = slotOf(attribute);
+    const type = attributeTypeOf(attribute) ?? routine.attributeTypes[slot];
+    if (type !== undefined) assertAttributeArray(slot, type, data, true);
+    attributes[slot] = data;
   }
 
   return {

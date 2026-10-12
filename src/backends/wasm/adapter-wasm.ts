@@ -8,6 +8,7 @@ import {
   slotOf,
   TypedArray,
   UniformOrSlot,
+  attributeTypeOf,
 } from "../adapter";
 import {
   AdapterResult,
@@ -18,6 +19,7 @@ import {
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
+import { assertAttributeArray } from "../vertex-format";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import {
@@ -183,7 +185,7 @@ export interface WasmDrawOptions extends DrawCountOptions, DrawClearOptions {
  * canvas context, and `draw()` runs one frame into it. See
  * {@link WasmDrawOptions} for `count`/`first`/`clear`/`clearDepth`.
  */
-export interface WasmAdapter extends Adapter<void, WasmDrawOptions> {
+export interface WasmAdapter extends Adapter<void, WasmDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: WasmDrawOptions): void;
 }
@@ -211,7 +213,10 @@ export function createWasm(
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
-    attributes[slotOf(attribute)] = data;
+    const slot = slotOf(attribute);
+    const type = attributeTypeOf(attribute) ?? routine.attributeTypes[slot];
+    if (type !== undefined) assertAttributeArray(slot, type, data, true);
+    attributes[slot] = data;
   }
 
   return {

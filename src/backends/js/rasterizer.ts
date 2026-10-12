@@ -60,6 +60,8 @@ export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions 
  */
 export interface JsRasterRoutine {
   draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer;
+  /** The type of each attribute the vertex stage reads, by slot. */
+  readonly attributeTypes: Readonly<Record<string, string>>;
 }
 
 /**
@@ -438,5 +440,5 @@ export function compileJS(
     return result;
   }
 
-  return { draw };
+  return { draw, attributeTypes: vertexStage.attributeTypes };
 }

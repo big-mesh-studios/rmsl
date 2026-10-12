@@ -21,7 +21,7 @@ import type { CpuTextureData } from "./cpu";
  * has (GL, WGSL, CPU/JS/WASM) always returns one, throwing at call time
  * only if that particular construction wasn't given anything to draw.
  */
-export interface Adapter<TBuffer, TDrawOptions = void> {
+export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float32Array | Float64Array = Float32Array> {
   /**
    * One-time setup (device/context/pipeline creation) for `draw`. Creates
    * its own offscreen canvas when none is given, so a draw-capable adapter
@@ -43,12 +43,13 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
 
   /**
    * Same reasoning as `setUniform`: passing the `attribute()` node lets the
-   * slot name come from the node instead of being retyped by hand. Attribute
-   * data is always a flat `TypedArray` regardless of `ShaderType`, so unlike
-   * `setUniform` this doesn't narrow `data`'s type — it only removes the
-   * chance of a slot-name typo.
+   * slot name come from the node instead of being retyped by hand, and narrows
+   * `data` to the one array the attribute's type takes, which the adapter
+   * refuses any other array for (see {@link AttributeArray}). A storage node
+   * and a slot name take any flat `TypedArray`.
    */
-  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: AttributeArray<T, TFloatArray>): void;
+  setAttribute<T extends ShaderType>(storage: StorageNode<T> | ReadOnlyStorageNode<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
 
   /**
@@ -134,11 +135,32 @@ export interface DrawClearOptions {
  */
 export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string;
 
+/**
+ * The array an attribute of type `T` takes: an `Int32Array` for an `int` or
+ * `ivecN`, a `Uint32Array` for a `uint` or `uvecN`, and `TFloatArray` for any
+ * other, a `Float32Array` unless the adapter also takes a `Float64Array`.
+ */
+export type AttributeArray<
+  T extends ShaderType,
+  TFloatArray extends Float32Array | Float64Array = Float32Array,
+> = T extends "int" | "ivec2" | "ivec3" | "ivec4"
+  ? Int32Array
+  : T extends "uint" | "uvec2" | "uvec3" | "uvec4"
+    ? Uint32Array
+    : TFloatArray;
+
 /** A node whose slot `setAttribute` fills: an attribute, or a storage buffer. */
 export type AttributeOrStorage<T extends ShaderType> = AttributeNode<T> | StorageNode<T> | ReadOnlyStorageNode<T>;
 
 /** Same idea as `UniformOrSlot`, for `setAttribute`. */
 export type AttributeOrSlot = AttributeOrStorage<ShaderType> | string;
+
+/** The declared type of an attribute node, or nothing for a storage node or a slot name. */
+export function attributeTypeOf(attribute: AttributeOrSlot): string | undefined {
+  if (typeof attribute === "string") return undefined;
+  const node = attribute as { type?: string; _t?: string };
+  return node.type === "attribute" ? node._t : undefined;
+}
 
 /**
  * The storage slots a `compute(out)` call asks to have read back: the keys of

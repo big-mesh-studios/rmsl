@@ -17,10 +17,11 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
+  attributeTypeOf,
 } from "../adapter";
 import { assertOneDeclarationPerName, storageNodesOf, type StorageGraphNode, VertexRoot } from "../shared";
 import { componentKindOf, type CpuTextureData } from "../cpu";
-import type { AttributeKind } from "../vertex-format";
+import { assertAttributeArray, type AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
 import { drawToCanvas, GlState, GlStateKeeper, setAttributeValue, setRasterState, setUnpackState } from "./gl-state";
@@ -36,8 +37,9 @@ type TextureSlot = {
   depth: number;
   internal: number;
 };
-/** A program attribute: its first location, how many locations it spans, the kind its components read, and whether the host has set its data. */
+/** A program attribute: its type, its first location, how many locations it spans, the kind its components read, and whether the host has set its data. */
 type AttributeInfo = {
+  type: string;
   location: number;
   locations: number;
   buffer: WebGLBuffer;
@@ -263,6 +265,13 @@ function setUniformValue(gl: WebGL2RenderingContext, slot: string, info: Uniform
   set(info.location, values);
 }
 
+/** The RMSL type of a reflected attribute, from the kind and count of the components each of its `locations` reads. */
+function attributeTypeName(kind: AttributeKind, components: number, locations: number): string {
+  if (locations > 1) return components === locations ? `mat${locations}` : `mat${locations}x${components}`;
+  if (components === 1) return kind;
+  return `${kind === "float" ? "" : kind[0]}vec${components}`;
+}
+
 /** The kind of the components a reflected attribute of `type` reads. */
 function reflectedAttributeKind(gl: WebGL2RenderingContext, type: number): AttributeKind {
   switch (type) {
@@ -391,6 +400,8 @@ export function createGlsl(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
+    const declared = attributeTypeOf(attribute);
+    if (declared !== undefined) assertAttributeArray(slot, declared, data);
     const storage = storages.get(slot);
     const sampler = uniforms.get(slot);
     if (gl && program && storage && sampler) {
@@ -407,12 +418,13 @@ export function createGlsl(
       pendingAttributes.set(slot, data);
       return;
     }
+    assertAttributeArray(slot, info.type, data);
     state?.begin(GlState.vertexArray | GlState.arrayBuffer);
     try {
       gl.bindVertexArray(vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
       if (info.kind === "float") {
-        gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
         // A matrix holds a location for each column, which reads its column of each vertex's matrix.
         const stride = info.locations > 1 ? info.locations * info.componentCount * 4 : 0;
         for (let column = 0; column < info.locations; column++) {
@@ -427,15 +439,7 @@ export function createGlsl(
           );
         }
       } else {
-        const integers =
-          info.kind === "int"
-            ? data instanceof Int32Array
-              ? data
-              : Int32Array.from(data)
-            : data instanceof Uint32Array
-              ? data
-              : Uint32Array.from(data);
-        gl.bufferData(gl.ARRAY_BUFFER, integers, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
         const type = info.kind === "int" ? gl.INT : gl.UNSIGNED_INT;
         gl.enableVertexAttribArray(info.location);
         gl.vertexAttribIPointer(info.location, info.componentCount, type, 0, 0);
@@ -630,12 +634,16 @@ export function createGlsl(
       const info = gl.getActiveAttrib(program, i)!;
       const location = gl.getAttribLocation(program, info.name);
       const buffer = gl.createBuffer()!;
+      const kind = reflectedAttributeKind(gl, info.type);
+      const componentCount = componentCountForType(gl, info.type);
+      const locations = locationCountForType(gl, info.type);
       attributes.set(info.name, {
+        type: attributeTypeName(kind, componentCount, locations),
         location,
-        locations: locationCountForType(gl, info.type),
+        locations,
         buffer,
-        componentCount: componentCountForType(gl, info.type),
-        kind: reflectedAttributeKind(gl, info.type),
+        componentCount,
+        kind,
         hasData: false,
       });
     }

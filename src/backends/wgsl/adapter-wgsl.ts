@@ -18,9 +18,10 @@ import {
   slotOf,
   TRANSPARENT_BLACK,
   TypedArray,
+  attributeTypeOf,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
-import { attributeShape, wordFormat } from "../vertex-format";
+import { assertAttributeArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { CompileCtx, storageNodesOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
@@ -438,6 +439,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
+    const declared = attributeTypeOf(attribute);
+    if (declared !== undefined) assertAttributeArray(slot, declared, data);
     if (!device) {
       pendingAttributes.set(slot, data);
       return;
@@ -445,6 +448,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let attrInfo = vertexAttributes.find((a) => a.slot === slot);
     if (attrInfo) {
+      assertAttributeArray(slot, attrInfo.shaderType, data);
       let componentCount = componentCountOf(attrInfo.shaderType);
       let bytes = data.length * 4;
       let existing = vertexBuffers.get(slot);

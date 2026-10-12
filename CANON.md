@@ -172,7 +172,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location`](#spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location) — `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
   - [`@spec the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives`](#spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives) — A draw of `WebGPURenderer` gives a vertex attribute its program declares but has no data for the value (0, 0, 0, 1). A draw of `WebGLRenderer` gives it the same. Each location of the attribute reads the components of that value it holds, of the attribute's kind, at every vertex.
   - [`@spec a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` and `createWgsl` take a matrix attribute of any shape as one flat array that holds each vertex's columns one after another. Each points the location of each column at that column, and counts a draw's vertices by the whole matrix.
-  - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads an `Int32Array` for an `int` attribute, or a `Uint32Array` for a `uint` attribute, without a copy. It copies an array of another type into a new array first.
+  - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads the `Int32Array` of an `int` attribute, or the `Uint32Array` of a `uint` attribute, as given, without a copy.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
@@ -263,6 +263,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
+  - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — Every way of drawing refuses an attribute's array whose components are of another kind than the attribute's declared type, and the refusal names the type. The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` take a `Float32Array` for a float attribute, an `Int32Array` for an `int` one and a `Uint32Array` for a `uint` one. The CPU adapters `createJs` and `createWasm` take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits. The type checker refuses any other array that the host passes to `setAttribute` with the attribute node.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
@@ -1805,11 +1806,11 @@ This follows because GLSL and WGSL both give a matrix attribute one location for
 
 ### @spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given
 
-> `setAttribute` on `createGlsl` uploads an `Int32Array` for an `int` attribute, or a `Uint32Array` for a `uint` attribute, without a copy. It copies an array of another type into a new array first.
+> `setAttribute` on `createGlsl` uploads the `Int32Array` of an `int` attribute, or the `Uint32Array` of a `uint` attribute, as given, without a copy.
 
-Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+Derives from: [`spec-an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
-This follows because a host can refill an attribute on every frame. An array that already holds 32-bit integers of the attribute's kind is what the buffer takes.
+This follows because a host can refill an attribute on every frame. The adapter takes only an array that holds 32-bit integers of the attribute's kind, which is what the buffer holds.
 
 ### @spec wgsl-brackets-a-bitwise-operand-that-is-not-unary
 
@@ -2332,6 +2333,14 @@ This follows because a case added once its block is built could not reach the pr
 > A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 
 This follows because a case no selector can match is a mistake in the program, and a mistake is refused before the program runs.
+
+### @spec an-attribute-takes-only-an-array-of-its-own-kind
+
+> Every way of drawing refuses an attribute's array whose components are of another kind than the attribute's declared type, and the refusal names the type. The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` take a `Float32Array` for a float attribute, an `Int32Array` for an `int` one and a `Uint32Array` for a `uint` one. The CPU adapters `createJs` and `createWasm` take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits. The type checker refuses any other array that the host passes to `setAttribute` with the attribute node.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because a float array read as integers gives values the host never wrote. A copy into an array of the right kind would make a new array at every refill. Also, three.js reads an attribute in a format its array's type picks, so the array decides the kind the shader reads. A CPU target computes floats in 64 bits, so a `Float64Array` reaches its float attribute as it is.
 
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 

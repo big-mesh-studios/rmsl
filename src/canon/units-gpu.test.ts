@@ -736,6 +736,71 @@ describe("an integer attribute of createGlsl", () => {
   });
 });
 
+describe("the array a GPU adapter takes for an attribute", () => {
+  /**
+   * The stub context reports an `ivec2`, a `uint` and a `vec3` attribute.
+   *
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("refuses an array of another kind on createGlsl, named by node or by slot", () => {
+    const ids = attribute("ivec2");
+    const flags = attribute("uint");
+    const position = attribute("vec3");
+    const { gl } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_ATTRIBUTES ? 3 : name === gl.ACTIVE_UNIFORMS ? 0 : true,
+        getActiveAttrib: (_program: unknown, i: number) =>
+          [
+            { name: ids.name, type: gl.INT_VEC2, size: 1 },
+            { name: flags.name, type: gl.UNSIGNED_INT, size: 1 },
+            { name: position.name, type: gl.FLOAT_VEC3, size: 1 },
+          ][i],
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))() as any,
+      Fn(() => vec4(0, 1, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
+      /\bivec2\b.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
+    expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrow(/Uint32Array.*Int32Array/);
+    expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrow(/Float32Array.*Float64Array/);
+    expect(() => adapter.setAttribute(ids, Int32Array.of(1, 2))).not.toThrow();
+  });
+
+  /**
+   * A stub device stands in for the GPU.
+   *
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("refuses an array of another kind on createWgsl, named by node or by slot", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const ids = attribute("ivec2");
+      const flags = attribute("uint");
+      const position = attribute("vec3");
+      const { device, canvas } = stubDevice();
+      const vertex = Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))();
+      const adapter = createWgsl({ context: { device } as any, vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() });
+      await adapter.attach(canvas);
+      expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
+        /\bivec2\b.*Int32Array.*Float32Array/,
+      );
+      expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrow(/Uint32Array.*Int32Array/);
+      expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrow(/Float32Array.*Float64Array/);
+      expect(() => adapter.setAttribute(ids, Int32Array.of(1, 2))).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("the vertex layout of createWgsl", () => {
   /**
    * A stub device records the pipeline. Each attribute takes a buffer of its

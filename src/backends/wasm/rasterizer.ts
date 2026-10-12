@@ -221,6 +221,8 @@ export interface WasmRasterRoutine {
    * {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
    */
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
+  /** The type of each attribute the vertex stage reads, by slot. */
+  readonly attributeTypes: Readonly<Record<string, string>>;
 }
 
 function align8(n: number): number {
@@ -575,5 +577,8 @@ export function compileWasm(
     return new Float64Array(result); // copy out — memory can grow (and detach `result`'s buffer) on a later draw()
   }
 
-  return { draw };
+  const attributeTypes = Object.fromEntries(
+    attrParams.filter((p) => p.slot !== VERTEX_INDEX_SLOT).map((p) => [p.slot, p.shaderType]),
+  );
+  return { draw, attributeTypes };
 }

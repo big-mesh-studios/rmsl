@@ -48,6 +48,7 @@ import {
   compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
+  createJs,
   createJsCompute,
   createJsGrid,
   createJsRoutine,
@@ -59,6 +60,7 @@ import {
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
+  createWasm,
   createWasmCompute,
   createWasmGrid,
   createWasmRoutine,
@@ -2113,5 +2115,32 @@ describe("an early Return in a function on the CPU targets", () => {
       { name: "main", params: [] },
     );
     expect(source).toMatch(/\{\s*return res;\s*\}/);
+  });
+});
+
+describe("the array a CPU adapter takes for an attribute", () => {
+  const adapters: [string, typeof createJs][] = [
+    ["createJs", createJs],
+    ["createWasm", createWasm as unknown as typeof createJs],
+  ];
+
+  /**
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it.each(adapters)("%s refuses an array of another kind, named by node or by slot", (_, create) => {
+    const position = attribute("vec2");
+    const ids = attribute("ivec2");
+    const flags = attribute("uint");
+    const adapter = create(
+      () =>
+        Fn(() => builtinPosition().assign(vec4(position.add(vec2(ids.x.toFloat(), flags.toFloat())), 0, 1)))() as any,
+      () => Fn(() => vec4(0, 1, 0, 1))() as any,
+    );
+    expect(() => adapter.setAttribute(ids, new Float32Array(6) as any)).toThrow(/\bivec2\b.*Int32Array.*Float32Array/);
+    expect(() => adapter.setAttribute(ids.name, new Uint32Array(6))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(flags, new Int32Array(3) as any)).toThrow(/\buint\b.*Uint32Array/);
+    expect(() => adapter.setAttribute(position, new Int32Array(6) as any)).toThrow(/\bvec2\b.*Float32Array/);
+    expect(() => adapter.setAttribute(position, new Float64Array(6))).not.toThrow();
+    expect(() => adapter.setAttribute(ids, new Int32Array(6))).not.toThrow();
   });
 });

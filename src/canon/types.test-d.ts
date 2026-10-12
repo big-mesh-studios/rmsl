@@ -15,6 +15,7 @@ import {
   mat3,
   outputStruct,
   attribute,
+  instancedArray,
   dot,
   length,
   distance,
@@ -22,13 +23,23 @@ import {
   type Node,
   type UniformNode,
 } from "../rmsl";
-import { compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex, createJsRoutine } from "../js";
+import {
+  compileJSFragment,
+  compileJSGrid,
+  compileJSRoutine,
+  compileJSVertex,
+  createJsRoutine,
+  type JsAdapter,
+} from "../js";
+import type { GlslAdapter } from "../glsl";
+import type { WgslAdapter } from "../wgsl";
 import {
   compileWasmFragment,
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
   createWasmRoutine,
+  type WasmAdapter,
 } from "../wasm";
 
 describe("refusals the types make", () => {
@@ -217,5 +228,59 @@ describe("the screen size", () => {
   it("is typed a uniform, whose name the host binds", () => {
     expectTypeOf(screenSize()).toEqualTypeOf<UniformNode<"vec2">>();
     expectTypeOf(screenSize().name).toEqualTypeOf<string>();
+  });
+});
+
+describe("the array setAttribute takes", () => {
+  const ids = attribute("ivec2");
+  const flags = attribute("uint");
+  const position = attribute("vec3");
+  let glsl!: GlslAdapter;
+  let wgsl!: WgslAdapter;
+  let js!: JsAdapter;
+  let wasm!: WasmAdapter;
+
+  /**
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("takes only the array of an attribute node's kind on a GPU adapter", () => {
+    for (const gpu of [glsl, wgsl]) {
+      gpu.setAttribute(ids, new Int32Array(2));
+      gpu.setAttribute(flags, new Uint32Array(1));
+      gpu.setAttribute(position, new Float32Array(3));
+      // @ts-expect-error an ivec2 attribute takes an Int32Array
+      gpu.setAttribute(ids, new Float32Array(2));
+      // @ts-expect-error an ivec2 attribute takes no narrower array either
+      gpu.setAttribute(ids, new Int16Array(2));
+      // @ts-expect-error a uint attribute takes a Uint32Array
+      gpu.setAttribute(flags, new Int32Array(1));
+      // @ts-expect-error a vec3 attribute takes a Float32Array
+      gpu.setAttribute(position, new Uint8Array(3));
+      // @ts-expect-error a GPU adapter reads no Float64Array
+      gpu.setAttribute(position, new Float64Array(3));
+    }
+  });
+
+  /**
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("takes a Float64Array for a float attribute node on a CPU adapter", () => {
+    for (const cpu of [js, wasm]) {
+      cpu.setAttribute(position, new Float32Array(3));
+      cpu.setAttribute(position, new Float64Array(3));
+      cpu.setAttribute(ids, new Int32Array(2));
+      // @ts-expect-error an ivec2 attribute takes an Int32Array
+      cpu.setAttribute(ids, new Float64Array(2));
+    }
+  });
+
+  /**
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it("takes any typed array by slot name or for a storage node", () => {
+    const values = instancedArray(2, "int");
+    glsl.setAttribute(ids.name, new Float32Array(2));
+    glsl.setAttribute(values, new Float32Array(2));
+    js.setAttribute(values.toReadOnly(), new Uint8Array(2));
   });
 });
