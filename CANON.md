@@ -167,7 +167,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
-  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
+  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+  - [`@spec a-scene-renderer-reads-an-integer-attribute-as-integers`](#spec-a-scene-renderer-reads-an-integer-attribute-as-integers) — `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
+  - [`@spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location`](#spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location) — `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
   - [`@spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
   - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads an `Int32Array` for an `int` attribute, or a `Uint32Array` for a `uint` attribute, without a copy. It copies an array of another type into a new array first.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
@@ -740,6 +742,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-normalizing-a-zero-vector-is-undefined-on-a-gpu) — GLSL ES 3.00 and WGSL leave the result of `normalize` on a vector of length zero undefined.
 - [`@fact a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-vec3-takes-16-bytes) — In a WGSL storage buffer, a `vec3` element, and each column of three of a matrix, takes 16 bytes.
 - [`@fact a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four) — WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
+- [`@fact a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input) — A WebGPU vertex format feeds a shader input of one kind. A `float`, `unorm` or `snorm` format feeds an `f32` input, a `sint` format an `i32` input, and a `uint` format a `u32` input. A render pipeline whose vertex format differs in kind from the input at its location is a validation error.
+- [`@fact webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer) — WebGL 2 gives an integer vertex input, an `int`, `uint`, `ivecN` or `uvecN`, the integers an array holds only when `vertexAttribIPointer` set that array. A draw whose integer input reads an array set with `vertexAttribPointer`, or whose float input reads one set with `vertexAttribIPointer`, fails with `INVALID_OPERATION`.
+- [`@fact a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column) — GLSL ES 3.00 gives a matrix vertex input one location for each column, consecutive from its first location. Each location reads a vector of the column's rows. WGSL takes no matrix as a vertex input, so a WGSL vertex stage reads a matrix as one vector input for each column.
+- [`@fact three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns) — three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
 - [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
 - [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
 - [`@fact a-wgsl-shift-takes-an-unsigned-amount`](#fact-a-wgsl-shift-takes-an-unsigned-amount) — A WGSL shift takes its amount as a `u32` or a vector of `u32`, and refuses an `i32` amount.
@@ -1757,11 +1763,27 @@ This follows because the suite evaluates every program it records on every targe
 
 ### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
 
-> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
+> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
 
-Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four)
+Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer)
 
-This follows because a format one renderer reads as another type would make the two draw differently.
+This follows because a format one renderer reads as another type would make the two draw differently. Both graphics APIs refuse a draw whose format and shader input differ in kind, so the renderer refuses it first and names the cause.
+
+### @spec a-scene-renderer-reads-an-integer-attribute-as-integers
+
+> `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns)
+
+This follows because both graphics APIs give an integer input its integers only through an integer format. three.js reads the same arrays as integers.
+
+### @spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location
+
+> `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns)
+
+This follows because GLSL and WGSL both give a matrix one vertex input for each column. No vertex format holds a whole matrix.
 
 ### @spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
 
@@ -5188,6 +5210,30 @@ This is a fact of the WGSL specification, not a choice.
 > WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
 
 This is a fact of the WebGPU specification, not a choice.
+
+## @fact a-webgpu-vertex-format-has-the-kind-of-its-shader-input
+
+> A WebGPU vertex format feeds a shader input of one kind. A `float`, `unorm` or `snorm` format feeds an `f32` input, a `sint` format an `i32` input, and a `uint` format a `u32` input. A render pipeline whose vertex format differs in kind from the input at its location is a validation error.
+
+This is a fact of the WebGPU specification, in the validation of a `GPUVertexBufferLayout`.
+
+## @fact webgl2-reads-an-integer-attribute-only-through-an-integer-pointer
+
+> WebGL 2 gives an integer vertex input, an `int`, `uint`, `ivecN` or `uvecN`, the integers an array holds only when `vertexAttribIPointer` set that array. A draw whose integer input reads an array set with `vertexAttribPointer`, or whose float input reads one set with `vertexAttribIPointer`, fails with `INVALID_OPERATION`.
+
+This is a fact of the WebGL 2.0 specification, which makes a draw check the type of each enabled array against the shader's input. Chromium's WebGL 2 refuses such a draw.
+
+## @fact a-matrix-vertex-input-takes-a-location-for-each-column
+
+> GLSL ES 3.00 gives a matrix vertex input one location for each column, consecutive from its first location. Each location reads a vector of the column's rows. WGSL takes no matrix as a vertex input, so a WGSL vertex stage reads a matrix as one vector input for each column.
+
+This is a fact of the GLSL ES 3.00 and WGSL specifications.
+
+## @fact three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns
+
+> three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
+
+This is how three.js behaves, read from its source: `setupVertexAttributes` in `src/renderers/webgl/WebGLBindingStates.js`, and `_getVertexFormat` in `src/renderers/webgpu/utils/WebGPUAttributeUtils.js`, in three.js 0.186.
 
 ## @fact wgsl-refuses-an-i32-literal-out-of-its-range
 

@@ -3,7 +3,6 @@ import {
   drawToCanvas,
   GlState,
   GlStateKeeper,
-  attributeKindOf,
   setAttributeValue,
   setPackState,
   setRasterState,
@@ -41,6 +40,7 @@ import {
   rendererUniformValue,
   programSignature,
   geometryAttribute,
+  attributeShape,
   VERTEX_FORMATS,
   vertexFormatOf,
   drawSlice,
@@ -796,14 +796,11 @@ export class WebGLRenderer {
       const attr = geometryAttribute(mesh, geometry, attribute.name);
       const location = entry.attributeLocations.get(attribute.node.name);
       if (location == null) continue;
-      // A mat4 attribute spans four consecutive vertex attribute locations;
-      // each is fed from one column of the 64-byte instance record. The GLSL
-      // linker handed the base location, so the columns land at location..+3.
-      const locationSize = attribute.node._t === "mat4" ? 4 : 1;
+      // A matrix spans a location for each column, consecutive from the one the GLSL linker handed.
+      const { columns, kind } = attributeShape(attribute.node._t);
       if (!attr) {
         // The shader reads an attribute with no data from the value its location holds.
-        const kind = attributeKindOf(attribute.node._t);
-        if (location >= 0) for (let i = 0; i < locationSize; i++) setAttributeValue(gl, location + i, kind, this.state);
+        if (location >= 0) for (let i = 0; i < columns; i++) setAttributeValue(gl, location + i, kind, this.state);
         continue;
       }
 
@@ -815,21 +812,18 @@ export class WebGLRenderer {
       // not its data changed this frame.
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 
-      const components = attr.itemSize / locationSize;
-      const format = VERTEX_FORMATS[vertexFormatOf(attr, components)];
+      const format = VERTEX_FORMATS[vertexFormatOf(attr, attribute.node._t)];
       // One buffer per attribute, so the stride is the whole record.
       const stride = attr.itemSize * format.bytes;
-      for (let i = 0; i < locationSize; i++) {
+      for (let i = 0; i < columns; i++) {
         usedLocations.add(location + i);
         gl.enableVertexAttribArray(location + i);
-        gl.vertexAttribPointer(
-          location + i,
-          components,
-          gl[format.gl],
-          format.normalized,
-          stride,
-          components * i * format.bytes,
-        );
+        const offset = format.count * i * format.bytes;
+        if (format.kind === "float") {
+          gl.vertexAttribPointer(location + i, format.count, gl[format.gl], format.normalized, stride, offset);
+        } else {
+          gl.vertexAttribIPointer(location + i, format.count, gl[format.gl], stride, offset);
+        }
         gl.vertexAttribDivisor(location + i, attribute.stepMode === "instance" ? 1 : 0);
       }
     }

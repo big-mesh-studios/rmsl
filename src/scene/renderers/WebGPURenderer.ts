@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
 import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
+import { componentCountOf } from "../../backends/cpu";
 import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
@@ -34,7 +35,9 @@ import {
   programSignature,
   geometryAttribute,
   samplerState,
+  attributeShape,
   vertexFormatOf,
+  wordFormat,
   type VertexFormat,
   VERTEX_FORMATS,
   textureChannels,
@@ -807,7 +810,7 @@ export class WebGPURenderer {
     const vertexFormats: VertexBufferLayout[] = [];
     let shaderLocation = 0;
     for (const attribute of entry.program.attributes) {
-      const columns = attribute.node._t === "mat4" ? 4 : 1;
+      const { columns } = attributeShape(attribute.node._t);
       const format = this.formatOf(attribute, mesh);
       const { count, bytes } = VERTEX_FORMATS[format];
       const locations: VertexBufferLayout["attributes"] = [];
@@ -855,18 +858,18 @@ export class WebGPURenderer {
 
   /** The vertex format `mesh` holds the attribute of the program in, or the one its shader type implies. */
   private formatOf(attribute: MaterialProgram["attributes"][number], mesh: Mesh): VertexFormat {
-    const columns = attribute.node._t === "mat4" ? 4 : 1;
+    const type = attribute.node._t;
     const attr = geometryAttribute(mesh, mesh.geometry, attribute.name);
-    return attr
-      ? vertexFormatOf(attr, attr.itemSize / columns)
-      : vertexFormatFromType(columns === 4 ? "vec4" : attribute.node._t);
+    if (attr) return vertexFormatOf(attr, type);
+    const { columns, kind } = attributeShape(type);
+    return wordFormat(kind, componentCountOf(type) / columns);
   }
 
   private setVertexBuffers(pass: GPURenderPassEncoder, variant: PipelineVariant, mesh: Mesh): void {
     const buffers = this.ensureGeometryBuffers(mesh.geometry);
     // Each `vertexFormats` entry is one vertex buffer slot, so the buffer is
     // bound at its slot index (the loop position) rather than any shader
-    // location — a mat4 entry spans several locations from a single buffer.
+    // location — a matrix entry spans several locations from a single buffer.
     for (let slot = 0; slot < variant.vertexFormats.length; slot++) {
       const layout = variant.vertexFormats[slot];
       const buffer = this.vertexBuffer(mesh, layout.name, buffers);
@@ -1229,21 +1232,6 @@ function gpuAddressMode(wrap: TextureWrap): GPUAddressMode {
 /** One sampler state as a string, so two of them can share a sampler. */
 function samplerKey(state: SamplerState): string {
   return `${state.magFilter}|${state.minFilter}|${state.wrapS}|${state.wrapT}|${state.wrapR}`;
-}
-
-function vertexFormatFromType(type: string): VertexFormat {
-  switch (type) {
-    case "float":
-      return "float32";
-    case "vec2":
-      return "float32x2";
-    case "vec3":
-      return "float32x3";
-    case "vec4":
-      return "float32x4";
-    default:
-      return "float32x3";
-  }
 }
 
 /** `image` when it is an image element, video, bitmap or canvas, which has a size of its own, or null for data or nothing. */
