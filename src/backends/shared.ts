@@ -32,12 +32,6 @@ export interface CompiledNode {
   jsEpoch?: number;
   /** JS target: the block a copy of a host input was made in, which a write leaves valid. */
   jsBlock?: number;
-  /**
-   * The block the statements of this node ran in. A read in that block or one
-   * inside it takes the expression alone, and a read in any other block runs
-   * them again.
-   */
-  ranIn?: number;
 }
 
 /**
@@ -138,14 +132,10 @@ export interface CompileCtx {
    * an assignment or a loop is the work happening twice.
    *
    * So a node is compiled the first time it is reached and its statements are
-   * emitted there. Later arrivals in that block, or a block inside it, get its
-   * expression alone, since the statements producing that expression already
-   * ran. A block outside it, such as the other branch of an `If`, runs them
-   * again.
+   * emitted there. Later arrivals get its expression alone, since the
+   * statements producing that expression are already in the output.
    */
   memo: Map<BaseNode<ShaderType>, CompiledNode>;
-  /** GLSL and WGSL: the blocks being compiled, outermost first, the function's own as 0 when none is given. */
-  blocks?: number[];
   /**
    * Names of WGSL helper functions the shader needs, emitted ahead of the entry
    * point. GLSL provides some builtins that WGSL does not, so they are written
@@ -567,38 +557,6 @@ export function mkNode(config: {
     params: config.params,
     value: config.value,
   }) as BaseNode<ShaderType>;
-}
-
-/** The ids {@link compileBlock} gives the blocks it opens, unique across compiles. */
-let nextBlock = 1;
-
-/** GLSL and WGSL: `compile`, run for a block of statements that runs under a condition or in a loop. */
-export function compileBlock(ctx: CompileCtx, compile: () => CompiledNode): CompiledNode {
-  let blocks = (ctx.blocks ??= [0]);
-  blocks.push(nextBlock++);
-  try {
-    return compile();
-  } finally {
-    blocks.pop();
-  }
-}
-
-/**
- * GLSL and WGSL: what `node` compiled before gives here, its expression alone,
- * or `undefined` when it must be compiled again: never compiled, or compiled
- * with statements in a block that does not hold this one.
- */
-export function memoized(node: unknown, ctx: CompileCtx): CompiledNode | undefined {
-  let seen = ctx.memo.get(node as BaseNode<ShaderType>);
-  if (!seen) return undefined;
-  if (seen.ranIn !== undefined && !(ctx.blocks ?? [0]).includes(seen.ranIn)) return undefined;
-  return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
-}
-
-/** GLSL and WGSL: records `result` as what `node` compiles to, with the block its statements ran in. */
-export function memoize(node: unknown, result: CompiledNode, ctx: CompileCtx): void {
-  let ranIn = result.body.length > 0 ? (ctx.blocks ?? [0]).at(-1) : undefined;
-  ctx.memo.set(node as BaseNode<ShaderType>, ranIn === undefined ? result : { ...result, ranIn });
 }
 
 /** Drop a trailing semicolon, for the slots that take an expression. */

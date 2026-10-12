@@ -1384,14 +1384,14 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * The inline `Fn` is called outside the program's body, so the program
-   * holds its statements only where it reads the value. Its variable is
-   * declared in each branch, which GLSL and WGSL refuse to read in the other.
+   * The inline `Fn` is called outside the program's body, and declares a
+   * variable that GLSL and WGSL refuse to read outside the block that declares
+   * it. `a` above zero takes the first branch, and above one the nested one.
    *
-   * @canon spec-an-inline-fn-read-in-two-branches-runs-in-each
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
    */
-  it("runs an inline Fn read in both branches of an If in the branch taken, on every target", () => {
-    const build = (a: Node<"float">) => {
+  it("runs an inline Fn read on several paths where every read sees its variable, on every target", () => {
+    const program = (body: (shared: any, a: Node<"float">, out: any) => void) => (a: Node<"float">) => {
       const shared = Fn(() => {
         const counted = a.add(1).toVar();
         counted.addAssign(1);
@@ -1399,15 +1399,39 @@ describe("each leaf on every target it claims", () => {
       })() as any;
       return Fn(() => {
         const out = float(0).toVar();
-        If(a.greaterThan(0), () => {
-          out.assign(shared.fract().add(shared));
-        }).Else(() => {
-          out.assign(shared.mul(10));
-        });
+        body(shared, a, out);
         return out;
       })();
     };
-    expect(evaluateRecording(build, [1])).toBe(3);
-    expect(evaluateRecording(build, [-5])).toBe(-30);
+    const branches = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        out.assign(shared.fract().add(shared));
+      }).Else(() => {
+        out.assign(shared.mul(10));
+      });
+    });
+    expect(evaluateRecording(branches, [1])).toBe(3);
+    expect(evaluateRecording(branches, [-5])).toBe(-30);
+    const branchAndAfter = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        out.assign(shared.mul(10));
+      });
+      out.addAssign(shared);
+    });
+    expect(evaluateRecording(branchAndAfter, [1])).toBe(33);
+    expect(evaluateRecording(branchAndAfter, [-5])).toBe(-3);
+    const nested = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        If(a.greaterThan(1), () => {
+          out.assign(shared);
+        }).Else(() => {
+          out.assign(shared.mul(10));
+        });
+        out.addAssign(shared.mul(100));
+      });
+    });
+    expect(evaluateRecording(nested, [2])).toBe(404);
+    expect(evaluateRecording(nested, [0.5])).toBe(2.5 * 110);
+    expect(evaluateRecording(nested, [-5])).toBe(0);
   });
 });

@@ -34,6 +34,7 @@ import {
 import { compileJS, compileJSFragment, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { instantiateRasterizer } from "../backends/wasm/rasterizer";
+import { CONDITION_PAIRS, inlineFnPaths } from "../testing/inline-fn-paths";
 import {
   createWasmCompute,
   compileWasm,
@@ -545,9 +546,9 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   });
 
   /**
-   * @canon spec-an-inline-fn-read-in-two-branches-runs-in-each
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
    */
-  it("runs it in the branch that reads its value, and once there on WASM", () => {
+  it("runs it once before an If whose branches both read its value, on WASM", () => {
     const taken = uniform("float");
     const result = instancedArray(1, "float");
     const shared = counted(2);
@@ -580,6 +581,32 @@ describe("an inline Fn whose value an operation reads more than once", () => {
    */
   it.each(cpuTargets)("%s: runs it once when mix takes it as the weight of every component", (_, compile) => {
     expect(run(compile, () => vec3(0, 0, 0).mix(vec3(4, 4, 4), counted(0.5)).z)).toEqual({ runs: 1, result: 2 });
+  });
+});
+
+describe("an inline Fn read on several paths of a program", () => {
+  const { counter, result, first, second, paths } = inlineFnPaths();
+  const cases = cpuTargets.flatMap(([target, compile]) =>
+    paths.map((path) => [target, path.name, compile, path] as const),
+  );
+
+  /**
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   */
+  it.each(cases)("%s: runs an inline Fn read %s once on every path that reads it", (_, __, compile, path) => {
+    const routine = compile(path.build, none);
+    for (const [f, s] of CONDITION_PAIRS) {
+      const runs = new Float64Array(1);
+      const value = new Float64Array(1);
+      routine({
+        storages: { [counter.name]: runs, [result.name]: value },
+        uniforms: { [first.name]: f ? 1 : 0, [second.name]: s ? 1 : 0 },
+      });
+      expect({ runs: runs[0], value: value[0] }, `first ${f}, second ${s}`).toEqual({
+        runs: path.runs(f, s),
+        value: path.value(f, s),
+      });
+    }
   });
 });
 

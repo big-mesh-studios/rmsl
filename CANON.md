@@ -48,11 +48,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
-  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
+  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
     - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
     - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
-    - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
+    - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
     - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
     - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
@@ -362,8 +362,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
-    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
-    - [`@spec an-inline-fn-read-in-two-branches-runs-in-each`](#spec-an-inline-fn-read-in-two-branches-runs-in-each) — An `Fn` called outside the program's body has its statements run where its value is first read. When two blocks read the value, and neither holds the other, each runs the statements before it reads the value, on every target. Both branches of an `If` are such blocks. A path through one of the blocks runs them once.
+    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once on every path that reads its value. How often and where the program reads it changes nothing.
+    - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body runs where the program reads its value. Read more than once, it runs once before every read, on every target. It runs in the nearest block that holds every read, before the first statement there that holds one. A path that skips that block runs none of it. A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()` stays where each read is.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
@@ -765,7 +765,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path) — TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
-- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there.
+- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
@@ -1055,7 +1055,7 @@ This follows because emitting a node twice runs what it does twice, which change
 
 ### @spec a-node-read-more-than-once-is-computed-once
 
-> A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
+> A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
 
 Derives from: [`spec-every-node-is-emitted-once`](#spec-every-node-is-emitted-once), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable)
 
@@ -1081,13 +1081,13 @@ Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-
 
 This follows because a storage buffer is not one of the inputs that is already a name. A GLSL render stage fetches an element from a texture, one `texelFetch` for each column, and a GPU target loads it from a buffer.
 
-#### @spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in
+#### @exception a-shared-value-is-made-before-every-read
 
-> A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
+> Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
 
-Derives from: [`fact-three-js-reuses-a-generated-value-only-where-it-is-visible`](#fact-three-js-reuses-a-generated-value-only-where-it-is-visible)
+Derives from: [`fact-three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable), [`fact-three-js-reuses-a-generated-value-only-where-it-is-visible`](#fact-three-js-reuses-a-generated-value-only-where-it-is-visible), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
-This follows because the result stored in one branch of an `If` does not exist on the path through the other branch.
+This follows because one rule then places a shared value and the statements of an inline `Fn`. Those must run once on every path that reads them. In three.js, the variable goes at the first read, and a block that cannot see it computes the node again.
 
 #### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
 
@@ -2880,15 +2880,15 @@ This follows because TSL builds a shader the same way.
 
 #### @spec an-inline-fn-runs-once
 
-> The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
+> The statements of a called `Fn` run once on every path that reads its value. How often and where the program reads it changes nothing.
 
-#### @spec an-inline-fn-read-in-two-branches-runs-in-each
+#### @exception an-inline-fn-read-more-than-once-runs-before-every-read
 
-> An `Fn` called outside the program's body has its statements run where its value is first read. When two blocks read the value, and neither holds the other, each runs the statements before it reads the value, on every target. Both branches of an `If` are such blocks. A path through one of the blocks runs them once.
+> An `Fn` called outside the program's body runs where the program reads its value. Read more than once, it runs once before every read, on every target. It runs in the nearest block that holds every read, before the first statement there that holds one. A path that skips that block runs none of it. A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()` stays where each read is.
 
-Derives from: [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once), [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them)
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
-This follows because a path that reads the value but skipped the block that ran the statements would read a value nothing computed. Running them in each branch keeps them on the path that reads them, as TSL does.
+This follows because a called `Fn` means one run of its statements. Where TSL generates them depends on which blocks read the value, so a path can run them twice, once or never. A jump moved ahead of its reads would skip what runs between them, or leave a different loop.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -5350,7 +5350,7 @@ This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCa
 
 ## @fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them
 
-> TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there.
+> TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
 
 This is how three.js's TSL behaves, read from its source: `NodeBuilder.addLineFlowCodeBlock` and `addFlowCodeHierarchy` in `src/nodes/core/NodeBuilder.js`, called from `Node.build`, with the branches made in `ConditionalNode.setup` (three.js 0.186).
 

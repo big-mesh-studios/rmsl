@@ -36,6 +36,7 @@ import {
 import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { stubGl } from "./scene-stubs";
+import { CONDITION_PAIRS, inlineFnPaths } from "../testing/inline-fn-paths";
 import { createGlsl } from "../glsl";
 
 const WEBGPU = await webgpuAvailable();
@@ -999,6 +1000,30 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     await adapter.compute(out);
     expect(Array.from(out[values.name]!)).toEqual([11, 12]);
     adapter.destroy();
+  });
+
+  /**
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   */
+  it("runs an inline Fn read on several paths once on every path that reads it, on WGSL", async () => {
+    const { counter, result, first, second, paths } = inlineFnPaths();
+    for (const path of paths) {
+      const adapter = createWgslCompute(path.build());
+      await adapter.attach();
+      for (const [f, s] of CONDITION_PAIRS) {
+        adapter.setUniform(first, f ? 1 : 0);
+        adapter.setUniform(second, s ? 1 : 0);
+        adapter.setAttribute(counter.name, new Float32Array(1));
+        adapter.setAttribute(result.name, new Float32Array(1));
+        const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+        await adapter.compute(out, 1);
+        expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, `${path.name}, ${f}, ${s}`).toEqual({
+          runs: path.runs(f, s),
+          value: path.value(f, s),
+        });
+      }
+      adapter.destroy();
+    }
   });
 
   /**

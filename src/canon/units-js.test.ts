@@ -2118,9 +2118,9 @@ describe("an early Return in a function on the CPU targets", () => {
 
 describe("an inline Fn read in both branches of an If on JS", () => {
   /**
-   * @canon spec-an-inline-fn-read-in-two-branches-runs-in-each
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
    */
-  it("runs an inline Fn read in both branches of an If on the branch taken, on JS", () => {
+  it("runs an inline Fn read in both branches of an If once, before the If, on JS", () => {
     const counter = instancedArray(1, "float");
     const shared = Fn(() => {
       counter.element(int(0)).addAssign(1);

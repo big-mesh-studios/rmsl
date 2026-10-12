@@ -20,9 +20,6 @@ import {
   tryFold,
   isIntegerType,
   withoutSemicolon,
-  compileBlock,
-  memoize,
-  memoized,
   wrapExpr,
 } from "../shared";
 import { componentCountOf, componentKindOf } from "../cpu";
@@ -97,14 +94,14 @@ export function compileGLSLStage(
     return { decls: [], body: [], expr: `vec3(${node.join(", ")})` };
   }
 
-  // Reached before where its statements ran: only the expression naming the
-  // result is handed back. Emitting them again would redeclare a variable, or
-  // run an assignment or a loop a second time.
-  const seen = memoized(node, ctx);
-  if (seen) return seen;
+  // Reached before: its statements are already in the output, so only the
+  // expression naming the result is handed back. Emitting them again would
+  // redeclare a variable, or run an assignment or a loop a second time.
+  const seen = ctx.memo.get(node);
+  if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
 
   const result = compileGLSLNode(node, ctx);
-  memoize(node, result, ctx);
+  ctx.memo.set(node, result);
   return result;
 }
 
@@ -740,10 +737,10 @@ export function compileGLSLNode(
 
     case "if": {
       let cond = compileGLSLStage(node.params![0], ctx);
-      let body = compileBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
+      let body = compileGLSLStage(node.params![1], ctx);
       let elseBody =
         node.params!.length >= 3 && node.params![2] !== undefined
-          ? compileBlock(ctx, () => compileGLSLStage(node.params![2], ctx))
+          ? compileGLSLStage(node.params![2], ctx)
           : { decls: [] as string[], body: [] as string[], expr: "" };
       let lines: string[] = [...cond.body, `if (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
@@ -761,8 +758,8 @@ export function compileGLSLNode(
     case "for": {
       let init = compileGLSLStage(node.params![0], ctx);
       let cond = compileGLSLStage(node.params![1], ctx);
-      let update = compileBlock(ctx, () => compileGLSLStage(node.params![2], ctx));
-      let body = compileBlock(ctx, () => compileGLSLStage(node.params![3], ctx));
+      let update = compileGLSLStage(node.params![2], ctx);
+      let body = compileGLSLStage(node.params![3], ctx);
       // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
       let initExpr = "";
       let initBody = init.body;
@@ -789,7 +786,7 @@ export function compileGLSLNode(
 
     case "while": {
       let cond = compileGLSLStage(node.params![0], ctx);
-      let body = compileBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
+      let body = compileGLSLStage(node.params![1], ctx);
       let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],

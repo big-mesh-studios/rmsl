@@ -403,9 +403,9 @@ describe("what a program does with a node it reads more than once", () => {
   });
 
   /**
-   * @canon spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in
+   * @canon exception-a-shared-value-is-made-before-every-read
    */
-  it("computes a value read in both branches of an If in each, on every target", () => {
+  it("computes a value read in both branches of an If once, before the If, on every target", () => {
     const build = (a: Node<"float">) =>
       Fn(() => {
         const shared = a.sin().add(a.cos());
@@ -419,6 +419,32 @@ describe("what a program does with a node it reads more than once", () => {
       })();
     expect(evaluateRecording(build, [1])).toBeCloseTo(Math.sin(1) + Math.cos(1), 10);
     expect(evaluateRecording(build, [-1])).toBeCloseTo((Math.sin(-1) + Math.cos(-1)) * 10, 10);
+  });
+
+  /**
+   * The uniform is not changed by any statement, so the value made before the
+   * `If` holds in the branch and after it.
+   *
+   * @canon exception-a-shared-value-is-made-before-every-read
+   */
+  it("computes a value read in a branch and after the If once, before the If, on GLSL, WGSL and JS", () => {
+    const build = () => {
+      const u = uniform("float");
+      return Fn(() => {
+        const shared = u.sin().add(u.cos());
+        const out = vec4(0).toVar();
+        If(u.greaterThan(0), () => {
+          out.x.assign(shared);
+        });
+        out.y.assign(shared);
+        return out;
+      })() as Node<"vec4">;
+    };
+    const { glsl, wgsl, js } = sources(build);
+    for (const source of [glsl.slice(glsl.indexOf("void main")), wgsl, js.slice(js.indexOf("function main"))]) {
+      expect(source.match(/sin\(/g)).toHaveLength(1);
+      expect(source.indexOf("sin(")).toBeLessThan(source.indexOf("if ("));
+    }
   });
 
   /**

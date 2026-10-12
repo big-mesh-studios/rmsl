@@ -1306,13 +1306,10 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   let target = ctx.jsTarget === node;
   let seen = target ? undefined : ctx.memo.get(node);
   if (seen) {
-    if (node._t === "void" || node.type === "seq") {
-      // A statement runs once on a path: here when it ran in this block or one around it, and again in any other.
-      if (ctx.jsBlocks!.includes(seen.ranIn!)) {
-        if (node._t === "void") return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
-        return compileJSStage(node.params[node.params.length - 1], ctx);
-      }
-    } else if (seen.jsBlock !== undefined) {
+    // A statement runs once. A seq's statements have run, and its value is read as any value is.
+    if (node._t === "void") return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+    if (node.type === "seq") return compileJSStage(node.params[node.params.length - 1], ctx);
+    if (seen.jsBlock !== undefined) {
       if (ctx.jsBlocks!.includes(seen.jsBlock)) {
         ctx.jsReadsSlot = true;
         return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
@@ -1352,9 +1349,7 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   // until a write or the end of the block it was computed in.
   let readsSlot = ctx.jsReadsSlot || result.body.length > 0;
   ctx.jsReadsSlot = outer || readsSlot;
-  let entry: CompiledNode = readsSlot ? { ...result, jsEpoch: ctx.jsEpoch } : result;
-  if (node._t === "void" || node.type === "seq") entry = { ...entry, ranIn: ctx.jsBlocks!.at(-1) };
-  ctx.memo.set(node, entry);
+  ctx.memo.set(node, readsSlot ? { ...result, jsEpoch: ctx.jsEpoch } : result);
   if (node.type === "let" || node.type === "assign") ctx.jsEpoch++;
   return result;
 }
