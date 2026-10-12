@@ -187,6 +187,29 @@ describe("node materials", () => {
     expect(roughness.value!(null as never)).toBe(0.7);
   });
   /**
+   * @canon spec-a-uniform-name-registered-again-gives-its-first-node
+   */
+  it("gives a uniform name registered again with its type the first node and value", () => {
+    const b = new Builder();
+    const first = b.materialUniform("tint", "vec3", () => [1, 0, 0]);
+    const again = b.uniform("tint", "vec3", "camera", () => [0, 1, 0]);
+    expect(again).toBe(first);
+    const binding = b.uniforms.get("tint")!;
+    expect(binding.scope).toBe("material");
+    expect(binding.value!(null as never)).toEqual([1, 0, 0]);
+    expect(b.cameraPosition).toBe(b.cameraPosition);
+  });
+  /**
+   * @canon spec-a-uniform-name-registered-again-with-another-type-is-refused
+   */
+  it("refuses a uniform name registered again with another type", () => {
+    const b = new Builder();
+    b.materialUniform("tint", "vec3", () => [1, 0, 0]);
+    expect(() => b.materialUniform("tint", "vec4", () => [1, 0, 0, 1])).toThrow(
+      '[RMSL/scene] uniform "tint" is a vec3, and is registered again as a vec4',
+    );
+  });
+  /**
    * @canon spec-a-material-program-holds-only-what-its-graph-reads
    */
   it("MaterialProgram carries the referenced attributes and varyings", () => {
