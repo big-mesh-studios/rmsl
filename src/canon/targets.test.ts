@@ -69,6 +69,7 @@ import {
   closeEvaluators,
   evaluateRecording,
 } from "../testing/shader-eval";
+import { CONDITION_LOOPS, CONDITION_READS } from "../testing/inline-fn-paths";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -1437,6 +1438,39 @@ describe("each leaf on every target it claims", () => {
     expect(evaluateRecording(nested, [2])).toBe(404);
     expect(evaluateRecording(nested, [0.5])).toBe(2.5 * 110);
     expect(evaluateRecording(nested, [-5])).toBe(0);
+  });
+
+  /**
+   * One inline `Fn` makes the variable `runs`, which the program reads before
+   * the loop, so it is made there once. Another adds one to it at each run and
+   * returns `a`, and only the condition reads that one. The result is the runs
+   * times 100 plus the final `n`.
+   *
+   * @canon spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test
+   * @canon spec-an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test
+   * @canon exception-an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test
+   */
+  it("runs an inline Fn read only in a While or Loop condition at every test, on every target", () => {
+    for (const [loop, write] of CONDITION_LOOPS) {
+      for (const [reads, test] of CONDITION_READS) {
+        const build = (a: Node<"float">) => {
+          const runs = Fn(() => float(0).toVar())() as any;
+          const f = Fn(() => {
+            runs.addAssign(1);
+            return a;
+          })() as any;
+          return Fn(() => {
+            const n = runs.toVar();
+            write(
+              () => test(n, f),
+              () => n.addAssign(1),
+            );
+            return runs.mul(100).add(n);
+          })();
+        };
+        expect(evaluateRecording(build, [3]), `${loop}, ${reads}`).toBe(403);
+      }
+    }
   });
 });
 

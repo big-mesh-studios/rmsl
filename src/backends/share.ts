@@ -84,10 +84,9 @@ function bodyKeys() {
 
 /**
  * A read of an inline `Fn` result: the result whose statements hold it, or
- * `undefined` for a block of the program, the frames from that block in, and
- * 1 when it sits in a `While` condition, which its frames do not show.
+ * `undefined` for a block of the program, and the frames from that block in.
  */
-type Read = { within: any; path: Frame[]; header: number };
+type Read = { within: any; path: Frame[] };
 
 /**
  * Makes the statements of each inline `Fn` result that the program reads more
@@ -141,19 +140,19 @@ function placeInlineFns(blocks: any[]): any[] {
 
     const reads = new Map<any, Read[]>();
     const walked = new Set<any>();
-    /** The blocks that run on every iteration of a loop, a result its `While` condition reads among them. */
+    /** The blocks that run on every iteration of a loop, a loop condition among them. */
     const loopBodies = new Set<any>();
     const key = bodyKeys();
 
     /**
-     * Records each result `n` holds as read at `path` inside `within`, and in a
-     * `While` condition when `header` is 1. A result is a block: the results
-     * its statements read are read inside it, at frames from its own block.
+     * Records each result `n` holds as read at `path` inside `within`. A result
+     * is a block: the results its statements read are read inside it, at frames
+     * from its own block.
      */
-    const scan = (n: any, within: any, path: Frame[], header = 0): void => {
+    const scan = (n: any, within: any, path: Frame[]): void => {
       if (!holds(n)) return;
       if (!isInlineFn(n)) {
-        for (const p of n.params) scan(p, within, path, header);
+        for (const p of n.params) scan(p, within, path);
         return;
       }
       let known = reads.get(n);
@@ -161,8 +160,7 @@ function placeInlineFns(blocks: any[]): any[] {
         reads.set(n, (known = []));
         walkBlock(n, n, [], n);
       }
-      known.push({ within, path, header });
-      if (header) loopBodies.add(n);
+      known.push({ within, path });
     };
     const walkBlock = (block: any, frameBlock: any, path: Frame[], within: any) =>
       itemsOf(block).forEach((item, index) => {
@@ -177,6 +175,16 @@ function placeInlineFns(blocks: any[]): any[] {
       const frameBlock = body.type === "seq" ? body : key(statement, slot);
       if (repeats) loopBodies.add(frameBlock);
       walkBlock(body, frameBlock, path, within);
+    };
+    /**
+     * Walks slot `slot` of `statement`, a loop condition, as a block of one item
+     * that runs before every test, read where it is. So a condition that is a
+     * result counts as a read of it.
+     */
+    const walkCondition = (statement: any, slot: number, here: Frame[], within: any) => {
+      const condition = key(statement, slot);
+      loopBodies.add(condition);
+      scan(statement.params[slot], within, [...here, { block: condition, index: 0 }]);
     };
     /** Walks statement `s` at `here`; one that several roots hold, outside every result, once. */
     const walkStatement = (s: any, here: Frame[], within: any) => {
@@ -194,15 +202,12 @@ function placeInlineFns(blocks: any[]): any[] {
         case "for": {
           // The init runs once, and the condition, the update and the body on every iteration.
           walkBody(s, 0, here, within);
-          // The condition is one item, read where it is, so a condition that is a result counts as a read of it.
-          const condition = key(s, 1);
-          loopBodies.add(condition);
-          scan(s.params[1], within, [...here, { block: condition, index: 0 }]);
+          walkCondition(s, 1, here, within);
           walkBody(s, 2, here, within, true);
           return walkBody(s, 3, here, within, true);
         }
         case "while":
-          scan(s.params[0], within, here, 1);
+          walkCondition(s, 0, here, within);
           return walkBody(s, 1, here, within, true);
         default:
           for (const p of s.params ?? []) scan(p, within, here);
@@ -230,9 +235,9 @@ function placeInlineFns(blocks: any[]): any[] {
     };
     /** A read with its frames from its anchor in. */
     const lift = (read: Read) => {
-      if (read.within === undefined) return { anchor: undefined, path: read.path, header: read.header };
+      if (read.within === undefined) return { anchor: undefined, path: read.path };
       const { anchor, prefix } = anchorOf(read.within);
-      return { anchor, path: [...prefix, ...read.path], header: read.header };
+      return { anchor, path: [...prefix, ...read.path] };
     };
     const aroundMemo = new Map<any, Set<any>>();
     /** The results whose statements hold a read of `fn`, at any depth. */
@@ -248,7 +253,7 @@ function placeInlineFns(blocks: any[]): any[] {
       return known;
     };
 
-    const lifted = new Map<any, { anchor: any; path: Frame[]; header: number }[]>();
+    const lifted = new Map<any, { anchor: any; path: Frame[] }[]>();
     for (const [fn, list] of reads) lifted.set(fn, list.map(lift));
     const placed = new Map<any, Frame>();
     for (const [fn, list] of lifted) {
@@ -267,7 +272,7 @@ function placeInlineFns(blocks: any[]): any[] {
       const place = placed.get(fn);
       if (!place && list.length > 1) continue;
       const paths = list.map((read) => read.path);
-      const loops = list.map((read) => loopsOn(read.path) + read.header);
+      const loops = list.map((read) => loopsOn(read.path));
       const loopsAround = place
         ? loopsOn(paths[0]!.slice(0, paths[0]!.findIndex((f) => f.block === place.block) + 1))
         : loops[0]!;
@@ -312,10 +317,10 @@ function placeInlineFns(blocks: any[]): any[] {
       if (!b || b.type === "seq" || !before.has(key(statement, slot))) return rewrite(b);
       return node({ _t: b._t, type: "seq", params: items(b, key(statement, slot)) });
     };
-    /** The condition of `statement`, a `For`, rewritten, the statements of the results placed before it ahead. */
-    const condition = (statement: any) => {
-      const tested = rewrite(statement.params[1]);
-      const ahead = placedAt(key(statement, 1), 0);
+    /** Condition `slot` of `statement`, a loop, rewritten, the statements of the results placed before it ahead. */
+    const condition = (statement: any, slot: number) => {
+      const tested = rewrite(statement.params[slot]);
+      const ahead = placedAt(key(statement, slot), 0);
       if (ahead.length === 0) return tested;
       const own = tested.type === "seq" ? tested.params : [tested];
       return node({ _t: tested._t, type: "seq", params: [...ahead, ...own] });
@@ -335,7 +340,11 @@ function placeInlineFns(blocks: any[]): any[] {
           n.type === "seq" && before.has(n)
             ? items(n, n)
             : n.params.map((p: any, i: number) =>
-                n.type === "for" && i === 1 ? condition(n) : slots.includes(i) ? body(n, i) : rewrite(p),
+                (n.type === "for" && i === 1) || (n.type === "while" && i === 0)
+                  ? condition(n, i)
+                  : slots.includes(i)
+                    ? body(n, i)
+                    : rewrite(p),
               );
         result =
           params.length === n.params.length && params.every((p: any, i: number) => p === n.params[i])

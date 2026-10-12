@@ -45,7 +45,7 @@ import { evaluateWGSL } from "../testing/shader-eval";
 import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { stubDevice, stubGl } from "./scene-stubs";
-import { CONDITION_PAIRS, inlineFnPaths } from "../testing/inline-fn-paths";
+import { CONDITION_PAIRS, inlineFnConditions, inlineFnPaths } from "../testing/inline-fn-paths";
 import { createGlsl } from "../glsl";
 
 const WEBGPU = await webgpuAvailable();
@@ -1377,6 +1377,32 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
       adapter.destroy();
     }
   });
+
+  /**
+   * The condition is tested four times, and the `Fn` counts its runs. On
+   * Dawn on Metal every case counts one run, though the WGSL writes the
+   * increment inside the loop before the test. This test fails while the
+   * defect lasts, so it starts passing, and fails the run, once it is fixed.
+   *
+   * @canon bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute
+   */
+  it.skipIf(process.platform !== "darwin").fails(
+    "runs an inline Fn read only in a While or Loop condition at every test, on WGSL",
+    async () => {
+      const { counter, result, conditions } = inlineFnConditions();
+      for (const condition of conditions) {
+        const adapter = createWgslCompute(condition.build());
+        await adapter.attach();
+        const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+        await adapter.compute(out, 1);
+        adapter.destroy();
+        expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, condition.name).toEqual({
+          runs: 4,
+          value: 3,
+        });
+      }
+    },
+  );
 
   /**
    * The `Fn` is called outside the program's body, and the loop body reads

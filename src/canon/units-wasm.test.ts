@@ -37,7 +37,7 @@ import {
 import { compileJS, compileJSFragment, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { instantiateRasterizer } from "../backends/wasm/rasterizer";
-import { CONDITION_PAIRS, inlineFnPaths } from "../testing/inline-fn-paths";
+import { CONDITION_PAIRS, inlineFnConditions, inlineFnPaths } from "../testing/inline-fn-paths";
 import {
   createWasmCompute,
   compileWasm,
@@ -776,6 +776,27 @@ describe("an inline Fn read more than once inside another inline Fn read once", 
       })();
     };
     expect(run(compile, build)).toEqual({ runs: 5, value: 4 });
+  });
+});
+
+describe("an inline Fn read only in a While or Loop condition", () => {
+  const { counter, result, conditions } = inlineFnConditions();
+  const cases = cpuTargets.flatMap(([target, compile]) =>
+    conditions.map((condition) => [target, condition.name, compile, condition] as const),
+  );
+
+  /**
+   * The condition is tested four times, and the `Fn` counts its runs.
+   *
+   * @canon spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test
+   * @canon spec-an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test
+   * @canon exception-an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test
+   */
+  it.each(cases)("%s: runs an inline Fn read in %s at every test", (_, __, compile, condition) => {
+    const runs = new Float64Array(1);
+    const value = new Float64Array(1);
+    compile(condition.build, none)({ storages: { [counter.name]: runs, [result.name]: value } });
+    expect({ runs: runs[0], value: value[0] }).toEqual({ runs: 4, value: 3 });
   });
 });
 

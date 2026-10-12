@@ -1,4 +1,4 @@
-import { Fn, float, If, instancedArray, int, uniform, vec3 } from "../rmsl";
+import { Fn, float, If, instancedArray, int, Loop, uniform, vec3, While } from "../rmsl";
 
 /** A program that reads an inline `Fn` on some paths, with the runs and the value it gives for each pair of conditions. */
 export interface InlineFnPath {
@@ -116,3 +116,48 @@ export const CONDITION_PAIRS: [boolean, boolean][] = [
   [false, true],
   [false, false],
 ];
+
+/** The loops whose condition reads an inline `Fn`: a `While` given a node or a function, and a `Loop(bool)`. */
+export const CONDITION_LOOPS: [string, (test: () => any, body: () => void) => void][] = [
+  ["a While condition given as a node", (test, body) => While(test(), body)],
+  ["a While condition given as a function", (test, body) => While(() => test(), body)],
+  ["a Loop condition", (test, body) => Loop(test(), body)],
+];
+
+/** Conditions that hold while `n` is below the value of `f`, reading that value once or twice. */
+export const CONDITION_READS: [string, (n: any, f: any) => any][] = [
+  ["read once", (n, f) => n.lessThan(f)],
+  ["read twice", (n, f) => n.lessThan(f.add(f.mul(0)))],
+];
+
+/**
+ * Programs whose only read of an inline `Fn`, called outside their body, is
+ * the condition of a loop, each named by the loop and how often it reads. The
+ * `Fn` adds one to `counter` and returns 3. The loop counts `n` up from 0 while
+ * `n` is below that value, so the condition is tested four times, and the
+ * program writes `n` to `result`.
+ */
+export function inlineFnConditions() {
+  const counter = instancedArray(1, "float");
+  const result = instancedArray(1, "float");
+  const conditions = CONDITION_LOOPS.flatMap(([loop, write]) =>
+    CONDITION_READS.map(([reads, test]) => ({
+      name: `${loop}, ${reads}`,
+      build: () => {
+        const f = Fn(() => {
+          counter.element(int(0)).addAssign(1);
+          return float(3);
+        })() as any;
+        return Fn(() => {
+          const n = float(0).toVar();
+          write(
+            () => test(n, f),
+            () => n.addAssign(1),
+          );
+          result.element(int(0)).assign(n);
+        })();
+      },
+    })),
+  );
+  return { counter, result, conditions };
+}
