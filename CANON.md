@@ -431,6 +431,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-return-in-an-inline-fn-ends-the-function-where-it-runs`](#spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs) — A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
         - [`@spec a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation`](#spec-a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation) — A `Return()` in an `Fn` called outside the program's body, whose value one storage write reads once, ends the invocation there. The write and the statements after it do not run.
         - [`@spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs`](#spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs) — A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
+        - [`@exception dawn-on-metal-misses-a-return-an-inline-fn-makes-on-its-count-in-a-loop`](#exception-dawn-on-metal-misses-a-return-an-inline-fn-makes-on-its-count-in-a-loop) — On WGSL compute on Dawn on Metal, take an `Fn` read in a loop that adds to a count in storage and reads it back. A return it makes when the count reaches a value never happens. Every run reads the count from before the loop.
       - [`@spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) — A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
         - [`@spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop`](#spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop) — A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
         - [`@spec a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop`](#spec-a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop) — A `Break()` in an `Fn` called outside the program's body, whose value one storage write in a loop body reads once, leaves that loop before the write.
@@ -3470,6 +3471,14 @@ This follows because the `Fn` runs at the start of that write, before the value 
 ###### @spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
 
 > A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
+
+###### @exception dawn-on-metal-misses-a-return-an-inline-fn-makes-on-its-count-in-a-loop
+
+> On WGSL compute on Dawn on Metal, take an `Fn` read in a loop that adds to a count in storage and reads it back. A return it makes when the count reaches a value never happens. Every run reads the count from before the loop.
+
+Derives from: [`fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops`](#fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops)
+
+The WGSL target writes the count, its read and the return inside the loop, and the driver computes the read wrongly. The exception lasts as long as the defect in Metal.
 
 ##### @spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs
 

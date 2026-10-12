@@ -8,6 +8,7 @@ import {
   For,
   While,
   If,
+  Return,
   float,
   instancedArray,
   int,
@@ -1902,6 +1903,36 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     await adapter.compute(out, 1);
     adapter.destroy();
     expect(Array.from(out[counts.name]!)).toEqual([STALE_STORAGE ? 1 : 4, 4]);
+  });
+
+  /**
+   * The `Fn` adds one to its count, reads the count back, and returns on its
+   * third run, so the loop of nine stops there. A driver that reads storage
+   * from before the loop reads a count of one on every run, so the `Fn` never
+   * returns and the loop runs all nine.
+   *
+   * @canon exception-dawn-on-metal-misses-a-return-an-inline-fn-makes-on-its-count-in-a-loop
+   */
+  it("ends the invocation where an inline Fn read in a loop returns on its count on WGSL, or never where the driver reads storage from before the loop", async () => {
+    const counts = instancedArray(3, "float");
+    const f = Fn(() => {
+      counts.element(int(1)).addAssign(1);
+      const r = counts.element(int(1)).toVar();
+      counts.element(int(0)).addAssign(1);
+      If(r.equal(3), () => Return());
+      return r;
+    })() as any;
+    const program = Fn(() => {
+      Loop(9, () => {
+        counts.element(int(2)).addAssign(f);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counts.name]: new Float32Array(3) };
+    await adapter.compute(out, 1);
+    adapter.destroy();
+    expect(Array.from(out[counts.name]!)).toEqual(STALE_STORAGE ? [9, 1, 9] : [3, 3, 3]);
   });
 
   /**
