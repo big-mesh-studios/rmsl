@@ -10,7 +10,9 @@ import {
   Fn,
   If,
   instancedArray,
+  For,
   Loop,
+  While,
   int,
   invocationIndex,
   ivec2,
@@ -656,6 +658,150 @@ describe("an inline Fn read in a loop", () => {
         });
       })();
     expect(run(compile, build)).toEqual({ runs: 1, value: 8 });
+  });
+});
+
+describe("an inline Fn read more than once inside another inline Fn read once", () => {
+  const counter = instancedArray(1, "float");
+  const result = instancedArray(1, "float");
+  const taken = uniform("float");
+  /** An `Fn` called outside the program's body, that adds one to `counter` and returns 2. */
+  const counted = () =>
+    Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+  /** A program that writes `value` to `result`. */
+  const writing = (value: any) =>
+    Fn(() => {
+      result.element(int(0)).assign(value);
+    })();
+  const run = (compile: CompileCpuRoutine, build: () => any, branch = 0) => {
+    const runs = new Float64Array(1);
+    const value = new Float64Array(1);
+    compile(
+      build,
+      none,
+    )({
+      storages: { [counter.name]: runs, [result.name]: value },
+      uniforms: { [taken.name]: branch },
+    });
+    return { runs: runs[0], value: value[0] };
+  };
+  /** An `Fn` called outside the program's body, whose loop body reads `f` twice, three times over. */
+  const looping = (f: any) =>
+    Fn(() => {
+      const t = float(0).toVar();
+      Loop(3, () => {
+        t.addAssign(f);
+        t.addAssign(f.mul(10));
+      });
+      return t;
+    })() as any;
+
+  /**
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it.each(cpuTargets)("%s: runs it on every iteration of the other's loop that reads it", (_, compile) => {
+    const build = () => writing(looping(counted()));
+    expect(run(compile, build)).toEqual({ runs: 3, value: 66 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it.each(cpuTargets)("%s: runs it only when the other's branch that reads it runs", (_, compile) => {
+    const build = () => {
+      const f = counted();
+      const g = Fn(() => {
+        const t = float(0).toVar();
+        If(taken.greaterThan(0), () => {
+          t.assign(f);
+          t.addAssign(f.mul(10));
+        });
+        return t;
+      })() as any;
+      return writing(g);
+    };
+    expect(run(compile, build, 1)).toEqual({ runs: 1, value: 22 });
+    expect(run(compile, build, 0)).toEqual({ runs: 0, value: 0 });
+  });
+
+  /**
+   * The outer `Fn` reads the middle one twice per iteration of a loop of its
+   * own, and the middle one reads the innermost twice per iteration of its loop.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it.each(cpuTargets)("%s: runs it in the innermost block at every level of nesting", (_, compile) => {
+    const build = () => {
+      const g = looping(counted());
+      const h = Fn(() => {
+        const t = float(0).toVar();
+        Loop(2, () => {
+          t.addAssign(g);
+          t.addAssign(g.mul(0));
+        });
+        return t;
+      })() as any;
+      return writing(h);
+    };
+    expect(run(compile, build)).toEqual({ runs: 6, value: 132 });
+  });
+
+  /**
+   * The statements of a loop condition run before every test, and they read
+   * the value twice.
+   *
+   * @canon spec-an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test
+   */
+  it.each(cpuTargets)("%s: runs it before every test of a loop condition that reads it", (_, compile) => {
+    const build = () => {
+      const f = counted();
+      return Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => {
+            const limit = f.add(f).toVar();
+            return n.lessThan(limit);
+          },
+          () => {
+            n.addAssign(1);
+          },
+        );
+        result.element(int(0)).assign(n);
+      })();
+    };
+    expect(run(compile, build)).toEqual({ runs: 5, value: 4 });
+  });
+});
+
+describe("an inline Fn read more than once in a For condition", () => {
+  /**
+   * The condition reads the value twice, and runs before each of the four
+   * tests of a loop that runs three times.
+   *
+   * @canon spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
+   */
+  it.each(cpuTargets)("%s: runs it before every test", (_, compile) => {
+    const counter = instancedArray(1, "float");
+    const build = () => {
+      const f = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(3);
+      })() as any;
+      return Fn(() => {
+        For(
+          () => float(0).toVar(),
+          (n) => n.lessThan(f.add(f.mul(0))),
+          (n) => n.addAssign(1),
+          () => {},
+        );
+      })();
+    };
+    const runs = new Float64Array(1);
+    compile(build, none)({ storages: { [counter.name]: runs } });
+    expect(runs[0]).toBe(4);
   });
 });
 

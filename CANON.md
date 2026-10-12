@@ -48,16 +48,18 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
-  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
-    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
-    - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
-    - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
-    - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
+  - [`@spec sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does) — The compiler computes a node once for several reads only where that changes nothing. It gives the results and the side effects that computing the node at each read gives. Sharing changes neither how often a statement runs nor the value a read sees.
+    - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
+      - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
+      - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
+      - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
+      - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
+      - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
+      - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+      - [`@spec a-glsl-shared-value-is-held-at-highp`](#spec-a-glsl-shared-value-is-held-at-highp) — On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
     - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
-    - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
-    - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
-    - [`@spec a-glsl-shared-value-is-held-at-highp`](#spec-a-glsl-shared-value-is-held-at-highp) — On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
+    - [`@spec a-node-a-loop-condition-reads-twice-is-computed-at-every-test`](#spec-a-node-a-loop-condition-reads-twice-is-computed-at-every-test) — A node that a loop condition reads more than once is computed again at every test. It gets no variable before the loop.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
@@ -381,12 +383,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec an-inline-fn-read-in-one-statement-runs-before-it`](#spec-an-inline-fn-read-in-one-statement-runs-before-it) — An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
       - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
       - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
+      - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs.
+      - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
+      - [`@spec an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test) — An `Fn` called outside the program's body runs before every test of a `While` loop when only the statements of its condition read its value. The condition is one given as a function.
       - [`@spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs`](#spec-a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs) — A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
         - [`@spec a-return-in-an-inline-fn-ends-the-function-where-it-runs`](#spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs) — A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
         - [`@spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs`](#spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs) — A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
       - [`@spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) — A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
         - [`@spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop`](#spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop) — A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
         - [`@spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop) — A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
+        - [`@spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop) — A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
         - [`@spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
         - [`@exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused`](#exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
@@ -1097,7 +1103,13 @@ Derives from: [`fact-a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-ma
 
 This follows because emitting a node twice runs what it does twice, which changes what the program computes.
 
-### @spec a-node-read-more-than-once-is-computed-once
+### @spec sharing-never-changes-what-a-program-does
+
+> The compiler computes a node once for several reads only where that changes nothing. It gives the results and the side effects that computing the node at each read gives. Sharing changes neither how often a statement runs nor the value a read sees.
+
+This follows because sharing is an optimisation. The program means the same on every target only when no optimisation changes what it does. A place that would change it is not a place to share.
+
+#### @spec a-node-read-more-than-once-is-computed-once
 
 > A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
 
@@ -1105,11 +1117,11 @@ Derives from: [`spec-every-node-is-emitted-once`](#spec-every-node-is-emitted-on
 
 This follows because the output and the work at run time then grow with the nodes in the program. They do not grow with the paths through it. A TSL shader nests such reads freely, so it ports without a `toVar()` at each level.
 
-#### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
+##### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
 
 > A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
 
-#### @spec a-node-that-is-already-a-name-is-read-where-it-is
+##### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
 > A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
 
@@ -1117,7 +1129,7 @@ Derives from: [`fact-three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gi
 
 This follows because a variable for such a node would only rename what is already cheap to read.
 
-#### @spec a-storage-element-read-more-than-once-is-read-once
+##### @spec a-storage-element-read-more-than-once-is-read-once
 
 > On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
 
@@ -1125,7 +1137,7 @@ Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-
 
 This follows because a storage buffer is not one of the inputs that is already a name. A GLSL render stage fetches an element from a texture, one `texelFetch` for each column, and a GPU target loads it from a buffer.
 
-#### @exception a-shared-value-is-made-before-every-read
+##### @exception a-shared-value-is-made-before-every-read
 
 > Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
 
@@ -1133,9 +1145,31 @@ Derives from: [`fact-three-js-generates-a-node-read-more-than-once-into-a-variab
 
 This follows because one rule then places a shared value and the statements of an inline `Fn`. Those must run once on every path that reads them. In three.js, the variable goes at the first read, and a block that cannot see it computes the node again.
 
+##### @spec an-expression-of-constants-is-folded-not-shared
+
+> An expression of constants gets no variable of its own. The target folds it into one literal.
+
+This follows because a variable would hide the literal from the folding that gives it its value.
+
+##### @spec a-shared-value-gets-a-generated-name
+
+> The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+
+This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
+
+##### @spec a-glsl-shared-value-is-held-at-highp
+
+> On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
+
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once), [`fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands`](#fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands)
+
+This follows because a read that stays inline keeps the precision of its operands, such as a `highp` storage element. A variable at the default precision could hold less than the read it stands for.
+
 #### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
 
 > A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
 
 This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
 
@@ -1143,27 +1177,17 @@ This follows because a node has the value it computes at the point of the read. 
 
 > A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
 
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
+
 This follows because the body runs again after it changes what the node reads. A value from before the loop is stale on each later iteration.
 
-#### @spec an-expression-of-constants-is-folded-not-shared
+#### @spec a-node-a-loop-condition-reads-twice-is-computed-at-every-test
 
-> An expression of constants gets no variable of its own. The target folds it into one literal.
+> A node that a loop condition reads more than once is computed again at every test. It gets no variable before the loop.
 
-This follows because a variable would hide the literal from the folding that gives it its value.
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
 
-#### @spec a-shared-value-gets-a-generated-name
-
-> The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
-
-This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
-
-#### @spec a-glsl-shared-value-is-held-at-highp
-
-> On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
-
-Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once), [`fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands`](#fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands)
-
-This follows because a read that stays inline keeps the precision of its operands, such as a `highp` storage element. A variable at the default precision could hold less than the read it stands for.
+This follows because the condition runs before every test, after the body may have changed what the node reads.
 
 ### @spec an-operand-that-is-an-expression-keeps-its-grouping
 
@@ -3053,7 +3077,7 @@ This follows because a call of an `Fn` means one run of its statements, and the 
 
 > An `Fn` called outside the program's body, whose value several statements read, runs once before the first of them. It runs in the innermost block that holds every read, on every target. A path that skips that block runs none of it.
 
-Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
 
 This follows because TSL generates the statements at the first read, and again in a branch that lacks them. A path can then run them twice, once or never, where every target here runs them once.
 
@@ -3064,6 +3088,30 @@ This follows because TSL generates the statements at the first read, and again i
 Derives from: [`fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too)
 
 This follows because the loop body is the innermost block that holds the read, and TSL generates the statements in it too. Issue #257 settled this.
+
+##### @spec an-inline-fn-read-only-inside-another-runs-in-the-block-there
+
+> An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
+
+This follows because the body of the other `Fn` is a block like any other. Placed outside it, the statements would run a different number of times. Issue #264 settled this.
+
+##### @spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
+
+> An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`exception-a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test)
+
+This follows because the condition runs again before every test, so a place before the loop would run the statements once.
+
+##### @spec an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test
+
+> An `Fn` called outside the program's body runs before every test of a `While` loop when only the statements of its condition read its value. The condition is one given as a function.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`exception-a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test)
+
+This follows because those statements are a block that runs before every test.
 
 ##### @spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs
 
@@ -3094,6 +3142,12 @@ This follows because the statements of the `Fn` run at that place, as if the pro
 ###### @spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop
 
 > A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
+
+###### @spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop
+
+> A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
+
+Derives from: [`spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there)
 
 ###### @spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused
 

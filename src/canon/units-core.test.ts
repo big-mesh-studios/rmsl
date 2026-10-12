@@ -13,6 +13,7 @@ import {
   StorageInstancedBufferAttribute,
   int,
   Loop,
+  While,
   mat3,
   mix,
   select,
@@ -487,6 +488,24 @@ describe("what a program does with a node it reads more than once", () => {
     expect(glsl).not.toMatch(sharedLocal);
     expect(wgsl).not.toMatch(sharedLocal);
     expect(js).not.toContain("_rmsl_gen_");
+  });
+
+  /**
+   * The condition reads `n + 1` twice, and the body changes `n`, so a value
+   * computed once before the loop would never stop it.
+   *
+   * @canon spec-a-node-a-loop-condition-reads-twice-is-computed-at-every-test
+   */
+  it("computes a node a While condition reads twice at every test, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const n = a.toVar();
+        While(n.add(1).mul(n.add(1)).lessThan(20), () => {
+          n.assign(n.add(1));
+        });
+        return n;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(4);
   });
 
   /**

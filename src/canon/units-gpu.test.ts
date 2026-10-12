@@ -6,6 +6,7 @@ import {
   Fn,
   Loop,
   For,
+  If,
   float,
   instancedArray,
   int,
@@ -1398,6 +1399,116 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     await adapter.compute(out, 1);
     expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 4, value: 8 });
     adapter.destroy();
+  });
+
+  /**
+   * An inline `Fn` reads another twice in each iteration of its loop, and the
+   * program reads the outer one once.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it("runs an inline Fn read only inside another's loop on every iteration of it, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const f = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const g = Fn(() => {
+      const t = float(0).toVar();
+      Loop(3, () => {
+        t.addAssign(f);
+        t.addAssign(f.mul(10));
+      });
+      return t;
+    })() as any;
+    const adapter = createWgslCompute(
+      Fn(() => {
+        result.element(int(0)).assign(g);
+      })(),
+    );
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 3, value: 66 });
+    adapter.destroy();
+  });
+
+  /**
+   * The inner `Fn` is read twice in a branch of the outer one, and in loops at
+   * two levels.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it("runs an inline Fn read only inside another in the block there that holds every read, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const taken = uniform("float");
+    const counted = () =>
+      Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(2);
+      })() as any;
+    const looping = (f: any) =>
+      Fn(() => {
+        const t = float(0).toVar();
+        Loop(3, () => {
+          t.addAssign(f);
+          t.addAssign(f.mul(10));
+        });
+        return t;
+      })() as any;
+    const writing = (value: any) =>
+      Fn(() => {
+        result.element(int(0)).assign(value);
+      })();
+    const programs: [string, () => any, number, { runs: number; value: number }][] = [
+      [
+        "in a branch",
+        () => {
+          const f = counted();
+          return writing(
+            Fn(() => {
+              const t = float(0).toVar();
+              If(taken.greaterThan(0), () => {
+                t.assign(f);
+                t.addAssign(f.mul(10));
+              });
+              return t;
+            })(),
+          );
+        },
+        0,
+        { runs: 0, value: 0 },
+      ],
+      [
+        "in loops at two levels",
+        () => {
+          const g = looping(counted());
+          return writing(
+            Fn(() => {
+              const t = float(0).toVar();
+              Loop(2, () => {
+                t.addAssign(g);
+                t.addAssign(g.mul(0));
+              });
+              return t;
+            })(),
+          );
+        },
+        0,
+        { runs: 6, value: 132 },
+      ],
+    ];
+    for (const [name, build, branch, expected] of programs) {
+      const adapter = createWgslCompute(build());
+      await adapter.attach();
+      adapter.setUniform(taken, branch);
+      const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+      await adapter.compute(out, 1);
+      expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, name).toEqual(expected);
+      adapter.destroy();
+    }
   });
 
   /**

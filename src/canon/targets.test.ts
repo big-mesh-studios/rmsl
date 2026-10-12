@@ -1540,6 +1540,66 @@ describe("an inline Fn that jumps, read in several statements", () => {
   });
 
   /**
+   * The outer `Fn` reads the inner one twice in its loop body, and the program
+   * reads the outer one once. The inner one runs in that loop body, so its
+   * `Break()` leaves that loop.
+   *
+   * @canon spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop
+   */
+  it("leaves the loop of an inline Fn from another read twice in its body, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const inner = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Break();
+        });
+        return float(1);
+      })() as any;
+      const outer = Fn(() => {
+        const t = float(0).toVar();
+        Loop(3, () => {
+          t.addAssign(100);
+          t.addAssign(inner.add(inner.mul(10)));
+        });
+        return t;
+      })() as any;
+      return Fn(() => outer.add(1).toVar())();
+    };
+    expect(evaluateRecording(build, [1])).toBe(101);
+    expect(evaluateRecording(build, [-1])).toBe(334);
+  });
+
+  /**
+   * A `For` condition reads the value of an `Fn` that breaks twice, and runs
+   * it before every test, inside the loop.
+   *
+   * @canon spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
+   */
+  it("leaves a For from an inline Fn its condition reads twice, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const limit = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Break();
+        });
+        return float(3);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.lessThan(limit.add(limit.mul(0))),
+          (n) => n.addAssign(1),
+          () => {
+            total.addAssign(1);
+          },
+        );
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(0);
+    expect(evaluateRecording(build, [-1])).toBe(3);
+  });
+
+  /**
    * The value is read in two loops, one after the other, so the block that
    * holds every read is outside both.
    *
