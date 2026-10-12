@@ -1189,7 +1189,7 @@ describe("the element-wise operations of a JS function", () => {
     expect(source).not.toContain("typeof");
     // A scalar that is not a local is read into one once, before the components are written.
     expect(source).toMatch(
-      /(_rmsl_t\d+) = \(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
+      /(_rmsl_t\d+) = \+\(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
     );
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(
       new Float64Array([0.5, 1, 1.5]),

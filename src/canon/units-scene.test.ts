@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
-import { float, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
+import { float, select, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
 import {
   AmbientLight,
   Blending,
@@ -1269,6 +1269,44 @@ describe("a scene renderer manages what it uploads", () => {
     renderer.setUniform({ name: "b" }, "uvec2", [5, 6]);
     renderer.setUniform({ name: "c" }, "bvec3", [1, 0, 1]);
     expect(calls.slice(before).map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
+  });
+
+  /**
+   * A bool material value of `true`, 2 or `"x"` reaches the GPU as a `GLint`
+   * on WebGL and a `u32` on WebGPU, each the conversion of the value.
+   *
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it("uploads a bool material value as the integer it converts to on WebGL and WebGPU", () => {
+    for (const [given, integer] of [
+      [true, 1],
+      [2, 2],
+      ["x", 0],
+    ] as const) {
+      const material = () => {
+        const m = new MeshBasicMaterial();
+        m.fragmentNode = (b) => {
+          const flag = b.materialUniform("flag", "bool", () => given as any);
+          return vec4(select(flag, float(1), float(0)), 0, 0, 1);
+        };
+        return m;
+      };
+      const { renderer, calls } = stubWebGl();
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(), material()));
+      renderer.render(scene, camera());
+      const upload = calls.find((c) => c.name === "uniform1i" && c.args[0]?.name === "flag");
+      expect(upload && (upload.args[1] as number) | 0, `WebGL ${String(given)}`).toBe(integer);
+
+      const { device, canvas, bytesOf } = stubDevice();
+      const webgpu = new WebGPURenderer(canvas, device as any) as any;
+      const mesh = new Mesh(new PlaneGeometry(), material());
+      mesh.updateMatrixWorld(true);
+      const entry = webgpu.ensurePipeline(mesh.material, new Scene(), false, false);
+      webgpu.packUniforms(entry, mesh, camera(), 0);
+      const words = new Uint32Array(bytesOf(entry.ringBuffer).buffer);
+      expect(words[offsetOf(entry, "flag") / 4], `WebGPU ${String(given)}`).toBe(integer);
+    }
   });
 
   /**

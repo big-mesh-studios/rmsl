@@ -608,6 +608,11 @@ function emitLiteralStores(node: any, addr: number): number[] {
  */
 const ZERO_COMPONENTS: readonly number[] = [];
 
+/** A bool the host passes, as 1 where it converts to an `int` that is not zero, as WebGL and WGSL test it, and 0 elsewhere. */
+function hostBoolean(value: unknown): number {
+  return ((value as number) | 0) !== 0 ? 1 : 0;
+}
+
 /**
  * Host-side: packs an array value into linear memory. With `narrow` plus a
  * float type, components are stored as f32 (truncating to match the GPU
@@ -634,7 +639,7 @@ function writeAggregateToMemory(
       if (narrow) view.setFloat32(address + i * compSize, num, true);
       else view.setFloat64(address + i * compSize, round32 ? Math.fround(num) : num, true);
     } else {
-      view.setInt32(address + i * compSize, num, true);
+      view.setInt32(address + i * compSize, kind === "bool" ? hostBoolean(num) : num, true);
     }
   }
 }
@@ -664,7 +669,7 @@ function writeArrayToMemory(
         if (narrow) view.setFloat32(base, num, true);
         else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
       } else {
-        view.setInt32(base, num, true);
+        view.setInt32(base, kind === "bool" ? hostBoolean(num) : num, true);
       }
     } else {
       for (let k = 0; k < width; k++) {
@@ -675,7 +680,7 @@ function writeArrayToMemory(
           if (narrow) view.setFloat32(at, num, true);
           else view.setFloat64(at, round32 ? Math.fround(num) : num, true);
         } else {
-          view.setInt32(at, num, true);
+          view.setInt32(at, kind === "bool" ? hostBoolean(num) : num, true);
         }
       }
     }
@@ -736,7 +741,7 @@ function writeScalarToMemory(
   if (kind === "float") {
     if (narrow) view.setFloat32(address, num, true);
     else view.setFloat64(address, round32 ? Math.fround(num) : num, true);
-  } else view.setInt32(address, num, true);
+  } else view.setInt32(address, kind === "bool" ? hostBoolean(num) : num, true);
 }
 
 /** Host-side: writes a value (scalar or aggregate) into memory — the write-side counterpart of readValueFromMemory. */
@@ -4336,9 +4341,11 @@ export function createWasmInputMarshaller(
   const storageLengths: number[] = new Array(storageParams.length).fill(0);
   let memoryView = new DataView(memory.buffer);
 
-  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`. */
+  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`, and a bool as 1 or 0. */
   function scalarArg(shaderType: ShaderType, value: number): number {
-    return float32 && scalarKindOf(shaderType) === "float" ? Math.fround(value) : value;
+    const kind = scalarKindOf(shaderType);
+    if (kind === "bool") return hostBoolean(value);
+    return float32 && kind === "float" ? Math.fround(value) : value;
   }
 
   /** A view of the memory, made again only when the memory grows and its buffer changes. */
@@ -4420,7 +4427,8 @@ export function createWasmInputMarshaller(
           const value = (ctx.uniforms as any)?.[p.slot];
           if (value === undefined || typeof value !== "number" || isAggregate(p.shaderType)) {
             writeValueToMemory(view, p.address, p.shaderType, value, p.narrow, float32);
-          } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
+          } else if (scalarKindOf(p.shaderType) === "bool") view.setInt32(p.address, hostBoolean(value), true);
+          else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
           else if (p.narrow) view.setFloat32(p.address, value, true);
           else view.setFloat64(p.address, float32 ? Math.fround(value) : value, true);
           break;

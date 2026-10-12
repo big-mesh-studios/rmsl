@@ -487,9 +487,8 @@ export class WebGLRenderer {
 
   private setUniform(location: WebGLUniformLocation, type: string, value: number | number[] | Float32Array): void {
     const gl = this.gl;
-    // `value[0]` on a bare scalar is undefined, which would upload NaN — so
-    // scalars are uploaded directly rather than treated as arrays.
-    if (typeof value === "number") {
+    // A scalar, a boolean included, goes to the call as it is, which converts it as its argument's type does.
+    if (typeof value !== "object") {
       switch (type) {
         case "float":
           gl.uniform1f(location, value);

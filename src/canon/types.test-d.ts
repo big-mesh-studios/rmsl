@@ -38,6 +38,7 @@ import {
   screenSize,
   type Node,
   type UniformNode,
+  uniform,
 } from "../rmsl";
 import {
   compileJSFragment,
@@ -455,5 +456,22 @@ describe("the array setAttribute takes", () => {
       // @ts-expect-error an int storage buffer takes an Int32Array
       adapter.setAttribute(counts.toReadOnly(), new Uint32Array(2));
     }
+  });
+});
+
+describe("the value setUniform takes for a boolean uniform", () => {
+  let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it("takes true, false, 1 or 0", () => {
+    const flag = uniform("bool");
+    glsl.setUniform(flag, true);
+    glsl.setUniform(flag, false);
+    glsl.setUniform(flag, 1);
+    glsl.setUniform(flag, 0);
+    // @ts-expect-error a bool takes 1 or 0, not any number
+    glsl.setUniform(flag, 2);
   });
 });

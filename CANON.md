@@ -175,6 +175,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
   - [`@spec wgsl-splats-a-scalar-bitwise-operand-beside-a-vector`](#spec-wgsl-splats-a-scalar-bitwise-operand-beside-a-vector) — On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
+  - [`@spec a-host-value-takes-the-conversion-of-a-typed-slot-of-its-kind`](#spec-a-host-value-takes-the-conversion-of-a-typed-slot-of-its-kind) — Every target converts each component the host passes as a store into a typed slot of its kind converts it. That holds for a parameter, a uniform, an attribute and a varying. An `int` converts as into an `Int32Array`, and a `uint` as into a `Uint32Array`. A float converts as into a `Float64Array`, or a `Float32Array` at `float: "f32"`. A `bool` converts as into an `Int32Array`, and reads true where the result is not zero.
+    - [`@spec an-integer-host-value-truncates-and-wraps`](#spec-an-integer-host-value-truncates-and-wraps) — An `int` or `uint` component the host gives with a fraction truncates toward zero on every target. One outside the range of its type wraps modulo 2³². NaN and the infinities read 0. So -1 given to a `uint` reads 4294967295.
+    - [`@spec a-float-host-value-converts-to-a-number`](#spec-a-float-host-value-converts-to-a-number) — A float component the host gives as a string or a boolean reads as the number it converts to, on every target. So `"2"` reads 2 and `true` reads 1. A string that spells no number reads NaN.
+    - [`@spec a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer) — A `bool` component reads true on every target where the host's value converts to an `int` that is not zero. Its value as a number is then 1. So `true`, 1, 2 and -1 read true. `false`, 0, 0.5 and a string such as `"x"` read false. The type of a `bool` value is `boolean | 0 | 1`, the values that encode one exactly.
   - [`@spec a-uniform-array-element-the-host-leaves-out-reads-zero`](#spec-a-uniform-array-element-the-host-leaves-out-reads-zero) — An element past the end of a shorter array the host passes for a uniform array reads zero.
   - [`@spec a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) — A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
@@ -735,6 +739,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
+- [`@fact a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it) — JavaScript converts a value it stores in a typed slot, such as a typed array element, a `DataView` write, a WebAssembly parameter or a WebGL argument. A signed 32-bit slot such as `Int32Array`, `i32` or `GLint` takes ToInt32, and an unsigned one such as `Uint32Array` or `GLuint` takes ToUint32. A float slot such as `Float64Array` or `f64` takes ToNumber, which a 32-bit one such as `Float32Array` or `GLfloat` rounds to 32 bits. ToNumber turns `true` into 1, `"2"` into 2 and a string that spells no number into NaN. ToInt32 and ToUint32 truncate toward zero, wrap modulo 2³², and give 0 for NaN and the infinities.
 - [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
 - [`@fact v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds) — V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
 - [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
@@ -774,6 +779,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector) — A WGSL bitwise operator refuses a vector and a scalar as its two operands.
 - [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
 - [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
+- [`@fact tsl-writes-a-uniform-through-a-typed-array-of-its-kind`](#fact-tsl-writes-a-uniform-through-a-typed-array-of-its-kind) — TSL's WebGPU renderer writes the value of a number or vector uniform into a typed array over the uniform buffer, and checks nothing about it. It writes an `int` or `ivecN` through an `Int32Array`, and a `uint` or `uvecN` through a `Uint32Array`. It writes every other type through a `Float32Array`. So a fraction given to an integer type truncates, an integer out of range wraps, and a string becomes a number.
+- [`@fact tsl-has-no-boolean-uniform`](#fact-tsl-has-no-boolean-uniform) — TSL builds no uniform of `bool` or `bvecN`. `NodeBuilder.getNodeUniform` throws `Uniform "bool" not implemented` for one.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
 - [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
@@ -1856,6 +1863,30 @@ This follows because a WGSL shift takes only an unsigned amount of the shifted v
 Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion), [`fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector)
 
 This follows because WGSL broadcasts no scalar across a vector for a bitwise operator, and converts nothing implicitly.
+
+### @spec a-host-value-takes-the-conversion-of-a-typed-slot-of-its-kind
+
+> Every target converts each component the host passes as a store into a typed slot of its kind converts it. That holds for a parameter, a uniform, an attribute and a varying. An `int` converts as into an `Int32Array`, and a `uint` as into a `Uint32Array`. A float converts as into a `Float64Array`, or a `Float32Array` at `float: "f32"`. A `bool` converts as into an `Int32Array`, and reads true where the result is not zero.
+
+Derives from: [`fact-a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it), [`fact-tsl-writes-a-uniform-through-a-typed-array-of-its-kind`](#fact-tsl-writes-a-uniform-through-a-typed-array-of-its-kind)
+
+This follows because WebAssembly, WebGL and WebGPU convert what the host passes in this way already. They take it through a typed array, a WebAssembly parameter or the argument of a WebGL call. A JS target that read the value as it is would compute with a fraction or a string. Every other target computes with a value of the type. TSL writes a uniform through a typed array of its kind too, so a value ported from TSL reads as it read there.
+
+#### @spec an-integer-host-value-truncates-and-wraps
+
+> An `int` or `uint` component the host gives with a fraction truncates toward zero on every target. One outside the range of its type wraps modulo 2³². NaN and the infinities read 0. So -1 given to a `uint` reads 4294967295.
+
+#### @spec a-float-host-value-converts-to-a-number
+
+> A float component the host gives as a string or a boolean reads as the number it converts to, on every target. So `"2"` reads 2 and `true` reads 1. A string that spells no number reads NaN.
+
+#### @spec a-bool-host-value-reads-true-for-a-nonzero-integer
+
+> A `bool` component reads true on every target where the host's value converts to an `int` that is not zero. Its value as a number is then 1. So `true`, 1, 2 and -1 read true. `false`, 0, 0.5 and a string such as `"x"` read false. The type of a `bool` value is `boolean | 0 | 1`, the values that encode one exactly.
+
+Derives from: [`fact-tsl-has-no-boolean-uniform`](#fact-tsl-has-no-boolean-uniform), [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host)
+
+This follows because WebGL takes a `bool` uniform through `uniform1i`, whose argument is a `GLint`, and WGSL carries one as a `u32`. So the GPU targets test the converted integer against zero. TSL has no boolean uniform to follow.
 
 ### @spec a-uniform-array-element-the-host-leaves-out-reads-zero
 
@@ -5220,6 +5251,12 @@ This is a fact of the WebAssembly specification, not a choice.
 
 This is a fact of the WebAssembly specification, not a choice.
 
+## @fact a-typed-slot-converts-the-value-stored-in-it
+
+> JavaScript converts a value it stores in a typed slot, such as a typed array element, a `DataView` write, a WebAssembly parameter or a WebGL argument. A signed 32-bit slot such as `Int32Array`, `i32` or `GLint` takes ToInt32, and an unsigned one such as `Uint32Array` or `GLuint` takes ToUint32. A float slot such as `Float64Array` or `f64` takes ToNumber, which a 32-bit one such as `Float32Array` or `GLfloat` rounds to 32 bits. ToNumber turns `true` into 1, `"2"` into 2 and a string that spells no number into NaN. ToInt32 and ToUint32 truncate toward zero, wrap modulo 2³², and give 0 for NaN and the infinities.
+
+This is a fact of three specifications, not a choice. ECMAScript defines `ToNumber`, `ToInt32`, `ToUint32` and the element types of a typed array. The WebAssembly JavaScript interface defines `ToWebAssemblyValue`. Web IDL defines the conversion of `long`, `unsigned long` and `unrestricted float`.
+
 ## @fact v8-boxes-a-float-it-reads-by-a-variable-key
 
 > V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
@@ -5453,6 +5490,18 @@ This is a fact of the WGSL specification, not a choice. Dawn refuses each case i
 > GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 
 This is a fact of the GLSL ES 3.00 specification, not a choice. WebGL refuses the integer overload.
+
+## @fact tsl-writes-a-uniform-through-a-typed-array-of-its-kind
+
+> TSL's WebGPU renderer writes the value of a number or vector uniform into a typed array over the uniform buffer, and checks nothing about it. It writes an `int` or `ivecN` through an `Int32Array`, and a `uint` or `uvecN` through a `Uint32Array`. It writes every other type through a `Float32Array`. So a fraction given to an integer type truncates, an integer out of range wraps, and a string becomes a number.
+
+This is how three.js's TSL behaves, read from its source: `updateNumber` and `_getBufferForType` in `src/renderers/common/UniformsGroup.js`, in three.js 0.186.
+
+## @fact tsl-has-no-boolean-uniform
+
+> TSL builds no uniform of `bool` or `bvecN`. `NodeBuilder.getNodeUniform` throws `Uniform "bool" not implemented` for one.
+
+This is how three.js's TSL behaves, read from its source: `getNodeUniform` in `src/nodes/core/NodeBuilder.js`, in three.js 0.186.
 
 ## @fact tsl-uniforms-hold-their-values
 

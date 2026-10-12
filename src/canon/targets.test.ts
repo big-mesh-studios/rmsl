@@ -1187,6 +1187,103 @@ describe("each leaf on every target it claims", () => {
   );
 
   /**
+   * Each of `reads` compiled into a routine of its own that returns the scalar it reads, given `value` as
+   * a parameter `a` of `type`, a uniform, the second element of a uniform array and the second component
+   * of a vector, all of the kind of `type`.
+   */
+  function readHostValue(
+    compile: typeof compileJSRoutine,
+    type: "int" | "uint" | "float" | "bool",
+    float: "f32" | "f64" = "f64",
+  ): (value: unknown) => unknown[] {
+    const vector = { int: "ivec2", uint: "uvec2", float: "vec2", bool: "bvec2" } as const;
+    const u = uniform(type);
+    const items = uniformArray(type, 2);
+    const pair = uniform(vector[type]);
+    const asNumber = (b: any) => (type === "bool" ? asFloat(b).add(b.toFloat().mul(10)) : b);
+    const reads = [(a: any) => a, () => u, () => items.element(int(1)), () => pair.y];
+    const routines = reads.map((read) =>
+      compile((a: any) => Fn(() => asNumber(read(a)).toVar())() as any, {
+        name: "main",
+        params: [{ name: "a", type }],
+        float,
+      } as any),
+    );
+    return (value) =>
+      routines.map((routine) =>
+        routine({
+          params: { a: value },
+          uniforms: { [u.name]: value, [items.name]: [0, value], [pair.name]: [0, value] },
+        } as any),
+      );
+  }
+
+  /**
+   * @canon spec-an-integer-host-value-truncates-and-wraps
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("truncates and wraps an integer the host gives on %s", (_, compile) => {
+    for (const type of ["int", "uint"] as const) {
+      const each = readHostValue(compile, type);
+      for (const value of [2.7, -2.7, -1, 2 ** 32 + 3, 2 ** 31, NaN, Infinity, "2", "x", true]) {
+        const n = value as unknown as number;
+        expect(each(value), `${type} ${String(value)}`).toEqual(Array(4).fill(type === "int" ? n | 0 : n >>> 0));
+      }
+    }
+  });
+
+  /**
+   * @canon spec-a-float-host-value-converts-to-a-number
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("converts a float the host gives to a number on %s", (_, compile) => {
+    for (const width of ["f64", "f32"] as const) {
+      const each = readHostValue(compile, "float", width);
+      for (const [value, number] of [
+        ["2", 2],
+        [true, 1],
+        [false, 0],
+        ["x", NaN],
+        [0.1, width === "f32" ? Math.fround(0.1) : 0.1],
+      ] as const) {
+        expect(each(value), `${String(value)} at ${width}`).toEqual(Array(4).fill(number));
+      }
+    }
+  });
+
+  /**
+   * The bool reads both as a condition and as a number, which is 1 where it is true.
+   *
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads a bool the host gives as true where it converts to an integer not zero on %s", (_, compile) => {
+    const each = readHostValue(compile, "bool");
+    for (const value of [true, 1, 2, -1, 2 ** 32 + 1, "1"])
+      expect(each(value), String(value)).toEqual([11, 11, 11, 11]);
+    for (const value of [false, 0, 0.5, "x", NaN, 2 ** 32]) expect(each(value), String(value)).toEqual([0, 0, 0, 0]);
+  });
+
+  /**
+   * @canon spec-a-float-host-value-converts-to-a-number
+   */
+  it.each([
+    ["JS", compileJSFragment],
+    ["WASM", compileWasmFragment as typeof compileJSFragment],
+  ] as const)("converts a varying the host gives a stage to a number on %s", (_, compile) => {
+    const s = varying("float");
+    const v = varying("vec2");
+    const fragment = compile(() => Fn(() => vec4(s, v.y, 0, 1))() as any, none) as any;
+    expect(Array.from(fragment({ varyings: { [s.name]: "2", [v.name]: [0, true] } }).value)).toEqual([2, 1, 0, 1]);
+  });
+
+  /**
    * @canon spec-a-uniform-array-element-the-host-leaves-out-reads-zero
    */
   it.each([

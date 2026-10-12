@@ -1028,7 +1028,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
  * error it hit.
  */
 const VALUE_TYPES = `
-import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, select, uniform, uniformArray, varying, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
@@ -1163,6 +1163,32 @@ globalThis.__rmslValueTypes = {
       adapter.setAttribute(position, TRIANGLE);
     }, Fn(() => vec4(0, green, 0, 1))());
   },
+  /**
+   * Whether each of \`cases\`, a value and the value of \`type\` it should read as, reads so through
+   * createGlsl, given as a uniform, as the second element of a uniform array and as the second
+   * component of a vector, each compared on the GPU with the value it should read as.
+   */
+  hostConversion: (type, cases) => attempt(() => {
+    const vector = { int: "ivec2", uint: "uvec2", float: "vec2", bool: "bvec2" }[type];
+    const u = uniform(type);
+    const items = uniformArray(type, 2);
+    const pair = uniform(vector);
+    const want = uniform(type);
+    const same = (x) => (type === "bool" ? x.equal(want).and(x.toFloat().equal(want.toFloat())) : x.equal(want));
+    const all = same(u).and(same(items.element(1))).and(same(pair.y));
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, select(all, float(1), float(0)), 0, 1))());
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    return cases.map(([value, wanted]) => {
+      adapter.setUniform(u, value);
+      adapter.setUniform(items, [0, value]);
+      adapter.setUniform(pair, [0, value]);
+      adapter.setUniform(want, wanted);
+      adapter.draw({ count: 3 });
+      return readPixel(target, 1, 2).g === 255;
+    });
+  }),
   cpuAttributeWithoutData: (target) => attempt(() => {
     const shift = attribute("int");
     const adapter = (target === "JS" ? createJs : createWasm)(() => shiftedVertex(shift), () => Fn(() => vec4(0, 1, 0, 1))());
@@ -1309,6 +1335,42 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
     120_000,
   );
 
+  /** Runs `hostConversion` for `type` in the WebGL page, over cases written as JavaScript. */
+  const glslConversion = (type: string, cases: string) =>
+    runInGpuPage(
+      `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.hostConversion("${type}", ${cases});`,
+      "__rmslValueTypesRun",
+      new URL(".", import.meta.url).pathname,
+    );
+
+  /**
+   * @canon spec-an-integer-host-value-truncates-and-wraps
+   */
+  it("truncates and wraps an integer the host gives on createGlsl", async () => {
+    const cases = `[[2.7, 2], [-2.7, -2], [2 ** 32 + 3, 3], [2 ** 31, -(2 ** 31)], [NaN, 0], [Infinity, 0], ["2", 2], [true, 1]]`;
+    expect(await glslConversion("int", cases)).toEqual(Array(8).fill(true));
+    expect(await glslConversion("uint", `[[2.7, 2], [-1, 4294967295], [NaN, 0], ["2", 2]]`)).toEqual(
+      Array(4).fill(true),
+    );
+  }, 120_000);
+
+  /**
+   * @canon spec-a-float-host-value-converts-to-a-number
+   */
+  it("converts a float the host gives to a number on createGlsl", async () => {
+    expect(await glslConversion("float", `[["2", 2], [true, 1], [false, 0], ["0.5", 0.5]]`)).toEqual(
+      Array(4).fill(true),
+    );
+  }, 120_000);
+
+  /**
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it("reads a bool the host gives as true where it converts to an integer not zero on createGlsl", async () => {
+    const cases = `[[true, true], [1, true], [2, true], [-1, true], ["1", true], [false, false], [0, false], [0.5, false], ["x", false], [2 ** 32, false]]`;
+    expect(await glslConversion("bool", cases)).toEqual(Array(10).fill(true));
+  }, 120_000);
+
   /**
    * The page gives the adapter a real 2D canvas.
    *
@@ -1377,6 +1439,69 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     await adapter.compute(out);
     expect(Array.from(out[values.name]!)).toEqual([11, 12]);
     adapter.destroy();
+  });
+
+  /**
+   * Each value is given as a uniform, as the second element of a uniform array and as the second
+   * component of a vector, and read back from a storage buffer; a bool as 1 where it is true and
+   * 10 more where its value as a number is 1.
+   */
+  async function wgslHostValues(type: "int" | "uint" | "float" | "bool", values: unknown[]): Promise<number[][]> {
+    const vector = { int: "ivec2", uint: "uvec2", float: "vec2", bool: "bvec2" } as const;
+    const u = uniform(type);
+    const items = uniformArray(type, 2);
+    const pair = uniform(vector[type]);
+    const results = instancedArray(3, type === "bool" ? "float" : type);
+    const asNumber = (b: any) => (type === "bool" ? select(b, float(1), float(0)).add(b.toFloat().mul(10)) : b);
+    const adapter = createWgslCompute(
+      Fn(() => {
+        results.element(int(0)).assign(asNumber(u));
+        results.element(int(1)).assign(asNumber(items.element(int(1))));
+        results.element(int(2)).assign(asNumber(pair.y));
+      })(),
+    );
+    await adapter.attach();
+    const read: number[][] = [];
+    for (const value of values) {
+      adapter.setUniform(u, value as any);
+      adapter.setUniform(items, [0, value] as any);
+      adapter.setUniform(pair, [0, value] as any);
+      const out = {
+        [results.name]: new (type === "int" ? Int32Array : type === "uint" ? Uint32Array : Float32Array)(3),
+      };
+      await adapter.compute(out, 1);
+      read.push(Array.from(out[results.name]!));
+    }
+    adapter.destroy();
+    return read;
+  }
+
+  /**
+   * @canon spec-an-integer-host-value-truncates-and-wraps
+   */
+  it("truncates and wraps an integer the host gives on createWgslCompute", async () => {
+    for (const type of ["int", "uint"] as const) {
+      const values = [2.7, -2.7, -1, 2 ** 32 + 3, 2 ** 31, NaN, Infinity, "2", "x", true];
+      const wanted = values.map((v) => Array(3).fill(type === "int" ? (v as number) | 0 : (v as number) >>> 0));
+      expect(await wgslHostValues(type, values), type).toEqual(wanted);
+    }
+  });
+
+  /**
+   * @canon spec-a-float-host-value-converts-to-a-number
+   */
+  it("converts a float the host gives to a number on createWgslCompute", async () => {
+    expect(await wgslHostValues("float", ["2", true, false, "x", 0.1])).toEqual(
+      [2, 1, 0, NaN, Math.fround(0.1)].map((n) => Array(3).fill(n)),
+    );
+  });
+
+  /**
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it("reads a bool the host gives as true where it converts to an integer not zero on createWgslCompute", async () => {
+    const values = [true, 1, 2, -1, 2 ** 32 + 1, "1", false, 0, 0.5, "x", NaN, 2 ** 32];
+    expect(await wgslHostValues("bool", values)).toEqual(values.map((_, i) => Array(3).fill(i < 6 ? 11 : 0)));
   });
 
   /**

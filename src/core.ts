@@ -79,6 +79,9 @@ export type ISamplerCubeLike = BaseNode<"isamplerCube"> | Node<"isamplerCube">;
 export type USampler2DLike = BaseNode<"usampler2D"> | Node<"usampler2D">;
 export type USamplerCubeLike = BaseNode<"usamplerCube"> | Node<"usamplerCube">;
 
+/** What the host gives a boolean component: `true` or `false`, or 1 or 0, which encode them exactly. */
+export type BooleanValue = boolean | 0 | 1;
+
 /**
  * The plain-JS shape `setUniform`/`setUniform` on a uniform array element
  * accepts for a given `ShaderType` — a scalar for scalar types, a fixed-width
@@ -87,17 +90,19 @@ export type USamplerCubeLike = BaseNode<"usamplerCube"> | Node<"usamplerCube">;
  * they resolve to `never` — set a sampler through its own binding, not
  * `setUniform`.
  */
-export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint" | "bool"
+export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint"
   ? number
-  : A extends "vec2" | "ivec2" | "uvec2" | "bvec2"
-    ? [number, number]
-    : A extends "vec3" | "ivec3" | "uvec3" | "bvec3"
-      ? [number, number, number]
-      : A extends "vec4" | "ivec4" | "uvec4" | "bvec4"
-        ? [number, number, number, number]
-        : A extends "mat2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4"
-          ? number[]
-          : never;
+  : A extends "bool"
+    ? BooleanValue
+    : A extends "vec2" | "ivec2" | "uvec2" | "bvec2"
+      ? [number, number]
+      : A extends "vec3" | "ivec3" | "uvec3" | "bvec3"
+        ? [number, number, number]
+        : A extends "vec4" | "ivec4" | "uvec4" | "bvec4"
+          ? [number, number, number, number]
+          : A extends "mat2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4"
+            ? number[]
+            : never;
 
 // === BaseNode ===
 export interface BaseNode<A extends ShaderType> {
