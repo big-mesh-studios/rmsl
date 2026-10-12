@@ -8,6 +8,7 @@ import {
   type Node,
   type ShaderType,
   type UniformNode,
+  type UniformValue,
   type VaryingNode,
 } from "../../../rmsl";
 import type { Camera } from "../../cameras/Camera";
@@ -27,7 +28,7 @@ export interface UniformBinding {
   name: string;
   scope: UniformScope;
   /** Value source; material-scope uniforms always carry one. */
-  value?: (ctx: UniformContext) => number | number[];
+  value?: (ctx: UniformContext) => UniformValue<ShaderType>;
 }
 
 export interface AttributeBinding {
@@ -118,7 +119,7 @@ export class Builder {
     name: string,
     type: T,
     scope: UniformScope,
-    value?: (ctx: UniformContext) => number | number[],
+    value?: (ctx: UniformContext) => UniformValue<T>,
   ): UniformNode<T> {
     let existing = this.uniforms.get(name) as UniformBinding | undefined;
     if (!existing) {
@@ -133,7 +134,7 @@ export class Builder {
   materialUniform<T extends ShaderType>(
     name: string,
     type: T,
-    value: (ctx: UniformContext) => number | number[],
+    value: (ctx: UniformContext) => UniformValue<T>,
   ): UniformNode<T> {
     return this.uniform(name, type, "material", value);
   }

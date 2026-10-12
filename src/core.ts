@@ -89,22 +89,52 @@ export type BooleanValue = boolean | 0 | 1;
  * `Mat4Like` above). Samplers and `void` have no numeric uniform value, so
  * they resolve to `never` — set a sampler through its own binding, not
  * `setUniform`.
+ *
+ * A lookup in a table rather than a conditional type, so that the type checker
+ * relates the value of a generic `A` through the union of the table's entries.
+ * A conditional of a generic `A` expands branch by branch through the tuple
+ * types, deep enough to overflow tsc 5 and 6.
  */
-export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint"
-  ? number
-  : A extends "bool"
-    ? BooleanValue
-    : A extends "bvec2"
-      ? [BooleanValue, BooleanValue] | Int32Array | Uint32Array
-      : A extends "bvec3"
-        ? [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
-        : A extends "bvec4"
-          ? [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
-          : A extends keyof typeof MATRIX_SHAPES
-            ? MatrixComponents<(typeof MATRIX_SHAPES)[A][0], (typeof MATRIX_SHAPES)[A][1]> | HostVectorArray<A>
-            : A extends keyof typeof VECTOR_WIDTHS
-              ? Components<(typeof VECTOR_WIDTHS)[A]> | HostVectorArray<A>
-              : never;
+export type UniformValue<A extends ShaderType> = UniformValues[A];
+
+/** The value of each `ShaderType`, which `UniformValue` looks up. */
+interface UniformValues {
+  float: number;
+  int: number;
+  uint: number;
+  bool: BooleanValue;
+  vec2: Components<2> | FloatArray;
+  vec3: Components<3> | FloatArray;
+  vec4: Components<4> | FloatArray;
+  ivec2: Components<2> | Int32Array;
+  ivec3: Components<3> | Int32Array;
+  ivec4: Components<4> | Int32Array;
+  uvec2: Components<2> | Uint32Array;
+  uvec3: Components<3> | Uint32Array;
+  uvec4: Components<4> | Uint32Array;
+  bvec2: [BooleanValue, BooleanValue] | Int32Array | Uint32Array;
+  bvec3: [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array;
+  bvec4: [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array;
+  mat2: MatrixComponents<2, 2> | FloatArray;
+  mat2x3: MatrixComponents<2, 3> | FloatArray;
+  mat2x4: MatrixComponents<2, 4> | FloatArray;
+  mat3x2: MatrixComponents<3, 2> | FloatArray;
+  mat3: MatrixComponents<3, 3> | FloatArray;
+  mat3x4: MatrixComponents<3, 4> | FloatArray;
+  mat4x2: MatrixComponents<4, 2> | FloatArray;
+  mat4x3: MatrixComponents<4, 3> | FloatArray;
+  mat4: MatrixComponents<4, 4> | FloatArray;
+  sampler2D: never;
+  sampler3D: never;
+  samplerCube: never;
+  isampler2D: never;
+  isampler3D: never;
+  isamplerCube: never;
+  usampler2D: never;
+  usampler3D: never;
+  usamplerCube: never;
+  void: never;
+}
 
 /** A tuple of `N` numbers: the components of a vector or matrix value, given as a plain array. */
 type Components<N extends number, T extends number[] = []> = T["length"] extends N ? T : Components<N, [...T, number]>;
@@ -117,12 +147,8 @@ type MatrixComponents<
   Columns extends unknown[] = [],
 > = Columns["length"] extends C ? T : MatrixComponents<C, R, [...T, ...Components<R>], [...Columns, unknown]>;
 
-/** The typed arrays that hold a vector or matrix of type `A` as it is: integers in their own kind, floats at either width. */
-type HostVectorArray<A extends ShaderType> = A extends `ivec${string}`
-  ? Int32Array
-  : A extends `uvec${string}`
-    ? Uint32Array
-    : Float32Array | Float64Array;
+/** The typed arrays that hold a float vector or matrix as it is, at either width. */
+type FloatArray = Float32Array | Float64Array;
 
 /**
  * Any value `setUniform` takes by slot name, where the type of the slot is

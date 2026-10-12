@@ -469,7 +469,8 @@ export class WebGLRenderer {
       } else if (binding.scope === "renderer") {
         value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
-        value = binding.value?.({ camera, mesh });
+        // A boolean or a typed array of another kind goes to the call as it is, which converts each component.
+        value = binding.value?.({ camera, mesh }) as number | number[] | Float32Array | undefined;
         // Only a material's value comes from the user; the renderer computes the others in their shape.
         assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       }

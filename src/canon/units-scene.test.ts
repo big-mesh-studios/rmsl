@@ -1289,6 +1289,7 @@ describe("a scene renderer manages what it uploads", () => {
     material.fragmentNode = (b) =>
       vec4(
         b
+          // @ts-expect-error the types refuse it too, and the renderer checks a value the types let through
           .materialUniform("m", "mat3", () => [])
           .element(0)
           .element(0),

@@ -293,6 +293,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape) — `setUniform` on `createGlsl`, `createWgsl`, `createWgslCompute`, `createWgslContext` and `createWasmContext` refuses a value of another shape than the uniform's type. The adapter checks a slot name where `setUniform` is called, before `attach` as after it, against the type of its slot in its program.
       - [`@spec a-renderer-refuses-a-uniform-value-of-another-shape`](#spec-a-renderer-refuses-a-uniform-value-of-another-shape) — A scene renderer refuses a value a material gives a uniform of another shape than its type, at the draw that would upload it. It checks no value of the camera, the object or the renderer, which it computes itself. A camera, object or renderer name it gives no value for keeps the value it had, which is zero until set.
       - [`@spec the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape) — Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+      - [`@spec the-types-hold-a-material-uniforms-value-to-its-shape`](#spec-the-types-hold-a-material-uniforms-value-to-its-shape) — A material gives `Builder.materialUniform` or `Builder.uniform` a function for a uniform's value. Its type returns the value a uniform of that type takes when set by its node. A function that returns another shape is a type error where the material calls the builder.
       - [`@spec the-types-admit-a-uniform-set-to-nothing`](#spec-the-types-admit-a-uniform-set-to-nothing) — On every adapter and context, the type of `setUniform` takes `null` or `undefined` for a uniform set by its node or as an array. An adapter also takes it by slot name.
       - [`@spec every-adapter-shares-one-type-of-setuniform`](#spec-every-adapter-shares-one-type-of-setuniform) — Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
       - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
@@ -2631,6 +2632,14 @@ This follows because only a material's value function comes from the user. A mat
 ##### @spec the-types-hold-a-uniform-value-to-its-shape
 
 > Set by its node, a vector or matrix uniform is typed a tuple of exactly its components, or a typed array of its kind. A `bvecN` takes a tuple of `boolean | 0 | 1`, an `Int32Array` or a `Uint32Array`. Set by slot name, a uniform takes any value a uniform can hold, which the adapter checks against the slot's type.
+
+##### @spec the-types-hold-a-material-uniforms-value-to-its-shape
+
+> A material gives `Builder.materialUniform` or `Builder.uniform` a function for a uniform's value. Its type returns the value a uniform of that type takes when set by its node. A function that returns another shape is a type error where the material calls the builder.
+
+Derives from: [`spec-the-types-hold-a-uniform-value-to-its-shape`](#spec-the-types-hold-a-uniform-value-to-its-shape)
+
+This follows because the builder knows the type of the uniform where the material gives the function. The type checker can refuse the mistake there, which the renderer refuses only at the draw.
 
 ##### @spec the-types-admit-a-uniform-set-to-nothing
 
