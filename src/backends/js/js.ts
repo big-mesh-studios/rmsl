@@ -753,12 +753,13 @@ function jsReadable(compiled: CompiledNode, brand: string | undefined, ctx: Comp
 }
 
 /**
- * An index computed at run time, kept inside `count` items as WASM keeps it:
- * truncated, and past the end or negative (a huge unsigned number) selecting
- * the last item.
+ * An index of type `type` computed at run time, kept inside `count` items as
+ * WASM keeps it: a float converted as `int()` converts it, and an index past
+ * the end or negative (a huge unsigned number) selecting the last item.
  */
-function jsBoundedIndex(index: string, count: number): string {
-  return `Math.min((${index}) >>> 0, ${count - 1})`;
+function jsBoundedIndex(index: string, type: string, count: number): string {
+  let integer = componentKindOf(type) === "float" ? jsComponentCast(index, type, "int") : `(${index})`;
+  return `Math.min(${integer} >>> 0, ${count - 1})`;
 }
 
 /** Whether `index` is a literal index, which the compiler has already checked lies inside what it indexes. */
@@ -795,7 +796,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
   let column = jsNewTemp(ctx, "int");
   return {
     decls: [...mat.decls, ...idx.decls],
-    body: [...mat.body, ...idx.body, `${column} = ${jsBoundedIndex(idx.expr, columns)};`],
+    body: [...mat.body, ...idx.body, `${column} = ${jsBoundedIndex(idx.expr, node.params![1]._t, columns)};`],
     expr: mat.expr,
     at: (k) => mat.at(`${column} * ${rows} + ${k}`),
     inRange: mat.inRange,
@@ -1725,7 +1726,7 @@ export function compileJSNode(
       let at = idx.expr;
       if (!jsIsLiteralIndex(at)) {
         at = jsNewTemp(ctx, "int");
-        body.push(`${at} = ${jsBoundedIndex(idx.expr, last + 1)};`);
+        body.push(`${at} = ${jsBoundedIndex(idx.expr, node.params![1]._t, last + 1)};`);
       }
       // An element past the end of a shorter array the host passes, or of one it leaves out, reads zero.
       jsRequireHelper(ctx, "none");
@@ -2171,7 +2172,7 @@ export function compileJSNode(
       let brand = node.params![0]?._t;
       let [columns, rows] = MATRIX_DIMENSIONS[brand];
       let column = jsIsLiteralIndex(idx.expr) ? idx.expr : jsNewTemp(ctx, "int");
-      let bound = column === idx.expr ? [] : [`${column} = ${jsBoundedIndex(idx.expr, columns)};`];
+      let bound = column === idx.expr ? [] : [`${column} = ${jsBoundedIndex(idx.expr, node.params![1]._t, columns)};`];
       let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
       let lines = Array.from(
         { length: rows },
@@ -2189,7 +2190,9 @@ export function compileJSNode(
       let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       // A run-time index below zero or past the end reaches the last component.
-      let component = jsIsLiteralIndex(idx.expr) ? idx.expr : jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]);
+      let component = jsIsLiteralIndex(idx.expr)
+        ? idx.expr
+        : jsBoundedIndex(idx.expr, node.params![1]._t, TYPE_WIDTH[node.params![0]._t]);
       let read = { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
       return jsBooleanComponent(node, read, ctx);
     }
@@ -2329,7 +2332,7 @@ export function compileJSNode(
           assertConstantIndexInRange(parts.base, parts.index);
           let idx = compileJSStage(parts.index, ctx);
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
-          components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];
+          components = [jsBoundedIndex(idx.expr, parts.index._t, TYPE_WIDTH[parts.base._t])];
         }
         // A storage element outside its buffer is not written. The guard is an
         // expression, so the write stays one in a for-loop's update.
