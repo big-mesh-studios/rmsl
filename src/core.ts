@@ -1187,7 +1187,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
 
   // === VecCommonOps ===
   dot(other: any): any {
-    return op("dot", ...assertOneFloatType("dot", this, wrapValue(other)));
+    return op("dot", ...assertOneFloatType("dot", this, wrapValue(other, "dot")));
   }
   length(): any {
     return op1("length", assertFloats("length", this));
@@ -1196,7 +1196,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return op1("normalize", this);
   }
   distance(other: any): any {
-    return op("distance", ...assertOneFloatType("distance", this, wrapValue(other)));
+    return op("distance", ...assertOneFloatType("distance", this, wrapValue(other, "distance")));
   }
   reflect(normal: any): any {
     return op("reflect", this, normal);
@@ -1245,7 +1245,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       return node({
         _t: this._t,
         type: "storageElement",
-        params: [this as BaseNode<ShaderType>, wrapValue(index) as BaseNode<ShaderType>],
+        params: [this as BaseNode<ShaderType>, wrapValue(index, "element") as BaseNode<ShaderType>],
       });
     }
 
@@ -1336,7 +1336,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         new NodeImpl({
           _t: "void",
           type: "assign",
-          params: [this as BaseNode<ShaderType>, typedOperand(value, this._t) as BaseNode<ShaderType>],
+          params: [this as BaseNode<ShaderType>, typedOperand(value, this._t, "assign") as BaseNode<ShaderType>],
         }),
       );
     });
@@ -1445,8 +1445,8 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return node({ _t: target, type: "construct", params: [this as BaseNode<ShaderType>] });
   }
   select(ifTrue: any, ifFalse: any): any {
-    let a = toNodeBeside(ifTrue, ifFalse) as BaseNode<ShaderType>;
-    let b = typedOperand(ifFalse, (a as any)?._t ?? "float");
+    let a = toNodeBeside(ifTrue, ifFalse, "select") as BaseNode<ShaderType>;
+    let b = typedOperand(ifFalse, (a as any)?._t ?? "float", "select");
     // The result type follows the branches, not the condition. `vec3(0).equal(1).select(v, w)`
     // is a vec3 no matter that the selector is a bvec3.
     let t = (a as any)?._t || (b as any)?._t || this._t;
@@ -1562,7 +1562,12 @@ function describeElement(element: unknown): string {
   return `a ${typeof element}, ${JSON.stringify(element)}`;
 }
 
-export function wrapValue<V>(x: V): Node<ExtractType<V>> {
+/**
+ * `x` as a node: a number as a float, a boolean as a bool, and a JavaScript
+ * array as the vector or matrix of its length. `operation` names the call that
+ * was given `x`, for the message that refuses an array.
+ */
+export function wrapValue<V>(x: V, operation?: string): Node<ExtractType<V>> {
   if (x === undefined || x === null) {
     return node({ _t: "void", type: "void" }) as any;
   }
@@ -1574,15 +1579,16 @@ export function wrapValue<V>(x: V): Node<ExtractType<V>> {
   }
   if (Array.isArray(x)) {
     const type = ARRAY_TYPES[x.length];
+    const givenTo = operation === undefined ? "" : ` given to ${operation}()`;
     if (type === undefined) {
       throw new Error(
-        `[RMSL] A JavaScript array of length ${x.length} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
+        `[RMSL] A JavaScript array of length ${x.length}${givenTo} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
       );
     }
     const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
     if (at >= 0) {
       throw new Error(
-        `[RMSL] A JavaScript array given as a ${type} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
+        `[RMSL] A JavaScript array${givenTo} as a ${type} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
       );
     }
     if (x.every((element) => typeof element === "number")) return node({ _t: type, type, value: x }) as any;
@@ -1696,16 +1702,17 @@ export const UNIFORM_OPERAND_OPS = new Set(["step", "smoothstep", "clamp", "min"
  * node's own type, as in `int x = (float(u) % 2.0)`.
  *
  * A number the operand's type cannot represent is refused rather than quietly
- * reinterpreted.
+ * reinterpreted. `operation` names the call that was given `value`, as
+ * {@link wrapValue} takes it.
  */
-export function typedOperand(value: any, operandType: string): BaseNode<ShaderType> {
+export function typedOperand(value: any, operandType: string, operation?: string): BaseNode<ShaderType> {
   // A bare number beside an integer vector is broadcast as its component type —
   // the int of an ivec, the uint of a uvec — rather than as the vector itself,
   // since `op`/`comp` construct the broadcast from whatever this wraps.
   let scalarType = /^ivec/.test(operandType) ? "int" : /^uvec/.test(operandType) ? "uint" : operandType;
   let isIntegral = scalarType === "int" || scalarType === "uint";
   if (typeof value !== "number" || !isIntegral) {
-    return wrapValue(value) as BaseNode<ShaderType>;
+    return wrapValue(value, operation) as BaseNode<ShaderType>;
   }
   if (!Number.isInteger(value)) {
     throw new Error(
@@ -1760,9 +1767,9 @@ function assertSameWidth(type: string, params: BaseNode<ShaderType>[]): void {
 }
 
 export function op(type: string, ...args: any[]): Node<ShaderType> {
-  let first = wrapValue(args[0]) as BaseNode<ShaderType>;
+  let first = wrapValue(args[0], type) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
-  let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT))];
+  let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT, type))];
   if (SAME_KIND_OPS.has(type)) assertSameKind(type, params);
   assertSameWidth(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
@@ -1819,7 +1826,7 @@ function assertOneFloatType(name: string, a: any, b: any): [any, any] {
 }
 
 export function op1(type: string, a: any): Node<ShaderType> {
-  let wrapped = wrapValue(a) as BaseNode<ShaderType>;
+  let wrapped = wrapValue(a, type) as BaseNode<ShaderType>;
   let t = (wrapped as any)?._t || "float";
   return node({ _t: resultType(type, t), type, params: [wrapped] });
 }
@@ -1833,8 +1840,8 @@ export function op1(type: string, a: any): Node<ShaderType> {
 export function comp(type: string, a: any, b: any): Node<ShaderType> {
   // Comparisons need the same literal typing arithmetic gets: an unsigned
   // operand compared against a plain number must be typed accordingly.
-  let first = wrapValue(a) as BaseNode<ShaderType>;
-  let params = [first, typedOperand(b, (first as any)?._t || "float")];
+  let first = wrapValue(a, type) as BaseNode<ShaderType>;
+  let params = [first, typedOperand(b, (first as any)?._t || "float", type)];
   assertSameKind(type, params);
   assertSameWidth(type, params);
   let widths = params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1);
@@ -2126,16 +2133,20 @@ export function vec2(x?: FloatLike | Node<"vec2"> | Node<"vec3"> | Node<"vec4">,
   }
   if (isNode(x)) {
     let params = [x as BaseNode<ShaderType>];
-    if (y !== undefined) params.push(wrapValue(y) as BaseNode<ShaderType>);
+    if (y !== undefined) params.push(wrapValue(y, "vec2") as BaseNode<ShaderType>);
     return node({ _t: "vec2", type: "construct", params }) as Node<"vec2">;
   }
   if (y === undefined) {
-    return node({ _t: "vec2", type: "construct", params: [wrapValue(x)] }) as Node<"vec2">;
+    return node({ _t: "vec2", type: "construct", params: [wrapValue(x, "vec2")] }) as Node<"vec2">;
   }
   if (typeof y === "number") {
     return node({ _t: "vec2", type: "vec2", value: [x, y] }) as Node<"vec2">;
   }
-  return node({ _t: "vec2", type: "construct", params: [wrapValue(x), y as BaseNode<ShaderType>] }) as Node<"vec2">;
+  return node({
+    _t: "vec2",
+    type: "construct",
+    params: [wrapValue(x, "vec2"), y as BaseNode<ShaderType>],
+  }) as Node<"vec2">;
 }
 export function vec3(x?: FloatLike | Node<"vec3"> | Node<"vec4">, y?: FloatLike, z?: FloatLike): Node<"vec3"> {
   if (x === undefined) {
@@ -2143,21 +2154,21 @@ export function vec3(x?: FloatLike | Node<"vec3"> | Node<"vec4">, y?: FloatLike,
   }
   if (isNode(x)) {
     let params = [x as BaseNode<ShaderType>];
-    if (y !== undefined) params.push(wrapValue(y) as BaseNode<ShaderType>);
-    if (z !== undefined) params.push(wrapValue(z) as BaseNode<ShaderType>);
+    if (y !== undefined) params.push(wrapValue(y, "vec3") as BaseNode<ShaderType>);
+    if (z !== undefined) params.push(wrapValue(z, "vec3") as BaseNode<ShaderType>);
     return node({ _t: "vec3", type: "construct", params }) as Node<"vec3">;
   }
   if (y === undefined) {
-    return node({ _t: "vec3", type: "construct", params: [wrapValue(x)] }) as Node<"vec3">;
+    return node({ _t: "vec3", type: "construct", params: [wrapValue(x, "vec3")] }) as Node<"vec3">;
   }
   if (typeof y === "number" && (z === undefined || typeof z === "number")) {
     let values: number[] = [x, y];
     if (z !== undefined) values.push(z);
     return node({ _t: "vec3", type: "vec3", value: values }) as Node<"vec3">;
   }
-  let params = [wrapValue(x) as BaseNode<ShaderType>];
-  if (y !== undefined) params.push(wrapValue(y) as BaseNode<ShaderType>);
-  if (z !== undefined) params.push(wrapValue(z) as BaseNode<ShaderType>);
+  let params = [wrapValue(x, "vec3") as BaseNode<ShaderType>];
+  if (y !== undefined) params.push(wrapValue(y, "vec3") as BaseNode<ShaderType>);
+  if (z !== undefined) params.push(wrapValue(z, "vec3") as BaseNode<ShaderType>);
   return node({ _t: "vec3", type: "construct", params }) as Node<"vec3">;
 }
 export function vec4(
@@ -2171,13 +2182,13 @@ export function vec4(
   }
   if (isNode(x)) {
     let params = [x as BaseNode<ShaderType>];
-    if (y !== undefined) params.push(wrapValue(y) as BaseNode<ShaderType>);
-    if (z !== undefined) params.push(wrapValue(z) as BaseNode<ShaderType>);
-    if (w !== undefined) params.push(wrapValue(w) as BaseNode<ShaderType>);
+    if (y !== undefined) params.push(wrapValue(y, "vec4") as BaseNode<ShaderType>);
+    if (z !== undefined) params.push(wrapValue(z, "vec4") as BaseNode<ShaderType>);
+    if (w !== undefined) params.push(wrapValue(w, "vec4") as BaseNode<ShaderType>);
     return node({ _t: "vec4", type: "construct", params }) as Node<"vec4">;
   }
   if (y === undefined) {
-    return node({ _t: "vec4", type: "construct", params: [wrapValue(x)] }) as Node<"vec4">;
+    return node({ _t: "vec4", type: "construct", params: [wrapValue(x, "vec4")] }) as Node<"vec4">;
   }
   if (
     typeof y === "number" &&
@@ -2189,10 +2200,10 @@ export function vec4(
     if (w !== undefined) values.push(w);
     return node({ _t: "vec4", type: "vec4", value: values }) as Node<"vec4">;
   }
-  let params = [wrapValue(x) as BaseNode<ShaderType>];
-  if (y !== undefined) params.push(wrapValue(y) as BaseNode<ShaderType>);
-  if (z !== undefined) params.push(wrapValue(z) as BaseNode<ShaderType>);
-  if (w !== undefined) params.push(wrapValue(w) as BaseNode<ShaderType>);
+  let params = [wrapValue(x, "vec4") as BaseNode<ShaderType>];
+  if (y !== undefined) params.push(wrapValue(y, "vec4") as BaseNode<ShaderType>);
+  if (z !== undefined) params.push(wrapValue(z, "vec4") as BaseNode<ShaderType>);
+  if (w !== undefined) params.push(wrapValue(w, "vec4") as BaseNode<ShaderType>);
   return node({ _t: "vec4", type: "construct", params }) as Node<"vec4">;
 }
 /** The number as an integer of `type`, truncated toward zero. A number the type cannot hold is refused. */
@@ -2267,7 +2278,9 @@ export function makeIntVecConstructor<T extends ShaderType>(
     return node({
       _t: t,
       type: "construct",
-      params: args.map((a: any) => (isNode(a) ? (a as BaseNode<ShaderType>) : (wrapValue(a) as BaseNode<ShaderType>))),
+      params: args.map((a: any) =>
+        isNode(a) ? (a as BaseNode<ShaderType>) : (wrapValue(a, t) as BaseNode<ShaderType>),
+      ),
     }) as Node<T>;
   };
 }
@@ -2393,7 +2406,9 @@ export function makeBoolVecConstructor<T extends ShaderType>(t: T, width: number
     return node({
       _t: t,
       type: "construct",
-      params: args.map((a: any) => (isNode(a) ? (a as BaseNode<ShaderType>) : (wrapValue(a) as BaseNode<ShaderType>))),
+      params: args.map((a: any) =>
+        isNode(a) ? (a as BaseNode<ShaderType>) : (wrapValue(a, t) as BaseNode<ShaderType>),
+      ),
     }) as Node<T>;
   };
 }
@@ -2422,253 +2437,253 @@ export type MathLike = number | boolean | VectorArray | Node<ShaderType>;
  * operations that reduce (dot, length, all, ...) declare the narrower type and
  * the rest leave the node untyped, the way TSL's own free functions do.
  */
-export function toNode(v: MathLike): any {
-  return wrapValue(v);
+export function toNode(v: MathLike, operation?: string): any {
+  return wrapValue(v, operation);
 }
 
 /**
  * `toNode` for the first operand of a free function. A number beside an
  * integer node takes that node's type, as a number after it does.
  */
-function toNodeBeside(a: MathLike, b: unknown): any {
+function toNodeBeside(a: MathLike, b: unknown, operation?: string): any {
   let beside = (b as { _t?: string } | null | undefined)?._t;
-  return typeof a === "number" && beside !== undefined ? typedOperand(a, beside) : wrapValue(a);
+  return typeof a === "number" && beside !== undefined ? typedOperand(a, beside, operation) : wrapValue(a, operation);
 }
 
 export function add(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).add(b);
+  let r = toNodeBeside(a, b, "add").add(b);
   for (const x of rest) r = r.add(x);
   return r;
 }
 export function sub(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).sub(b);
+  let r = toNodeBeside(a, b, "sub").sub(b);
   for (const x of rest) r = r.sub(x);
   return r;
 }
 export function mul(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).mul(b);
+  let r = toNodeBeside(a, b, "mul").mul(b);
   for (const x of rest) r = r.mul(x);
   return r;
 }
 export function div(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).div(b);
+  let r = toNodeBeside(a, b, "div").div(b);
   for (const x of rest) r = r.div(x);
   return r;
 }
 export function mod(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).mod(b);
+  return toNodeBeside(a, b, "mod").mod(b);
 }
 
 export function equal(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).equal(b);
+  return toNodeBeside(a, b, "equal").equal(b);
 }
 export function notEqual(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).notEqual(b);
+  return toNodeBeside(a, b, "notEqual").notEqual(b);
 }
 export function lessThan(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).lessThan(b);
+  return toNodeBeside(a, b, "lessThan").lessThan(b);
 }
 export function greaterThan(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).greaterThan(b);
+  return toNodeBeside(a, b, "greaterThan").greaterThan(b);
 }
 export function lessThanEqual(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).lessThanEqual(b);
+  return toNodeBeside(a, b, "lessThanEqual").lessThanEqual(b);
 }
 export function greaterThanEqual(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).greaterThanEqual(b);
+  return toNodeBeside(a, b, "greaterThanEqual").greaterThanEqual(b);
 }
 
 export function and(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).and(b);
+  let r = toNodeBeside(a, b, "and").and(b);
   for (const x of rest) r = r.and(x);
   return r;
 }
 export function or(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).or(b);
+  let r = toNodeBeside(a, b, "or").or(b);
   for (const x of rest) r = r.or(x);
   return r;
 }
 export function xor(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).xor(b);
+  return toNodeBeside(a, b, "xor").xor(b);
 }
 export function not(a: MathLike): any {
-  return toNode(a).not();
+  return toNode(a, "not").not();
 }
 
 export function bitAnd(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).bitAnd(b);
+  return toNodeBeside(a, b, "bitAnd").bitAnd(b);
 }
 export function bitOr(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).bitOr(b);
+  return toNodeBeside(a, b, "bitOr").bitOr(b);
 }
 export function bitXor(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).bitXor(b);
+  return toNodeBeside(a, b, "bitXor").bitXor(b);
 }
 export function bitNot(a: MathLike): any {
-  return toNode(a).bitNot();
+  return toNode(a, "bitNot").bitNot();
 }
 export function shiftLeft(a: MathLike, b: MathLike): any {
-  return (typeof a === "number" ? int(a) : toNode(a)).shiftLeft(b);
+  return (typeof a === "number" ? int(a) : toNode(a, "shiftLeft")).shiftLeft(b);
 }
 export function shiftRight(a: MathLike, b: MathLike): any {
-  return (typeof a === "number" ? int(a) : toNode(a)).shiftRight(b);
+  return (typeof a === "number" ? int(a) : toNode(a, "shiftRight")).shiftRight(b);
 }
 
 export function abs(a: MathLike): any {
-  return toNode(a).abs();
+  return toNode(a, "abs").abs();
 }
 export function sign(a: MathLike): any {
-  return toNode(a).sign();
+  return toNode(a, "sign").sign();
 }
 export function floor(a: MathLike): any {
-  return toNode(a).floor();
+  return toNode(a, "floor").floor();
 }
 export function ceil(a: MathLike): any {
-  return toNode(a).ceil();
+  return toNode(a, "ceil").ceil();
 }
 export function fract(a: MathLike): any {
-  return toNode(a).fract();
+  return toNode(a, "fract").fract();
 }
 export function round(a: MathLike): any {
-  return toNode(a).round();
+  return toNode(a, "round").round();
 }
 export function trunc(a: MathLike): any {
-  return toNode(a).trunc();
+  return toNode(a, "trunc").trunc();
 }
 export function radians(a: MathLike): any {
-  return toNode(a).radians();
+  return toNode(a, "radians").radians();
 }
 export function degrees(a: MathLike): any {
-  return toNode(a).degrees();
+  return toNode(a, "degrees").degrees();
 }
 export function sqrt(a: MathLike): any {
-  return toNode(a).sqrt();
+  return toNode(a, "sqrt").sqrt();
 }
 export function inverseSqrt(a: MathLike): any {
-  return toNode(a).inverseSqrt();
+  return toNode(a, "inverseSqrt").inverseSqrt();
 }
 /** GLSL-style alias for `inverseSqrt`, which TSL also exports. */
 export function inversesqrt(a: MathLike): any {
-  return toNode(a).inverseSqrt();
+  return toNode(a, "inversesqrt").inverseSqrt();
 }
 export function exp(a: MathLike): any {
-  return toNode(a).exp();
+  return toNode(a, "exp").exp();
 }
 export function log(a: MathLike): any {
-  return toNode(a).log();
+  return toNode(a, "log").log();
 }
 export function exp2(a: MathLike): any {
-  return toNode(a).exp2();
+  return toNode(a, "exp2").exp2();
 }
 export function log2(a: MathLike): any {
-  return toNode(a).log2();
+  return toNode(a, "log2").log2();
 }
 export function negate(a: MathLike): any {
-  return toNode(a).negate();
+  return toNode(a, "negate").negate();
 }
 export function oneMinus(a: MathLike): any {
-  return toNode(a).oneMinus();
+  return toNode(a, "oneMinus").oneMinus();
 }
 export function reciprocal(a: MathLike): any {
-  return toNode(a).reciprocal();
+  return toNode(a, "reciprocal").reciprocal();
 }
 export function cbrt(a: MathLike): any {
-  return toNode(a).cbrt();
+  return toNode(a, "cbrt").cbrt();
 }
 export function saturate(a: MathLike): any {
-  return toNode(a).saturate();
+  return toNode(a, "saturate").saturate();
 }
 export function lengthSq(a: MathLike): any {
-  return toNode(a).lengthSq();
+  return toNode(a, "lengthSq").lengthSq();
 }
 export function normalize(a: MathLike): any {
-  return toNode(a).normalize();
+  return toNode(a, "normalize").normalize();
 }
 export function dFdx(a: MathLike): any {
-  return toNode(a).dFdx();
+  return toNode(a, "dFdx").dFdx();
 }
 export function dFdy(a: MathLike): any {
-  return toNode(a).dFdy();
+  return toNode(a, "dFdy").dFdy();
 }
 export function fwidth(a: MathLike): any {
-  return toNode(a).fwidth();
+  return toNode(a, "fwidth").fwidth();
 }
 
 export function sin(a: MathLike): any {
-  return toNode(a).sin();
+  return toNode(a, "sin").sin();
 }
 export function cos(a: MathLike): any {
-  return toNode(a).cos();
+  return toNode(a, "cos").cos();
 }
 export function tan(a: MathLike): any {
-  return toNode(a).tan();
+  return toNode(a, "tan").tan();
 }
 export function asin(a: MathLike): any {
-  return toNode(a).asin();
+  return toNode(a, "asin").asin();
 }
 export function acos(a: MathLike): any {
-  return toNode(a).acos();
+  return toNode(a, "acos").acos();
 }
 export function sinh(a: MathLike): any {
-  return toNode(a).sinh();
+  return toNode(a, "sinh").sinh();
 }
 export function cosh(a: MathLike): any {
-  return toNode(a).cosh();
+  return toNode(a, "cosh").cosh();
 }
 export function tanh(a: MathLike): any {
-  return toNode(a).tanh();
+  return toNode(a, "tanh").tanh();
 }
 export function asinh(a: MathLike): any {
-  return toNode(a).asinh();
+  return toNode(a, "asinh").asinh();
 }
 export function acosh(a: MathLike): any {
-  return toNode(a).acosh();
+  return toNode(a, "acosh").acosh();
 }
 export function atanh(a: MathLike): any {
-  return toNode(a).atanh();
+  return toNode(a, "atanh").atanh();
 }
 
 /** `atan(y)` is the single-argument arctangent; `atan(y, x)` is `atan2`. */
 export function atan(y: MathLike, x?: MathLike): any {
-  return x === undefined ? toNode(y).atan() : toNode(y).atan(x);
+  return x === undefined ? toNode(y, "atan").atan() : toNode(y, "atan").atan(x);
 }
 
 export function pow(x: MathLike, e: MathLike): any {
-  return toNode(x).pow(e);
+  return toNode(x, "pow").pow(e);
 }
 export function pow2(x: MathLike): any {
-  return toNode(x).pow2();
+  return toNode(x, "pow2").pow2();
 }
 export function pow3(x: MathLike): any {
-  return toNode(x).pow3();
+  return toNode(x, "pow3").pow3();
 }
 export function pow4(x: MathLike): any {
-  return toNode(x).pow4();
+  return toNode(x, "pow4").pow4();
 }
 export function min(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).min(b);
+  let r = toNodeBeside(a, b, "min").min(b);
   for (const x of rest) r = r.min(x);
   return r;
 }
 export function max(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNodeBeside(a, b).max(b);
+  let r = toNodeBeside(a, b, "max").max(b);
   for (const x of rest) r = r.max(x);
   return r;
 }
 export function step(edge: MathLike, x: MathLike): any {
-  return toNode(x).step(edge);
+  return toNode(x, "step").step(edge);
 }
 export function reflect(incident: MathLike, normal: MathLike): any {
-  return toNode(incident).reflect(normal);
+  return toNode(incident, "reflect").reflect(normal);
 }
 export function refract(incident: MathLike, normal: MathLike, eta: MathLike): any {
-  return toNode(incident).refract(normal, eta);
+  return toNode(incident, "refract").refract(normal, eta);
 }
 export function faceForward(n: MathLike, incident: MathLike, reference: MathLike): any {
-  return toNode(n).faceForward(incident, reference);
+  return toNode(n, "faceForward").faceForward(incident, reference);
 }
 export function difference(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).difference(b);
+  return toNodeBeside(a, b, "difference").difference(b);
 }
 /** A float or a float vector of each width, as `length`, `distance` and `dot` take it. */
 export type FloatScalarLike = number | Node<"float">;
@@ -2682,55 +2697,55 @@ export function dot(a: FloatVec2Like, b: FloatVec2Like): Node<"float">;
 export function dot(a: FloatVec3Like, b: FloatVec3Like): Node<"float">;
 export function dot(a: FloatVec4Like, b: FloatVec4Like): Node<"float">;
 export function dot(a: FloatValueLike, b: FloatValueLike): Node<"float"> {
-  return toNodeBeside(a as MathLike, b as MathLike).dot(b);
+  return toNodeBeside(a as MathLike, b as MathLike, "dot").dot(b);
 }
 export function cross(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).cross(b);
+  return toNodeBeside(a, b, "cross").cross(b);
 }
 export function distance(a: FloatScalarLike, b: FloatScalarLike): Node<"float">;
 export function distance(a: FloatVec2Like, b: FloatVec2Like): Node<"float">;
 export function distance(a: FloatVec3Like, b: FloatVec3Like): Node<"float">;
 export function distance(a: FloatVec4Like, b: FloatVec4Like): Node<"float">;
 export function distance(a: FloatValueLike, b: FloatValueLike): Node<"float"> {
-  return toNodeBeside(a as MathLike, b as MathLike).distance(b);
+  return toNodeBeside(a as MathLike, b as MathLike, "distance").distance(b);
 }
 export function length(a: FloatValueLike): Node<"float"> {
-  return toNode(a as MathLike).length();
+  return toNode(a as MathLike, "length").length();
 }
 export function mix(a: MathLike, b: MathLike, t: MathLike): any {
-  return toNodeBeside(a, b).mix(b, t);
+  return toNodeBeside(a, b, "mix").mix(b, t);
 }
 export function clamp(x: MathLike, low: MathLike = 0, high: MathLike = 1): any {
-  return toNode(x).clamp(low, high);
+  return toNode(x, "clamp").clamp(low, high);
 }
 export function smoothstep(low: MathLike, high: MathLike, x: MathLike): any {
-  return toNode(x).smoothstep(low, high);
+  return toNode(x, "smoothstep").smoothstep(low, high);
 }
 
 export function all(x: MathLike): Node<"bool"> {
-  return toNode(x).all();
+  return toNode(x, "all").all();
 }
 export function any(x: MathLike): Node<"bool"> {
-  return toNode(x).any();
+  return toNode(x, "any").any();
 }
 
 export function transpose(m: MathLike): any {
-  return toNode(m).transpose();
+  return toNode(m, "transpose").transpose();
 }
 export function determinant(m: MathLike): Node<"float"> {
-  return toNode(m).determinant();
+  return toNode(m, "determinant").determinant();
 }
 export function inverse(m: MathLike): any {
-  return toNode(m).inverse();
+  return toNode(m, "inverse").inverse();
 }
 
 export function element(a: MathLike, i: IntLike): any {
-  return toNode(a).element(i);
+  return toNode(a, "element").element(i);
 }
 
 /** TSL's conditional: `select(cond, a, b)` is `a` when `cond`, else `b`. */
 export function select(cond: MathLike, a: MathLike, b: MathLike): any {
-  return toNode(cond).select(a, b);
+  return toNode(cond, "select").select(a, b);
 }
 
 /**
@@ -2743,7 +2758,7 @@ export function luminance(
   color: FloatVec3Like | FloatVec4Like,
   luminanceCoefficients: FloatVec3Like = [0.2126, 0.7152, 0.0722],
 ): Node<"float"> {
-  let c = toNode(color);
+  let c = toNode(color, "luminance");
   let rgb = (c as any)?._t === "vec4" ? c.rgb : c;
   return dot(rgb as Node<"vec3">, luminanceCoefficients);
 }
@@ -2752,7 +2767,7 @@ export function luminance(
  * A deterministic hash of the given uv, in `[0, 1)`, from TSL's `rand`.
  */
 export function rand(uv: MathLike): Node<"float"> {
-  let dt = dot(toNode(uv).xy, vec2(12.9898, 78.233));
+  let dt = dot(toNode(uv, "rand").xy, vec2(12.9898, 78.233));
   return fract(sin(mod(dt, PI)).mul(43758.5453));
 }
 
@@ -2761,18 +2776,20 @@ export function rand(uv: MathLike): Node<"float"> {
  * in `[0, 1)`. Takes a pixel-space position.
  */
 export function interleavedGradientNoise(position: MathLike): Node<"float"> {
-  return fract(float(52.9829189).mul(fract(dot(toNode(position), vec2(0.06711056, 0.00583715)))));
+  return fract(
+    float(52.9829189).mul(fract(dot(toNode(position, "interleavedGradientNoise"), vec2(0.06711056, 0.00583715)))),
+  );
 }
 
 /** Multiply a colour's rgb by its alpha, leaving alpha alone. */
 export function premultiplyAlpha(color: MathLike): any {
-  let c = toNode(color);
+  let c = toNode(color, "premultiplyAlpha");
   return vec4(c.rgb.mul(c.a), c.a);
 }
 
 /** Reverse `premultiplyAlpha`, guarding against a zero alpha. */
 export function unpremultiplyAlpha(color: MathLike): any {
-  let c = toNode(color);
+  let c = toNode(color, "unpremultiplyAlpha");
   return c.a.equal(0).select(vec4(0), vec4(c.rgb.div(c.a), c.a));
 }
 
@@ -2808,7 +2825,7 @@ export function texture(value: BaseNode<ShaderType>, uv: unknown): any {
   return node({
     _t: textureResultType(value._t),
     type: "texture",
-    params: [value, wrapValue(uv as any) as BaseNode<ShaderType>],
+    params: [value, wrapValue(uv as any, "texture") as BaseNode<ShaderType>],
   });
 }
 
@@ -2828,7 +2845,11 @@ export function textureLevel(value: BaseNode<ShaderType>, uv: unknown, level: un
   return node({
     _t: textureResultType(value._t),
     type: "textureLod",
-    params: [value, wrapValue(uv as any) as BaseNode<ShaderType>, wrapValue(level as any) as BaseNode<ShaderType>],
+    params: [
+      value,
+      wrapValue(uv as any, "textureLevel") as BaseNode<ShaderType>,
+      wrapValue(level as any, "textureLevel") as BaseNode<ShaderType>,
+    ],
   });
 }
 
@@ -2850,7 +2871,7 @@ export function textureLoad(
   return node({
     _t: textureResultType(samplerType),
     type: "textureLoad",
-    params: [sampler as BaseNode<ShaderType>, wrapValue(coords) as BaseNode<ShaderType>],
+    params: [sampler as BaseNode<ShaderType>, wrapValue(coords, "textureLoad") as BaseNode<ShaderType>],
   });
 }
 
@@ -2907,7 +2928,7 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
     node({
       _t: shaderType,
       type: "uniformArrayElement",
-      params: [target, wrapValue(index) as BaseNode<ShaderType>],
+      params: [target, wrapValue(index, "element") as BaseNode<ShaderType>],
     });
 }
 
@@ -3071,7 +3092,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
     node({
       _t: shaderType,
       type: "storageElement",
-      params: [storageNode, wrapValue(index) as BaseNode<ShaderType>],
+      params: [storageNode, wrapValue(index, "element") as BaseNode<ShaderType>],
     }) as Var<T>;
   result.toReadOnly = () => {
     value.access = "read";
