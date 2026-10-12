@@ -260,7 +260,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
-- [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
+- [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
       - [`@spec loop-runs-its-body-count-times`](#spec-loop-runs-its-body-count-times) — `Loop(count, ({ i }) => …)` runs its body `count` times, with an `int` index `i` counting 0, 1, and so on.
@@ -350,6 +350,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
+    - [`@spec break-leaves-its-loop`](#spec-break-leaves-its-loop) — `Break()` leaves the innermost loop that holds it.
+    - [`@spec continue-starts-the-next-iteration`](#spec-continue-starts-the-next-iteration) — `Continue()` starts the next iteration of the innermost loop that holds it.
+    - [`@spec return-leaves-the-function`](#spec-return-leaves-the-function) — `Return()` leaves the function that holds it: a routine, a function compiled on its own, or a compute program.
+      - [`@exception a-return-that-would-end-a-stage-is-refused`](#exception-a-return-that-would-end-a-stage-is-refused) — The compiler refuses a `Return()` that would end a vertex or a fragment stage, on every target. This holds whether the stage's own body holds it, or an `Fn` the stage calls inline. A routine or a compute program takes `Return()` as TSL does, and `Discard()` drops a fragment.
+      - [`@exception a-return-in-a-function-gives-the-zero-value-of-its-type`](#exception-a-return-in-a-function-gives-the-zero-value-of-its-type) — An early `Return()` in a function that returns a value gives the zero value of the function's type, on every target. That holds for a routine and for a function compiled with `compileGlslFn` or `compileWgslFn`. A function that returns nothing just ends.
+    - [`@spec discard-drops-the-fragment`](#spec-discard-drops-the-fragment) — `Discard()` drops the fragment, which writes neither colour nor depth.
+  - [`@spec builtin-frag-depth-is-tsls-depth`](#spec-builtin-frag-depth-is-tsls-depth) — `builtinFragDepth()` reads and writes the depth of the fragment, as TSL's `depth` does.
+    - [`@spec builtin-frag-depth-compiles-to-the-depth-output-of-the-target`](#spec-builtin-frag-depth-compiles-to-the-depth-output-of-the-target) — On GLSL, `builtinFragDepth()` is `gl_FragDepth`. On WGSL, it is the `@builtin(frag_depth)` member of the fragment's output.
+    - [`@exception a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own) — In a fragment stage that writes its depth, a path that writes none gives the fragment's own depth. That is the depth it would have if the stage wrote none. A read of the depth before a write gives that depth too. This holds on every target.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
@@ -752,6 +761,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level) — TSL samples a texture with the function `texture(value, uv)`. At a level it uses `textureLevel(value, uv, level)` or `.level(level)`. three.js 0.186 defines no TSL export named `textureLod`. That name appears only in `NodeBuilder`, as the GLSL function it emits.
 - [`@fact tsl-chains-if-elseif-and-else-as-conditions`](#fact-tsl-chains-if-elseif-and-else-as-conditions) — TSL's `If`, `ElseIf` and `Else` build a chain of conditional nodes. Each branch after the first is the `elseNode` of the branch before it, so the first branch whose condition holds runs, and `Else` runs when none does.
 - [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
+- [`@fact tsl-leaves-a-stage-return-undefined`](#fact-tsl-leaves-a-stage-return-undefined) — TSL's WGSL builder ends a fragment stage's `main` by returning its output struct, so the bare `return` that `Return()` adds in the stage is invalid WGSL. Its GLSL `main` returns nothing, and a `return` there leaves the stage's outputs unwritten, so undefined.
+- [`@fact tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path) — TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
@@ -823,10 +834,6 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 ### Typed errors
 
 Every refusal is a plain `Error` today, and a caller can tell refusals apart only by their messages. The owner wants typed errors, which issue #43 proposes. Their shape is open: one class with a code, a class per kind, or a base class with subclasses.
-
-### Fragment depth
-
-A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. The CPU rasterizers give such a path the interpolated depth. A read of the depth before a write gets it too, under [`spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one), where WGSL reads 0. Issue #132 holds the question.
 
 ### Divergences found
 
@@ -2292,11 +2299,13 @@ This follows because a case no selector can match is a mistake in the program, a
 
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
-> rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
+> rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
 
 A user who knows TSL knows rmsl, and a shader written for Three.js moves to rmsl without a rewrite. The axiom decides between familiarity and a vocabulary designed from scratch.
 
-A departure that serves no axiom is a matter of taste, and taste does not outweigh a port that works. A departure that does serve one is stated as a spec, and the spec names the axiom on its `Derives from:` line. Before settling a question about the API, read what TSL does in its source.
+A departure that serves no axiom is a matter of taste, and taste does not outweigh a port that works. A departure that does serve one is an exception inside the spec of the TSL behaviour it departs from. It names the fact of what TSL does, and the axiom it serves, on its `Derives from:` line. A departure is TSL code that means something else in rmsl, or that rmsl refuses.
+
+An addition TSL lacks, such as `While` or `For`, changes nothing a TSL shader does. It is a spec, and it cites this axiom on its `Derives from:` line, so the canon lists what rmsl adds as well as where it departs. Before settling a question about the API, read what TSL does in its source.
 
 ### @spec a-loop-follows-tsls-loop
 
@@ -2394,7 +2403,9 @@ This follows because the body takes its indices by name, so the inner index woul
 
 > rmsl has `While` beside TSL's `Loop(condition, body)`. TSL has no `While`.
 
-This follows because the owner kept rmsl's own loops beside TSL's (issue #60).
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import)
+
+This follows because rmsl may hold what TSL lacks, and the owner kept rmsl's own loops beside TSL's (issue #60).
 
 ##### @spec a-while-condition-given-as-a-node-is-built-once
 
@@ -2434,7 +2445,9 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 > rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
 
-This follows because the owner kept rmsl's own loops beside TSL's (issue #60).
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import)
+
+This follows because rmsl may hold what TSL lacks, and the owner kept rmsl's own loops beside TSL's (issue #60).
 
 ##### @exception a-for-condition-is-computed-before-every-test
 
@@ -2791,6 +2804,58 @@ This follows because TSL's `Switch` compiles the same way.
 Derives from: [`fact-tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements)
 
 This follows because TSL's statements of the same name do.
+
+#### @spec break-leaves-its-loop
+
+> `Break()` leaves the innermost loop that holds it.
+
+#### @spec continue-starts-the-next-iteration
+
+> `Continue()` starts the next iteration of the innermost loop that holds it.
+
+#### @spec return-leaves-the-function
+
+> `Return()` leaves the function that holds it: a routine, a function compiled on its own, or a compute program.
+
+##### @exception a-return-that-would-end-a-stage-is-refused
+
+> The compiler refuses a `Return()` that would end a vertex or a fragment stage, on every target. This holds whether the stage's own body holds it, or an `Fn` the stage calls inline. A routine or a compute program takes `Return()` as TSL does, and `Discard()` drops a fragment.
+
+Derives from: [`fact-tsl-leaves-a-stage-return-undefined`](#fact-tsl-leaves-a-stage-return-undefined), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a stage that ends early writes none of the outputs after it. TSL gives such a stage no defined result on either target. Issues #144 and #223 settled this.
+
+##### @exception a-return-in-a-function-gives-the-zero-value-of-its-type
+
+> An early `Return()` in a function that returns a value gives the zero value of the function's type, on every target. That holds for a routine and for a function compiled with `compileGlslFn` or `compileWgslFn`. A function that returns nothing just ends.
+
+Derives from: [`fact-tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because TSL's bare `return` gives no value, which GLSL and WGSL refuse in a function with a return type. The zero value is what such a function gives when it ends with nothing to return.
+
+#### @spec discard-drops-the-fragment
+
+> `Discard()` drops the fragment, which writes neither colour nor depth.
+
+### @spec builtin-frag-depth-is-tsls-depth
+
+> `builtinFragDepth()` reads and writes the depth of the fragment, as TSL's `depth` does.
+
+Derives from: [`fact-tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path)
+
+This follows because a TSL shader that writes its depth ports by changing its import.
+
+#### @spec builtin-frag-depth-compiles-to-the-depth-output-of-the-target
+
+> On GLSL, `builtinFragDepth()` is `gl_FragDepth`. On WGSL, it is the `@builtin(frag_depth)` member of the fragment's output.
+
+#### @exception a-fragment-path-that-writes-no-depth-keeps-its-own
+
+> In a fragment stage that writes its depth, a path that writes none gives the fragment's own depth. That is the depth it would have if the stage wrote none. A read of the depth before a write gives that depth too. This holds on every target.
+
+Derives from: [`fact-tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a depth written on one path gets no default in TSL. WGSL gives 0, which wins every depth test, and GLSL leaves it undefined. The fragment's own depth is what TSL's material gives when its depth expression keeps it. Issue #132 settled this.
 
 ### @spec an-fn-records-the-statements-of-its-body
 
@@ -5251,6 +5316,18 @@ This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 
 > TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 
 This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 0.186).
+
+## @fact tsl-leaves-a-stage-return-undefined
+
+> TSL's WGSL builder ends a fragment stage's `main` by returning its output struct, so the bare `return` that `Return()` adds in the stage is invalid WGSL. Its GLSL `main` returns nothing, and a `return` there leaves the stage's outputs unwritten, so undefined.
+
+This is how three.js's TSL behaves, read from its source (`Discard`, `WGSLNodeBuilder` and `GLSLNodeBuilder`, three.js 0.186).
+
+## @fact tsl-writes-a-material-depth-on-every-path
+
+> TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
+
+This is how three.js's TSL behaves, read from its source (`NodeMaterial.setupDepth` and `WGSLNodeBuilder`, three.js 0.186).
 
 ## @fact tsl-break-continue-return-and-discard-are-statements
 

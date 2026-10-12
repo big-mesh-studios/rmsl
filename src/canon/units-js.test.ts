@@ -476,18 +476,17 @@ describe("a varying a CPU vertex stage does not write", () => {
   /**
    * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
    */
-  it("is 0 when the call returns before the statement that writes it", () => {
+  it("is 0 when the call takes a path that does not write it", () => {
     const shade = varying("float");
     const pair = varying("vec2");
     const stop = uniform("int");
     const build = () =>
       Fn(() => {
         builtinPosition().assign(vec4(0, 0, 0, 1));
-        If(stop.equal(int(1)), () => {
-          Return();
+        If(stop.notEqual(int(1)), () => {
+          shade.assign(float(0.25));
+          pair.assign(vec2(1, 2));
         });
-        shade.assign(float(0.25));
-        pair.assign(vec2(1, 2));
       })() as any;
     const source = compileJSFn(build, { name: "main", params: [], stage: "vertex" });
     expect(source).toContain(`res.varyings["${shade.name}"] = 0;`);
@@ -587,7 +586,7 @@ describe("the varyings a JS rasterizer interpolates", () => {
 
 describe("a JS rasterizer's discarded fragment", () => {
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("leaves the colour under a discarded fragment as it was", () => {
     const draw = flatRasterizer((color, drop) => {
@@ -1874,7 +1873,7 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("writes no depth for a discarded fragment in the JS rasterizer", () => {
     const draw = flatRasterizer((color, drop) => {
@@ -1995,5 +1994,124 @@ describe("the count of a draw that names none on JS", () => {
     expect(() => compileJS(vertex as any, fragment as any).draw(inputs, { width: 1, height: 1 })).toThrow(missing);
     const wasm = await compileWasm(vertex as any, fragment as any);
     expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+  });
+});
+
+describe("an early Return in a function on the CPU targets", () => {
+  /**
+   * The call that takes the early return comes after one that writes the
+   * vector, so a result left unwritten would show the earlier call's value.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as CompileCpuRoutine],
+  ])("gives a vector function the zero vector on %s", (_name, compile) => {
+    const routine = compile(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return vec2(x, 1);
+        })(),
+      { name: "early", params: [{ name: "x", type: "float" }] },
+    );
+    expect(Array.from(routine({ params: { x: -1 } }) as ArrayLike<number>)).toEqual([-1, 1]);
+    expect(Array.from(routine({ params: { x: 1 } }) as ArrayLike<number>)).toEqual([0, 0]);
+  });
+
+  /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("gives a reentrant JS grid's pixel the zero value on an early return", () => {
+    const grid = compileJSGrid(
+      () =>
+        Fn(() => {
+          If(fragCoord().x.greaterThan(1), () => {
+            Return();
+          });
+          return float(7);
+        })() as any,
+      { name: "main", params: [], reentrant: true },
+    );
+    expect(Array.from(grid({}, 2, 1) as ArrayLike<number>)).toEqual([7, 0]);
+  });
+
+  /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("ends a JS routine that returns nothing the same way early and at its end", () => {
+    const gate = uniform("float");
+    const routine = compileJSRoutine(
+      () =>
+        Fn(() => {
+          const v = float(1).toVar();
+          If(gate.greaterThan(0), () => {
+            Return();
+          });
+          v.assign(float(2));
+        })() as any,
+      { name: "main", params: [] },
+    );
+    expect(routine({ uniforms: { [gate.name]: 1 } })).toBeUndefined();
+    expect(routine({ uniforms: { [gate.name]: 0 } })).toBeUndefined();
+  });
+
+  /**
+   * Both early returns zero the slot the function returns its matrix in.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("returns a JS matrix function's own result slot zeroed at an early return", () => {
+    const source = compileJSFn(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(1), () => {
+            Return();
+          });
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return mat2(x, 0, 0, x);
+        })(),
+      { name: "early", params: [{ name: "x", type: "float" }] },
+    );
+    const early = [...source.matchAll(/return (\w+)\.fill\(0\);/g)].map((m) => m[1]);
+    expect(early).toHaveLength(2);
+    expect(source).toContain(`return ${early[0]};`);
+    expect(new Set(early).size).toBe(1);
+  });
+
+  /**
+   * The constant condition drops the branch that reads the depth.
+   *
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("compiles a JS fragment whose depth is read only in a select branch it folds away", () => {
+    const build = () => Fn(() => vec4(select(bool(false), builtinFragDepth(), float(0.5)), 0, 0, 1))() as any;
+    expect(() => compileJSFn(build, { name: "main", params: [], stage: "fragment" })).not.toThrow();
+  });
+
+  /**
+   * A program that writes its depth returns its result object, so an early
+   * return returns that object too.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("returns the result object of a JS program that returns nothing", () => {
+    const gate = uniform("float");
+    const source = compileJSFn(
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(float(0.5));
+          If(gate.greaterThan(0), () => {
+            Return();
+          });
+        })() as any,
+      { name: "main", params: [] },
+    );
+    expect(source).toMatch(/\{\s*return res;\s*\}/);
   });
 });

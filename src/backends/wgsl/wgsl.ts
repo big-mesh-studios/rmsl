@@ -385,9 +385,6 @@ function wgslLiteralPrec(literal: string): number {
   return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
 }
 
-/** What an early `Return()` in a fragment stage emits until its `main` is known to return a struct. */
-const FRAGMENT_RETURN = "return /*fragment*/;";
-
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
   let folded = tryFold(node);
@@ -703,6 +700,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         throw new Error("builtinFragDepth() can only be used in fragment shaders");
       }
       ctx.fragDepthUsed = true;
+      // The depth starts from the fragment's own, which the position input holds.
+      ctx.fragCoordUsed = true;
       return { decls: [], body: [], expr: "result._rmsl_fragDepth" };
     }
 
@@ -1298,12 +1297,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "return": {
-      // A vertex or fragment `main` returns its result struct, which WGSL
-      // refuses a bare `return;` in. Whether a fragment `main` has one is known
-      // only once its body is built, so that statement carries a token.
-      const statement =
-        ctx.shaderStage === "vertex" ? "return result;" : ctx.shaderStage === "fragment" ? FRAGMENT_RETURN : "return;";
-      return { decls: [], body: [statement], expr: "0.0" };
+      // A stage refuses a Return before it compiles, so this is a function's or a compute program's.
+      return { decls: [], body: [ctx.returnStatement ?? "return;"], expr: "0.0" };
     }
 
     default:
@@ -1614,7 +1609,6 @@ export function compileWGSLWithStage(
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
 
   let nodes = Array.isArray(root) ? root : [root];
@@ -1879,14 +1873,15 @@ export function compileWGSLWithStage(
     if (hasFragmentOutput) {
       lines.push("  var result: FragmentOutput;");
     }
+    // Every path starts from the fragment's own depth, which a write replaces.
+    if (ctx.fragDepthUsed) {
+      lines.push("  result._rmsl_fragDepth = _rmsl_fragCoordInput.z;");
+    }
     for (let line of allBody) {
-      lines.push("  " + line.replaceAll(FRAGMENT_RETURN, hasFragmentOutput ? "return result;" : "return;"));
+      lines.push("  " + line);
     }
     if (emitImplicitColor) {
       lines.push(`  result._rmsl_fragColor = ${lastExpr};`);
-    }
-    if (ctx.fragDepthUsed && !allBody.some((l) => l.includes("_rmsl_fragDepth ="))) {
-      lines.push("  result._rmsl_fragDepth = 1.0;");
     }
     if (hasFragmentOutput) {
       lines.push("  return result;");
@@ -2103,11 +2098,15 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
   assertOneDeclarationPerName(result);
+  const resultType = (result as any)._t || "float";
+  const returnType = wgslType(resultType);
+  const returnsNothing = resultType === "void";
+  // An early `Return()` has no value to give, so it returns the zero value of
+  // the function's type, as the function does when its body ends.
+  ctx.returnStatement = returnsNothing ? "return;" : `return ${returnType}();`;
   const compiled = compileWGSLStage(result, ctx);
-  const returnType = wgslType((result as any)._t || "float");
   const paramStr = options.params.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ");
 
   // Helpers standing in for GLSL builtins WGSL lacks, emitted ahead of the
@@ -2119,20 +2118,15 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   for (const helper of [...ctx.wgslHelpers].sort()) {
     code += `${WGSL_HELPERS[helper]}\n\n`;
   }
-  code += `fn ${options.name}(${paramStr}) -> ${returnType} {\n`;
+  code += `fn ${options.name}(${paramStr})${returnsNothing ? "" : ` -> ${returnType}`} {\n`;
   for (const line of compiled.decls) {
     code += `  ${line}\n`;
   }
-  // An early `Return()` has no value to give, so a function with a return type
-  // returns that type's zero value there, as it does when its body ends.
   for (const line of compiled.body) {
-    code += `  ${line.replaceAll(FRAGMENT_RETURN, `return ${returnType}();`)}\n`;
+    code += `  ${line}\n`;
   }
-  if (compiled.expr !== "0.0") {
-    code += `  return ${compiled.expr};\n`;
-  } else {
-    code += `  return ${returnType}();\n`;
-  }
+  // A function that returns nothing ends; one with no value of its own gives its zero value, as an early return does.
+  if (!returnsNothing) code += `  ${compiled.expr !== "0.0" ? `return ${compiled.expr};` : ctx.returnStatement}\n`;
   code += `}\n`;
 
   // Same single-struct packing as a full shader, for the same reason: one

@@ -43,6 +43,7 @@ import {
   parameterNode,
   assertStageResult,
   prepareRoots,
+  type FoundInRoots,
   assertReadsNoStageInput,
   assertOneDeclarationPerName,
   numberClashingVariables,
@@ -1799,7 +1800,6 @@ export function compileJSNode(
       // In a vertex stage a varying is an output, collected in the result so
       // the host can read it back; in a fragment stage it is an input.
       if (ctx.shaderStage === "vertex") {
-        ctx.jsNeedsRes = true;
         ctx.varyings.set(slot, { id: 0, type: v.shaderType ?? node._t, slot });
         return jsLeafRef(`res.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
       }
@@ -1808,14 +1808,12 @@ export function compileJSNode(
 
     case "output": {
       let v = node.value as any;
-      ctx.jsNeedsRes = true;
       if (v.id != null) ctx.outputs.set(v.id, { type: v.shaderType, slot: v.slot, location: v.location });
       return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
     case "builtinPosition": {
       assertPositionIsReadable(ctx);
-      ctx.jsNeedsRes = true;
       return jsLeafRef("res.position", "vec4", ctx);
     }
 
@@ -1823,7 +1821,6 @@ export function compileJSNode(
       if (ctx.shaderStage !== "fragment") {
         throw new Error("builtinFragDepth() can only be used in fragment shaders");
       }
-      ctx.jsNeedsRes = true;
       ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "res.fragDepth" };
     }
@@ -2507,7 +2504,7 @@ export function compileJSNode(
     }
 
     case "return": {
-      return { decls: [], body: ["return;"], expr: "0" };
+      return { decls: [], body: [ctx.returnStatement ?? "return;"], expr: "0" };
     }
 
     default:
@@ -2560,7 +2557,8 @@ function compileJSFnDetailed(
   if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
+  const found: FoundInRoots = {};
+  const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes, found)));
 
   const ctx: CompileCtx = {
     nextId: 0,
@@ -2585,39 +2583,41 @@ function compileJSFnDetailed(
     jsReadsSlot: false,
     derivatives,
     reentrant,
-    jsNeedsRes: false,
     jsFloat32: options.float === "f32",
   };
 
   assertOneDeclarationPerName(resultNodes);
-  // The value of the function is written into a hoisted slot too, so a vector or a matrix result allocates nothing.
+  const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
+  // The program returns a result object when it writes what only one holds, which the shared walk found.
+  const needsRes = found.writesStageResult === true;
+  // A grid takes a scalar result from a slot of one element: V8 boxes a float a call returns.
+  const slotResult =
+    options.kind === "grid" && !needsRes && lastType !== undefined && lastType !== "void" && !isAggregate(lastType);
+  // A vector or matrix result goes in a hoisted slot of its own, so it allocates nothing; an early return zeroes it.
+  const lastNode = resultNodes[resultNodes.length - 1];
+  const resultSlot =
+    jsIsArrayType(lastType) && (!isJSArrayLeaf(lastNode) || found.holdsReturn) ? jsNewTemp(ctx, lastType) : undefined;
+  ctx.returnStatement = earlyReturn(lastType, resultSlot, needsRes, slotResult);
   const compiledList = resultNodes.map((n, i) => {
     if (i !== resultNodes.length - 1 || !jsIsArrayType((n as any)?._t) || isJSArrayLeaf(n))
       return compileJSStage(n, ctx);
-    ctx.outTarget = jsNewTemp(ctx, (n as any)._t);
+    ctx.outTarget = resultSlot!;
     const compiled = compileJSStage(n, ctx);
     ctx.outTarget = null;
     return compiled;
   });
   const lastCompiled = compiledList[compiledList.length - 1];
-  const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
   if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
-  // A grid takes a scalar result from a slot of one element: V8 boxes a float a call returns.
-  const scalarResult =
-    options.kind === "grid" &&
-    !ctx.jsNeedsRes &&
-    lastType !== undefined &&
-    lastType !== "void" &&
-    !isAggregate(lastType)
-      ? `${reentrant ? "var" : "const"} _rmsl_result = new ${typedArrayOfKind(scalarKindOf(lastType), ctx.jsFloat32 === true).name}(1);`
-      : "";
+  const scalarResult = slotResult
+    ? `${reentrant ? "var" : "const"} _rmsl_result = new ${typedArrayOfKind(scalarKindOf(lastType), ctx.jsFloat32 === true).name}(1);`
+    : "";
   // The object a stage returns its outputs in is made once, as its slots are, or once a call with `reentrant`.
   // Every output it may hold is named from the start, so clearing them all as a call starts keeps its shape.
   const outputKeys = [...ctx.outputs.values()].map((o) => `${JSON.stringify(o.slot)}: undefined`).join(", ");
   const varyingKeys = [...ctx.varyings.values()].map((v) => `${JSON.stringify(v.slot)}: undefined`).join(", ");
-  const res = ctx.jsNeedsRes
+  const res = needsRes
     ? `var res = { outputs: ${outputKeys ? `{ ${outputKeys} }` : "{}"}, varyings: ${varyingKeys ? `{ ${varyingKeys} }` : "{}"}, position: undefined, fragDepth: undefined, value: undefined };`
     : "";
   // A fragment's depth starts as the one its context holds, which a rasterizer sets to its interpolated depth.
@@ -2648,16 +2648,18 @@ function compileJSFnDetailed(
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
   body.push(...varyingResets);
+  // A reentrant call's result slot is its own, made before the body, which an early return writes.
+  if (reentrant && scalarResult) body.push(scalarResult);
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
-  if (ctx.jsNeedsRes) {
+  if (needsRes) {
     // a program that returns nothing has no value
     if (lastType !== "void") body.push(`res.value = ${lastCompiled.expr};`);
     body.push("return res;");
   } else if (scalarResult) {
-    if (reentrant) body.push(scalarResult);
     body.push(`_rmsl_result[0] = ${lastCompiled.expr};`, "return _rmsl_result;");
   } else {
-    body.push(`return ${lastCompiled.expr};`);
+    // A function that returns nothing ends, as an early return in it does.
+    body.push(lastType === "void" ? "return;" : `return ${lastCompiled.expr};`);
   }
 
   let scratch = reentrant
@@ -2752,31 +2754,54 @@ function ownedResult(raw: unknown, types: JsResultTypes): unknown {
 
 /**
  * The slots of the varyings that `roots` write whole, in a statement at their
- * top level, before any statement reads or writes them otherwise or may
- * return: every call writes each of them before it can be read.
+ * top level, before any statement reads or writes them otherwise: every
+ * call writes each of them before it can be read. A stage that writes varyings
+ * refuses a `Return()`, so no call leaves before them.
  */
 function jsVaryingsWrittenFirst(roots: readonly any[]): Set<string> {
   const written = new Set<string>();
   const touched = new Set<string>();
-  let mayHaveReturned = false;
   const mention = (node: any, seen: Set<unknown>): void => {
     if (!node || typeof node !== "object" || seen.has(node)) return;
     seen.add(node);
     if (node.type === "varying") touched.add(node.value.slot);
-    if (node.type === "return") mayHaveReturned = true;
     for (const p of node.params ?? []) mention(p, seen);
   };
   for (const root of roots) {
     for (const statement of root?.type === "seq" ? root.params : [root]) {
       const target = statement?.type === "assign" ? statement.params[0] : undefined;
       mention(target?.type === "varying" ? statement.params[1] : statement, new Set());
-      if (target?.type === "varying" && !touched.has(target.value.slot) && !mayHaveReturned) {
+      if (target?.type === "varying" && !touched.has(target.value.slot)) {
         written.add(target.value.slot);
       }
       if (target?.type === "varying") touched.add(target.value.slot);
     }
   }
   return written;
+}
+
+/**
+ * The statement an early `Return()` compiles to: the zero value of `type`, in
+ * the form the function's last return takes. A vector or matrix zeroes the slot
+ * the function returns it in, which `fill` gives back.
+ */
+function earlyReturn(
+  type: string | undefined,
+  resultSlot: string | undefined,
+  toResult: boolean,
+  toSlot: boolean,
+): string {
+  const returnsNothing = type === undefined || type === "void";
+  const zero = returnsNothing
+    ? ""
+    : resultSlot !== undefined
+      ? `${resultSlot}.fill(0)`
+      : type === "bool"
+        ? "false"
+        : "0";
+  if (toResult) return returnsNothing ? "return res;" : `res.value = ${zero}; return res;`;
+  if (toSlot) return `_rmsl_result[0] = ${zero}; return _rmsl_result;`;
+  return returnsNothing ? "return;" : `return ${zero};`;
 }
 
 /** A context with no inputs, which a context made once takes when a call is done with the host's. */

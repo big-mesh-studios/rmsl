@@ -527,7 +527,7 @@ run before every test.
 - **`Discard()`** - fragment discard (like GLSL `discard`)
 - **`Break()`** - break from a loop
 - **`Continue()`** - continue to the next iteration
-- **`Return()`** - early return from an `Fn`
+- **`Return()`** - early return from a routine, a function compiled on its own, or a compute program. A function that returns a value gives the zero value of its type. A `Return()` that would end a vertex or fragment stage is refused: use `If`/`Else`, or `Discard()` in a fragment stage
 
 ## I/O
 

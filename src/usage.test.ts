@@ -102,7 +102,7 @@ import {
 import { compileGlslFn, createGlsl } from "./glsl";
 import { compileWgslFn, wgslUniformLayout } from "./wgsl";
 import { compileJSRoutine, compileJSFn } from "./js";
-import { compileWasmRoutine } from "./wasm";
+import { compileWasmFragment, compileWasmRoutine, compileWasmVertex } from "./wasm";
 // Recording stand-ins for the real compilers: each returns the language it is
 // named for and additionally compiles the program to the other, so every shader
 // the tests generate is checked by a real GLSL and WGSL implementation in the
@@ -879,7 +879,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   * @canon spec-builtin-frag-depth-compiles-to-the-depth-output-of-the-target
    */
   it("builtinFragDepth() maps to gl_FragDepth in GLSL fragment", () => {
     let prog = Fn(() => {
@@ -893,7 +893,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   * @canon spec-builtin-frag-depth-compiles-to-the-depth-output-of-the-target
    */
   it("builtinFragDepth() maps to @builtin(frag_depth) in WGSL fragment", () => {
     let prog = Fn(() => {
@@ -915,6 +915,40 @@ describe("RMSL", () => {
     let prog = Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar());
     expect(() => compileGlsl.vertex(prog())).toThrow("builtinFragDepth");
     expect(() => compileWgsl.vertex(prog())).toThrow("builtinFragDepth");
+  });
+
+  /**
+   * The stage writes its depth on one branch only, so the other path keeps
+   * the depth `main` starts from.
+   *
+   * @canon exception-a-fragment-path-that-writes-no-depth-keeps-its-own
+   */
+  it("starts a fragment stage that writes its depth from the fragment's own depth on GLSL and WGSL", () => {
+    const near = uniform("bool");
+    const prog = () =>
+      Fn(() => {
+        If(near, () => {
+          builtinFragDepth().assign(float(0.5));
+        });
+        return vec4(1);
+      })();
+    const glsl = compileGlsl.fragment(prog());
+    expect(glsl.indexOf("gl_FragDepth = gl_FragCoord.z;")).toBeGreaterThan(-1);
+    expect(glsl.indexOf("gl_FragDepth = gl_FragCoord.z;")).toBeLessThan(glsl.indexOf("if ("));
+    const wgsl = compileWgsl.fragment(prog());
+    expect(wgsl).toContain("@builtin(position) _rmsl_fragCoordInput: vec4<f32>");
+    expect(wgsl.indexOf("result._rmsl_fragDepth = _rmsl_fragCoordInput.z;")).toBeGreaterThan(-1);
+    expect(wgsl.indexOf("result._rmsl_fragDepth = _rmsl_fragCoordInput.z;")).toBeLessThan(wgsl.indexOf("if ("));
+    expect(wgsl).not.toContain("_rmsl_fragDepth = 1.0");
+  });
+
+  /**
+   * @canon exception-a-fragment-path-that-writes-no-depth-keeps-its-own
+   */
+  it("reads the fragment's own depth before a write on GLSL and WGSL", () => {
+    const prog = () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1))();
+    expect(compileGlsl.fragment(prog())).toContain("gl_FragDepth = gl_FragCoord.z;");
+    expect(compileWgsl.fragment(prog())).toContain("result._rmsl_fragDepth = _rmsl_fragCoordInput.z;");
   });
 
   /**
@@ -1130,7 +1164,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
    */
   it("break_ compiles in GLSL", () => {
     let prog = Fn(() => {
@@ -1149,7 +1183,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("continue_ compiles in WGSL", () => {
     let prog = Fn(() => {
@@ -1551,7 +1585,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("discard compiles to GLSL", () => {
     let prog = Fn(() => {
@@ -1565,7 +1599,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("discard compiles to WGSL", () => {
     let prog = Fn(() => {
@@ -3427,7 +3461,8 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("Break / Continue emit their statements", () => {
     let prog = Fn(() => {
@@ -3457,46 +3492,29 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
-  it("Return emits an early return", () => {
-    let prog = Fn(() => {
-      let out = float(0).toVar();
-      If(float(1).greaterThan(0), () => {
-        Return();
-      });
-      out.assign(float(1));
-      return out;
-    });
-    let glsl = compileGlsl(prog());
-    expect(glsl).toContain("return;");
-    let wgsl = compileWgsl(prog());
-    expect(wgsl).toMatch(/\{\s*return result;\s*\}/);
-  });
-
-  /**
-   * A WGSL vertex stage returns its output struct, so an early `Return()`
-   * returns it too, where a bare `return;` would be refused.
-   *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
-   */
-  it("Return in a vertex stage returns the result on WGSL", () => {
-    const vertex = Fn(() => {
-      If(float(1).greaterThan(0), () => {
-        Return();
-      });
-      builtinPosition().assign(vec4(0, 0, 0, 1));
-    })();
-    const wgsl = compileWgsl.vertex(vertex as any);
-    expect(wgsl).toMatch(/\{\s*return result;\s*\}/);
-    expect(wgsl).not.toMatch(/\breturn;/);
+  it("Return in a GLSL function returns the zero value of its type", () => {
+    const glsl = compileGlslFn(
+      (x: any) =>
+        Fn(() => {
+          const out = float(0).toVar();
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          out.assign(float(1));
+          return out;
+        })(),
+      { name: "f", params: [{ name: "x", type: "float" }] },
+    );
+    expect(glsl).toMatch(/\{\s*return float\(0\);\s*\}/);
   });
 
   /**
    * A WGSL function with a return type has no output struct, so an early
    * `Return()` in it returns the zero value of that type.
    *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
   it("Return in a WGSL function returns the zero value of its type", () => {
     const wgsl = compileWgslFn(
@@ -3514,24 +3532,63 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * A fragment stage that writes nothing has no output struct, so its early
-   * `Return()` stays a bare `return;`.
-   *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
-  it("Return in a fragment stage that writes nothing stays bare on WGSL", () => {
-    const fragment = Fn(() => {
-      If(uniform("float").greaterThan(0), () => {
-        Return();
-      });
-    })();
-    const wgsl = compileWgsl.fragment(fragment as any);
-    expect(wgsl).toMatch(/\breturn;/);
-    expect(wgsl).not.toContain("FragmentOutput");
+  it("ends a GLSL or WGSL function that returns nothing at an early Return", () => {
+    const body = (x: any) =>
+      Fn(() => {
+        const v = x.toVar();
+        If(x.greaterThan(0), () => {
+          Return();
+        });
+        v.assign(1);
+      })();
+    const options = { name: "f", params: [{ name: "x", type: "float" as const }] };
+    expect(compileWgslFn(body, options)).toMatch(/\{\s*return;\s*\}/);
+    expect(compileGlslFn(body, options)).toMatch(/\{\s*return;\s*\}/);
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * The helper is an `Fn` the stage calls inline, so its `Return()` would end
+   * the stage too.
+   *
+   * @canon exception-a-return-that-would-end-a-stage-is-refused
+   */
+  it("refuses a Return that would end a vertex or fragment stage on every target", () => {
+    const gate = uniform("float");
+    const vertex = () =>
+      Fn(() => {
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+        If(gate.greaterThan(0), () => {
+          Return();
+        });
+      })();
+    const helper = Fn(() => {
+      If(gate.greaterThan(0), () => {
+        Return();
+      });
+      return float(0.5);
+    });
+    const fragment = () => Fn(() => vec4(helper(), 0, 0, 1))();
+    const none = { name: "main", params: [] };
+    expect(() => compileGlsl.vertex(vertex())).toThrow(
+      /Return\(\) would end the vertex stage, leaving the outputs it writes after it unwritten/,
+    );
+    expect(() => compileWgsl.vertex(vertex() as any)).toThrow(/Return\(\) would end the vertex stage/);
+    expect(() => compileJSFn(vertex as any, { ...none, stage: "vertex" })).toThrow(
+      /Return\(\) would end the vertex stage/,
+    );
+    expect(() => compileWasmVertex(vertex as any, none)).toThrow(/Return\(\) would end the vertex stage/);
+    expect(() => compileGlsl.fragment(fragment())).toThrow(/Return\(\) would end the fragment stage/);
+    expect(() => compileWgsl.fragment(fragment())).toThrow(/Return\(\) would end the fragment stage/);
+    expect(() => compileJSFn(fragment as any, { ...none, stage: "fragment" })).toThrow(
+      /Return\(\) would end the fragment stage/,
+    );
+    expect(() => compileWasmFragment(fragment as any, none)).toThrow(/Return\(\) would end the fragment stage/);
+  });
+
+  /**
+   * @canon spec-discard-drops-the-fragment
    */
   it("Discard emits the fragment discard", () => {
     let prog = Fn(() => {

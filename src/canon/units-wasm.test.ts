@@ -791,7 +791,7 @@ describe("the fragments the WASM rasterizer draws", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("lets a discarded fragment leave the depth buffer as it was on WASM", () => {
     const pos = attribute("vec3");
@@ -814,7 +814,7 @@ describe("the fragments the WASM rasterizer draws", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("leaves the pixel of a discarded fragment cleared on WASM", () => {
     const pos = attribute("vec3");

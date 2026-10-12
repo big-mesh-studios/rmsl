@@ -278,6 +278,7 @@ export function compileGLSLNode(
       if (ctx.shaderStage !== "fragment") {
         throw new Error("builtinFragDepth() can only be used in fragment shaders");
       }
+      ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "gl_FragDepth" };
     }
 
@@ -807,7 +808,8 @@ export function compileGLSLNode(
     }
 
     case "return": {
-      return { decls: [], body: ["return;"], expr: "0.0" };
+      // A stage refuses a Return before it compiles, so this is a function's.
+      return { decls: [], body: [ctx.returnStatement ?? "return;"], expr: "0.0" };
     }
 
     case "storage": {
@@ -1053,7 +1055,6 @@ export function compileGLSLWithStage(
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
 
   let nodes = Array.isArray(root) ? root : [root];
@@ -1146,6 +1147,8 @@ export function compileGLSLWithStage(
     lines.push("}");
   } else {
     lines.push("void main(void) {");
+    // Every path starts from the fragment's own depth, which a write replaces.
+    if (ctx.fragDepthUsed) lines.push("  gl_FragDepth = gl_FragCoord.z;");
     for (let line of allBody) {
       lines.push("  " + line);
     }
@@ -1217,11 +1220,13 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
   assertOneDeclarationPerName(result);
-  const compiled = compileGLSLStage(result, ctx);
   const returnType = glslType((result as any)._t || "float");
+  // An early `Return()` has no value to give, so it returns the zero value of
+  // the function's type, as the function does when its body ends.
+  ctx.returnStatement = returnType === "void" ? "return;" : `return ${returnType}(0);`;
+  const compiled = compileGLSLStage(result, ctx);
   const paramStr = options.params.map((p) => `${glslType(p.type)} ${p.name}`).join(", ");
   let code = "";
   ctx.uniforms.forEach((info) => {
@@ -1235,11 +1240,9 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;
   }
-  if (compiled.expr !== "0.0") {
-    code += `  return ${compiled.expr};\n`;
-  } else {
-    code += `  return ${returnType}(0);\n`;
-  }
+  // A function that returns nothing ends; one with no value of its own gives its zero value, as an early return does.
+  if (returnType !== "void")
+    code += `  ${compiled.expr !== "0.0" ? `return ${compiled.expr};` : ctx.returnStatement}\n`;
   code += `}`;
   return code;
 }
