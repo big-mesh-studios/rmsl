@@ -1241,6 +1241,59 @@ describe("each leaf on every target it claims", () => {
     expect(routine({ params: { i: 0 }, uniforms })).toBe(13);
   });
 
+  /** Float indices a conversion to `int` takes past the end or below zero, and those it takes to 0. */
+  const floatIndicesToTheLast = [4294967297, -4294967295, 2147483648, 1e20, -1e20, Infinity, -Infinity, -1.5];
+  const floatIndicesToTheFirst = [NaN, -0.5, 0.75];
+
+  /**
+   * @canon spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads the last element of a uniform array for any float index out of range on %s", (_, compile) => {
+    const items = uniformArray("float", 3);
+    const build = (i: any) => Fn(() => items.element(i).add(0).toVar())() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "i", type: "float" }] });
+    const read = (i: number) => routine({ params: { i }, uniforms: { [items.name]: [10, 20, 30] } });
+    for (const i of floatIndicesToTheLast) expect(read(i), `index ${i}`).toBe(30);
+    for (const i of floatIndicesToTheFirst) expect(read(i), `index ${i}`).toBe(10);
+  });
+
+  /**
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reaches the last component or column for any float index out of range on %s", (_, compile) => {
+    const stored = instancedArray(2, "vec4");
+    const build = (i: any) =>
+      Fn(() => {
+        const v = vec4(1, 2, 3, 4).toVar();
+        v.element(i).assign(float(20));
+        const m = mat2(1, 2, 3, 4).toVar();
+        m.element(i).assign(vec2(7, 7));
+        stored.element(int(0)).element(i).assign(float(9));
+        const read = vec4(1, 2, 3, 4).element(i);
+        const column = mat2(1, 2, 3, 4).element(i).y;
+        const component = stored.element(int(1)).element(i);
+        // Each access weighted by a power of ten, so the sum shows which element each reached.
+        return read
+          .add(column.mul(10))
+          .add(component.mul(100))
+          .add(v.w.mul(1000))
+          .add(stored.element(int(0)).w.mul(10000))
+          .add(m.element(int(1)).x.mul(100000))
+          .toVar();
+      })() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "i", type: "float" }] });
+    const run = (i: number) =>
+      routine({ params: { i }, storages: { [stored.name]: new Float64Array([1, 2, 3, 4, 5, 6, 7, 8]) } });
+    for (const i of floatIndicesToTheLast) expect(run(i), `index ${i}`).toBe(810844);
+    for (const i of floatIndicesToTheFirst) expect(run(i), `index ${i}`).toBe(344521);
+  });
+
   /**
    * @canon spec-an-input-the-host-leaves-out-reads-zero
    */
@@ -1328,5 +1381,57 @@ describe("each leaf on every target it claims", () => {
     expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual(new Float64Array([2, 0, 0, 1]));
     const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
     expect(wasm.value ?? wasm).toEqual(new Float64Array([2, 0, 0, 1]));
+  });
+
+  /**
+   * The inline `Fn` is called outside the program's body, and declares a
+   * variable that GLSL and WGSL refuse to read outside the block that declares
+   * it. `a` above zero takes the first branch, and above one the nested one.
+   *
+   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   */
+  it("runs an inline Fn read on several paths where every read sees its variable, on every target", () => {
+    const program = (body: (shared: any, a: Node<"float">, out: any) => void) => (a: Node<"float">) => {
+      const shared = Fn(() => {
+        const counted = a.add(1).toVar();
+        counted.addAssign(1);
+        return counted;
+      })() as any;
+      return Fn(() => {
+        const out = float(0).toVar();
+        body(shared, a, out);
+        return out;
+      })();
+    };
+    const branches = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        out.assign(shared.fract().add(shared));
+      }).Else(() => {
+        out.assign(shared.mul(10));
+      });
+    });
+    expect(evaluateRecording(branches, [1])).toBe(3);
+    expect(evaluateRecording(branches, [-5])).toBe(-30);
+    const branchAndAfter = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        out.assign(shared.mul(10));
+      });
+      out.addAssign(shared);
+    });
+    expect(evaluateRecording(branchAndAfter, [1])).toBe(33);
+    expect(evaluateRecording(branchAndAfter, [-5])).toBe(-3);
+    const nested = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        If(a.greaterThan(1), () => {
+          out.assign(shared);
+        }).Else(() => {
+          out.assign(shared.mul(10));
+        });
+        out.addAssign(shared.mul(100));
+      });
+    });
+    expect(evaluateRecording(nested, [2])).toBe(404);
+    expect(evaluateRecording(nested, [0.5])).toBe(2.5 * 110);
+    expect(evaluateRecording(nested, [-5])).toBe(0);
   });
 });
