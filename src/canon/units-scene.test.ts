@@ -218,6 +218,37 @@ globalThis.__rmslMissingAttribute = async (backend) => {
 };
 `;
 
+describe("the values a scene renderer uploads", () => {
+  /**
+   * A material property of another shape than its uniform's type is refused
+   * at the draw that would upload it, on both renderers.
+   *
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
+   */
+  it("refuses a material value of another shape than its uniform's type on WebGL and WebGPU", () => {
+    const { device, canvas } = stubDevice();
+    const renderers = [new WebGPURenderer(canvas, device as any), stubWebGl().renderer];
+    for (const renderer of renderers) {
+      const material = new MeshBasicMaterial();
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(), material));
+      (material as any).opacity = [1];
+      expect(() => renderer.render(scene, camera())).toThrow(
+        '[RMSL] the float uniform "materialOpacity" takes one value, not an array of 1',
+      );
+      (material as any).opacity = 1;
+      material.color.toArray = () => [1, 1];
+      expect(() => renderer.render(scene, camera())).toThrow(
+        '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 2',
+      );
+      material.color.toArray = () => [];
+      expect(() => renderer.render(scene, camera())).toThrow(
+        '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 0',
+      );
+    }
+  });
+});
+
 describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon spec-a-changed-attribute-uploads-only-its-update-range
@@ -1228,13 +1259,13 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
-   * The WebGPU renderer leaves a `mat3` uniform at zero when the value it
-   * takes is an empty array, as it does for a name it does not know.
+   * An empty array is a value of no components, which a `mat3` does not
+   * hold, so the WebGPU renderer refuses it rather than leave the matrix at zero.
    *
-   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   * @canon spec-a-renderer-refuses-a-uniform-value-of-another-shape
    */
-  it("writes nothing for an empty matrix value on WebGPU", () => {
-    const { device, canvas, bytesOf } = stubDevice();
+  it("refuses an empty matrix value on WebGPU", () => {
+    const { device, canvas } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) =>
@@ -1250,11 +1281,9 @@ describe("a scene renderer manages what it uploads", () => {
     const mesh = new Mesh(new PlaneGeometry(), material);
     mesh.updateMatrixWorld(true);
     const entry = renderer.ensurePipeline(material, new Scene(), false, false);
-    renderer.packUniforms(entry, mesh, camera(), 0);
-
-    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
-    const base = offsetOf(entry, "m") / 4;
-    expect(Array.from(floats.subarray(base, base + 12))).toEqual(new Array(12).fill(0));
+    expect(() => renderer.packUniforms(entry, mesh, camera(), 0)).toThrow(
+      '[RMSL] the mat3 uniform "m" takes 9 components, not an array of 0',
+    );
   });
 
   /**

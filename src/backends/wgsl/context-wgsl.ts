@@ -12,7 +12,7 @@ import {
 } from "../../core";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import { compile, type WgslResource } from "../../wgsl";
-import { slotOf, type TypedArray } from "../adapter";
+import { assertUniformShape, slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits } from "../shared";
 import {
   assertStorageBufferLimit,
@@ -189,7 +189,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     uniforms.uploaded = { version: uniformVersion, count: node.count };
     for (const resource of uniforms.resources) {
       const value = resource.name === node.countNode.name ? node.count : uniformValues.get(resource.name);
-      if (value !== undefined) writeUniformMember(uniforms.scratch, resourcePlacement(resource), value);
+      writeUniformMember(uniforms.scratch, resourcePlacement(resource), value);
     }
     gpu.queue.writeBuffer(uniforms.buffer, 0, uniforms.scratch.f32 as BufferSource);
   }
@@ -233,6 +233,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
+      assertUniformShape(uniform, value);
       // Copied, so changing the array afterwards doesn't reach a program without another setUniform().
       uniformValues.set(slotOf(uniform), structuredClone(value) as number | number[]);
       uniformVersion++;

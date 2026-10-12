@@ -58,7 +58,7 @@ import {
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmGrid, compileWasmFragment, compileWasmVertex } from "../wasm";
 import {
   assertEvaluationsOfTheTestAgree,
@@ -1155,34 +1155,80 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * A later call leaves out what an earlier one set, so a component the first wrote cannot pass for zero.
+   *
    * @canon spec-a-component-the-host-leaves-out-reads-zero
    */
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads every component of a vector or uniform array the host leaves out as zero on %s", (_, compile) => {
+    const v = uniform("vec2");
+    const pairs = uniformArray("vec2", 2);
+    const items = uniformArray("float", 2);
+    const build = (p: any) =>
+      Fn(() =>
+        v.y
+          .add(pairs.element(int(1)).y)
+          .add(items.element(int(1)))
+          .add(p.y)
+          .toVar(),
+      )() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "p", type: "vec2" }] });
+    const set = {
+      params: { p: [0, 1] },
+      uniforms: {
+        [v.name]: [0, 2],
+        [pairs.name]: [
+          [0, 0],
+          [0, 4],
+        ],
+        [items.name]: [0, 8],
+      },
+    };
+    expect(routine(set)).toBe(15);
+    expect(routine({})).toBe(0);
+    expect(routine(set)).toBe(15);
+    expect(
+      routine({
+        params: { p: null },
+        uniforms: { [v.name]: null, [pairs.name]: null, [items.name]: undefined },
+      } as any),
+    ).toBe(0);
+  });
+
+  /**
+   * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
   ] as const)(
-    "reads a component the host leaves out of a vector as zero, and leaves an extra one unread, on %s",
+    "reads a component the host gives as undefined as a typed slot of its kind holds it on %s",
     (_, compile) => {
-      const v = uniform("vec2");
-      const pairs = uniformArray("vec2", 2);
-      const items = instancedArray(4, "float");
-      const build = () =>
-        Fn(() =>
-          v.y
-            .add(pairs.element(int(0)).y)
-            .add(items.element(int(2)))
-            .toVar(),
-        )() as any;
-      const routine = compile(build, none);
-      const storages = { [items.name]: Float64Array.of(1, 2, 3, 4) };
-      const run = (value: unknown[], pair: unknown[]) =>
-        routine({ uniforms: { [v.name]: value, [pairs.name]: [pair] }, storages });
-      expect(run([1, 2], [5, 6])).toBe(11);
-      // Later calls, so a component an earlier call wrote cannot pass for one a call leaves out.
-      expect(run([1], [5])).toBe(3);
-      expect(run([1, undefined], [5, undefined])).toBe(3);
-      // Components past the end are not read, and nothing beside the input is written.
-      expect(run([1, 2, 9, 9, 9, 9, 9, 9, 9, 9], [5, 6, 9, 9])).toBe(11);
+      const read = (type: "vec3" | "ivec3" | "uvec3" | "bvec3" | "mat2", width: "f32" | "f64" = "f64") => {
+        const v = uniform(type);
+        const pairs = uniformArray(type, 1);
+        const second = (x: any) => (type === "mat2" ? x.element(int(0)).y : x.y);
+        const asNumber = (x: any) => (type === "bvec3" ? select(x, float(1), float(0)) : x.toFloat());
+        const routine = compile(
+          (p: any) =>
+            Fn(() => vec3(asNumber(second(p)), asNumber(second(v)), asNumber(second(pairs.element(int(0))))))() as any,
+          { name: "main", params: [{ name: "p", type }], float: width } as any,
+        );
+        return (value: unknown[]) =>
+          Array.from(
+            routine({ params: { p: value }, uniforms: { [v.name]: value, [pairs.name]: [value] } } as any) as any,
+          );
+      };
+      expect(read("vec3")([1, undefined, 3])).toEqual([NaN, NaN, NaN]);
+      expect(read("vec3", "f32")([1, undefined, 3])).toEqual([NaN, NaN, NaN]);
+      expect(read("mat2")([1, undefined, 3, 4])).toEqual([NaN, NaN, NaN]);
+      expect(read("ivec3")([1, undefined, 3])).toEqual([0, 0, 0]);
+      expect(read("uvec3")([1, undefined, 3])).toEqual([0, 0, 0]);
+      expect(read("bvec3")([true, undefined, true])).toEqual([0, 0, 0]);
+      expect(read("vec3")([1, null, 3])).toEqual([0, 0, 0]);
+      expect(read("ivec3")([1, null, 3])).toEqual([0, 0, 0]);
     },
   );
 
@@ -1284,35 +1330,67 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * @canon spec-a-uniform-array-element-the-host-leaves-out-reads-zero
+   * Neither a routine nor a stage checks the shape of what it is given. A component a shorter vector
+   * lacks reads as the typed slot it lands in holds undefined, and one past the end of a longer
+   * vector is not read.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
    */
   it.each([
-    ["JS", compileJSRoutine],
-    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
-  ] as const)("reads an element past the end of a shorter uniform array as zero on %s", (_, compile) => {
-    const items = uniformArray("float", 3);
-    const pairs = uniformArray("vec2", 2);
-    const build = () =>
-      Fn(() =>
-        items
-          .element(int(2))
-          .add(pairs.element(int(1)).y)
-          .toVar(),
-      )() as any;
-    const routine = compile(build, none);
-    expect(
-      routine({
-        uniforms: {
-          [items.name]: [1, 2, 3],
-          [pairs.name]: [
-            [0, 0],
-            [0, 4],
-          ],
-        },
-      }),
-    ).toBe(7);
-    expect(routine({ uniforms: { [items.name]: [1, 2], [pairs.name]: [[0, 0]] } })).toBe(0);
-    expect(routine({})).toBe(0);
+    ["JS", compileJSRoutine, compileJSVertex, compileJSFragment],
+    [
+      "WASM",
+      compileWasmRoutine as typeof compileJSRoutine,
+      compileWasmVertex as typeof compileJSVertex,
+      compileWasmFragment as typeof compileJSFragment,
+    ],
+  ] as const)(
+    "reads a value of another shape than its type without refusing it on %s",
+    (_, routine, vertex, fragment) => {
+      const v = uniform("vec3");
+      const s = uniform("float");
+      const run = routine((p: any) => Fn(() => vec3(v.z, p.y, s))() as any, {
+        name: "main",
+        params: [{ name: "p", type: "vec2" }],
+      });
+      const read = (values: Record<string, unknown>) =>
+        Array.from(
+          run({ params: { p: values.p }, uniforms: { [v.name]: values.v, [s.name]: values.s } } as any) as any,
+        );
+      expect(read({ v: [0, 2], p: [0, 1, 9, 9], s: [4] })).toEqual([NaN, 1, 4]);
+      expect(read({ v: [0, 0, 2], p: [0, 1], s: 4 })).toEqual([2, 1, 4]);
+      const corner = attribute("vec2");
+      const shade = varying("vec3");
+      const vertexStage = vertex(
+        () => Fn(() => builtinPosition().assign(vec4(corner.y, corner.x, 0, 1)))() as any,
+        none,
+      );
+      expect(vertexStage({ attributes: { [corner.name]: [1, 2, 9] } } as any).position[0]).toBe(2);
+      const fragmentStage = fragment(() => Fn(() => vec4(shade, 1))() as any, none);
+      expect(Array.from(fragmentStage({ varyings: { [shade.name]: [1, 0] } } as any)!.value as any)).toEqual([
+        1,
+        0,
+        NaN,
+        1,
+      ]);
+    },
+  );
+
+  /**
+   * The source `compileJSFn` gives is the program `precompileJS` ships, so it carries no check of its inputs.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it("reads a value of another shape than its type in the function compileJSFn compiles to source", () => {
+    const v = uniform("vec3");
+    const source = compileJSFn((p: any) => Fn(() => v.z.add(p.y).toVar())() as any, {
+      name: "main",
+      params: [{ name: "p", type: "vec2" }],
+    });
+    const routine = new Function(source)() as (ctx: unknown) => number;
+    expect(routine({ params: { p: [0, 1] }, uniforms: { [v.name]: [0, 0, 2] } })).toBe(3);
+    expect(routine({ params: { p: [0, 1, 7] }, uniforms: { [v.name]: [0, 0, 2, 9] } })).toBe(3);
+    expect(routine({ params: { p: [0, 1] }, uniforms: { [v.name]: [0, 2] } })).toBeNaN();
   });
 
   /**

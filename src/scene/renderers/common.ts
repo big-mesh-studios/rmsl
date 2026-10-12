@@ -36,10 +36,10 @@ export function shaderPrecision(material: NodeMaterial, rendererPrecision: GLSLP
 
 /**
  * The value a camera-scoped uniform should hold this frame, given its logical
- * name. Unknown names return an empty array, which the renderer treats as
- * "nothing to upload".
+ * name, or `undefined` for a name it does not know, which the renderer
+ * uploads nothing for.
  */
-export function cameraUniformValue(name: string, camera: Camera): number[] {
+export function cameraUniformValue(name: string, camera: Camera): number[] | undefined {
   switch (name) {
     case "projectionMatrix":
       return camera.projectionMatrix.elements;
@@ -48,7 +48,7 @@ export function cameraUniformValue(name: string, camera: Camera): number[] {
     case "cameraPosition":
       return camera.getWorldPosition().toArray();
     default:
-      return [];
+      return undefined;
   }
 }
 
@@ -57,14 +57,14 @@ export function cameraUniformValue(name: string, camera: Camera): number[] {
  * name. `normalMatrix` is the inverse-transpose of the world matrix's upper
  * 3x3, computed on the host.
  */
-export function objectUniformValue(name: string, mesh: Mesh): number[] {
+export function objectUniformValue(name: string, mesh: Mesh): number[] | undefined {
   switch (name) {
     case "modelMatrix":
       return mesh.matrixWorld.elements;
     case "normalMatrix":
       return _normalMatrix.getNormalMatrix(mesh.matrixWorld).toArray();
     default:
-      return [];
+      return undefined;
   }
 }
 
@@ -109,15 +109,15 @@ export function isMirrored(mesh: Mesh): boolean {
 
 /**
  * The value a renderer-scoped uniform should hold this frame, given its
- * logical name and the drawing surface's device-pixel size. Unknown names
- * return an empty array, which the renderer treats as "nothing to upload".
+ * logical name and the drawing surface's device-pixel size, or `undefined`
+ * for a name it does not know, which the renderer uploads nothing for.
  */
-export function rendererUniformValue(name: string, width: number, height: number): number[] {
+export function rendererUniformValue(name: string, width: number, height: number): number[] | undefined {
   switch (name) {
     case "resolution":
       return [width, height];
     default:
-      return [];
+      return undefined;
   }
 }
 

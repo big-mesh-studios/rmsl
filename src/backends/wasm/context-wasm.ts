@@ -6,7 +6,7 @@ import {
   type UniformNode,
   type UniformValue,
 } from "../../core";
-import { slotOf, type TypedArray } from "../adapter";
+import { assertUniformShape, slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits, storageNodesOf } from "../shared";
 import type { CpuProgram } from "../cpu";
 import { compileWasmFn, instantiateWasmProgram } from "./wasm";
@@ -118,6 +118,7 @@ export function createWasmContext(): WasmContext {
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
+      assertUniformShape(uniform, value);
       // Copied, as the WGSL context does, so changing the array afterwards doesn't reach a program.
       uniformValues[slotOf(uniform)] = structuredClone(value) as number | number[];
     },

@@ -1,4 +1,5 @@
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
+import { assertHostShape } from "../../backends/host-shape";
 import {
   drawToCanvas,
   GlState,
@@ -460,7 +461,7 @@ export class WebGLRenderer {
     for (const binding of entry.program.uniforms) {
       const location = entry.uniformLocations.get(binding.node.name);
       if (location == null) continue;
-      let value: number | number[] | Float32Array;
+      let value: number | number[] | Float32Array | undefined;
       if (binding.scope === "camera") {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
@@ -468,9 +469,11 @@ export class WebGLRenderer {
       } else if (binding.scope === "renderer") {
         value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
-        value = binding.value?.({ camera, mesh }) ?? [];
+        value = binding.value?.({ camera, mesh });
       }
-      if (Array.isArray(value) && value.length === 0) continue;
+      // A name the renderer has no value for leaves the uniform as it was, zero until set.
+      if (value === undefined) continue;
+      assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
       this.setUniform(location, binding.node._t as string, value);
     }
 
@@ -511,18 +514,6 @@ export class WebGLRenderer {
     // forms (`uniform3fv`) — those take a typed array, which meant allocating
     // one per uniform per draw. Only the matrix forms have no component form.
     switch (type) {
-      case "float":
-        gl.uniform1f(location, value[0]);
-        break;
-      case "int":
-        gl.uniform1i(location, value[0]);
-        break;
-      case "uint":
-        gl.uniform1ui(location, value[0]);
-        break;
-      case "bool":
-        gl.uniform1i(location, value[0]);
-        break;
       case "vec2":
         gl.uniform2f(location, value[0], value[1]);
         break;

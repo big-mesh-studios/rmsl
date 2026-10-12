@@ -28,6 +28,7 @@ import {
   uint,
   textureLoad,
   uniform,
+  uniformArray,
   varying,
   vec2,
   vec3,
@@ -1276,7 +1277,7 @@ describe("the scalars and inputs of a JS function", () => {
     const source = compileJSFn(() => Fn(() => vec3(v.add(1).x, i.add(1).toFloat()).toVar())() as any, none);
     // Copied one component at a time where it is read, into a slot of the input's kind.
     expect(source).toMatch(
-      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\] \?\? 0;/,
+      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\];/,
     );
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     const run = compileJSRoutine(() => Fn(() => v.add(1).toVar())() as any, none);
@@ -2229,5 +2230,144 @@ describe("the array a CPU adapter takes for a storage buffer", () => {
       /\buint\b storage buffer.*Uint32Array/,
     );
     expect(() => adapter.setAttribute(shades, new Uint32Array(1))).not.toThrow();
+  });
+});
+
+/** A program that reads a uniform of each shape, as one `vec4` node. */
+const cpuUniformShapes = () => {
+  const count = uniform("int");
+  const offsets = uniformArray("int", 2);
+  const tint = uniform("vec3");
+  const turn = uniform("mat2");
+  const pairs = uniformArray("vec2", 2);
+  const value = count
+    .add(offsets.element(int(1)))
+    .toFloat()
+    .add(tint.x)
+    .add(turn.element(int(1)).y)
+    .add(pairs.element(int(1)).y);
+  return { count, offsets, tint, turn, pairs, colour: Fn(() => vec4(value, 0, 0, 1))() };
+};
+
+/** Each CPU adapter over the `vec4` node `colour`, with the `setUniform` it gives. */
+const cpuAdapters: [string, (colour: Node<"vec4">) => { setUniform(uniform: any, value: unknown): void }][] = [
+  [
+    "createJs",
+    (colour) =>
+      createJs(
+        () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))(),
+        () => colour,
+      ),
+  ],
+  [
+    "createWasm",
+    (colour) =>
+      createWasm(
+        () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))(),
+        () => colour,
+      ),
+  ],
+  ["createJsGrid", (colour) => createJsGrid({ draw: colour })],
+  ["createWasmGrid", (colour) => createWasmGrid({ draw: colour })],
+  ["createJsRoutine", (colour) => createJsRoutine(colour)],
+  ["createWasmRoutine", (colour) => createWasmRoutine(colour)],
+  [
+    "createJsCompute",
+    (colour) => {
+      const out = instancedArray(1, "vec4");
+      return createJsCompute(Fn(() => out.element(invocationIndex()).assign(colour))());
+    },
+  ],
+  [
+    "createWasmCompute",
+    (colour) => {
+      const out = instancedArray(1, "vec4");
+      return createWasmCompute(Fn(() => out.element(invocationIndex()).assign(colour))());
+    },
+  ],
+];
+
+describe("the shape of a value a CPU adapter takes", () => {
+  /**
+   * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   */
+  it.each(cpuAdapters)(
+    "%s refuses a uniform value of another shape through setUniform, by node or by slot",
+    (_, create) => {
+      const { count, offsets, tint, turn, pairs, colour } = cpuUniformShapes();
+      const adapter = create(colour);
+      expect(() => adapter.setUniform(count, [2])).toThrow(
+        `[RMSL] the int uniform "${count.name}" takes one value, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(tint, [1, 2])).toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+      );
+      expect(() => adapter.setUniform(tint.name, 1)).toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not 1`,
+      );
+      expect(() =>
+        adapter.setUniform(turn.name, [
+          [1, 0],
+          [0, 1],
+        ]),
+      ).toThrow(`[RMSL] the mat2 uniform "${turn.name}" takes 4 components, not an array of 2`);
+      expect(() => adapter.setUniform(offsets.name, [1])).toThrow(
+        `[RMSL] the int uniform array "${offsets.name}" takes 2 elements, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrow(
+        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(count, 2.7)).not.toThrow();
+      expect(() => adapter.setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
+      expect(() => adapter.setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
+      expect(() => adapter.setUniform(pairs.name, [Float32Array.of(1, 2), [3, 4]])).not.toThrow();
+      expect(() => adapter.setUniform(tint, null)).not.toThrow();
+    },
+  );
+
+  /**
+   * A value the host changes after it set it is not checked again: the run reads what the array holds.
+   *
+   * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   */
+  it.each([
+    ["createJsRoutine", createJsRoutine],
+    ["createWasmRoutine", createWasmRoutine as typeof createJsRoutine],
+  ])("%s refuses a parameter of another shape at run, and checks no uniform there", (_, create) => {
+    const tint = uniform("vec3");
+    const adapter = create(Fn(() => tint.z)(), { params: [{ name: "p", type: "vec2" }] });
+    expect(() => adapter.run({ p: [1] })).toThrow(
+      '[RMSL] the vec2 parameter "p" takes 2 components, not an array of 1',
+    );
+    expect(() => adapter.run({ p: 1 })).toThrow('[RMSL] the vec2 parameter "p" takes 2 components, not 1');
+    const value = [0, 0, 2];
+    adapter.setUniform(tint, value as [number, number, number]);
+    expect(adapter.run({ p: [0, 1] })).toBe(2);
+    value.length = 2;
+    expect(() => adapter.run({ p: [0, 1] })).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it.each([
+    ["createJsRoutine", createJsRoutine],
+    ["createWasmRoutine", createWasmRoutine as typeof createJsRoutine],
+  ])("%s reads a uniform set to null or undefined as zero", (_, create) => {
+    const k = uniform("float");
+    const v = uniform("vec3");
+    const pairs = uniformArray("vec2", 2);
+    const adapter = create(Fn(() => vec3(k, v.y, pairs.element(int(1)).y))());
+    for (const left of [null, undefined]) {
+      adapter.setUniform(k, 1);
+      adapter.setUniform(v, [0, 2, 0]);
+      adapter.setUniform(pairs, [
+        [0, 0],
+        [0, 4],
+      ]);
+      expect(Array.from(adapter.run() as Float64Array)).toEqual([1, 2, 4]);
+      for (const u of [k, v, pairs]) adapter.setUniform(u as any, left as any);
+      expect(Array.from(adapter.run() as Float64Array), String(left)).toEqual([0, 0, 0]);
+    }
   });
 });

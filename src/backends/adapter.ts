@@ -6,10 +6,13 @@ import {
   UniformArrayNode,
   UniformNode,
   UniformValue,
+  UniformSlotValue,
   StorageBufferAttribute,
 } from "../core";
 import type { CpuTextureData } from "./cpu";
 import { assertHostArray } from "./vertex-format";
+import { assertHostShape } from "./host-shape";
+import type { UniformDeclaration } from "./shared";
 
 /**
  * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
@@ -41,7 +44,7 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
    */
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+  setUniform(slot: string, value: UniformSlotValue): void;
 
   /**
    * Same reasoning as `setUniform`: passing the `attribute()` or storage node
@@ -170,6 +173,16 @@ export function assertNodeArray(attribute: AttributeOrSlot, data: ArrayLike<numb
   }
   const type = attributeTypeOf(attribute);
   if (type !== undefined) assertHostArray("attribute", attribute.name, type, data, float64);
+}
+
+/**
+ * Refuses a value `setUniform` was given of another shape than the uniform's
+ * type: the node's own, or for a slot name `declared`, once the adapter knows
+ * it. A slot the adapter knows no type for yet passes.
+ */
+export function assertUniformShape(uniform: UniformOrSlot, value: unknown, declared?: UniformDeclaration): void {
+  const of = typeof uniform === "string" ? declared : ((uniform as { value: unknown }).value as UniformDeclaration);
+  if (of !== undefined) assertHostShape("uniform", slotOf(uniform), of.shaderType, value, of.length);
 }
 
 /** The error a draw of `caller` throws when its vertex stage reads the attribute `slot` and the host gave it no data. */

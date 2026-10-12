@@ -1,4 +1,12 @@
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import {
+  AttributeNode,
+  Node,
+  ShaderType,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+  UniformSlotValue,
+} from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -9,6 +17,7 @@ import {
   TypedArray,
   UniformOrSlot,
   assertNodeArray,
+  assertUniformShape,
   HostArray,
 } from "../adapter";
 import {
@@ -22,7 +31,7 @@ import {
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { assertHostArray } from "../vertex-format";
 import { compileWasm, compileWasmRasterizer, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
-import { fragmentColour } from "../shared";
+import { fragmentColour, uniformDeclarationsOf } from "../shared";
 import {
   compileWasmCompute,
   compileWasmGrid,
@@ -66,7 +75,7 @@ export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
     ...floatWidthOf(options),
   });
 
-  return createCpuAdapter({ draw });
+  return createCpuAdapter({ draw, uniformDeclarations: uniformDeclarationsOf(options.draw) });
 }
 
 export type CreateWasmRoutineOptions = WasmFloatWidth & {
@@ -99,6 +108,8 @@ export function createWasmRoutine<A extends ShaderType, W extends FloatWidth = "
       maxMemoryPages: options.maxMemoryPages,
       ...floatWidthOf(options),
     }),
+    options.params ?? [],
+    uniformDeclarationsOf(fn),
   );
 }
 
@@ -125,7 +136,7 @@ export type CreateWasmComputeOptions = WasmFloatWidth & {
 export interface WasmComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+  setUniform(slot: string, value: UniformSlotValue): void;
   setAttribute<T extends ShaderType>(
     attribute: AttributeOrStorage<T>,
     data: HostArray<T, Float32Array | Float64Array>,
@@ -163,7 +174,11 @@ export function createWasmCompute(
   });
 
   // The module reads each uniform once per dispatch, by its slot.
-  return createCpuAdapter({ compute: computeRoutine, boxedUniforms: true });
+  return createCpuAdapter({
+    compute: computeRoutine,
+    boxedUniforms: true,
+    uniformDeclarations: uniformDeclarationsOf(compute),
+  });
 }
 
 /**
@@ -209,9 +224,11 @@ export function createWasm(
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformOrSlot, value: unknown): void {
-    uniforms[slotOf(uniform)] = value as number | number[];
+    const slot = slotOf(uniform);
+    assertUniformShape(uniform, value, routine.uniformDeclarations.get(slot));
+    uniforms[slot] = value as number | number[];
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;

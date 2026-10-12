@@ -45,6 +45,7 @@ import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { stubDevice, stubGl } from "./scene-stubs";
 import { CONDITION_PAIRS, inlineFnPaths } from "../testing/inline-fn-paths";
 import { createGlsl } from "../glsl";
+import { createWasmContext } from "../wasm";
 
 const WEBGPU = await webgpuAvailable();
 
@@ -867,6 +868,155 @@ describe("the array a GPU adapter takes for a storage buffer", () => {
   });
 });
 
+/** A program that reads a uniform of each shape, and the values of another shape each refuses. */
+const uniformShapes = () => {
+  const count = uniform("int");
+  const offsets = uniformArray("int", 2);
+  const tint = uniform("vec3");
+  const turn = uniform("mat2");
+  const pairs = uniformArray("vec2", 2);
+  const value = count
+    .add(offsets.element(int(1)))
+    .toFloat()
+    .add(tint.x)
+    .add(turn.element(int(1)).y)
+    .add(pairs.element(int(1)).y);
+  const fragment = Fn(() => vec4(value, 0, 0, 1))();
+  const refuses = (setUniform: (uniform: any, value: unknown) => void) => {
+    expect(() => setUniform(count, [2])).toThrow(
+      `[RMSL] the int uniform "${count.name}" takes one value, not an array of 1`,
+    );
+    expect(() => setUniform(tint, [1, 2])).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+    );
+    expect(() => setUniform(tint.name, 1)).toThrow(`[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not 1`);
+    expect(() =>
+      setUniform(turn.name, [
+        [1, 0],
+        [0, 1],
+      ]),
+    ).toThrow(`[RMSL] the mat2 uniform "${turn.name}" takes 4 components, not an array of 2`);
+    expect(() => setUniform(offsets.name, [1])).toThrow(
+      `[RMSL] the int uniform array "${offsets.name}" takes 2 elements, not an array of 1`,
+    );
+    expect(() => setUniform(pairs, [[1, 2], [3]])).toThrow(
+      `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
+    );
+    expect(() => setUniform(count, 2.7)).not.toThrow();
+    expect(() => setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
+    expect(() => setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
+    expect(() => setUniform(pairs.name, [Float32Array.of(1, 2), [3, 4]])).not.toThrow();
+  };
+  return { fragment, refuses, tint };
+};
+
+describe("the shape of a value a GPU adapter takes for a uniform", () => {
+  /**
+   * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   */
+  it("refuses one through setUniform on createGlsl, named by node or by slot", () => {
+    const { fragment, refuses } = uniformShapes();
+    const adapter = createGlsl(Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))() as any, fragment as any);
+    refuses((uniform, value) => adapter.setUniform(uniform, value as any));
+  });
+
+  /**
+   * The adapter knows the type of a slot once it attaches, on a stub device
+   * here. A value set by slot before then is refused as it attaches.
+   *
+   * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   */
+  it("refuses one through setUniform on createWgsl, named by node or by slot", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const { fragment, refuses, tint } = uniformShapes();
+      const vertex = () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))();
+      const early = createWgsl({ context: { device: stubDevice().device } as any, vertex: vertex(), fragment });
+      early.setUniform(tint.name, [1, 2]);
+      await expect(early.attach(stubDevice().canvas)).rejects.toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+      );
+      const { device, canvas } = stubDevice();
+      const createRenderPipeline = device.createRenderPipeline;
+      (device as any).createRenderPipeline = (d: any) => ({
+        ...createRenderPipeline(d),
+        getBindGroupLayout: () => ({}),
+      });
+      const adapter = createWgsl({ context: { device } as any, vertex: vertex(), fragment });
+      await adapter.attach(canvas);
+      refuses((uniform, value) => adapter.setUniform(uniform, value as any));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  /**
+   * A stub device holds the bytes of the uniform buffer the adapter writes.
+   *
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it("writes zeros for a uniform set to null or undefined on createWgsl", async () => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const k = uniform("float");
+      const v = uniform("vec3");
+      const pairs = uniformArray("vec2", 2);
+      const fragment = Fn(() => vec4(k, v.y, pairs.element(int(1)).y, 1))();
+      const { device, canvas, bufferWrites, bytesOf } = stubDevice();
+      const createRenderPipeline = device.createRenderPipeline;
+      (device as any).createRenderPipeline = (d: any) => ({
+        ...createRenderPipeline(d),
+        getBindGroupLayout: () => ({}),
+      });
+      const vertex = Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))();
+      const adapter = createWgsl({ context: { device } as any, vertex, fragment });
+      await adapter.attach(canvas);
+      for (const left of [null, undefined]) {
+        adapter.setUniform(k, 1);
+        adapter.setUniform(v, [0, 2, 0]);
+        adapter.setUniform(pairs, [
+          [0, 0],
+          [0, 4],
+        ]);
+        const buffer = bufferWrites.at(-1)!.buffer;
+        expect(new Float32Array(bytesOf(buffer).buffer).filter((x) => x !== 0).sort()).toEqual(
+          Float32Array.of(1, 2, 4),
+        );
+        for (const u of [k, v, pairs]) adapter.setUniform(u as any, left as any);
+        expect(
+          new Float32Array(bytesOf(buffer).buffer).every((x) => x === 0),
+          String(left),
+        ).toBe(true);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  /**
+   * A context takes a uniform by its node alone.
+   *
+   * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   */
+  it.each([
+    ["createWgslContext", () => createWgslContext({ device: {} as GPUDevice })],
+    ["createWasmContext", async () => createWasmContext()],
+  ] as const)("refuses one through setUniform on %s", async (_, create) => {
+    const context = await create();
+    const count = uniform("int");
+    const tint = uniform("vec3");
+    const items = uniformArray("float", 2);
+    expect(() => context.setUniform(count, [3] as any)).toThrow(/takes one value, not an array of 1/);
+    expect(() => context.setUniform(tint, [1, 2] as any)).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+    );
+    expect(() => context.setUniform(items, [1] as any)).toThrow(/takes 2 elements, not an array of 1/);
+    expect(() => context.setUniform(count, 3)).not.toThrow();
+  });
+});
+
 describe("the vertex layout of createWgsl", () => {
   /**
    * A stub device records the pipeline. Each attribute takes a buffer of its
@@ -1189,6 +1339,58 @@ globalThis.__rmslValueTypes = {
       return readPixel(target, 1, 2).g === 255;
     });
   }),
+  undefinedComponent: () => attempt(() => {
+    const f = uniform("vec3");
+    const m = uniform("mat2");
+    const i = uniform("ivec3");
+    const u = uniform("uvec3");
+    const b = uniform("bvec3");
+    const n = uniform("vec3");
+    const isNaN = (x) => x.greaterThanEqual(0).or(x.lessThan(0)).not();
+    const all = isNaN(f.y)
+      .and(f.z.equal(3))
+      .and(isNaN(m.element(0).y))
+      .and(i.y.toFloat().equal(0))
+      .and(u.y.toFloat().equal(0))
+      .and(b.y.not())
+      .and(n.y.equal(0));
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, select(all, float(1), float(0)), 0, 1))());
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setUniform(f, [1, undefined, 3]);
+    adapter.setUniform(m, [1, undefined, 3, 4]);
+    adapter.setUniform(i, [1, undefined, 3]);
+    adapter.setUniform(u, [1, undefined, 3]);
+    adapter.setUniform(b, [true, undefined, true]);
+    adapter.setUniform(n, [1, null, 3]);
+    adapter.draw({ count: 3 });
+    return readPixel(target, 1, 2).g === 255;
+  }),
+  uniformLeftOut: () => attempt(() => {
+    const k = uniform("float");
+    const v = uniform("vec3");
+    const pairs = uniformArray("vec2", 2);
+    const zero = k.equal(0).and(v.y.equal(0)).and(pairs.element(1).y.equal(0));
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, select(zero, float(1), float(0)), 0, 1))());
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    return [null, undefined].flatMap((left) => {
+      adapter.setUniform(k, 1);
+      adapter.setUniform(v, [0, 2, 0]);
+      adapter.setUniform(pairs, [[0, 0], [0, 4]]);
+      adapter.draw({ count: 3 });
+      const set = readPixel(target, 1, 2).g === 255;
+      for (const u of [k, v, pairs]) adapter.setUniform(u, left);
+      adapter.draw({ count: 3 });
+      return [set, readPixel(target, 1, 2).g === 255];
+    });
+  }),
+  typedVector: () => {
+    const colour = uniform("vec4");
+    return glsl(Fn(() => colour)(), (a) => a.setUniform(colour, Float32Array.of(0, 1, 0, 1)));
+  },
   cpuAttributeWithoutData: (target) => attempt(() => {
     const shift = attribute("int");
     const adapter = (target === "JS" ? createJs : createWasm)(() => shiftedVertex(shift), () => Fn(() => vec4(0, 1, 0, 1))());
@@ -1334,6 +1536,29 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
     },
     120_000,
   );
+
+  /**
+   * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   */
+  it("sets a vector uniform from a typed array with createGlsl", async () => {
+    expect(await glslValueType("typedVector")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * The page tells NaN by its failing every comparison with zero.
+   *
+   * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   */
+  it("reads a component the host gives as undefined as a typed slot of its kind holds it on createGlsl", async () => {
+    expect(await glslValueType("undefinedComponent")).toBe(true);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it("reads a uniform set to null or undefined as zero on createGlsl", async () => {
+    expect(await glslValueType("uniformLeftOut")).toEqual([false, true, false, true]);
+  }, 120_000);
 
   /** Runs `hostConversion` for `type` in the WebGL page, over cases written as JavaScript. */
   const glslConversion = (type: string, cases: string) =>
@@ -1502,6 +1727,95 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   it("reads a bool the host gives as true where it converts to an integer not zero on createWgslCompute", async () => {
     const values = [true, 1, 2, -1, 2 ** 32 + 1, "1", false, 0, 0.5, "x", NaN, 2 ** 32];
     expect(await wgslHostValues("bool", values)).toEqual(values.map((_, i) => Array(3).fill(i < 6 ? 11 : 0)));
+  });
+
+  /**
+   * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
+   */
+  it("reads a component the host gives as undefined as a typed slot of its kind holds it on createWgslCompute", async () => {
+    const f = uniform("vec3");
+    const m = uniform("mat2");
+    const i = uniform("ivec3");
+    const u = uniform("uvec3");
+    const b = uniform("bvec3");
+    const n = uniform("vec3");
+    const results = instancedArray(6, "float");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        results.element(int(0)).assign(f.y);
+        results.element(int(1)).assign(m.element(int(0)).y);
+        results.element(int(2)).assign(i.y.toFloat());
+        results.element(int(3)).assign(u.y.toFloat());
+        results.element(int(4)).assign(select(b.y, float(1), float(0)));
+        results.element(int(5)).assign(n.y);
+      })(),
+    );
+    await adapter.attach();
+    adapter.setUniform(f, [1, undefined, 3] as any);
+    adapter.setUniform(m, [1, undefined, 3, 4] as any);
+    adapter.setUniform(i, [1, undefined, 3] as any);
+    adapter.setUniform(u, [1, undefined, 3] as any);
+    adapter.setUniform(b, [true, undefined, true] as any);
+    adapter.setUniform(n, [1, null, 3] as any);
+    const out = { [results.name]: new Float32Array(6) };
+    await adapter.compute(out, 1);
+    expect(Array.from(out[results.name]!)).toEqual([NaN, NaN, 0, 0, 0, 0]);
+    adapter.destroy();
+  });
+
+  /**
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it("reads a uniform set to null or undefined as zero on createWgslCompute", async () => {
+    const k = uniform("float");
+    const v = uniform("vec3");
+    const pairs = uniformArray("vec2", 2);
+    const results = instancedArray(3, "float");
+    const adapter = createWgslCompute(
+      Fn(() => {
+        results.element(int(0)).assign(k);
+        results.element(int(1)).assign(v.y);
+        results.element(int(2)).assign(pairs.element(int(1)).y);
+      })(),
+    );
+    await adapter.attach();
+    for (const left of [null, undefined]) {
+      adapter.setUniform(k, 1);
+      adapter.setUniform(v, [0, 2, 0]);
+      adapter.setUniform(pairs, [
+        [0, 0],
+        [0, 4],
+      ]);
+      const out = { [results.name]: new Float32Array(3) };
+      await adapter.compute(out, 1);
+      expect(Array.from(out[results.name]!)).toEqual([1, 2, 4]);
+      for (const u of [k, v, pairs]) adapter.setUniform(u as any, left as any);
+      await adapter.compute(out, 1);
+      expect(Array.from(out[results.name]!), String(left)).toEqual([0, 0, 0]);
+    }
+    adapter.destroy();
+  });
+
+  /**
+   * The adapter knows the type of a slot once it attaches. A value set by
+   * slot before then is refused as it attaches.
+   *
+   * @canon spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape
+   */
+  it("refuses a uniform value of another shape through setUniform on createWgslCompute, by node or by slot", async () => {
+    const { fragment, refuses, tint } = uniformShapes();
+    const out = instancedArray(1, "vec4");
+    const program = () => Fn(() => out.element(invocationIndex()).assign(fragment))();
+    const early = createWgslCompute(program());
+    early.setUniform(tint.name, [1, 2] as any);
+    await expect(early.attach()).rejects.toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+    );
+    early.destroy();
+    const adapter = createWgslCompute(program());
+    await adapter.attach();
+    refuses((uniform, value) => adapter.setUniform(uniform, value as any));
+    adapter.destroy();
   });
 
   /**

@@ -1,14 +1,17 @@
-import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue, UniformSlotValue } from "../core";
 import {
   Adapter,
   assertNodeArray,
   AttributeOrSlot,
   AttributeOrStorage,
+  assertUniformShape,
   slotOf,
   TypedArray,
   unknownStorageSlots,
 } from "./adapter";
 import { assertHostArray } from "./vertex-format";
+import { assertHostShape } from "./host-shape";
+import type { UniformDeclaration } from "./shared";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -44,6 +47,8 @@ export interface CpuAdapterPrograms {
    * invocation, is faster without it.
    */
   boxedUniforms?: boolean;
+  /** The declaration of each uniform the program reads, by slot, which a value set by slot is checked against. */
+  uniformDeclarations?: ReadonlyMap<string, UniformDeclaration>;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -108,9 +113,11 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
-    uniforms[slotOf(uniform)] = _value as number | number[];
+    const slot = slotOf(uniform);
+    assertUniformShape(uniform, _value, programs.uniformDeclarations?.get(slot));
+    uniforms[slot] = _value as number | number[];
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
@@ -188,22 +195,30 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 export interface CpuRoutineAdapter<A extends ShaderType = ShaderType, W extends FloatWidth = "f64"> {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+  setUniform(slot: string, value: UniformSlotValue): void;
   setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
   /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
-  run(params?: Record<string, number | number[]>): CpuValue<A, W>;
+  run(params?: Record<string, number | boolean | number[]>): CpuValue<A, W>;
   destroy(): void;
 }
 
-/** Wraps a routine in a {@link CpuRoutineAdapter}. */
+/**
+ * Wraps a routine in a {@link CpuRoutineAdapter}, which checks a uniform
+ * against `uniformDeclarations` where it is set, and each of `params` where
+ * `run` is given it.
+ */
 export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWidth = "f64">(
   routine: CpuRoutine<A, W>,
+  params: readonly { name: string; type: string }[],
+  uniformDeclarations: ReadonlyMap<string, UniformDeclaration>,
 ): CpuRoutineAdapter<A, W> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
-    uniforms[slotOf(uniform)] = value as number | number[];
+    const slot = slotOf(uniform);
+    assertUniformShape(uniform, value, uniformDeclarations.get(slot));
+    uniforms[slot] = value as number | number[];
   }
 
   return {
@@ -211,7 +226,13 @@ export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWid
     setTexture(sampler, texture) {
       textures[slotOf(sampler)] = texture;
     },
-    run: (params) => routine({ params, uniforms, textures }),
+    run(given) {
+      for (let i = 0; i < params.length; i++) {
+        const param = params[i]!;
+        assertHostShape("parameter", param.name, param.type, given?.[param.name]);
+      }
+      return routine({ params: given, uniforms, textures });
+    },
     destroy() {},
   };
 }

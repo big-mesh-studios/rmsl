@@ -6,6 +6,9 @@ import {
   UniformArrayNode,
   UniformNode,
   UniformValue,
+  UniformSlotValue,
+  isSamplerType,
+  someNode,
 } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import {
@@ -21,11 +24,12 @@ import {
   assertNodeArray,
   HostArray,
   missingAttributeError,
+  assertUniformShape,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
-import { CompileCtx, storageNodesOf, VertexRoot } from "../shared";
+import { CompileCtx, storageNodesOf, type StorageGraphNode, type UniformDeclaration, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -249,9 +253,7 @@ function writeUniformElement(
     view.set(value, at);
     return;
   }
-  // A value shorter than the matrix leaves the rest of it as it was.
-  const length = Math.min(value.length, matrix.columns * matrix.rows);
-  for (let k = 0; k < length; k++) {
+  for (let k = 0; k < matrix.columns * matrix.rows; k++) {
     view[at + Math.floor(k / matrix.rows) * matrix.columnStride + (k % matrix.rows)] = value[k]!;
   }
 }
@@ -259,10 +261,16 @@ function writeUniformElement(
 /**
  * Writes a uniform's value into its place in the scratch buffer, laid out as
  * WGSL reads it: an array's elements `size / length` bytes apart (each in its
- * own 16-byte slot), and a `mat3x3`'s columns padded to four components.
+ * own 16-byte slot), and a `mat3x3`'s columns padded to four components. A
+ * value left out writes zeros.
  */
 export function writeUniformMember(scratch: UniformScratch, placement: UniformPlacement, value: unknown): void {
   let view = elementView(placement.type, scratch);
+  if (value == null) {
+    // A value left out, or null, reads zero, as an unset uniform does.
+    view.fill(0, placement.offset / 4, (placement.offset + placement.size) / 4);
+    return;
+  }
   if (placement.length === undefined) {
     writeUniformElement(view, placement.offset / 4, placement.type, value as number | number[]);
     return;
@@ -324,6 +332,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
   let pendingTextures = new Map<string, CpuTextureData>();
+  /** The type of each uniform the stages read, by slot, known once `attach` reflects them. */
+  const renderUniformDeclarations = new Map<string, UniformDeclaration>();
   /** The textures the program reads, in binding order. */
   let textureDeclarations: ReturnType<typeof sharedSamplerDeclarations> = [];
   /** The GPU texture, and sampler for a float one, of each sampler the host has set. */
@@ -417,10 +427,11 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
     const slot = slotOf(uniform);
     const value = _value as number | number[];
+    assertUniformShape(uniform, value, renderUniformDeclarations.get(slot));
     if (!device) {
       pendingUniforms.set(slot, value);
       return;
@@ -510,6 +521,9 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) {
         (isWgslTexture(u.type) ? sharedTextures : sharedUniforms).set(u.slot, u);
       }
+      for (const u of sharedUniforms.values())
+        renderUniformDeclarations.set(u.slot, (u.node as { value: unknown }).value as UniformDeclaration);
+      for (const [slot, value] of pendingUniforms) assertUniformShape(slot, value, renderUniformDeclarations.get(slot));
       let renderDeclarations = [...sharedUniforms.values()].sort((a, b) => a.order - b.order);
       let renderUniforms = renderDeclarations.map((u) => u.node);
       // A texture takes a binding of its own, in the order of the whole program's textures.
@@ -672,7 +686,7 @@ export interface WgslComputeAdapter {
   attach(): Promise<void>;
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+  setUniform(slot: string, value: UniformSlotValue): void;
   setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: HostArray<T, Float32Array>): void;
   setAttribute(slot: string, data: TypedArray): void;
   /**
@@ -717,6 +731,8 @@ export function createWgslCompute(
 
   let computePipeline: GPUComputePipeline | null = null;
   let computeResources: WgslResource[] = [];
+  /** The type of each uniform the program reads, by slot, known once `attach` walks it. */
+  const computeUniformDeclarations = new Map<string, UniformDeclaration>();
   /** Elements of the first storage buffer the host passed, the dispatch's
    *  count when the caller names none. */
   let firstStorageCount = 0;
@@ -784,10 +800,11 @@ export function createWgslCompute(
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
     const slot = slotOf(uniform);
     const value = _value as number | number[];
+    assertUniformShape(uniform, value, computeUniformDeclarations.get(slot));
     if (!device) {
       pendingUniforms.set(slot, value);
       return;
@@ -847,6 +864,15 @@ export function createWgslCompute(
       // Compiled and checked before the device is requested, so a program that throws leaves no device behind.
       let program = compile({ stage: "compute", workgroupSize: options.workgroupSize ?? 64 }, compute);
       assertStorageBufferLimit(gpuAdapter.limits, program.resources, "createWgslCompute");
+      const declared = new Map<string, StorageBufferAttribute>();
+      someNode(compute, (node) => {
+        if (node.type === "storage") declared.set(node.value.slot, (node as StorageGraphNode).attribute);
+        else if ((node.type === "uniform" || node.type === "uniformArray") && !isSamplerType(node.value.shaderType)) {
+          computeUniformDeclarations.set(node.value.slot, node.value);
+        }
+      });
+      for (const [slot, value] of pendingUniforms)
+        assertUniformShape(slot, value, computeUniformDeclarations.get(slot));
       device = await requestComputeDevice(gpuAdapter);
       let module = device.createShaderModule({ code: program.code });
       computePipeline = device.createComputePipeline({
@@ -868,7 +894,6 @@ export function createWgslCompute(
 
       // A slot the host never sets, such as one the program only writes, is as long as the program declared it:
       // `instancedArray(count, type)`, as TSL's buffer is. It has a buffer to bind either way.
-      const declared = new Map(storageNodesOf(compute).map((node) => [node.name, node.attribute]));
       for (const resource of computeStorageResources())
         sizeStorageSlot(resource, declared.get(resource.name)?.count ?? 0);
       // A program with no storage binds an empty group, which its compute() still dispatches against.

@@ -474,4 +474,56 @@ describe("the value setUniform takes for a boolean uniform", () => {
     // @ts-expect-error a bool takes 1 or 0, not any number
     glsl.setUniform(flag, 2);
   });
+
+  /**
+   * @canon spec-the-types-hold-a-uniform-value-to-its-shape
+   */
+  it("takes for a boolean vector an array of them, or an integer array", () => {
+    const pair = uniform("bvec2");
+    glsl.setUniform(pair, [true, 0]);
+    glsl.setUniform(pair, Int32Array.of(1, 0));
+    glsl.setUniform(pair, Uint32Array.of(1, 0));
+    // @ts-expect-error a float array holds no boolean exactly
+    glsl.setUniform(pair, Float32Array.of(1, 0));
+    // @ts-expect-error a bvec2 takes two components
+    glsl.setUniform(pair, [true]);
+  });
+});
+
+describe("the value setUniform takes for a vector or matrix uniform", () => {
+  let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-the-types-hold-a-uniform-value-to-its-shape
+   */
+  it("takes exactly the components of the type, flat for a matrix, and any shape by slot", () => {
+    const tint = uniform("vec3");
+    const turn = uniform("mat2");
+    const frame = uniform("mat3x2");
+    const ids = uniform("ivec2");
+    glsl.setUniform(tint, [1, 0, 0]);
+    glsl.setUniform(tint, Float32Array.of(1, 0, 0));
+    // @ts-expect-error a vec3 takes three components
+    glsl.setUniform(tint, [1, 0]);
+    glsl.setUniform(turn, [1, 0, 0, 1]);
+    glsl.setUniform(turn, Float32Array.of(1, 0, 0, 1));
+    // @ts-expect-error a mat2 takes four components
+    glsl.setUniform(turn, [1, 0, 0]);
+    // @ts-expect-error a matrix takes its columns in one flat array
+    glsl.setUniform(turn, [
+      [1, 0],
+      [0, 1],
+    ]);
+    glsl.setUniform(frame, [1, 0, 0, 1, 0, 0]);
+    // @ts-expect-error a mat3x2 takes six components
+    glsl.setUniform(frame, [1, 0, 0, 1]);
+    glsl.setUniform(ids, Int32Array.of(1, 2));
+    // @ts-expect-error an ivec2 takes an Int32Array, not a float array
+    glsl.setUniform(ids, Float32Array.of(1, 2));
+    glsl.setUniform(tint.name, Float32Array.of(1, 0, 0));
+    glsl.setUniform("colours", [
+      [1, 0, 0, 1],
+      [0, 1, 0, 1],
+    ]);
+  });
 });

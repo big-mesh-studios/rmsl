@@ -1,4 +1,12 @@
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import {
+  AttributeNode,
+  Node,
+  ShaderType,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+  UniformSlotValue,
+} from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -9,6 +17,7 @@ import {
   TypedArray,
   UniformOrSlot,
   assertNodeArray,
+  assertUniformShape,
   HostArray,
 } from "../adapter";
 import {
@@ -22,7 +31,7 @@ import {
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { assertHostArray } from "../vertex-format";
 import { compileJS, compileJSRasterizer, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
-import { fragmentColour } from "../shared";
+import { fragmentColour, uniformDeclarationsOf } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
 
 export interface CreateJsGridOptions {
@@ -54,7 +63,7 @@ export function createJsGrid(options: CreateJsGridOptions): CpuAdapter {
     float: options.float,
   });
 
-  return createCpuAdapter({ draw });
+  return createCpuAdapter({ draw, uniformDeclarations: uniformDeclarationsOf(options.draw) });
 }
 
 export interface CreateJsRoutineOptions {
@@ -82,6 +91,8 @@ export function createJsRoutine<A extends ShaderType, W extends FloatWidth = "f6
       reentrant: options.reentrant,
       float: options.float,
     }),
+    options.params ?? [],
+    uniformDeclarationsOf(fn),
   );
 }
 
@@ -106,7 +117,7 @@ export interface CreateJsComputeOptions {
 export interface JsComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
+  setUniform(slot: string, value: UniformSlotValue): void;
   setAttribute<T extends ShaderType>(
     attribute: AttributeOrStorage<T>,
     data: HostArray<T, Float32Array | Float64Array>,
@@ -133,7 +144,7 @@ export function createJsCompute(
     float: options.float,
   });
 
-  return createCpuAdapter({ compute: computeRoutine });
+  return createCpuAdapter({ compute: computeRoutine, uniformDeclarations: uniformDeclarationsOf(compute) });
 }
 
 /**
@@ -179,9 +190,11 @@ export function createJs(
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(slot: string, value: UniformSlotValue): void;
   function setUniform(uniform: UniformOrSlot, value: unknown): void {
-    uniforms[slotOf(uniform)] = value;
+    const slot = slotOf(uniform);
+    assertUniformShape(uniform, value, routine.uniformDeclarations.get(slot));
+    uniforms[slot] = value;
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;

@@ -11,6 +11,7 @@ import {
   vertexPosition,
 } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
+import type { UniformDeclaration } from "../shared";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
 const W_CLIP_EPS = 1e-5;
@@ -63,6 +64,8 @@ export interface JsRasterRoutine {
   draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer;
   /** The type of each attribute the vertex stage reads, by slot. */
   readonly attributeTypes: Readonly<Record<string, string>>;
+  /** The declaration of each uniform either stage reads that holds a value, by slot. */
+  readonly uniformDeclarations: ReadonlyMap<string, UniformDeclaration>;
 }
 
 /**
@@ -453,5 +456,9 @@ export function compileJSRasterizer(
     return result;
   }
 
-  return { draw, attributeTypes: vertexStage.attributeTypes };
+  return {
+    draw,
+    attributeTypes: vertexStage.attributeTypes,
+    uniformDeclarations: new Map([...vertexStage.uniformDeclarations, ...fragmentStage.uniformDeclarations]),
+  };
 }

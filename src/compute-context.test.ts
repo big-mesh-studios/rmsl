@@ -200,6 +200,35 @@ for (const backend of backends) {
       context.destroy();
     });
     /**
+     * @canon spec-a-component-the-host-leaves-out-reads-zero
+     */
+    it("reads a uniform set to null or undefined as zero", async () => {
+      const context = await backend.create();
+      const out = instancedArray(3, "float");
+      const k = uniform("float");
+      const v = uniform("vec3");
+      const pairs = uniformArray("vec2", 2);
+      const read = Fn(() => {
+        out.element(0).assign(k);
+        out.element(1).assign(v.y);
+        out.element(2).assign(pairs.element(1).y);
+      })().compute(1);
+      for (const left of [null, undefined]) {
+        context.setUniform(k, 1);
+        context.setUniform(v, [0, 2, 0]);
+        context.setUniform(pairs, [
+          [0, 0],
+          [0, 4],
+        ]);
+        context.compute(read);
+        expect(await context.read(out.attribute)).toEqual([1, 2, 4]);
+        for (const u of [k, v, pairs]) context.setUniform(u, left as any);
+        context.compute(read);
+        expect(await context.read(out.attribute), String(left)).toEqual([0, 0, 0]);
+      }
+      context.destroy();
+    });
+    /**
      * @canon spec-an-unset-uniform-reads-zero
      */
     it("reads an unset uniform as zero", async () => {

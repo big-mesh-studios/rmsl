@@ -51,6 +51,8 @@ import {
   resolveSwizzleTarget,
   roundHalfToEven,
   tryFold,
+  type UniformDeclaration,
+  uniformDeclarationsOf,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
@@ -1434,16 +1436,16 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
 
 /**
  * The lines that copy `read`, a vector or matrix of `type` the host passes,
- * into `out`, one line a component, reading zeros when the host leaves it out
- * and zero for each component past the end of a shorter one. The zeros are an
- * array of their own, so a load that only ever sees the host's arrays stays
- * specialised to them.
+ * into `out`, one line a component, reading zeros when the host leaves it out.
+ * `out` is a typed slot of the kind of `type`, which converts each component
+ * as it stores it. The zeros are an array of their own, so a load that only
+ * ever sees the host's arrays stays specialised to them.
  */
 function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): string[] {
   jsRequireHelper(ctx, "zeros");
   let source = jsNewTemp(ctx, "float");
   let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
-  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}] ?? 0;`);
+  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}];`);
   return lines;
 }
 
@@ -1752,7 +1754,7 @@ export function compileJSNode(
         at = jsNewTemp(ctx, "int");
         body.push(`${at} = ${jsBoundedIndex(idx.expr, node.params![1]._t, last + 1)};`);
       }
-      // An element past the end of a shorter array the host passes, or of one it leaves out, reads zero.
+      // An element of a uniform array the host leaves out reads zero.
       jsRequireHelper(ctx, "none");
       let element = `(${jsInputRead(arr.expr, ctx)} ?? _none)[${at}]`;
       if (!jsIsArrayType(node._t)) {
@@ -2579,6 +2581,7 @@ function compileJSFnDetailed(
   storageTypes: Record<string, ShaderType>;
   resultTypes: JsResultTypes;
   writesDepth: boolean;
+  uniformDeclarations: ReadonlyMap<string, UniformDeclaration>;
 } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
@@ -2712,6 +2715,7 @@ function compileJSFnDetailed(
   return {
     source: parts.join("\n\n"),
     writesDepth: ctx.fragDepthWritten ?? false,
+    uniformDeclarations: uniformDeclarationsOf(rawNodes),
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
@@ -2744,6 +2748,8 @@ export interface JsProgram extends CpuProgram {
   readonly varyingTypes: Readonly<Record<string, string>>;
   /** Whether a fragment stage can write its depth, so a rasterizer tests the depth it writes. */
   readonly writesDepth: boolean;
+  /** The declaration of each uniform the program reads that holds a value, by slot. */
+  readonly uniformDeclarations: ReadonlyMap<string, UniformDeclaration>;
 }
 
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
@@ -2871,7 +2877,10 @@ export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes, resultTypes, writesDepth, uniformDeclarations } = compileJSFnDetailed(
+    fn,
+    options,
+  );
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
@@ -2962,6 +2971,7 @@ export function compileJSProgram(
     attributeTypes: resultTypes.attributes,
     varyingTypes: resultTypes.varyings,
     writesDepth,
+    uniformDeclarations,
   };
 }
 

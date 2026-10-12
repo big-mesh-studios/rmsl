@@ -94,15 +94,54 @@ export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "ui
   ? number
   : A extends "bool"
     ? BooleanValue
-    : A extends "vec2" | "ivec2" | "uvec2" | "bvec2"
-      ? [number, number]
-      : A extends "vec3" | "ivec3" | "uvec3" | "bvec3"
-        ? [number, number, number]
-        : A extends "vec4" | "ivec4" | "uvec4" | "bvec4"
-          ? [number, number, number, number]
-          : A extends "mat2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4"
-            ? number[]
+    : A extends "bvec2"
+      ? [BooleanValue, BooleanValue] | Int32Array | Uint32Array
+      : A extends "bvec3"
+        ? [BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
+        : A extends "bvec4"
+          ? [BooleanValue, BooleanValue, BooleanValue, BooleanValue] | Int32Array | Uint32Array
+          : A extends keyof typeof TYPE_COMPONENTS
+            ? Components<(typeof TYPE_COMPONENTS)[A]> | HostVectorArray<A>
             : never;
+
+/** The components of each vector and matrix type, a matrix's counted column after column. */
+const TYPE_COMPONENTS = {
+  vec2: 2,
+  vec3: 3,
+  vec4: 4,
+  ivec2: 2,
+  ivec3: 3,
+  ivec4: 4,
+  uvec2: 2,
+  uvec3: 3,
+  uvec4: 4,
+  mat2: 4,
+  mat2x3: 6,
+  mat2x4: 8,
+  mat3x2: 6,
+  mat3: 9,
+  mat3x4: 12,
+  mat4x2: 8,
+  mat4x3: 12,
+  mat4: 16,
+} as const;
+
+/** A tuple of `N` numbers: the components of a vector or matrix value, given as a plain array. */
+type Components<N extends number, T extends number[] = []> = T["length"] extends N ? T : Components<N, [...T, number]>;
+
+/** The typed arrays that hold a vector or matrix of type `A` as it is: integers in their own kind, floats at either width. */
+type HostVectorArray<A extends ShaderType> = A extends `ivec${string}`
+  ? Int32Array
+  : A extends `uvec${string}`
+    ? Uint32Array
+    : Float32Array | Float64Array;
+
+/**
+ * Any value `setUniform` takes by slot name, where the type of the slot is
+ * not known: a scalar, a vector or matrix, or a uniform array of them. The
+ * adapter checks its shape against the slot's type when it knows it.
+ */
+export type UniformSlotValue = number | boolean | ArrayLike<number | boolean> | readonly ArrayLike<number | boolean>[];
 
 // === BaseNode ===
 export interface BaseNode<A extends ShaderType> {

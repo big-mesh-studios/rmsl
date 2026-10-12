@@ -65,7 +65,7 @@ describe("cameraUniformValue", () => {
    */
   it("returns nothing for unknown names", () => {
     const camera = new PerspectiveCamera();
-    expect(cameraUniformValue("nope", camera)).toEqual([]);
+    expect(cameraUniformValue("nope", camera)).toBeUndefined();
   });
 });
 

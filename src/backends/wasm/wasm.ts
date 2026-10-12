@@ -602,11 +602,11 @@ function emitLiteralStores(node: any, addr: number): number[] {
   return out;
 }
 
-/**
- * What a vector or matrix the host leaves out is read from: an array with no
- * components, each of which is written as zero.
- */
-const ZERO_COMPONENTS: readonly number[] = [];
+/** What a vector or matrix the host leaves out is read from: a zero for each component of a `mat4`. */
+const ZERO_COMPONENTS: readonly number[] = new Array(16).fill(0);
+
+/** What a uniform array the host leaves out is read from: an array with no elements, each of which is written as zero. */
+const NO_ELEMENTS: readonly unknown[] = [];
 
 /** A bool the host passes, as 1 where it converts to an `int` that is not zero, as WebGL and WGSL test it, and 0 elsewhere. */
 function hostBoolean(value: unknown): number {
@@ -629,12 +629,11 @@ function writeAggregateToMemory(
   const kind = elementKindOf(shaderType);
 
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
-  // A value the host leaves out, or a component past the end of a shorter one, is written as zero.
+  // A value the host leaves out is written as zero. A component converts as the DataView stores it.
   const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
   const count = componentCountOf(shaderType);
   for (let i = 0; i < count; i++) {
-    const raw = (i < arr.length ? arr[i] : 0) ?? 0;
-    const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
+    const num = arr[i] as number;
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
       else view.setFloat64(address + i * compSize, round32 ? Math.fround(num) : num, true);
@@ -658,10 +657,10 @@ function writeArrayToMemory(
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  // An element past the end of a shorter array the host passes, or of one it leaves out, is written as zero.
-  const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<any>;
+  // An element the host leaves out is written as zero. A component converts as the DataView stores it.
+  const arr = (value ?? NO_ELEMENTS) as ArrayLike<any>;
   for (let i = 0; i < length; i++) {
-    const el = i < arr.length ? arr[i] : undefined;
+    const el = arr[i];
     const base = address + i * elementStride;
     if (width === 1) {
       const num = typeof el === "boolean" ? (el ? 1 : 0) : ((el as number | undefined) ?? 0);
@@ -673,8 +672,7 @@ function writeArrayToMemory(
       }
     } else {
       for (let k = 0; k < width; k++) {
-        const raw = el?.[k];
-        const num = typeof raw === "boolean" ? (raw ? 1 : 0) : ((raw as number | undefined) ?? 0);
+        const num = el == null ? 0 : el[k];
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);
