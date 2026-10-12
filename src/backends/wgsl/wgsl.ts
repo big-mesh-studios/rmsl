@@ -1506,23 +1506,8 @@ export function logicalWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: str
 export function binaryWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
-  let lhsType = (node.params![0] as any)?._t || "float";
-  let rhsType = (node.params![1] as any)?._t || "float";
   let rhsExpr = rhs.expr;
   let lhsExpr = lhs.expr;
-  if (lhsType !== rhsType) {
-    if (lhsType === "float" && (rhsType === "int" || rhsType === "uint")) {
-      rhsExpr = `f32(${rhs.expr})`;
-    } else if ((lhsType === "int" || lhsType === "uint") && rhsType === "float") {
-      // The node's type follows its first operand, so the float side is
-      // converted to match rather than the result promoted to float.
-      rhsExpr = lhsType === "int" ? `i32(${rhs.expr})` : `u32(${rhs.expr})`;
-    } else if ((lhsType === "int" || lhsType === "uint") && (rhsType === "int" || rhsType === "uint")) {
-      // WGSL has no mixed signed/unsigned arithmetic; convert to the type the
-      // node is declared as (its first operand's).
-      rhsExpr = lhsType === "int" ? `i32(${rhs.expr})` : `u32(${rhs.expr})`;
-    }
-  }
   if (isFn) {
     return {
       decls: [...lhs.decls, ...rhs.decls],
@@ -1551,20 +1536,10 @@ export function ternaryWGSL(
   let a = compileWGSLStage(node.params![0], ctx);
   let b = compileWGSLStage(node.params![1], ctx);
   let c = compileWGSLStage(node.params![2], ctx);
-  let aType = (node.params![0] as any)?._t || "float";
-  let bType = (node.params![1] as any)?._t || "float";
-  let cType = (node.params![2] as any)?._t || "float";
-  let aExpr = a.expr;
-  let bExpr = b.expr;
-  let cExpr = c.expr;
-  if (aType === "float") {
-    if (bType === "int" || bType === "uint") bExpr = `f32(${bExpr})`;
-    if (cType === "int" || cType === "uint") cExpr = `f32(${cExpr})`;
-  }
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
-    expr: format(aExpr, bExpr, cExpr),
+    expr: format(a.expr, b.expr, c.expr),
   };
 }
 
