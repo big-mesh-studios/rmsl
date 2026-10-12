@@ -172,6 +172,11 @@ export function assertNodeArray(attribute: AttributeOrSlot, data: ArrayLike<numb
   if (type !== undefined) assertHostArray("attribute", attribute.name, type, data, float64);
 }
 
+/** The error a draw of `caller` throws when its vertex stage reads the attribute `slot` and the host gave it no data. */
+export function missingAttributeError(caller: string, slot: string): Error {
+  return new Error(`[RMSL] ${caller}: draw() is missing attribute "${slot}"`);
+}
+
 /** The declared type of an attribute node, or nothing for a storage node or a slot name. */
 export function attributeTypeOf(attribute: AttributeOrSlot): string | undefined {
   if (typeof attribute === "string") return undefined;

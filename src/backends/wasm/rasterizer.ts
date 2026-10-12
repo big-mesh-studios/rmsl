@@ -1,6 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
-import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
+import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { assertHostArray } from "../vertex-format";
 import {
   compileWasmFn,
@@ -495,7 +495,7 @@ export function compileWasm(
         continue;
       }
       const src = ctx.attributes[a.slot];
-      if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
+      if (!src) throw missingAttributeError("compileWasm", a.slot);
       assertHostArray("attribute", a.slot, a.shaderType, src, true);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {

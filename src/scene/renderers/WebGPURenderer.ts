@@ -46,6 +46,7 @@ import {
   rangesCover,
   clearUpdateRanges,
   type AttributeBuffer,
+  warnMissingAttribute,
 } from "./common";
 import {
   attributeShape,
@@ -881,7 +882,10 @@ export class WebGPURenderer {
       const layout = variant.vertexFormats[slot];
       const buffer = this.vertexBuffer(mesh, layout.name, buffers);
       if (buffer) pass.setVertexBuffer(slot, buffer);
-      else this.setNoData(pass, slot, VERTEX_FORMATS[layout.attributes[0]!.format as VertexFormat].kind);
+      else {
+        warnMissingAttribute(mesh.geometry, layout.name);
+        this.setNoData(pass, slot, VERTEX_FORMATS[layout.attributes[0]!.format as VertexFormat].kind);
+      }
     }
   }
 

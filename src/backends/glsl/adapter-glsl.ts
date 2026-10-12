@@ -18,13 +18,14 @@ import {
   TRANSPARENT_BLACK,
   TypedArray,
   assertNodeArray,
+  missingAttributeError,
 } from "../adapter";
 import { assertOneDeclarationPerName, storageNodesOf, type StorageGraphNode, VertexRoot } from "../shared";
 import { componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, type AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
-import { drawToCanvas, GlState, GlStateKeeper, setAttributeValue, setRasterState, setUnpackState } from "./gl-state";
+import { drawToCanvas, GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */
@@ -668,6 +669,10 @@ export function createGlsl(
     vao: WebGLVertexArrayObject,
     draw: GlslDrawOptions | undefined,
   ): void {
+    for (const [slot, info] of attributes) {
+      // A built-in input, such as gl_VertexID, is listed with no location and takes no data.
+      if (!info.hasData && info.location >= 0) throw missingAttributeError("createGlsl", slot);
+    }
     gl.useProgram(program);
     gl.bindVertexArray(vao);
     // The draw covers the canvas and blends, tests and culls nothing, as a WGSL draw does.
@@ -677,10 +682,6 @@ export function createGlsl(
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     setRasterState(gl);
-    for (const info of attributes.values()) {
-      if (info.hasData || info.location < 0) continue;
-      for (let i = 0; i < info.locations; i++) setAttributeValue(gl, info.location + i, info.kind, state);
-    }
     if (draw?.clear !== false) {
       const [r, g, b, a] = draw?.clearColor ?? TRANSPARENT_BLACK;
       gl.clearColor(r, g, b, a);

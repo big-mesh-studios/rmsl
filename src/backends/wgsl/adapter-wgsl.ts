@@ -20,6 +20,7 @@ import {
   TypedArray,
   assertNodeArray,
   HostArray,
+  missingAttributeError,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
@@ -607,6 +608,9 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       if (!device || !renderPipeline || !context) {
         throw new Error("[RMSL] createWgsl: attach() was never called");
       }
+      for (const { slot } of vertexAttributes) {
+        if (!vertexBuffers.has(slot)) throw missingAttributeError("createWgsl", slot);
+      }
       if (textureDeclarations.length > 0 && texturesChanged) bindTextures();
       let encoder = device.createCommandEncoder();
       let view = context.getCurrentTexture().createView();
@@ -623,8 +627,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       pass.setPipeline(renderPipeline);
       renderBindGroups.forEach((group, index) => group && pass.setBindGroup(index, group));
       for (let i = 0; i < vertexAttributes.length; i++) {
-        let vb = vertexBuffers.get(vertexAttributes[i].slot);
-        if (vb) pass.setVertexBuffer(i, vb.buffer);
+        pass.setVertexBuffer(i, vertexBuffers.get(vertexAttributes[i].slot)!.buffer);
       }
       const first = drawOptions?.first ?? 0;
       pass.draw(drawOptions?.count ?? Math.max(0, vertexCount - first), drawOptions?.instanceCount ?? 1, first, 0);

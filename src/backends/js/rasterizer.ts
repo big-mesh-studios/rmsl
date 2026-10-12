@@ -1,5 +1,5 @@
 import { Node, ShaderType } from "../../core";
-import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
+import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { assertHostArray } from "../vertex-format";
 import {
   componentCountOf,
@@ -352,7 +352,7 @@ export function compileJS(
     const first = options.first ?? 0;
     for (let a = 0; a < attributeSlots.length; a++) {
       const slot = attributeSlots[a]!;
-      if (!attributes[slot]) throw new Error(`[RMSL] compileJS: draw() is missing attribute "${slot}"`);
+      if (!attributes[slot]) throw missingAttributeError("compileJS", slot);
       assertHostArray("attribute", slot, vertexStage.attributeTypes[slot]!, attributes[slot], true);
     }
     // An attribute the program does not read counts for nothing, as a WebGPU

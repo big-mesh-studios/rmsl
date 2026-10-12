@@ -84,6 +84,21 @@ export function geometryAttribute(mesh: Mesh, geometry: BufferGeometry, name: st
 
 const _normalMatrix = new Matrix3();
 
+/** The attributes each geometry was warned about lacking, so a renderer warns of each once. */
+const warnedMissing = new WeakMap<BufferGeometry, Set<string>>();
+
+/**
+ * Warns that `geometry` lacks the attribute `name` its material reads, in the
+ * words TSL warns in, once for each attribute of each geometry.
+ */
+export function warnMissingAttribute(geometry: BufferGeometry, name: string): void {
+  let warned = warnedMissing.get(geometry);
+  if (!warned) warnedMissing.set(geometry, (warned = new Set()));
+  if (warned.has(name)) return;
+  warned.add(name);
+  console.warn(`[RMSL/scene] Vertex attribute "${name}" not found on geometry.`);
+}
+
 /**
  * Whether a mesh's world matrix mirrors it, which reverses the winding of its
  * triangles, so its front face winds clockwise, as three.js winds it.

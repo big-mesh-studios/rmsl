@@ -1160,6 +1160,10 @@ globalThis.__rmslValueTypes = {
       adapter.setAttribute(position, TRIANGLE);
     }, Fn(() => vec4(0, green, 0, 1))());
   },
+  wgslAttributeWithoutData: () => {
+    const shift = attribute("int");
+    return wgsl(shiftedVertex(shift), (adapter) => adapter.setAttribute(position, TRIANGLE));
+  },
   wgslUnreadFirst: () => attempt(async () => {
     const unused = attribute("vec2");
     const target = canvas();
@@ -1295,11 +1299,26 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   );
 
   /**
-   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
    */
-  it("draws with an integer attribute given no data through createGlsl", async () => {
-    expect(await glslValueType("intAttributeWithoutData")).toEqual(GREEN);
+  it("refuses a draw missing an attribute its vertex stage reads on createGlsl", async () => {
+    expect(await glslValueType("intAttributeWithoutData")).toEqual({
+      error: expect.stringMatching(/createGlsl: draw\(\) is missing attribute "_rmsl_a\d+"/),
+    });
   }, 120_000);
+
+  /**
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
+   */
+  it.skipIf(!WEBGPU)(
+    "refuses a draw missing an attribute its vertex stage reads on createWgsl",
+    async () => {
+      expect(await wgslValueType("wgslAttributeWithoutData")).toEqual({
+        error: expect.stringMatching(/createWgsl: draw\(\) is missing attribute "_rmsl_a\d+"/),
+      });
+    },
+    120_000,
+  );
 });
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {

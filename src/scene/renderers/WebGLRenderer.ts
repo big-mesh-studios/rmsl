@@ -46,6 +46,7 @@ import {
   rangesCover,
   clearUpdateRanges,
   type AttributeBuffer,
+  warnMissingAttribute,
 } from "./common";
 import { attributeShape, VERTEX_FORMATS, vertexFormatOf } from "../../backends/vertex-format";
 
@@ -797,6 +798,7 @@ export class WebGLRenderer {
       // A matrix spans a location for each column, consecutive from the one the GLSL linker handed.
       const { columns, kind } = attributeShape(attribute.node._t);
       if (!attr) {
+        warnMissingAttribute(geometry, attribute.name);
         // The shader reads an attribute with no data from the value its location holds.
         if (location >= 0) for (let i = 0; i < columns; i++) setAttributeValue(gl, location + i, kind, this.state);
         continue;

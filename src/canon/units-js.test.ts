@@ -1991,7 +1991,7 @@ describe("the count of a draw that names none on JS", () => {
   });
 
   /**
-   * @canon spec-a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
    */
   it("refuses a draw missing an attribute the program reads on JS and WASM", async () => {
     const pos = attribute("vec3");

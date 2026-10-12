@@ -2002,6 +2002,41 @@ describe("a scene renderer reads an attribute as the type it declares", () => {
     const set = passes[0].calls.filter((c) => c.name === "setVertexBuffer").map((c) => c.args[0]);
     expect(set.sort()).toEqual(buffers.map((_: unknown, i: number) => i));
   });
+
+  /**
+   * Two frames of one mesh warn once; a second geometry that lacks the
+   * attribute warns again.
+   *
+   * @canon spec-a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks
+   */
+  it.each(["WebGL", "WebGPU"])(
+    "warns once for each geometry that lacks an attribute the material reads on %s",
+    (backend) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const material = new MeshBasicMaterial();
+        material.positionNode = (b) => b.position.add(b.attribute("tint", "vec3"));
+        const scene = new Scene();
+        scene.add(new Mesh(new PlaneGeometry(), material));
+        let renderer: { render(scene: Scene, camera: PerspectiveCamera): void };
+        if (backend === "WebGL") renderer = stubWebGl().renderer;
+        else {
+          const { device, canvas } = stubDevice();
+          renderer = new WebGPURenderer(canvas, device as any);
+        }
+        renderer.render(scene, camera());
+        renderer.render(scene, camera());
+        expect(warn.mock.calls.map((call) => call.join(" "))).toEqual([
+          expect.stringMatching(/Vertex attribute "tint" not found on geometry\./),
+        ]);
+        scene.add(new Mesh(new PlaneGeometry(), material));
+        renderer.render(scene, camera());
+        expect(warn).toHaveBeenCalledTimes(2);
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
 });
 
 describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type on a real driver", () => {
@@ -2040,6 +2075,7 @@ describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type
 
   /**
    * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   * @canon exception-a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column
    */
   it("gives an attribute with no data (0, 0, 0, 1) on WebGL", async () => {
     const results = await runInGpuPage(
@@ -2052,6 +2088,7 @@ describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type
 
   /**
    * @canon spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives
+   * @canon exception-a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column
    */
   it.skipIf(!WEBGPU)(
     "gives an attribute with no data (0, 0, 0, 1) on WebGPU",
