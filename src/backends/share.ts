@@ -24,14 +24,14 @@ const MUTABLE_READS = new Set([
   "builtinFragDepth",
 ]);
 
+/** Statements that act on the loop around them, each with the name a user writes it under. */
+const JUMP_NAMES: Record<string, string> = { break: "Break()", continue: "Continue()" };
+
 /** Statements that act on the loop around them. */
-const LOOP_JUMPS = new Set(["break", "continue"]);
+const LOOP_JUMPS = new Set(Object.keys(JUMP_NAMES));
 
 /** Statements that run their body again on every iteration. */
 const LOOPS = new Set(["for", "while"]);
-
-/** The name a user writes a statement of `LOOP_JUMPS` under. */
-const JUMP_NAMES: Record<string, string> = { break: "Break()", continue: "Continue()" };
 
 /** Node types that are literals, which a target folds. */
 const LITERALS = new Set(["float", "int", "uint", "bool"]);
@@ -392,10 +392,12 @@ function holdsStatements(expression: any, memo: Map<any, boolean>): boolean {
  * could have changed what the node reads. Such a read computes the node again,
  * into a variable made before its own statement. A loop runs its body again, so a
  * variable made before a loop is read inside it only when the node reads
- * nothing a statement can change. The header of a loop is left as written,
- * since it runs again on every iteration, and so is a statement whose
- * expression holds an inline `Fn` read once, whose statements keep their
- * place among those of the operation that reads it.
+ * nothing a statement can change. The init, condition and update of a loop
+ * share no node, since the condition and the update run again on every
+ * iteration. The statements of an inline `Fn` result placed in one of them
+ * run there. A statement whose expression holds an inline `Fn` read once is left as
+ * written, so its statements keep their place among those of the operation
+ * that reads it.
  *
  * The statements and expressions the pass changes are copied, and the graph the
  * caller holds is left as it is. A root that is an expression gets a block of
