@@ -14,6 +14,8 @@ import {
   Loop,
   While,
   Continue,
+  Break,
+  Return,
   int,
   invocationIndex,
   ivec2,
@@ -1231,6 +1233,60 @@ describe("an inline Fn read once in the value of another read more than once", (
     const data = new Float64Array(2);
     compile(build, none)({ storages: { [counter.name]: runs, [result.name]: data } });
     expect({ runs: Array.from(runs), values: Array.from(data) }).toEqual({ runs: [1, 1], values: [1, 33] });
+  });
+});
+
+describe("an inline Fn a storage write reads once", () => {
+  /**
+   * The `Fn` returns on its first run, and a storage write reads it once, so
+   * the program ends there: the write and what follows do not run. The fuzz
+   * found this with seed 290: WASM computed the value inside the write's
+   * bounds check, so its return left only that check.
+   *
+   * @canon spec-a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation
+   */
+  it.each(cpuTargets)("%s: ends the invocation at its Return (seed 290)", (_, compile) => {
+    const result = instancedArray(3, "float");
+    const build = () => {
+      const f = Fn(() => {
+        result.element(int(2)).addAssign(1);
+        If(result.element(int(2)).equal(1), () => Return());
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        result.element(int(0)).addAssign(f);
+        result.element(int(1)).addAssign(1);
+      })();
+    };
+    const data = new Float64Array(3);
+    compile(build, none)({ storages: { [result.name]: data } });
+    expect(Array.from(data)).toEqual([0, 0, 1]);
+  });
+
+  /**
+   * The `Fn` breaks on its second run, read once in a storage write in the
+   * body of a loop of four iterations.
+   *
+   * @canon spec-a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop
+   */
+  it.each(cpuTargets)("%s: leaves the loop at its Break", (_, compile) => {
+    const result = instancedArray(3, "float");
+    const build = () => {
+      const f = Fn(() => {
+        result.element(int(2)).addAssign(1);
+        If(result.element(int(2)).equal(2), () => Break());
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        Loop(4, () => {
+          result.element(int(0)).addAssign(f);
+        });
+        result.element(int(1)).addAssign(1);
+      })();
+    };
+    const data = new Float64Array(3);
+    compile(build, none)({ storages: { [result.name]: data } });
+    expect(Array.from(data)).toEqual([1, 1, 2]);
   });
 });
 

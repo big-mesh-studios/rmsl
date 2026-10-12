@@ -405,9 +405,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test) — An `Fn` called outside the program's body runs before every test of a `While` loop when only the statements of its condition read its value. The condition is one given as a function.
       - [`@spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs`](#spec-a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs) — A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
         - [`@spec a-return-in-an-inline-fn-ends-the-function-where-it-runs`](#spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs) — A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
+        - [`@spec a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation`](#spec-a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation) — A `Return()` in an `Fn` called outside the program's body, whose value one storage write reads once, ends the invocation there. The write and the statements after it do not run.
         - [`@spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs`](#spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs) — A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
       - [`@spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) — A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
         - [`@spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop`](#spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop) — A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+        - [`@spec a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop`](#spec-a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop) — A `Break()` in an `Fn` called outside the program's body, whose value one storage write in a loop body reads once, leaves that loop before the write.
         - [`@spec a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs`](#spec-a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs) — An `Fn` called outside the program's body can read another such `Fn` that holds a `Break()` or a `Continue()`. The other can run outside the first, in a block that holds reads of its own. Its jump then acts on the loop around the place it runs. It is checked there, not at the reads of the first `Fn`.
         - [`@spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop) — A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
         - [`@spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop) — A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
@@ -3275,6 +3277,12 @@ This follows because the place the `Fn` runs is before every read, so every path
 
 > A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
 
+###### @spec a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation
+
+> A `Return()` in an `Fn` called outside the program's body, whose value one storage write reads once, ends the invocation there. The write and the statements after it do not run.
+
+This follows because the `Fn` runs at the start of that write, before the value is stored.
+
 ###### @spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
 
 > A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
@@ -3290,6 +3298,12 @@ This follows because the statements of the `Fn` run at that place, as if the pro
 ###### @spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop
 
 > A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+
+###### @spec a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop
+
+> A `Break()` in an `Fn` called outside the program's body, whose value one storage write in a loop body reads once, leaves that loop before the write.
+
+This follows because the `Fn` runs at the start of that write, inside the loop body.
 
 ###### @spec a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs
 
