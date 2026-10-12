@@ -1,12 +1,4 @@
-import {
-  Node,
-  RoutineParam,
-  ShaderType,
-  UniformArrayNode,
-  UniformNode,
-  UniformSlotValue,
-  UniformValue,
-} from "../../core";
+import { Node, RoutineParam, ShaderType } from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -15,6 +7,7 @@ import {
   DrawCountOptions,
   hostInputGuard,
   HostArray,
+  SetUniform,
   slotOf,
   TypedArray,
   UniformOrSlot,
@@ -74,8 +67,10 @@ export interface CreateJsRoutineOptions {
 
 /**
  * Compiles a function of parameters and uniforms with {@link compileJSRoutine}
- * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
- * keep what the host gives it, and `run(params)` calls the routine with them.
+ * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` refuses a value of
+ * another shape than its uniform's type and keeps the rest, `setTexture` keeps
+ * what the host gives it, and `run(params)` refuses a parameter of another
+ * shape than its type and calls the routine with them.
  */
 export function createJsRoutine<
   A extends ShaderType,
@@ -114,9 +109,7 @@ export interface CreateJsComputeOptions {
  * one per element of the first storage buffer `setAttribute` was given.
  */
 export interface JsComputeAdapter {
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
-  setUniform(slot: string, value: UniformSlotValue): void;
+  setUniform: SetUniform;
   setAttribute<T extends ShaderType>(
     attribute: AttributeOrStorage<T>,
     data: HostArray<T, Float32Array | Float64Array>,

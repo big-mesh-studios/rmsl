@@ -1,18 +1,11 @@
-import {
-  RoutineParam,
-  RoutineParams,
-  ShaderType,
-  UniformArrayNode,
-  UniformNode,
-  UniformSlotValue,
-  UniformValue,
-} from "../core";
+import { RoutineParam, RoutineParams, ShaderType, UniformNode } from "../core";
 import {
   Adapter,
   AttributeOrSlot,
   AttributeOrStorage,
   assertReadbackFits,
   HostInputGuard,
+  SetUniform,
   slotOf,
   TypedArray,
   UniformOrSlot,
@@ -203,15 +196,15 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
  * An adapter of a routine: it keeps the uniforms and the textures the host
  * sets, and `run` calls the routine with them and the parameters it is given,
  * so the host does not build a context for each call. `run` answers at once.
+ * `setUniform` refuses a value of another shape than its uniform's type, and
+ * `run` a parameter of another shape than its type.
  */
 export interface CpuRoutineAdapter<
   A extends ShaderType = ShaderType,
   W extends FloatWidth = "f64",
   P extends readonly RoutineParam[] = readonly RoutineParam[],
 > {
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
-  setUniform(slot: string, value: UniformSlotValue): void;
+  setUniform: SetUniform;
   setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
   /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
   run(params?: RoutineParams<P>): CpuValue<A, W>;

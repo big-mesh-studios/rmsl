@@ -41,7 +41,7 @@ export type {
 } from "./backends/wasm/adapter-wasm";
 export type { AdapterResult as CpuAdapterResult, CpuAdapter, CpuRoutineAdapter } from "./backends/adapter-cpu";
 
-export type { Adapter, TypedArray } from "./backends/adapter";
+export type { Adapter, SetUniform, SetUniformByNode, TypedArray } from "./backends/adapter";
 
 export { compileWasm } from "./backends/wasm/rasterizer";
 export type {

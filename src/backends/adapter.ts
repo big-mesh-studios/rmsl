@@ -37,16 +37,8 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
    */
   attach(canvas?: HTMLCanvasElement): void | Promise<void>;
 
-  /**
-   * Passing the `uniform()`/`uniformArray()` node itself (rather than its
-   * slot name) lets `value`'s type be inferred from the node's own
-   * `ShaderType` instead of widened to `number | number[]`. The plain-string
-   * overload stays for `uniformRaw()` slots or callers that only have a
-   * name on hand — there the value shape is on the caller to get right.
-   */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
-  setUniform(slot: string, value: UniformSlotValue): void;
+  /** Sets a uniform, named by its node or its slot. See {@link SetUniform}. */
+  setUniform: SetUniform;
 
   /**
    * Same reasoning as `setUniform`: passing the `attribute()` or storage node
@@ -94,6 +86,29 @@ export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float
   draw(options?: TDrawOptions): void | Promise<void>;
 
   destroy(): void;
+}
+
+/**
+ * `setUniform` of an adapter or a context, which takes a uniform by its node.
+ * The node's `ShaderType` types the value: an exact tuple of its components,
+ * or a typed array of its kind, for a vector or matrix. `null` or `undefined`
+ * sets the uniform to zero. The adapter refuses a value of another shape than
+ * the node's type, where it is given.
+ */
+export interface SetUniformByNode {
+  <T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
+  <T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
+}
+
+/**
+ * `setUniform` of an adapter, which also takes a uniform by its slot name, as
+ * a `uniformRaw()` slot or a caller with only the name on hand has it. Its
+ * type cannot know the slot's, so it takes any {@link UniformSlotValue}, and
+ * the adapter refuses one of another shape than the slot's type in its
+ * program, where it is given.
+ */
+export interface SetUniform extends SetUniformByNode {
+  (slot: string, value: UniformSlotValue): void;
 }
 
 /**

@@ -4,9 +4,8 @@ import {
   type ShaderType,
   type UniformArrayNode,
   type UniformNode,
-  type UniformValue,
 } from "../../core";
-import { assertUniformShape, slotOf } from "../adapter";
+import { assertUniformShape, type SetUniformByNode, slotOf } from "../adapter";
 import { assertWriteKind } from "../vertex-format";
 import { assertWriteFits, storageNodesOf } from "../shared";
 import type { CpuProgram } from "../cpu";
@@ -29,8 +28,7 @@ export interface WasmContext {
    */
   compute(nodes: ComputeNode | readonly ComputeNode[]): void;
   /** Sets a uniform for every program that reads it, from the next `compute()` on. */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
+  setUniform: SetUniformByNode;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
   write(
     attribute: StorageBufferAttribute,

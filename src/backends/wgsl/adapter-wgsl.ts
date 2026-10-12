@@ -1,12 +1,4 @@
-import {
-  Node,
-  ShaderType,
-  StorageBufferAttribute,
-  UniformArrayNode,
-  UniformNode,
-  UniformSlotValue,
-  UniformValue,
-} from "../../core";
+import { Node, ShaderType, StorageBufferAttribute, UniformArrayNode, UniformNode } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import {
   Adapter,
@@ -22,6 +14,7 @@ import {
   hostInputGuard,
   missingAttributeError,
   assertReadbackFits,
+  SetUniform,
   UniformOrSlot,
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
@@ -674,9 +667,7 @@ export interface CreateWgslComputeOptions {
  */
 export interface WgslComputeAdapter {
   attach(): Promise<void>;
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
-  setUniform(slot: string, value: UniformSlotValue): void;
+  setUniform: SetUniform;
   setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: HostArray<T, Float32Array>): void;
   setAttribute(slot: string, data: TypedArray): void;
   /**

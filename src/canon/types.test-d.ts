@@ -39,6 +39,8 @@ import {
   type Node,
   type UniformNode,
   type StorageBufferAttribute,
+  type SetUniform,
+  type SetUniformByNode,
   uniform,
   uniformArray,
 } from "../rmsl";
@@ -51,7 +53,7 @@ import {
   type JsAdapter,
   type JsComputeAdapter,
 } from "../js";
-import type { CpuAdapter } from "../backends/adapter-cpu";
+import type { CpuAdapter, CpuRoutineAdapter } from "../backends/adapter-cpu";
 import type { GlslAdapter } from "../glsl";
 import type { WgslAdapter, WgslComputeAdapter, WgslContext } from "../wgsl";
 import type { WasmContext } from "../wasm";
@@ -558,6 +560,25 @@ describe("the value setUniform takes for a vector or matrix uniform", () => {
       [1, 0, 0, 1],
       [0, 1, 0, 1],
     ]);
+  });
+});
+
+describe("the type of setUniform", () => {
+  /**
+   * @canon spec-every-adapter-shares-one-type-of-setuniform
+   */
+  it("is SetUniform on every adapter, and SetUniformByNode on a context", () => {
+    expectTypeOf<GlslAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WgslAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WgslComputeAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<JsAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WasmAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<JsComputeAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WasmComputeAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<CpuAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<CpuRoutineAdapter["setUniform"]>().toEqualTypeOf<SetUniform>();
+    expectTypeOf<WgslContext["setUniform"]>().toEqualTypeOf<SetUniformByNode>();
+    expectTypeOf<WasmContext["setUniform"]>().toEqualTypeOf<SetUniformByNode>();
   });
 });
 

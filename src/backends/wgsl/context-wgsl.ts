@@ -8,11 +8,10 @@ import {
   type ShaderType,
   type UniformArrayNode,
   type UniformNode,
-  type UniformValue,
 } from "../../core";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import { compile, type WgslResource } from "../../wgsl";
-import { assertUniformShape, slotOf } from "../adapter";
+import { assertUniformShape, type SetUniformByNode, slotOf } from "../adapter";
 import { assertWriteKind } from "../vertex-format";
 import { assertWriteFits } from "../shared";
 import {
@@ -44,8 +43,7 @@ export interface WgslContext {
    * Sets a uniform for every program that reads it. A value applies to every
    * dispatch in the next `compute()`, as in TSL, not to individual dispatches.
    */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T> | null | undefined): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[] | null | undefined): void;
+  setUniform: SetUniformByNode;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
   write(attribute: StorageBufferAttribute, data: Float32Array | Int32Array | Uint32Array, offset?: number): void;
   /**

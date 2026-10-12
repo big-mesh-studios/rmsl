@@ -154,7 +154,7 @@ export type {
 
 export { compileWgslFn } from "./backends/wgsl/wgsl";
 
-export type { Adapter, TypedArray } from "./backends/adapter";
+export type { Adapter, SetUniform, SetUniformByNode, TypedArray } from "./backends/adapter";
 export { createWgsl, createWgslCompute } from "./backends/wgsl/adapter-wgsl";
 export { createWgslContext } from "./backends/wgsl/context-wgsl";
 export type { CreateWgslContextOptions, WgslContext } from "./backends/wgsl/context-wgsl";

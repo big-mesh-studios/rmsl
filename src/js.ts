@@ -34,7 +34,7 @@ export type {
   JsDrawOptions,
 } from "./backends/js/adapter-js";
 
-export type { Adapter, TypedArray } from "./backends/adapter";
+export type { Adapter, SetUniform, SetUniformByNode, TypedArray } from "./backends/adapter";
 
 export { compileJS } from "./backends/js/rasterizer";
 export type {
