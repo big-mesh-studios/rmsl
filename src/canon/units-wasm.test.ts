@@ -13,6 +13,7 @@ import {
   For,
   Loop,
   While,
+  Continue,
   int,
   invocationIndex,
   ivec2,
@@ -939,6 +940,38 @@ describe("an inline Fn read more than once only inside another read from two roo
       });
       expect({ runs: runs[0], values: Array.from(data) }).toEqual({ runs: 1, values: [value, value + 1] });
     }
+  });
+});
+
+describe("an inline Fn that continues, read only by a While condition", () => {
+  /**
+   * The condition reads the value twice, so the `Fn` runs at every test, and
+   * its `Continue()` tests the condition again, as one among the statements of
+   * the condition does. The `Fn` counts its runs, so the loop ends.
+   *
+   * @canon spec-a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again
+   */
+  it.each(cpuTargets)("%s: tests the condition again", (_, compile) => {
+    const tests = instancedArray(1, "float");
+    const runs = instancedArray(1, "float");
+    const skipBelow = uniform("float");
+    const build = () => {
+      const tested = Fn(() => {
+        tests.element(int(0)).addAssign(1);
+        If(tests.element(int(0)).lessThan(skipBelow), () => Continue());
+        return tests.element(int(0)).toVar();
+      })() as any;
+      return Fn(() => {
+        While(tested.add(tested).lessThan(20), () => {
+          runs.element(int(0)).addAssign(1);
+        });
+      })();
+    };
+    const testsData = new Float64Array(1);
+    const runsData = new Float64Array(1);
+    const storages = { [tests.name]: testsData, [runs.name]: runsData };
+    compile(build, none)({ storages, uniforms: { [skipBelow.name]: 7 } });
+    expect({ tests: testsData[0], runs: runsData[0] }).toEqual({ tests: 10, runs: 3 });
   });
 });
 
