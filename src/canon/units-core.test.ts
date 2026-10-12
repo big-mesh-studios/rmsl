@@ -330,8 +330,10 @@ describe("what a program does with a node it reads more than once", () => {
 
   /**
    * Each level is an `Fn` called outside the program's body that reads the one
-   * below twice, so 24 levels hold 2^24 paths to the innermost one. A compile
-   * that walked each path would not finish in the bound.
+   * below twice, so 24 levels hold 2^24 paths to the innermost one. The work a
+   * compile does is counted as the reads of the operands of each node. Twice
+   * the levels then take about twice the reads, where a compile that walked
+   * each path, or every level once per level, takes four times or more.
    *
    * @canon spec-nested-inline-fns-compile-in-time-that-grows-with-the-levels
    */
@@ -341,18 +343,43 @@ describe("what a program does with a node it reads more than once", () => {
     ["JS", (build: any) => compileJSFn(build, param).length],
     ["WASM", (build: any) => compileWasmFn(build, param).bytes.length],
   ] as const)("compiles inline Fns nested 24 levels, each reading the one below twice, on %s", (_target, size) => {
+    let operandReads = 0;
+    /** Counts every read of the operands of each node `root` reaches. */
+    const counted = (root: any) => {
+      const seen = new Set<any>();
+      const visit = (n: any) => {
+        if (!n || typeof n !== "object" || seen.has(n) || !Array.isArray(n.params)) return;
+        seen.add(n);
+        let params = n.params;
+        Object.defineProperty(n, "params", {
+          enumerable: true,
+          configurable: true,
+          get: () => (operandReads++, params),
+          set: (value) => (params = value),
+        });
+        params.forEach(visit);
+      };
+      visit(root);
+      return root;
+    };
     const nestedFns = (levels: number) => (a: Node<"float">) => {
       let f: any = Fn(() => a.mul(2).toVar())();
       for (let i = 0; i < levels; i++) {
         const below = f;
         f = Fn(() => below.add(below.mul(3)).toVar())();
       }
-      return f;
+      return counted(f);
     };
-    const start = performance.now();
-    const deep = size(nestedFns(24));
-    expect(performance.now() - start).toBeLessThan(2000);
-    expect(deep / size(nestedFns(12))).toBeLessThan(4);
+    /** The operand reads and the output size of a compile of `levels` levels. */
+    const work = (levels: number) => {
+      operandReads = 0;
+      const output = size(nestedFns(levels));
+      return { reads: operandReads, output };
+    };
+    const shallow = work(12);
+    const deep = work(24);
+    expect(deep.reads / shallow.reads).toBeLessThan(3);
+    expect(deep.output / shallow.output).toBeLessThan(4);
   });
 
   /**

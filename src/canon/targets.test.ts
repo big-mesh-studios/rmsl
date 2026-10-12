@@ -70,6 +70,7 @@ import {
   evaluateRecording,
 } from "../testing/shader-eval";
 import { CONDITION_LOOPS, CONDITION_READS } from "../testing/inline-fn-paths";
+import { INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE } from "../backends/share";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -85,7 +86,7 @@ const none = { name: "main", params: [] };
 const asFloat = (condition: Node<"bool">) => select(condition, float(1), float(0)) as Node<"float">;
 
 /** Compiles `build` as `stage` on every target, refusing or not as `refused` says. */
-function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any>, refused: RegExp | false) {
+function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any>, refused: RegExp | string | false) {
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
@@ -1641,8 +1642,8 @@ describe("an inline Fn that jumps, read in several statements", () => {
    * @canon spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused
    */
   it.each([
-    ["Break", Break],
-    ["Continue", Continue],
+    ["break", Break],
+    ["continue", Continue],
   ] as const)("refuses %s in an inline Fn read in two loops on every target", (name, jump) => {
     const drop = uniform("float");
     const build = () => {
@@ -1661,7 +1662,7 @@ describe("an inline Fn that jumps, read in several statements", () => {
         return vec4(total);
       })();
     };
-    expectOnEveryTarget("fragment", build, new RegExp(`${name}\\(\\) in an Fn called outside .* no loop`));
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[name]);
   });
 
   /**
@@ -1688,7 +1689,124 @@ describe("an inline Fn that jumps, read in several statements", () => {
         return vec4(total);
       })();
     };
-    expectOnEveryTarget("fragment", build, /Break\(\) in an Fn called outside .* loop inside/);
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE.break);
+  });
+
+  /**
+   * Two roots read the value, so no block holds both reads and the `Fn` runs
+   * at each. The first root reads it outside every loop.
+   *
+   * @canon spec-a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop
+   */
+  it.each([
+    ["break", Break],
+    ["continue", Continue],
+  ] as const)("refuses %s in an inline Fn two roots read, one outside every loop, on every target", (name, jump) => {
+    const drop = uniform("float");
+    const build = () => {
+      const stop = Fn(() => {
+        If(drop.greaterThan(1), () => jump());
+        return float(1);
+      })() as any;
+      return [
+        Fn(() => {
+          float(0).toVar().assign(stop);
+        })(),
+        Fn(() => {
+          const total = float(0).toVar();
+          Loop(3, () => {
+            Loop(2, () => {
+              total.addAssign(stop);
+            });
+          });
+        })(),
+      ];
+    };
+    const compilers: [string, () => unknown][] = [
+      ["GLSL", () => compileGlsl.fragment(build())],
+      ["WGSL", () => compileWgsl.compute(build())],
+      ["JS", () => compileJSRoutine(build as any, none)],
+      ["WASM", () => compileWasmRoutine(build as any, none)],
+    ];
+    for (const [target, compile] of compilers)
+      expect(compile, target).toThrow(INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[name]);
+  });
+
+  /**
+   * The `Fn` holds a `For` whose init breaks. The init runs before that `For`,
+   * so the `Break()` leaves the loop around the place the `Fn` runs: the loop
+   * body that reads the value twice.
+   *
+   * @canon spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
+   */
+  it("leaves the loop around an inline Fn from the init of a For it holds, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const counted = Fn(() => {
+        const t = float(0).toVar();
+        For(
+          () => {
+            If(a.greaterThan(0), () => {
+              Break();
+            });
+            return float(0).toVar();
+          },
+          (i) => i.lessThan(2),
+          (i) => i.addAssign(1),
+          () => {
+            t.addAssign(1);
+          },
+        );
+        return t;
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(3, () => {
+          total.addAssign(100);
+          total.addAssign(counted.add(counted.mul(10)));
+        });
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(100);
+    expect(evaluateRecording(build, [-1])).toBe(366);
+  });
+
+  /**
+   * The init of the `For` in the `Fn` breaks, and two loops one after the
+   * other read the value, so no loop is around the place the `Fn` runs.
+   *
+   * @canon spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
+   */
+  it("refuses a Break in the init of a For of an inline Fn read in two loops, on every target", () => {
+    const drop = uniform("float");
+    const build = () => {
+      const counted = Fn(() => {
+        const t = float(0).toVar();
+        For(
+          () => {
+            If(drop.greaterThan(0), () => Break());
+            return float(0).toVar();
+          },
+          (i) => i.lessThan(2),
+          (i) => i.addAssign(1),
+          () => {
+            t.addAssign(1);
+          },
+        );
+        return t;
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(counted);
+        });
+        Loop(2, () => {
+          total.addAssign(counted.mul(10));
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE.break);
   });
 });
 

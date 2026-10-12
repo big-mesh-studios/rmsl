@@ -1,4 +1,4 @@
-import { node, var_ } from "../core";
+import { LOOP_JUMP_STATEMENTS, LOOP_STATEMENTS, node, var_ } from "../core";
 
 /** The prefix of the variable a shared node gets, under the `_rmsl_` prefix the compiler keeps for its own names. */
 export const SHARED_NAME_PREFIX = "_rmsl_gen_";
@@ -24,14 +24,44 @@ const MUTABLE_READS = new Set([
   "builtinFragDepth",
 ]);
 
-/** Statements that act on the loop around them, each with the name a user writes it under. */
-const JUMP_NAMES: Record<string, string> = { break: "Break()", continue: "Continue()" };
+/** A statement that acts on the loop around it. */
+type LoopJump = "break" | "continue";
 
-/** Statements that act on the loop around them. */
-const LOOP_JUMPS = new Set(Object.keys(JUMP_NAMES));
+/**
+ * Why a `Break()` or a `Continue()` in an inline `Fn` is refused when no loop
+ * is around the place the `Fn` runs, for each jump.
+ */
+export const INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE: Record<LoopJump, string> = {
+  break: inlineFnJumpWithNoLoop("Break()"),
+  continue: inlineFnJumpWithNoLoop("Continue()"),
+};
 
-/** Statements that run their body again on every iteration. */
-const LOOPS = new Set(["for", "while"]);
+/**
+ * Why a `Break()` or a `Continue()` in an inline `Fn` is refused when a read
+ * sits in a loop inside the one around the place the `Fn` runs, for each jump.
+ */
+export const INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE: Record<LoopJump, string> = {
+  break: inlineFnJumpInADeeperLoop("Break()"),
+  continue: inlineFnJumpInADeeperLoop("Continue()"),
+};
+
+/** The message of {@link INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE} for `jump`, as the user writes it. */
+function inlineFnJumpWithNoLoop(jump: string) {
+  return (
+    `[RMSL] ${jump} in an Fn called outside the program's body runs where no loop is around it: ` +
+    `at the start of the first statement that reads its value, in the innermost block that holds every read. ` +
+    `Read its value only inside the loop it acts on.`
+  );
+}
+
+/** The message of {@link INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE} for `jump`, as the user writes it. */
+function inlineFnJumpInADeeperLoop(jump: string) {
+  return (
+    `[RMSL] ${jump} in an Fn called outside the program's body acts on the loop around the first ` +
+    `statement that reads its value, but a read sits in a loop inside that one. ` +
+    `Call the Fn inside the loop it acts on.`
+  );
+}
 
 /** Node types that are literals, which a target folds. */
 const LITERALS = new Set(["float", "int", "uint", "bool"]);
@@ -82,6 +112,13 @@ function bodyKeys() {
   };
 }
 
+/** The slots of `s` walked as blocks of their own, its condition aside when it is a loop. */
+const bodySlots = (s: any): number[] =>
+  s.type === "if" ? [1, 2] : s.type === "for" ? [0, 2, 3] : s.type === "while" ? [1] : [];
+
+/** The slot of `s` that holds its condition when it is a loop, tested before every iteration. */
+const conditionSlot = (s: any): number | undefined => (s.type === "for" ? 1 : s.type === "while" ? 0 : undefined);
+
 /**
  * A read of an inline `Fn` result: the result whose statements hold it, or
  * `undefined` for a block of the program, and the frames from that block in.
@@ -98,16 +135,22 @@ type Read = { within: any; path: Frame[] };
  *
  * A result is a block of its own, so one read only inside another runs in
  * the nearest block there that holds every read, and never outside it. This
- * holds when roots that share no block read the other one too. One inside a
- * result placed in the same round is left for the next round, where the
- * statements of that one are statements of the program.
+ * holds when roots that share no block read the other one too. A result whose
+ * reads sit both inside another result and outside it is left for the next
+ * round, where the statements of that other result are statements of the
+ * program.
+ *
  * A `Break()` or `Continue()` that a result holds outside its own loops acts on
- * the loop around the place it runs. Such a result is refused when no loop is
- * around that place, or when a read sits in a loop inside the one around it.
+ * the loop around the place it runs. The init of a `For` runs before that
+ * loop, so a jump there is outside it. Such a result is refused when no loop is
+ * around that place, or when a read sits in a loop inside the one around it. A
+ * result left where it is read runs at each read, and is refused when no loop
+ * is around one of them.
  *
  * The statements of each result are walked once a round, however often it is
- * read, and a read inside them is placed from the frames inside it. So nested
- * results that each read the next twice cost work in proportion to the levels.
+ * read, and a read inside them is placed from the frames inside it, results
+ * inside results in the same round. So nested results that each read the next
+ * twice cost work in proportion to the levels.
  *
  * Returns each of `blocks`, rewritten where a result was placed.
  */
@@ -124,15 +167,16 @@ function placeInlineFns(blocks: any[]): any[] {
       holdsMemo.set(n, result);
       return result;
     };
-    const loopJumpMemo = new Map<any, string | undefined>();
-    /** The type of a `Break()` or `Continue()` that `n` holds outside every loop it holds. */
-    const loopJump = (n: any): string | undefined => {
+    const loopJumpMemo = new Map<any, LoopJump | undefined>();
+    /** The type of a `Break()` or `Continue()` that `n` holds outside every loop it holds, a `For` init included. */
+    const loopJump = (n: any): LoopJump | undefined => {
       if (!n || typeof n !== "object") return undefined;
-      if (LOOP_JUMPS.has(n.type)) return n.type;
-      if (LOOPS.has(n.type) || !Array.isArray(n.params)) return undefined;
+      if (LOOP_JUMP_STATEMENTS.has(n.type)) return n.type;
+      if (n.type === "for") return loopJump(n.params?.[0]);
+      if (LOOP_STATEMENTS.has(n.type) || !Array.isArray(n.params)) return undefined;
       if (loopJumpMemo.has(n)) return loopJumpMemo.get(n);
       loopJumpMemo.set(n, undefined);
-      let result: string | undefined;
+      let result: LoopJump | undefined;
       for (const p of n.params) if ((result ??= loopJump(p))) break;
       loopJumpMemo.set(n, result);
       return result;
@@ -192,26 +236,18 @@ function placeInlineFns(blocks: any[]): any[] {
         if (walked.has(s)) return;
         walked.add(s);
       }
-      switch (s.type) {
-        case "seq":
-          return walkBlock(s, s, here, within);
-        case "if":
-          scan(s.params[0], within, here);
-          walkBody(s, 1, here, within);
-          return walkBody(s, 2, here, within);
-        case "for": {
-          // The init runs once, and the condition, the update and the body on every iteration.
-          walkBody(s, 0, here, within);
-          walkCondition(s, 1, here, within);
-          walkBody(s, 2, here, within, true);
-          return walkBody(s, 3, here, within, true);
-        }
-        case "while":
-          walkCondition(s, 0, here, within);
-          return walkBody(s, 1, here, within, true);
-        default:
-          for (const p of s.params ?? []) scan(p, within, here);
+      const condition = conditionSlot(s);
+      if (condition !== undefined) {
+        // A For's init comes before the condition and runs once; the update and the body run on every iteration.
+        for (const slot of bodySlots(s)) if (slot < condition) walkBody(s, slot, here, within);
+        walkCondition(s, condition, here, within);
+        for (const slot of bodySlots(s)) if (slot > condition) walkBody(s, slot, here, within, true);
+        return;
       }
+      if (s.type === "seq") return walkBlock(s, s, here, within);
+      if (s.type === "if") scan(s.params[0], within, here);
+      else for (const p of s.params ?? []) scan(p, within, here);
+      for (const slot of bodySlots(s)) walkBody(s, slot, here, within);
     };
     for (const block of blocks) if (block?.type === "seq") walkBlock(block, block, [], undefined);
 
@@ -239,19 +275,6 @@ function placeInlineFns(blocks: any[]): any[] {
       const { anchor, prefix } = anchorOf(read.within);
       return { anchor, path: [...prefix, ...read.path] };
     };
-    const aroundMemo = new Map<any, Set<any>>();
-    /** The results whose statements hold a read of `fn`, at any depth. */
-    const around = (fn: any): Set<any> => {
-      let known = aroundMemo.get(fn);
-      if (known) return known;
-      aroundMemo.set(fn, (known = new Set()));
-      for (const { within } of reads.get(fn)!) {
-        if (within === undefined) continue;
-        known.add(within);
-        for (const o of around(within)) known.add(o);
-      }
-      return known;
-    };
 
     const lifted = new Map<any, { anchor: any; path: Frame[] }[]>();
     for (const [fn, list] of reads) lifted.set(fn, list.map(lift));
@@ -261,35 +284,27 @@ function placeInlineFns(blocks: any[]): any[] {
       const place = placeBefore(list.map((read) => read.path));
       if (place) placed.set(fn, place);
     }
-    const nested = [...placed.keys()].filter((fn) => [...around(fn)].some((o) => placed.has(o)));
-    for (const fn of nested) placed.delete(fn);
     /** How many loops hold the place at the end of `frames`. */
     const loopsOn = (frames: Frame[]) => frames.filter((frame) => loopBodies.has(frame.block)).length;
     for (const [fn, list] of lifted) {
       const jump = loopJump(fn);
-      // A result inside one placed now is checked in the next round, where it is read then.
-      if (!jump || [...around(fn)].some((o) => placed.has(o))) continue;
+      if (!jump) continue;
       const place = placed.get(fn);
-      if (!place && list.length > 1) continue;
+      // Left where it is read, it runs at each read. One inside another result is checked with that result.
+      if (!place) {
+        if (list.some((read) => read.anchor === undefined && loopsOn(read.path) === 0)) {
+          throw new Error(INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[jump]);
+        }
+        continue;
+      }
       const paths = list.map((read) => read.path);
-      const loops = list.map((read) => loopsOn(read.path));
-      const loopsAround = place
-        ? loopsOn(paths[0]!.slice(0, paths[0]!.findIndex((f) => f.block === place.block) + 1))
-        : loops[0]!;
+      const loopsAround = loopsOn(paths[0]!.slice(0, paths[0]!.findIndex((f) => f.block === place.block) + 1));
       // Inside a result read from roots that share no block, the loops around that result are not counted.
       if (loopsAround === 0 && list[0]!.anchor === undefined) {
-        throw new Error(
-          `[RMSL] ${JUMP_NAMES[jump]} in an Fn called outside the program's body runs where no loop is around it: ` +
-            `at the start of the first statement that reads its value, in the innermost block that holds every read. ` +
-            `Read its value only inside the loop it acts on.`,
-        );
+        throw new Error(INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[jump]);
       }
-      if (loops.some((n) => n > loopsAround)) {
-        throw new Error(
-          `[RMSL] ${JUMP_NAMES[jump]} in an Fn called outside the program's body acts on the loop around the first ` +
-            `statement that reads its value, but a read sits in a loop inside that one. ` +
-            `Call the Fn inside the loop it acts on.`,
-        );
+      if (paths.some((path) => loopsOn(path) > loopsAround)) {
+        throw new Error(INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE[jump]);
       }
     }
     if (placed.size === 0) return blocks;
@@ -302,9 +317,12 @@ function placeInlineFns(blocks: any[]): any[] {
       at.set(index, [...(at.get(index) ?? []), fn]);
     }
     const copies = new Map<any, any>();
-    /** The statements of the results placed before item `index` of `frameBlock`, rewritten. */
+    /**
+     * The statements of the results placed before item `index` of
+     * `frameBlock`, rewritten, with those of the results placed inside them.
+     */
     const placedAt = (frameBlock: any, index: number): any[] =>
-      (before.get(frameBlock)?.get(index) ?? []).flatMap((fn: any) => fn.params.slice(0, -1).map(rewrite));
+      (before.get(frameBlock)?.get(index) ?? []).flatMap((fn: any) => items(fn, fn).slice(0, -1));
     /** The items of `block`, rewritten, with the statements of each result placed before an item ahead of it. */
     const items = (block: any, frameBlock: any): any[] =>
       itemsOf(block).flatMap((item, index) => [...placedAt(frameBlock, index), rewrite(item)]);
@@ -325,8 +343,6 @@ function placeInlineFns(blocks: any[]): any[] {
       const own = tested.type === "seq" ? tested.params : [tested];
       return node({ _t: tested._t, type: "seq", params: [...ahead, ...own] });
     };
-    const bodySlots = (s: any): number[] =>
-      s.type === "if" ? [1, 2] : s.type === "for" ? [0, 2, 3] : s.type === "while" ? [1] : [];
     const rewrite = (n: any): any => {
       if (!n || typeof n !== "object" || !Array.isArray(n.params)) return n;
       const known = copies.get(n);
@@ -340,11 +356,7 @@ function placeInlineFns(blocks: any[]): any[] {
           n.type === "seq" && before.has(n)
             ? items(n, n)
             : n.params.map((p: any, i: number) =>
-                (n.type === "for" && i === 1) || (n.type === "while" && i === 0)
-                  ? condition(n, i)
-                  : slots.includes(i)
-                    ? body(n, i)
-                    : rewrite(p),
+                i === conditionSlot(n) ? condition(n, i) : slots.includes(i) ? body(n, i) : rewrite(p),
               );
         result =
           params.length === n.params.length && params.every((p: any, i: number) => p === n.params[i])

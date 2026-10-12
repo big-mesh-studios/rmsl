@@ -404,6 +404,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop) — A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
         - [`@spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop) — A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
         - [`@spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
+        - [`@spec a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop`](#spec-a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop) — Roots that share no block can read the value of an `Fn` called outside the program's body. Every target refuses a `Break()` or a `Continue()` in such an `Fn` when one of those reads sits outside every loop.
+        - [`@spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for`](#spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for) — A `Break()` or a `Continue()` in the init of a `For` that an `Fn` called outside the program's body holds acts on the loop around the place the `Fn` runs. It is refused as a jump outside that `For` would be.
         - [`@spec a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again`](#spec-a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again) — A `Continue()` in an `Fn` called outside the program's body, whose value only a `While` condition reads, tests that condition again. A `Continue()` among the statements of the condition does the same.
         - [`@exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused`](#exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
@@ -1141,7 +1143,7 @@ This follows because the output and the work at run time then grow with the node
 
 > A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
 
-This follows because the compiler walks the statements of each such `Fn` once, whatever number of reads it has. It places a read inside an `Fn` from the statements around that read.
+This follows because the compiler walks the statements of each such `Fn` once, whatever number of reads it has. It places a read inside an `Fn` from the statements around that read, and places every level in one pass.
 
 ##### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
@@ -3246,6 +3248,20 @@ Derives from: [`spec-an-inline-fn-read-only-inside-another-runs-in-the-block-the
 Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused)
 
 This follows because the jump would run outside every loop, which no target can run.
+
+###### @spec a-break-or-continue-in-an-inline-fn-roots-that-share-no-block-read-is-refused-outside-a-loop
+
+> Roots that share no block can read the value of an `Fn` called outside the program's body. Every target refuses a `Break()` or a `Continue()` in such an `Fn` when one of those reads sits outside every loop.
+
+Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused)
+
+This follows because no block holds every read, so the `Fn` runs at each read. At the read outside every loop, the jump would run outside every loop.
+
+###### @spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
+
+> A `Break()` or a `Continue()` in the init of a `For` that an `Fn` called outside the program's body holds acts on the loop around the place the `Fn` runs. It is refused as a jump outside that `For` would be.
+
+This follows because the init runs once, before the `For` starts. No iteration of that `For` is running for the jump to act on.
 
 ###### @spec a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again
 
