@@ -6,7 +6,9 @@ import {
   Fn,
   Loop,
   For,
+  While,
   If,
+  Return,
   float,
   instancedArray,
   int,
@@ -42,7 +44,13 @@ import {
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
 import { evaluateWGSL } from "../testing/shader-eval";
-import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
+import {
+  GPU_ENABLED,
+  installWebGpuGlobals,
+  readsStorageFromBeforeTheLoop,
+  releaseGpu,
+  webgpuAvailable,
+} from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { stubDevice, stubGl } from "./scene-stubs";
 import { CONDITION_PAIRS, inlineFnConditions, inlineFnPaths } from "../testing/inline-fn-paths";
@@ -50,6 +58,9 @@ import { createGlsl } from "../glsl";
 import { createWasmContext } from "../wasm";
 
 const WEBGPU = await webgpuAvailable();
+
+/** Whether the Dawn device reads a storage element from before the loop in some loops. */
+const STALE_STORAGE = GPU_ENABLED && (await readsStorageFromBeforeTheLoop());
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -1905,30 +1916,82 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
-   * The condition is tested four times, and the `Fn` counts its runs. On
-   * Dawn on Metal every case counts one run, though the WGSL writes the
-   * increment inside the loop before the test. This test fails while the
-   * defect lasts, so it starts passing, and fails the run, once it is fixed.
+   * The condition is tested four times, and the `Fn` counts its runs. A
+   * driver that reads storage from before the loop counts one run in every
+   * case, though the WGSL writes the increment inside the loop before the
+   * test. The probe decides which count to expect.
    *
-   * @canon bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute
+   * @canon exception-dawn-on-metal-counts-a-storage-write-in-a-loop-condition-once
    */
-  it.skipIf(process.platform !== "darwin").fails(
-    "runs an inline Fn read only in a While or Loop condition at every test, on WGSL",
-    async () => {
-      const { counter, result, conditions } = inlineFnConditions();
-      for (const condition of conditions) {
-        const adapter = createWgslCompute(condition.build());
-        await adapter.attach();
-        const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
-        await adapter.compute(out, 1);
-        adapter.destroy();
-        expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, condition.name).toEqual({
-          runs: 4,
-          value: 3,
-        });
-      }
-    },
-  );
+  it("runs an inline Fn read only in a While or Loop condition at every test on WGSL, or once where the driver reads storage from before the loop", async () => {
+    const { counter, result, conditions } = inlineFnConditions();
+    for (const condition of conditions) {
+      const adapter = createWgslCompute(condition.build());
+      await adapter.attach();
+      const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+      await adapter.compute(out, 1);
+      adapter.destroy();
+      expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, condition.name).toEqual({
+        runs: STALE_STORAGE ? 1 : 4,
+        value: 3,
+      });
+    }
+  });
+
+  /**
+   * Each of the four iterations adds one to two elements of one buffer. A
+   * driver that reads storage from before the loop counts one iteration in
+   * the first element, though the WGSL writes both inside the loop.
+   *
+   * @canon exception-dawn-on-metal-counts-the-first-of-two-storage-writes-in-a-while-body-once
+   */
+  it("runs both storage writes in a While body on every iteration on WGSL, or the first once where the driver reads storage from before the loop", async () => {
+    const counts = instancedArray(2, "float");
+    const program = Fn(() => {
+      const n = float(0).toVar();
+      While(n.lessThan(4), () => {
+        counts.element(int(0)).addAssign(1);
+        counts.element(int(1)).addAssign(1);
+        n.addAssign(1);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counts.name]: new Float32Array(2) };
+    await adapter.compute(out, 1);
+    adapter.destroy();
+    expect(Array.from(out[counts.name]!)).toEqual([STALE_STORAGE ? 1 : 4, 4]);
+  });
+
+  /**
+   * The `Fn` adds one to its count, reads the count back, and returns on its
+   * third run, so the loop of nine stops there. A driver that reads storage
+   * from before the loop reads a count of one on every run, so the `Fn` never
+   * returns and the loop runs all nine.
+   *
+   * @canon exception-dawn-on-metal-misses-a-return-an-inline-fn-makes-on-its-count-in-a-loop
+   */
+  it("ends the invocation where an inline Fn read in a loop returns on its count on WGSL, or never where the driver reads storage from before the loop", async () => {
+    const counts = instancedArray(3, "float");
+    const f = Fn(() => {
+      counts.element(int(1)).addAssign(1);
+      const r = counts.element(int(1)).toVar();
+      counts.element(int(0)).addAssign(1);
+      If(r.equal(3), () => Return());
+      return r;
+    })() as any;
+    const program = Fn(() => {
+      Loop(9, () => {
+        counts.element(int(2)).addAssign(f);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counts.name]: new Float32Array(3) };
+    await adapter.compute(out, 1);
+    adapter.destroy();
+    expect(Array.from(out[counts.name]!)).toEqual(STALE_STORAGE ? [9, 1, 9] : [3, 3, 3]);
+  });
 
   /**
    * The `Fn` is called outside the program's body, and the loop body reads

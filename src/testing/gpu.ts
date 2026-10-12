@@ -135,6 +135,56 @@ export function gpuDevice(): Promise<any> {
   return devicePromise;
 }
 
+let staleStoragePromise: Promise<boolean> | undefined;
+
+/**
+ * Whether the Dawn device reads a storage element from before the loop, as
+ * `fact-metal-reads-a-storage-element-from-before-the-loop-in-some-loops`
+ * says. One invocation runs the smallest loop known to show it, which adds one
+ * to `c[0]` four times. A driver with the defect leaves 1 there, and one
+ * without it leaves 4. The answer is kept for the whole run.
+ */
+export function readsStorageFromBeforeTheLoop(): Promise<boolean> {
+  staleStoragePromise ??= (async () => {
+    const device = await gpuDevice();
+    const { GPUBufferUsage: usage, GPUMapMode: mode } = (await import("@kmamal/gpu")) as any;
+    const code = `@group(0) @binding(0) var<storage, read_write> c: array<f32>;
+@compute @workgroup_size(1) fn main() {
+  var n = 0f;
+  loop { c[0] = c[0] + 1f; if (!(n < 3f)) { break; } n = n + 1f; }
+}`;
+    const pipeline = device.createComputePipeline({
+      layout: "auto",
+      compute: { module: device.createShaderModule({ code }), entryPoint: "main" },
+    });
+    const buffer = device.createBuffer({ size: 4, usage: usage.STORAGE | usage.COPY_DST | usage.COPY_SRC });
+    const staging = device.createBuffer({ size: 4, usage: usage.MAP_READ | usage.COPY_DST });
+    device.queue.writeBuffer(buffer, 0, new Float32Array(1));
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer } }],
+      }),
+    );
+    pass.dispatchWorkgroups(1);
+    pass.end();
+    encoder.copyBufferToBuffer(buffer, 0, staging, 0, 4);
+    device.queue.submit([encoder.finish()]);
+    await staging.mapAsync(mode.READ);
+    const count = new Float32Array(staging.getMappedRange())[0];
+    staging.unmap();
+    buffer.destroy();
+    staging.destroy();
+    if (count !== 1 && count !== 4) throw new Error(`The stale storage probe counted ${count}, neither 1 nor 4`);
+    return count === 1;
+  })();
+  return staleStoragePromise;
+}
+
 /**
  * Compile GLSL shaders in the shared page and report what the driver said.
  *

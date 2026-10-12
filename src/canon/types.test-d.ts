@@ -41,6 +41,7 @@ import {
   type StorageBufferAttribute,
   type SetUniform,
   type SetUniformByNode,
+  type UniformValue,
   uniform,
   uniformArray,
 } from "../rmsl";
@@ -539,6 +540,28 @@ describe("the value setUniform takes for a boolean uniform", () => {
 
 describe("the value setUniform takes for a vector or matrix uniform", () => {
   let glsl!: GlslAdapter;
+
+  /**
+   * @canon spec-the-types-hold-a-uniform-value-to-its-shape
+   */
+  it("derives the value of each type from its width or its columns and rows", () => {
+    type Floats = Float32Array | Float64Array;
+    type Bools = boolean | 0 | 1;
+    expectTypeOf<UniformValue<"float">>().toEqualTypeOf<number>();
+    expectTypeOf<UniformValue<"int">>().toEqualTypeOf<number>();
+    expectTypeOf<UniformValue<"uint">>().toEqualTypeOf<number>();
+    expectTypeOf<UniformValue<"bool">>().toEqualTypeOf<Bools>();
+    expectTypeOf<UniformValue<"vec2">>().toEqualTypeOf<[number, number] | Floats>();
+    expectTypeOf<UniformValue<"vec4">>().toEqualTypeOf<[number, number, number, number] | Floats>();
+    expectTypeOf<UniformValue<"ivec3">>().toEqualTypeOf<[number, number, number] | Int32Array>();
+    expectTypeOf<UniformValue<"uvec2">>().toEqualTypeOf<[number, number] | Uint32Array>();
+    expectTypeOf<UniformValue<"bvec3">>().toEqualTypeOf<[Bools, Bools, Bools] | Int32Array | Uint32Array>();
+    expectTypeOf<UniformValue<"mat2">>().toEqualTypeOf<[number, number, number, number] | Floats>();
+    expectTypeOf<UniformValue<"mat3x2">>().toEqualTypeOf<[number, number, number, number, number, number] | Floats>();
+    expectTypeOf<Exclude<UniformValue<"mat4">, Floats>["length"]>().toEqualTypeOf<16>();
+    expectTypeOf<UniformValue<"sampler2D">>().toBeNever();
+    expectTypeOf<UniformValue<"void">>().toBeNever();
+  });
 
   /**
    * @canon spec-the-types-hold-a-uniform-value-to-its-shape

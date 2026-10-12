@@ -1,4 +1,5 @@
 /// <reference types="@webgpu/types" />
+import type { ShaderType, UniformValue } from "../../rmsl";
 import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
 import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
 import { componentCountOf } from "../../backends/cpu";
@@ -434,7 +435,7 @@ export class WebGPURenderer {
     for (const binding of entry.program.uniforms) {
       const member = entry.layoutMembers.find((m) => m.name === binding.node.name);
       if (!member) continue;
-      let value: number | ArrayLike<number> | undefined;
+      let value: number[] | UniformValue<ShaderType> | undefined;
       if (binding.scope === "camera") {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
