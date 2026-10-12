@@ -165,9 +165,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
-  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
-  - [`@spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
-  - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads an `Int32Array` for an `int` attribute, or a `Uint32Array` for a `uint` attribute, without a copy. It copies an array of another type into a new array first.
+  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+  - [`@spec a-scene-renderer-reads-an-integer-attribute-as-integers`](#spec-a-scene-renderer-reads-an-integer-attribute-as-integers) — `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
+  - [`@spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location`](#spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location) — `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
+  - [`@spec the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives`](#spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives) — A draw of `WebGPURenderer` gives a vertex attribute its program declares but has no data for the value (0, 0, 0, 1). A draw of `WebGLRenderer` gives it the same. Each location of the attribute reads the components of that value it holds, of the attribute's kind, at every vertex.
+  - [`@spec a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` and `createWgsl` take a matrix attribute of any shape as one flat array that holds each vertex's columns one after another. Each points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+  - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads the `Int32Array` of an `int` attribute, or the `Uint32Array` of a `uint` attribute, as given, without a copy.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
@@ -251,7 +254,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target, in a graph `deserialize` rebuilt too. A scalar beside a vector broadcasts instead.
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
-    - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
+    - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. Every target refuses it when the program is compiled.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused) — An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead. The operations are the arithmetic and bitwise operators, the comparisons, `select`, and the math functions of several operands, such as `clamp`, `mix`, `pow` and `step`.
       - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target.
@@ -266,6 +269,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
+  - [`@spec a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused`](#spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm`, or of a `compileJS` or `compileWasm` rasterizer, is refused when its vertex stage reads an attribute the host never gave data for. The error names the attribute, as `draw() is missing attribute "<slot>"` after the name of the call.
+  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every way the host passes an attribute or a storage buffer refuses an array whose components are of another kind than its declared type. The refusal names the type. A float type takes a `Float32Array`, an `int` or `ivecN` type an `Int32Array`, and a `uint` or `uvecN` type a `Uint32Array`. A CPU target takes a `Float64Array` for a float type too. The type checker refuses any other array that the host passes with the node.
+    - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind, and so do the draws of `compileJS` and `compileWasm`. The CPU ones take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits.
+    - [`@spec a-storage-buffer-takes-only-an-array-of-its-element-kind`](#spec-a-storage-buffer-takes-only-an-array-of-its-element-kind) — Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. A slot name is checked once the adapter knows the type of its slot.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
@@ -331,7 +338,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-integer-or-boolean-column-converts-to-float`](#spec-an-integer-or-boolean-column-converts-to-float) — A matrix constructor given integer or boolean vectors, as its columns or as the one vector `mat2` splits, converts their components to float on every target. A boolean gives 1 or 0.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
-    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
+    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused. The refusal names the operation that received the array, so a large shader points at the call.
     - [`@spec a-returned-array-lists-roots`](#spec-a-returned-array-lists-roots) — An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
@@ -389,6 +396,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
     - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
     - [`@spec nodes-over-one-buffer-share-one-binding`](#spec-nodes-over-one-buffer-share-one-binding) — Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
+    - [`@exception a-whole-storage-buffer-has-no-operations`](#exception-a-whole-storage-buffer-has-no-operations) — A storage node has `element(i)`, `toReadOnly()`, its `name`, its `access` and its `attribute`, and none of the operations of its element type. TSL's storage node carries every operation of a node, so `instancedArray(4, "float").add(1)` is TSL code that rmsl refuses.
     - [`@exception a-vec3-storage-element-is-padded-only-on-the-gpu`](#exception-a-vec3-storage-element-is-padded-only-on-the-gpu) — A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
     - [`@spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) — `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
   - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
@@ -411,6 +419,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-number-given-to-an-effect-compiles-as-a-literal`](#spec-a-number-given-to-an-effect-compiles-as-a-literal) — A number given as a parameter of an effect compiles as a literal in the effect's code.
     - [`@spec a-node-given-to-an-effect-is-read-as-given`](#spec-a-node-given-to-an-effect-is-read-as-given) — An effect reads a node the caller passes as a parameter, so a uniform can drive that parameter.
   - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
+    - [`@spec a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant) — `WebGLRenderer` and `WebGPURenderer` draw a mesh whose geometry lacks an attribute its material reads, as TSL does. The attribute reads (0, 0, 0, 1), cut to its width, at every vertex, and the renderer warns. Where TSL bakes that constant into the shader as a literal, rmsl keeps one shader and feeds the attribute the constant. WebGL feeds it from the value the context keeps at the location, and WebGPU from a buffer of that value that every vertex reads.
+      - [`@spec a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks`](#spec-a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks) — The renderer warns `Vertex attribute "<name>" not found on geometry.`, as TSL words it, once for each attribute of each geometry, not at every frame.
+      - [`@exception a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column`](#exception-a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column) — A matrix attribute the geometry lacks reads (0, 0, 0, 1), cut to its rows, in each column. A `mat4`, or a matrix of four rows, reads a 1 in the last row of each column. TSL gives a `mat3` and a `mat4` a zero matrix and refuses a `mat2`.
     - [`@spec an-object-composes-its-world-matrix-down-the-tree`](#spec-an-object-composes-its-world-matrix-down-the-tree) — An `Object3D` composes its world matrix from its parents', and gives its world position, rotation and scale. It adds, removes, finds and traverses children, announces being added and removed, and turns to look at a target.
     - [`@spec a-camera-builds-its-projection`](#spec-a-camera-builds-its-projection) — A perspective or orthographic camera builds its projection matrix and the inverse of its view matrix as three.js does.
     - [`@spec a-light-is-a-coloured-scene-node`](#spec-a-light-is-a-coloured-scene-node) — A light is a node of the scene with a colour and an intensity, and a directional light has a target. A scene has a background colour.
@@ -494,7 +505,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
   - [`@spec a-webgl-caller-restores-the-context-state-only-when-asked`](#spec-a-webgl-caller-restores-the-context-state-only-when-asked) — `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
     - [`@spec a-webgl-call-sets-the-state-it-reads`](#spec-a-webgl-call-sets-the-state-it-reads) — A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function, depth range and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset, coverage and dithering switches. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
-    - [`@spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value`](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value) — A draw of `WebGLRenderer` or `createGlsl` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
+    - [`@spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value`](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value) — A draw of `WebGLRenderer` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
     - [`@spec a-webgl-call-leaves-the-state-it-set`](#spec-a-webgl-call-leaves-the-state-it-set) — Without `preserveState`, a call of `WebGLRenderer` or `createGlsl` puts back none of the state it set. A texture upload leaves the unpack alignment at 1, and a draw leaves its program bound.
     - [`@spec a-webgl-renderer-asked-to-preserve-state-puts-it-back`](#spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
     - [`@spec a-glsl-adapter-asked-to-preserve-state-puts-it-back`](#spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
@@ -602,8 +613,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
       - [`@spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage`](#spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage) — `compileJS` and `compileWasm` read which attributes the vertex stage reads, and the type of each, from the compiled stage. The host names neither.
-      - [`@spec a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads`](#spec-a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads) — `compileJS` and `compileWasm` refuse a draw that holds no data for an attribute the vertex stage reads. The error names the attribute.
-      - [`@spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer`](#spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer) — A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
@@ -748,6 +757,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-normalizing-a-zero-vector-is-undefined-on-a-gpu) — GLSL ES 3.00 and WGSL leave the result of `normalize` on a vector of length zero undefined.
 - [`@fact a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-vec3-takes-16-bytes) — In a WGSL storage buffer, a `vec3` element, and each column of three of a matrix, takes 16 bytes.
 - [`@fact a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four) — WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
+- [`@fact a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input) — A WebGPU vertex format feeds a shader input of one kind. A `float`, `unorm` or `snorm` format feeds an `f32` input, a `sint` format an `i32` input, and a `uint` format a `u32` input. A render pipeline whose vertex format differs in kind from the input at its location is a validation error.
+- [`@fact webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer) — WebGL 2 gives an integer vertex input, an `int`, `uint`, `ivecN` or `uvecN`, the integers an array holds only when `vertexAttribIPointer` set that array. A draw whose integer input reads an array set with `vertexAttribPointer`, or whose float input reads one set with `vertexAttribIPointer`, fails with `INVALID_OPERATION`.
+- [`@fact tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks`](#fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks) — When a material reads an attribute its geometry lacks, TSL's `AttributeNode.generate` warns `AttributeNode: Vertex attribute "<name>" not found on geometry.` It bakes `generateConst` of the attribute's type into the shader in its place. That is 0 for a scalar and a zero vector of two or three components. It is (0, 0, 0, 1) for a `vec4`, `ivec4` or `uvec4`, as `Vector4` defaults its w to one. It is a constructor with no arguments for a `mat3` or `mat4`, which WGSL reads as a zero matrix, and for a `mat2` it throws. TSL compiles each material against the geometry of the object it draws.
+- [`@fact webgl-keeps-a-value-at-each-attribute-location`](#fact-webgl-keeps-a-value-at-each-attribute-location) — A WebGL 2 context keeps a value for each vertex attribute location, (0, 0, 0, 1) when it is fresh. A location that no enabled array feeds reads that value. A matrix attribute reads such a value at each of its column locations.
+- [`@fact webgpu-keeps-no-value-for-an-attribute-without-a-buffer`](#fact-webgpu-keeps-no-value-for-an-attribute-without-a-buffer) — A WebGPU draw needs a vertex buffer set at every slot of its pipeline's vertex layout, and fails validation when one is missing. WebGPU keeps no value for a vertex input, as WebGL keeps one for each location. A vertex buffer layout with an `arrayStride` of 0 gives every vertex the same element.
+- [`@fact a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column) — GLSL ES 3.00 gives a matrix vertex input one location for each column, consecutive from its first location. Each location reads a vector of the column's rows. WGSL takes no matrix as a vertex input, so a WGSL vertex stage reads a matrix as one vector input for each column.
+- [`@fact three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns) — three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
 - [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
 - [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
 - [`@fact glsl-defines-most-math-functions-for-floats-only`](#fact-glsl-defines-most-math-functions-for-floats-only) — GLSL ES 3.00 defines its math functions for floats and float vectors only. The exceptions are `abs` and `sign` of a signed integer, and `min`, `max` and `clamp` of either integer kind. Its bitwise operators, `~` and shifts take integers and integer vectors only.
@@ -780,6 +796,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
+- [`@fact a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type) — TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
 - [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
 - [`@fact tsl-compute-takes-a-workgroup-size`](#fact-tsl-compute-takes-a-workgroup-size) — TSL's `compute(node, count, workgroupSize)` takes a workgroup size of one to three positive integers, `[64]` by default, and pads it with ones to three dimensions.
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
@@ -1757,27 +1774,51 @@ This follows because the suite evaluates every program it records on every targe
 
 ### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
 
-> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
+> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
 
-Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four)
+Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer)
 
-This follows because a format one renderer reads as another type would make the two draw differently.
+This follows because a format one renderer reads as another type would make the two draw differently. Both graphics APIs refuse a draw whose format and shader input differ in kind, so the renderer refuses it first and names the cause.
 
-### @spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+### @spec a-scene-renderer-reads-an-integer-attribute-as-integers
 
-> `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+> `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
 
-Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads)
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns)
 
-This follows because GLSL gives a matrix attribute one location for each column, and each location reads only its own column.
+This follows because both graphics APIs give an integer input its integers only through an integer format. three.js reads the same arrays as integers.
+
+### @spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location
+
+> `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns)
+
+This follows because GLSL and WGSL both give a matrix one vertex input for each column. No vertex format holds a whole matrix.
+
+### @spec the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives
+
+> A draw of `WebGPURenderer` gives a vertex attribute its program declares but has no data for the value (0, 0, 0, 1). A draw of `WebGLRenderer` gives it the same. Each location of the attribute reads the components of that value it holds, of the attribute's kind, at every vertex.
+
+Derives from: [`spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value`](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value), [`spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant), [`fact-webgpu-keeps-no-value-for-an-attribute-without-a-buffer`](#fact-webgpu-keeps-no-value-for-an-attribute-without-a-buffer)
+
+This follows because one material draws the same on both scene renderers. WebGPU keeps no value for an attribute, so the renderer binds a buffer that holds the value WebGL keeps, and reads it at every vertex.
+
+### @spec a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+
+> `createGlsl` and `createWgsl` take a matrix attribute of any shape as one flat array that holds each vertex's columns one after another. Each points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads), [`fact-a-matrix-vertex-input-takes-a-location-for-each-column`](#fact-a-matrix-vertex-input-takes-a-location-for-each-column)
+
+This follows because GLSL and WGSL both give a matrix attribute one location for each column, and each location reads only its own column.
 
 ### @spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given
 
-> `setAttribute` on `createGlsl` uploads an `Int32Array` for an `int` attribute, or a `Uint32Array` for a `uint` attribute, without a copy. It copies an array of another type into a new array first.
+> `setAttribute` on `createGlsl` uploads the `Int32Array` of an `int` attribute, or the `Uint32Array` of a `uint` attribute, as given, without a copy.
 
-Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+Derives from: [`spec-an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
-This follows because a host can refill an attribute on every frame. An array that already holds 32-bit integers of the attribute's kind is what the buffer takes.
+This follows because a host can refill an attribute on every frame. The adapter takes only an array that holds 32-bit integers of the attribute's kind, which is what the buffer holds.
 
 ### @spec wgsl-brackets-a-bitwise-operand-that-is-not-unary
 
@@ -2253,7 +2294,9 @@ This follows because a scalar beside a vector broadcasts, and the result has the
 
 #### @spec a-whole-storage-buffer-cannot-be-read
 
-> A storage node read as a whole, rather than through `element(i)`, is refused.
+> A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. Every target refuses it when the program is compiled.
+
+A buffer holds no single value for an operation to take, only its elements do. So the type checker refuses the read as well as the compiler.
 
 #### @spec a-scalar-argument-beside-a-vector-is-widened-to-it
 
@@ -2353,6 +2396,38 @@ This follows because a case added once its block is built could not reach the pr
 > A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 
 This follows because a case no selector can match is a mistake in the program, and a mistake is refused before the program runs.
+
+### @spec a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
+
+> A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm`, or of a `compileJS` or `compileWasm` rasterizer, is refused when its vertex stage reads an attribute the host never gave data for. The error names the attribute, as `draw() is missing attribute "<slot>"` after the name of the call.
+
+Derives from: [`spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage`](#spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage), [`fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks`](#fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks)
+
+This follows because an adapter draws no geometry, so an attribute without data stands for nothing. The draw would read a value no one chose. TSL has no such draw: it compiles each material against the geometry it draws, and the scene renderers follow it there.
+
+### @spec host-data-of-another-kind-is-refused
+
+> Every way the host passes an attribute or a storage buffer refuses an array whose components are of another kind than its declared type. The refusal names the type. A float type takes a `Float32Array`, an `int` or `ivecN` type an `Int32Array`, and a `uint` or `uvecN` type a `Uint32Array`. A CPU target takes a `Float64Array` for a float type too. The type checker refuses any other array that the host passes with the node.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because a float array read as integers gives values the host never wrote. A target that converted would disagree with one that reads the bytes. A copy into an array of the right kind would make a new array at every refill. Also, three.js reads an attribute in a format its array's type picks, so the array decides the kind the shader reads. A CPU target computes floats in 64 bits, so a `Float64Array` reaches it as it is.
+
+#### @spec an-attribute-takes-only-an-array-of-its-own-kind
+
+> The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind, and so do the draws of `compileJS` and `compileWasm`. The CPU ones take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type)
+
+This follows because an attribute is host data a draw reads at every vertex.
+
+#### @spec a-storage-buffer-takes-only-an-array-of-its-element-kind
+
+> Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. A slot name is checked once the adapter knows the type of its slot.
+
+Derives from: [`fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array)
+
+This follows because a storage buffer holds its elements in the typed array of their component type, as a storage node's own attribute does.
 
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
@@ -2726,7 +2801,7 @@ This follows because a vector constructor takes a node wherever it takes a numbe
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 
-> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
+> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused. The refusal names the operation that received the array, so a large shader points at the call.
 
 #### @spec a-returned-array-lists-roots
 
@@ -3058,6 +3133,14 @@ This follows because a TSL shader ports by changing its import, and one that cal
 
 > Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
 
+#### @exception a-whole-storage-buffer-has-no-operations
+
+> A storage node has `element(i)`, `toReadOnly()`, its `name`, its `access` and its `attribute`, and none of the operations of its element type. TSL's storage node carries every operation of a node, so `instancedArray(4, "float").add(1)` is TSL code that rmsl refuses.
+
+Derives from: [`fact-a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+TSL gives a whole buffer read as a value two meanings. On WebGPU it is an array that no operation takes. On WebGL it is the element of the vertex the draw runs for. One program would mean something else on each target, or nothing. So rmsl refuses the read, in the type checker too, as [`spec-a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) states.
+
 #### @exception a-vec3-storage-element-is-padded-only-on-the-gpu
 
 > A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
@@ -3177,6 +3260,28 @@ This follows because a TSL effect takes a node for each parameter, and a uniform
 Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph)
 
 This follows because TSL is the shading language of three.js, and its users bring three.js scenes with their shaders.
+
+#### @spec a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant
+
+> `WebGLRenderer` and `WebGPURenderer` draw a mesh whose geometry lacks an attribute its material reads, as TSL does. The attribute reads (0, 0, 0, 1), cut to its width, at every vertex, and the renderer warns. Where TSL bakes that constant into the shader as a literal, rmsl keeps one shader and feeds the attribute the constant. WebGL feeds it from the value the context keeps at the location, and WebGPU from a buffer of that value that every vertex reads.
+
+Derives from: [`fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks`](#fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks), [`fact-webgl-keeps-a-value-at-each-attribute-location`](#fact-webgl-keeps-a-value-at-each-attribute-location)
+
+This follows because a three.js scene draws a mesh whose geometry lacks an attribute, and a port draws it the same. A shader of its own for each such mesh would compile a program for each geometry. An integer vector reads what TSL gives it, (0, 0, 0, 1) as integers cut to its width.
+
+##### @spec a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks
+
+> The renderer warns `Vertex attribute "<name>" not found on geometry.`, as TSL words it, once for each attribute of each geometry, not at every frame.
+
+This follows because TSL warns when it compiles the material for the geometry, which it does once.
+
+##### @exception a-matrix-attribute-a-geometry-lacks-reads-the-kept-value-in-each-column
+
+> A matrix attribute the geometry lacks reads (0, 0, 0, 1), cut to its rows, in each column. A `mat4`, or a matrix of four rows, reads a 1 in the last row of each column. TSL gives a `mat3` and a `mat4` a zero matrix and refuses a `mat2`.
+
+Derives from: [`fact-webgl-keeps-a-value-at-each-attribute-location`](#fact-webgl-keeps-a-value-at-each-attribute-location), [`fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks`](#fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks)
+
+This follows because WebGL keeps one value at each location, and a matrix reads a location for each column. `WebGPURenderer` gives what `WebGLRenderer` gives.
 
 #### @spec an-object-composes-its-world-matrix-down-the-tree
 
@@ -3668,9 +3773,9 @@ This follows because a WGSL draw neither dithers nor reads such state. A WebGL d
 
 #### @spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
 
-> A draw of `WebGLRenderer` or `createGlsl` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
+> A draw of `WebGLRenderer` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
 
-Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+Derives from: [`spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant), [`fact-webgl-keeps-a-value-at-each-attribute-location`](#fact-webgl-keeps-a-value-at-each-attribute-location)
 
 This follows because a shader reads such an attribute from a value the context keeps for its location. The application can set that value, as it can set any other state a draw reads.
 
@@ -4335,22 +4440,6 @@ This follows because a WebGPU draw reads no buffer its shader does not declare, 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
 This follows because each attribute node carries its type, and the compiled stage knows which it reads. A list from the host could leave out an attribute the stage reads, or name one it does not, and count a draw from it.
-
-##### @spec a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads
-
-> `compileJS` and `compileWasm` refuse a draw that holds no data for an attribute the vertex stage reads. The error names the attribute.
-
-Derives from: [`spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage`](#spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage), [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws)
-
-This follows because a CPU rasterizer keeps no value for an attribute, as a WebGL context keeps one for each location. The stage would read nothing.
-
-##### @spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
-
-> A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
-
-Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws)
-
-This follows because a GPU renderer uploads an integer attribute in a buffer of 32-bit integers, which stores a host's value so. The WASM rasterizer writes each component into its memory as a 32-bit integer, and the JS rasterizer gives what the WASM rasterizer gives.
 
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
@@ -5256,6 +5345,48 @@ This is a fact of the WGSL specification, not a choice.
 
 This is a fact of the WebGPU specification, not a choice.
 
+## @fact a-webgpu-vertex-format-has-the-kind-of-its-shader-input
+
+> A WebGPU vertex format feeds a shader input of one kind. A `float`, `unorm` or `snorm` format feeds an `f32` input, a `sint` format an `i32` input, and a `uint` format a `u32` input. A render pipeline whose vertex format differs in kind from the input at its location is a validation error.
+
+This is a fact of the WebGPU specification, in the validation of a `GPUVertexBufferLayout`.
+
+## @fact webgl2-reads-an-integer-attribute-only-through-an-integer-pointer
+
+> WebGL 2 gives an integer vertex input, an `int`, `uint`, `ivecN` or `uvecN`, the integers an array holds only when `vertexAttribIPointer` set that array. A draw whose integer input reads an array set with `vertexAttribPointer`, or whose float input reads one set with `vertexAttribIPointer`, fails with `INVALID_OPERATION`.
+
+This is a fact of the WebGL 2.0 specification, which makes a draw check the type of each enabled array against the shader's input. Chromium's WebGL 2 refuses such a draw.
+
+## @fact tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks
+
+> When a material reads an attribute its geometry lacks, TSL's `AttributeNode.generate` warns `AttributeNode: Vertex attribute "<name>" not found on geometry.` It bakes `generateConst` of the attribute's type into the shader in its place. That is 0 for a scalar and a zero vector of two or three components. It is (0, 0, 0, 1) for a `vec4`, `ivec4` or `uvec4`, as `Vector4` defaults its w to one. It is a constructor with no arguments for a `mat3` or `mat4`, which WGSL reads as a zero matrix, and for a `mat2` it throws. TSL compiles each material against the geometry of the object it draws.
+
+This is how TSL behaves, read from its source: `generate` in `src/nodes/core/AttributeNode.js` and `generateConst` in `src/nodes/core/NodeBuilder.js`, in three.js 0.186.
+
+## @fact webgl-keeps-a-value-at-each-attribute-location
+
+> A WebGL 2 context keeps a value for each vertex attribute location, (0, 0, 0, 1) when it is fresh. A location that no enabled array feeds reads that value. A matrix attribute reads such a value at each of its column locations.
+
+This is a fact of the OpenGL ES 3.0 specification, on which WebGL 2 builds. Its current generic attribute values start at (0, 0, 0, 1).
+
+## @fact webgpu-keeps-no-value-for-an-attribute-without-a-buffer
+
+> A WebGPU draw needs a vertex buffer set at every slot of its pipeline's vertex layout, and fails validation when one is missing. WebGPU keeps no value for a vertex input, as WebGL keeps one for each location. A vertex buffer layout with an `arrayStride` of 0 gives every vertex the same element.
+
+This is a fact of the WebGPU specification. Chromium's WebGPU reports `Vertex buffer slot 0 required by [RenderPipeline] was not set` for such a draw.
+
+## @fact a-matrix-vertex-input-takes-a-location-for-each-column
+
+> GLSL ES 3.00 gives a matrix vertex input one location for each column, consecutive from its first location. Each location reads a vector of the column's rows. WGSL takes no matrix as a vertex input, so a WGSL vertex stage reads a matrix as one vector input for each column.
+
+This is a fact of the GLSL ES 3.00 and WGSL specifications.
+
+## @fact three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns
+
+> three.js's `WebGLRenderer` points an attribute whose array holds 32-bit integers with `vertexAttribIPointer`, and points a matrix attribute at as many locations as the matrix has columns. Its `WebGPURenderer` reads an `Int32Array` attribute in a `sint32` format and a `Uint32Array` one in a `uint32` format. It reads an 8- or 16-bit integer array that is not normalized in a `sint` or `uint` format of its width.
+
+This is how three.js behaves, read from its source: `setupVertexAttributes` in `src/renderers/webgl/WebGLBindingStates.js`, and `_getVertexFormat` in `src/renderers/webgpu/utils/WebGPUAttributeUtils.js`, in three.js 0.186.
+
 ## @fact wgsl-refuses-an-i32-literal-out-of-its-range
 
 > A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
@@ -5455,6 +5586,12 @@ This is how three.js's TSL behaves, read from its source (`VarNode`, three.js 0.
 > TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 
 This is how three.js's TSL behaves, read from its source (`StorageBufferNode`, three.js 0.186).
+
+## @fact a-tsl-storage-node-is-a-node-of-its-element-type
+
+> TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
+
+This is how the TSL of three.js 0.186 behaves, read from its source. Its `StorageBufferNode` extends `BufferNode`, which extends `UniformNode`. `addMethodChaining` in `src/nodes/tsl/TSLCore.js` sets each operation on `Node.prototype`. `StorageBufferNode.generate` returns the name of the buffer. `WGSLNodeBuilder.getPropertyName` writes that name as `<name>.value`, the array. A builder without `storageBuffer` builds the varying of a `bufferAttribute` over the buffer instead.
 
 ## @fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array
 

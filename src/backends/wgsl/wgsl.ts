@@ -660,7 +660,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let v = node.value as any;
       assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
       if (v && v.id != null && !ctx.attributes.has(v.slot)) {
-        ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
+        ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), shaderType: v.shaderType, slot: v.slot });
       }
       if (ctx.shaderStage !== "vertex") return { decls: [], body: [], expr: v.slot };
       // A matrix attribute is rebuilt from its columns at the top of `main`,

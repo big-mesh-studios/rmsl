@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
 import {
   attribute,
+  attributeRaw,
   equal,
   float,
   Fn,
@@ -190,6 +191,15 @@ describe("units of the core", () => {
     expect(names.filter((name) => /^(compile|create|instantiate)/.test(name))).toEqual([]);
     expect(names).not.toContain("var_");
     expect(names).not.toContain("assertBlockScope");
+  });
+
+  /**
+   * An attribute whose raw name is empty is refused.
+   *
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
+  it("refuses an attribute with an empty name", () => {
+    expect(() => attributeRaw("", "float")).toThrow(/empty/);
   });
 });
 

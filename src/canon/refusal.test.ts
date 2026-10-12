@@ -547,8 +547,8 @@ describe("a mistake is refused before the program runs", () => {
 
   /**
    * An array of 2, 3 or 4 numbers is a vector, and one of a length no vector
-   * has is refused, naming the length, where it used to become the float of
-   * its first element.
+   * has is refused, naming the length and the operation it was given to, where
+   * it used to become the float of its first element.
    *
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
    */
@@ -561,7 +561,9 @@ describe("a mistake is refused before the program runs", () => {
       )();
     expect(() => build(4)()).not.toThrow();
     for (const length of [0, 1, 5, 7]) {
-      expect(build(length), `length ${length}`).toThrow(new RegExp(`array of length ${length} is no vector`));
+      expect(build(length), `length ${length}`).toThrow(
+        new RegExp(`array of length ${length} given to add\\(\\) is no vector`),
+      );
     }
   });
 

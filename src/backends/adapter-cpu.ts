@@ -1,5 +1,14 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, slotOf, TypedArray, unknownStorageSlots } from "./adapter";
+import {
+  Adapter,
+  assertNodeArray,
+  AttributeOrSlot,
+  AttributeOrStorage,
+  slotOf,
+  TypedArray,
+  unknownStorageSlots,
+} from "./adapter";
+import { assertHostArray } from "./vertex-format";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -45,7 +54,7 @@ export interface CpuAdapterPrograms {
  * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so
  * their callers never see the always-throwing `draw()` this interface
  * still carries. Both are synchronous: this loop never awaits anything. */
-export interface CpuAdapter extends Adapter<AdapterResult> {
+export interface CpuAdapter extends Adapter<AdapterResult, void, Float32Array | Float64Array> {
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
   draw(): void;
 }
@@ -104,18 +113,22 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     uniforms[slotOf(uniform)] = _value as number | number[];
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
-  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+  function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
     const slot = slotOf(attribute);
+    assertNodeArray(attribute, data, true);
+    const slotType = typeof attribute === "string" ? storageTypes[slot] : undefined;
+    if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, data, true);
     if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
-    elementWidths.set(
-      slot,
+    const elementType =
       typeof attribute === "string"
-        ? componentCountOf(storageTypes[slot] ?? "float")
-        : componentCountOf(attribute._t ?? "float"),
-    );
+        ? storageTypes[slot]
+        : "attribute" in attribute
+          ? attribute.attribute.elementType
+          : attribute._t;
+    elementWidths.set(slot, componentCountOf(elementType ?? "float"));
     firstStorage ??= slot;
   }
 

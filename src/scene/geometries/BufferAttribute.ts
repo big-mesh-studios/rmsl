@@ -1,4 +1,4 @@
-import type { VertexFormat } from "../renderers/common";
+import type { VertexFormat } from "../../backends/vertex-format";
 
 /**
  * One interleaved-or-flat attribute of a geometry: a typed array of `itemSize`

@@ -158,7 +158,11 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   element, or a matrix with columns of three, keeps its packed layout on the
   attribute and in what `getArrayBufferAsync()` returns: the WGSL context pads
   each column of three to 16 bytes only in the GPU buffer, where TSL rewrites
-  the attribute itself to 4 components.
+  the attribute itself to 4 components. A storage node has `element(i)`,
+  `toReadOnly()`, `name`, `access` and `attribute`, and none of the
+  operations of its element type: `buffer.add(1)` is a type error, and every
+  backend refuses it when compiled. TSL compiles it to the whole array on
+  WebGPU and to a vertex attribute on WebGL. Read `buffer.element(i)` instead.
 - **Drawing from storage**: a vertex or fragment stage reads a `storage()`
   node on WGSL, read-only, as in TSL; writing one there throws.
   `vertexIndex()` and `instanceIndex()` give the vertex and instance being

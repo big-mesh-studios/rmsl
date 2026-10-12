@@ -1,5 +1,15 @@
-import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import {
+  AttributeNode,
+  ReadOnlyStorageNode,
+  ShaderType,
+  StorageNode,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+  StorageBufferAttribute,
+} from "../core";
 import type { CpuTextureData } from "./cpu";
+import { assertHostArray } from "./vertex-format";
 
 /**
  * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
@@ -13,7 +23,7 @@ import type { CpuTextureData } from "./cpu";
  * has (GL, WGSL, CPU/JS/WASM) always returns one, throwing at call time
  * only if that particular construction wasn't given anything to draw.
  */
-export interface Adapter<TBuffer, TDrawOptions = void> {
+export interface Adapter<TBuffer, TDrawOptions = void, TFloatArray extends Float32Array | Float64Array = Float32Array> {
   /**
    * One-time setup (device/context/pipeline creation) for `draw`. Creates
    * its own offscreen canvas when none is given, so a draw-capable adapter
@@ -34,13 +44,13 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
   setUniform(slot: string, value: number | number[]): void;
 
   /**
-   * Same reasoning as `setUniform`: passing the `attribute()` node lets the
-   * slot name come from the node instead of being retyped by hand. Attribute
-   * data is always a flat `TypedArray` regardless of `ShaderType`, so unlike
-   * `setUniform` this doesn't narrow `data`'s type — it only removes the
-   * chance of a slot-name typo.
+   * Same reasoning as `setUniform`: passing the `attribute()` or storage node
+   * lets the slot name come from the node instead of being retyped by hand,
+   * and narrows `data` to the one array the node's type takes, which the
+   * adapter refuses any other array for (see {@link HostArray}). A slot name
+   * takes any flat `TypedArray`, checked once the adapter knows its type.
    */
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: HostArray<T, TFloatArray>): void;
   setAttribute(slot: string, data: TypedArray): void;
 
   /**
@@ -126,8 +136,53 @@ export interface DrawClearOptions {
  */
 export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string;
 
+/**
+ * The array an attribute of type `T`, or a storage buffer of elements of type
+ * `T`, takes: an `Int32Array` for an `int` or `ivecN`, a `Uint32Array` for a
+ * `uint` or `uvecN`, and `TFloatArray` for any other, a `Float32Array` unless
+ * the adapter also takes a `Float64Array`.
+ */
+export type HostArray<T extends ShaderType, TFloatArray extends Float32Array | Float64Array = Float32Array> = T extends
+  "int" | "ivec2" | "ivec3" | "ivec4"
+  ? Int32Array
+  : T extends "uint" | "uvec2" | "uvec3" | "uvec4"
+    ? Uint32Array
+    : TFloatArray;
+
+/** A node whose slot `setAttribute` fills: an attribute, or a storage buffer. */
+export type AttributeOrStorage<T extends ShaderType> = AttributeNode<T> | StorageNode<T> | ReadOnlyStorageNode<T>;
+
 /** Same idea as `UniformOrSlot`, for `setAttribute`. */
-export type AttributeOrSlot = AttributeNode<ShaderType> | string;
+export type AttributeOrSlot = AttributeOrStorage<ShaderType> | string;
+
+/**
+ * Refuses `data` for a node `setAttribute` was given unless it is the array
+ * of the node's kind: an attribute's declared type, or a storage buffer's
+ * element type. A slot name passes here, to be checked where the adapter
+ * learns its type. `float64` admits a `Float64Array` for float components.
+ */
+export function assertNodeArray(attribute: AttributeOrSlot, data: ArrayLike<number>, float64 = false): void {
+  if (typeof attribute === "string") return;
+  if ("attribute" in attribute && attribute.attribute instanceof StorageBufferAttribute) {
+    const type = attribute.attribute.elementType;
+    if (type) assertHostArray("storage buffer", attribute.name, type, data, float64);
+    return;
+  }
+  const type = attributeTypeOf(attribute);
+  if (type !== undefined) assertHostArray("attribute", attribute.name, type, data, float64);
+}
+
+/** The error a draw of `caller` throws when its vertex stage reads the attribute `slot` and the host gave it no data. */
+export function missingAttributeError(caller: string, slot: string): Error {
+  return new Error(`[RMSL] ${caller}: draw() is missing attribute "${slot}"`);
+}
+
+/** The declared type of an attribute node, or nothing for a storage node or a slot name. */
+export function attributeTypeOf(attribute: AttributeOrSlot): string | undefined {
+  if (typeof attribute === "string") return undefined;
+  const node = attribute as { type?: string; _t?: string };
+  return node.type === "attribute" ? node._t : undefined;
+}
 
 /**
  * The storage slots a `compute(out)` call asks to have read back: the keys of
