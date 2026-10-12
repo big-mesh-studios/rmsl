@@ -3722,11 +3722,17 @@ export const FOR_UPDATE_BLOCK_MESSAGE =
 export const FOR_UPDATE_JUMP_MESSAGE =
   "[RMSL] A for-loop's update cannot contain a break, continue, discard or return. Move it into the loop body.";
 
+/** The statements that run a body of their own again on every iteration. */
+export const LOOP_STATEMENTS: ReadonlySet<string> = new Set(["for", "while"]);
+
 /** The statements that open a block of their own on every target. */
-const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
+const BLOCK_STATEMENTS = new Set(["if", ...LOOP_STATEMENTS]);
+
+/** The statements that act on the loop around them. */
+export const LOOP_JUMP_STATEMENTS: ReadonlySet<string> = new Set(["break", "continue"]);
 
 /** The statements that leave the loop or the function they are in. */
-const JUMP_STATEMENTS = new Set(["break", "continue", "discard", "return"]);
+const JUMP_STATEMENTS = new Set([...LOOP_JUMP_STATEMENTS, "discard", "return"]);
 
 /**
  * Refuses `node`, a node of the update of a `for`, when it is a block or a

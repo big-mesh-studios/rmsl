@@ -2146,7 +2146,11 @@ export function compileWasmFn(
    */
   function emitColumnComponentStore(column: any, offset: number[], rhs: any): number[] {
     const target = columnTarget(column);
-    return target.guard(storeDynamic([...target.address, ...offset, WASM_OP.i32Add], "float", walkExpr(rhs)));
+    const value = readOnce(rhs);
+    return [
+      ...value.setup,
+      ...target.guard(storeDynamic([...target.address, ...offset, WASM_OP.i32Add], "float", value.at(0))),
+    ];
   }
 
   /**
@@ -2169,13 +2173,14 @@ export function compileWasmFn(
     const access = storageElementAccess(element);
     const kind = elementKindOf(element._t as string);
     const compSize = componentSizeOf(kind);
-    const prelude = letters.length === 1 ? [] : materializeIfNeeded(rhs);
-    const rhsAddr = letters.length === 1 ? 0 : nodeAddress(rhs);
+    const scalar = letters.length === 1 ? readOnce(rhs) : undefined;
+    const prelude = scalar ? scalar.setup : materializeIfNeeded(rhs);
+    const rhsAddr = scalar ? 0 : nodeAddress(rhs);
     const stores = letters.flatMap((letter, i) =>
       storeDynamic(
         access.address(COMPONENT_INDEX[letter]!),
         kind,
-        letters.length === 1 ? walkExpr(rhs) : loadComponent(rhsAddr, kind, i * compSize),
+        scalar ? scalar.at(0) : loadComponent(rhsAddr, kind, i * compSize),
       ),
     );
     return [...prelude, ...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end];
@@ -2183,18 +2188,22 @@ export function compileWasmFn(
 
   /**
    * Writes `rhs` into a storage element. A write outside the buffer is
-   * dropped, so it cannot land in whatever memory lies past it.
+   * dropped, so it cannot land in whatever memory lies past it. The value is
+   * computed before the bounds check, outside its block, so the statements it
+   * holds run on every write and a jump among them leaves the block it names.
    */
   function emitStorageElementStore(target: any, rhs: any): number[] {
     const type = target._t as string;
     const element = storageElementAccess(target);
     if (!isAggregate(type)) {
       const kind = scalarKindOf(type);
+      const value = readOnce(rhs);
       return [
+        ...value.setup,
         ...element.inBounds,
         WASM_OP.if_,
         WASM_BLOCKTYPE_VOID,
-        ...storeDynamic(element.address(0), kind, walkExpr(rhs)),
+        ...storeDynamic(element.address(0), kind, value.at(0)),
         WASM_OP.end,
       ];
     }

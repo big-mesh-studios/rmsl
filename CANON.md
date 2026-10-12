@@ -48,16 +48,21 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
-  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
-    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
-    - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
-    - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
-    - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
+  - [`@spec sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does) — The compiler computes a node once for several reads only where that changes nothing. It gives the results and the side effects that computing the node at each read gives. Sharing changes neither how often a statement runs nor the value a read sees.
+    - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
+      - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
+      - [`@spec nested-inline-fns-compile-in-time-that-grows-with-the-levels`](#spec-nested-inline-fns-compile-in-time-that-grows-with-the-levels) — A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
+      - [`@spec an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes`](#spec-an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes) — An expression can reach an `Fn` called outside the program's body through 2^`n` paths, as one that adds a value to itself `n` levels deep does. It compiles on every target in time that grows with `n`, not with the paths.
+      - [`@spec the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels`](#spec-the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels) — A program can nest `n` levels of `Fn`s called outside its body, each reading the one below once. The pass that places them works in time that grows with `n`.
+      - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
+      - [`@spec a-storage-element-read-more-than-once-is-read-once`](#spec-a-storage-element-read-more-than-once-is-read-once) — On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
+      - [`@exception a-shared-value-is-made-before-every-read`](#exception-a-shared-value-is-made-before-every-read) — Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
+      - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
+      - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+      - [`@spec a-glsl-shared-value-is-held-at-highp`](#spec-a-glsl-shared-value-is-held-at-highp) — On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
     - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
-    - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
-    - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
-    - [`@spec a-glsl-shared-value-is-held-at-highp`](#spec-a-glsl-shared-value-is-held-at-highp) — On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
+    - [`@spec a-node-a-loop-condition-reads-twice-is-computed-at-every-test`](#spec-a-node-a-loop-condition-reads-twice-is-computed-at-every-test) — A node that a loop condition reads more than once is computed again at every test. It gets no variable before the loop.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
@@ -158,6 +163,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
     - [`@spec an-expected-rejection-must-be-a-rejection`](#spec-an-expected-rejection-must-be-a-rejection) — A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
     - [`@spec the-integer-sweep-tells-right-from-wrong`](#spec-the-integer-sweep-tells-right-from-wrong) — The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
+    - [`@spec the-inline-fn-fuzz-tells-right-from-wrong`](#spec-the-inline-fn-fuzz-tells-right-from-wrong) — The inline `Fn` fuzz builds the same program from the same seed and shows it with its seed. Its reference model gives the runs of a program written by hand. Its check rejects an outcome that differs in one count, one total or the message of a refusal.
     - [`@spec releasing-the-harness-never-throws`](#spec-releasing-the-harness-never-throws) — Releasing the harness's browser and device never throws, after a failed launch too.
     - [`@spec evaluation-fails-when-it-recorded-nothing`](#spec-evaluation-fails-when-it-recorded-nothing) — The replay of recorded evaluations fails when the run recorded no program.
     - [`@spec evaluate-recording-returns-the-cpu-result-at-once`](#spec-evaluate-recording-returns-the-cpu-result-at-once) — `evaluateRecording` returns the JS result at once, and keeps the program for a replay on the other targets after the tests.
@@ -296,7 +302,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-takes-tsls-three-shapes`](#spec-loop-takes-tsls-three-shapes) — `Loop` takes each of TSL's shapes: a count, a `bool` condition, or an object of `start`, `end`, `type`, `name`, `condition` and `update`. It passes its indices to its body as an object, `{ i }`.
       - [`@spec loop-runs-its-body-count-times`](#spec-loop-runs-its-body-count-times) — `Loop(count, ({ i }) => …)` runs its body `count` times, with an `int` index `i` counting 0, 1, and so on.
-      - [`@spec loop-with-a-bool-runs-while-it-holds`](#spec-loop-with-a-bool-runs-while-it-holds) — `Loop(condition, body)`, with a `bool` condition, runs `body` while the condition holds when tested, and builds the condition once, before the loop.
+      - [`@spec loop-with-a-bool-runs-while-it-holds`](#spec-loop-with-a-bool-runs-while-it-holds) — `Loop(condition, body)`, with a `bool` condition, runs `body` while the condition holds when tested. A variable the condition makes is computed once, before the loop.
       - [`@spec loop-fills-in-the-range-it-is-not-given`](#spec-loop-fills-in-the-range-it-is-not-given) — Given only `end`, a range starts at 0 and runs while its index is below `end`, whatever `condition` it names. Given only `start`, it starts at `start - 1` and runs down while its index is at least 0. Given both and no `condition`, it runs up with `<`, or down with `>=` when `start` and `end` are numbers or literals, such as `int(10)`, and `start` is the greater. Its index is an `int` unless `type` names `uint` or `float`, and is named `i` unless `name` names it. A count, `start` and `end` are converted to the index's type.
       - [`@spec loop-steps-by-its-update`](#spec-loop-steps-by-its-update) — With no `update`, a range steps by 1 in the direction of its `condition`: up for `<` or `<=`, down for `>` or `>=`. A number or a node `update` is the step in that direction. A function `update` runs as the step, given the indices.
       - [`@spec loop-nests-a-loop-for-each-range`](#spec-loop-nests-a-loop-for-each-range) — `Loop(a, b, …, body)` nests a loop for each of `a`, `b` and on, the first outermost, and names their indices `i`, `j`, `k` and on.
@@ -314,6 +320,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-for-loops-over-a-variable-its-init-is-given`](#spec-a-for-loops-over-a-variable-its-init-is-given) — A `For` whose init makes no statement, such as one handed a variable made before the loop, loops over that variable as it is.
       - [`@spec a-for-runs-its-body-and-update-while-its-condition-holds`](#spec-a-for-runs-its-body-and-update-while-its-condition-holds) — A `For` makes its loop variable once, then runs its body and its update, in that order, for as long as its condition holds.
       - [`@spec a-variable-a-for-condition-makes-stays-in-scope`](#spec-a-variable-a-for-condition-makes-stays-in-scope) — The update of a `For`, and the code after the loop, can read a variable that its condition makes.
+      - [`@spec a-variable-a-for-update-makes-compiles-on-every-target`](#spec-a-variable-a-for-update-makes-compiles-on-every-target) — A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. This holds for an update of one statement or several. On GLSL and WGSL it is declared before the loop and assigned in the update. On WGSL an update of several statements goes in a continuing block.
+      - [`@spec a-variable-a-for-update-makes-stays-in-scope`](#spec-a-variable-a-for-update-makes-stays-in-scope) — On every target, the code after a `For` can read a variable that its update makes. Its body can read it on every iteration after the first.
       - [`@spec a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test) — A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
       - [`@spec continue-in-a-for-runs-the-update`](#spec-continue-in-a-for-runs-the-update) — `Continue` in the body of a `For` runs the update, then the condition.
       - [`@spec for-is-a-loop-of-rmsls-own`](#spec-for-is-a-loop-of-rmsls-own) — rmsl has `For` beside the object shape of TSL's `Loop`. TSL has no `For`.
@@ -395,9 +403,41 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@exception a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own) — In a fragment stage that writes its depth, a path that writes none gives the fragment's own depth. That is the depth it would have if the stage wrote none. A read of the depth before a write gives that depth too. This holds on every target.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
-    - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
-    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once on every path that reads its value. How often and where the program reads it changes nothing.
-    - [`@exception an-inline-fn-read-more-than-once-runs-before-every-read`](#exception-an-inline-fn-read-more-than-once-runs-before-every-read) — An `Fn` called outside the program's body runs where the program reads its value. Read more than once, it runs once before every read, on every target. It runs in the nearest block that holds every read, before the first statement there that holds one. A path that skips that block runs none of it. A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()` stays where each read is.
+    - [`@spec the-value-of-an-inline-fn-is-read-whole`](#spec-the-value-of-an-inline-fn-is-read-whole) — An operation that reads the value of an `Fn` called outside the program's body reads it as one operand, on every target. A value that is a sum, read by a product, is multiplied whole.
+    - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — The statements of an `Fn` called inside another `Fn`'s body run once, where the call is, whether and wherever the program reads its value. A variable it makes is declared there.
+    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
+      - [`@spec an-inline-fn-read-in-one-statement-runs-before-it`](#spec-an-inline-fn-read-in-one-statement-runs-before-it) — An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
+      - [`@spec an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them`](#spec-an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them) — An `Fn` called outside the program's body that returns several values runs once, before every read of any of them, on every target. This holds when one statement reads several of them, and when a statement of its own reads each.
+      - [`@spec an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop`](#spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop) — An `Fn` called outside the program's body, whose value both the condition and the body of a `For` read, runs once, before the loop. This holds when the condition is that value itself. Each test then reads what the `Fn` returned.
+      - [`@spec an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first`](#spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several statements of one block read, runs once, at the start of the first of them. The later statements read what it returned.
+      - [`@exception an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if`](#exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value both branches of an `If` read, runs once, before the `If`, on every target.
+      - [`@exception an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if`](#exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if) — An `Fn` called outside the program's body, whose value a branch of an `If` and a statement after the `If` read, runs once, before the `If`, on every target.
+      - [`@spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration`](#spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration) — An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
+      - [`@spec an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there) — An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when several roots read that other `Fn`.
+      - [`@spec an-inline-fn-several-roots-read-runs-once-before-the-first`](#spec-an-inline-fn-several-roots-read-runs-once-before-the-first) — An `Fn` called outside the program's body, whose value several roots of one program read, runs once each time the program runs. It runs before the first root that reads it, when no block inside one root holds every read. This holds on every target.
+      - [`@spec random-programs-of-inline-fns-run-each-as-the-rule-says`](#spec-random-programs-of-inline-fns-run-each-as-the-rule-says) — Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
+      - [`@spec an-inline-fn-a-loop-condition-reads-runs-at-every-test`](#spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only the condition of a loop reads, runs at every test of that condition. This holds for any number of reads there, and for a condition given as a node or as a function.
+        - [`@bug a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute`](#bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute) — On WGSL compute on Dawn on Metal, a storage write that a `While` condition makes before its test counts one run, whatever the number of tests. The WGSL holds the write inside the loop, before the test.
+        - [`@spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test) — An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
+        - [`@spec an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test`](#spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only a `While` condition given as a node reads, runs at every test of that condition. This holds when the condition reads the value once or twice.
+        - [`@spec an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test`](#spec-an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test) — An `Fn` called outside the program's body runs at every test of a `While` condition given as a function, when only the function's value reads it. This holds when the condition reads the value once or twice.
+        - [`@exception an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test`](#exception-an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test) — An `Fn` called outside the program's body, whose value only the condition of `Loop(condition, body)` reads, runs at every test of that condition, on every target. This holds when the condition reads the value once or twice.
+        - [`@spec an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test`](#spec-an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test) — An `Fn` called outside the program's body runs before every test of a `While` loop when only the statements of its condition read its value. The condition is one given as a function.
+      - [`@spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs`](#spec-a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs) — A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
+        - [`@spec a-return-in-an-inline-fn-ends-the-function-where-it-runs`](#spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs) — A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
+        - [`@spec a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation`](#spec-a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation) — A `Return()` in an `Fn` called outside the program's body, whose value one storage write reads once, ends the invocation there. The write and the statements after it do not run.
+        - [`@spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs`](#spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs) — A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
+      - [`@spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs`](#spec-a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs) — A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
+        - [`@spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop`](#spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop) — A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+        - [`@spec a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop`](#spec-a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop) — A `Break()` in an `Fn` called outside the program's body, whose value one storage write in a loop body reads once, leaves that loop before the write.
+        - [`@spec a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs`](#spec-a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs) — An `Fn` called outside the program's body can read another such `Fn` that holds a `Break()` or a `Continue()`. The other can run outside the first, in a block that holds reads of its own. Its jump then acts on the loop around the place it runs. It is checked there, not at the reads of the first `Fn`.
+        - [`@spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop) — A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
+        - [`@spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop`](#spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop) — A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
+        - [`@spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
+        - [`@spec a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused`](#spec-a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused) — Several roots can read the value of an `Fn` called outside the program's body, with no block inside one root that holds every read. Every target refuses a `Break()` or a `Continue()` in such an `Fn`.
+        - [`@spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for`](#spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for) — A `Break()` or a `Continue()` in the init of a `For` that an `Fn` called outside the program's body holds acts on the loop around the place the `Fn` runs. It is refused as a jump outside that `For` would be.
+        - [`@spec a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again`](#spec-a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again) — A `Continue()` in an `Fn` called outside the program's body, whose value only a `While` condition reads, tests that condition again. A `Continue()` among the statements of the condition does the same.
+        - [`@exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused`](#exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
@@ -819,7 +859,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path) — TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
-- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
+- [`@fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them) — TSL r187 generates the statements of an `Fn` called outside the program's body in each branch of an `If` that reads its value.
+- [`@fact tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too) — TSL generates the statements of a node where it first builds the node, inside a loop body when that read is in one. A later read takes the value without them, also in a loop inside that block. A loop body, unlike a branch of an `If`, does not generate them again. A `Break()` among them acts on the loop around the first read.
+- [`@fact tsl-generates-an-inline-fn-read-twice-in-one-block-once`](#fact-tsl-generates-an-inline-fn-read-twice-in-one-block-once) — TSL generates the statements of an `Fn` called outside the program's body once, at the first of two reads of its value in one block. The second read takes the value it returned.
+- [`@fact tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it`](#fact-tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it) — TSL r187 generates the statements of an `Fn` called outside the program's body in a branch of an `If` that reads its value. A statement after the `If` that reads the value generates them again. So they run twice when the branch runs. A read after a loop whose body reads the value generates them again too.
+- [`@fact tsl-generates-an-inline-fn-a-loop-condition-reads-once-before-the-loop`](#fact-tsl-generates-an-inline-fn-a-loop-condition-reads-once-before-the-loop) — TSL generates the statements of an `Fn` called outside the program's body, whose value the `bool` condition of a `Loop` reads, once, before the loop. Each test evaluates only the expression of the value. This holds when the condition reads the value once or twice.
+- [`@fact three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left`](#fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left) — three.js 0.186 can reuse, after an `If` or a loop, a variable that only the branch or the loop body set, without setting it again. When the branch did not run, or the loop ran no iteration, the read takes a variable never set.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
 - [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
 - [`@fact a-tsl-storage-node-is-a-node-of-its-element-type`](#fact-a-tsl-storage-node-is-a-node-of-its-element-type) — TSL's storage node is a node of its element type, so every operation chained onto a node, such as `add` or `toVar`, is a method of it. Read as a value, it compiles on WebGPU to the whole array of the buffer. WebGL has no storage buffers, and there it compiles to an attribute: the element of the vertex the draw runs for.
@@ -858,6 +903,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+- [`@fact glsl-takes-no-declaration-in-a-for-update`](#fact-glsl-takes-no-declaration-in-a-for-update) — The update of a GLSL `for` is an expression, so a declaration in it is a syntax error. An assignment to a variable declared before the loop is an expression.
 - [`@fact wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update) — The update of a WGSL `for` is an assignment, an increment, a decrement or a function call. A `break`, `continue`, `discard` or `return` in it is a syntax error.
 - [`@fact glsl-takes-no-jump-in-a-for-update`](#fact-glsl-takes-no-jump-in-a-for-update) — The update of a GLSL `for` is an expression, so a `break`, `continue`, `discard` or `return` in it is a syntax error.
 - [`@fact glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order) — GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
@@ -1111,7 +1157,13 @@ Derives from: [`fact-a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-ma
 
 This follows because emitting a node twice runs what it does twice, which changes what the program computes.
 
-### @spec a-node-read-more-than-once-is-computed-once
+### @spec sharing-never-changes-what-a-program-does
+
+> The compiler computes a node once for several reads only where that changes nothing. It gives the results and the side effects that computing the node at each read gives. Sharing changes neither how often a statement runs nor the value a read sees.
+
+This follows because sharing is an optimisation. The program means the same on every target only when no optimisation changes what it does. A place that would change it is not a place to share.
+
+#### @spec a-node-read-more-than-once-is-computed-once
 
 > A node that an operation reads more than once is computed once, into a variable. A later read in the block of the variable, or in a block inside it, takes the result. This holds until a statement changes what the node reads.
 
@@ -1119,11 +1171,29 @@ Derives from: [`spec-every-node-is-emitted-once`](#spec-every-node-is-emitted-on
 
 This follows because the output and the work at run time then grow with the nodes in the program. They do not grow with the paths through it. A TSL shader nests such reads freely, so it ports without a `toVar()` at each level.
 
-#### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
+##### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
 
 > A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
 
-#### @spec a-node-that-is-already-a-name-is-read-where-it-is
+##### @spec nested-inline-fns-compile-in-time-that-grows-with-the-levels
+
+> A program can nest `n` levels of `Fn`s called outside its body, each reading the one below twice. It compiles on every target in time that grows with `n`, not with the 2^`n` paths to the innermost one.
+
+This follows because the compiler walks the statements of each such `Fn` once, whatever number of reads it has. It places a read inside an `Fn` from the statements around that read, and places every level in one pass.
+
+##### @spec an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes
+
+> An expression can reach an `Fn` called outside the program's body through 2^`n` paths, as one that adds a value to itself `n` levels deep does. It compiles on every target in time that grows with `n`, not with the paths.
+
+This follows because the compiler walks an expression once at each place that reads it, whatever the number of paths there. A second path counts as a second read, so the `Fn` still runs before them both.
+
+##### @spec the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels
+
+> A program can nest `n` levels of `Fn`s called outside its body, each reading the one below once. The pass that places them works in time that grows with `n`.
+
+This follows because every read inside an `Fn` read once shares the frames from the program to that `Fn`. No level copies them.
+
+##### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
 > A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
 
@@ -1131,7 +1201,7 @@ Derives from: [`fact-three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gi
 
 This follows because a variable for such a node would only rename what is already cheap to read.
 
-#### @spec a-storage-element-read-more-than-once-is-read-once
+##### @spec a-storage-element-read-more-than-once-is-read-once
 
 > On every target, a stage loads an element of a storage buffer that an operation reads more than once into a variable, once. A later read takes the variable, until a statement changes the buffer.
 
@@ -1139,7 +1209,7 @@ Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-
 
 This follows because a storage buffer is not one of the inputs that is already a name. A GLSL render stage fetches an element from a texture, one `texelFetch` for each column, and a GPU target loads it from a buffer.
 
-#### @exception a-shared-value-is-made-before-every-read
+##### @exception a-shared-value-is-made-before-every-read
 
 > Every target makes the variable of a shared node before every read of it. It goes in the nearest block that holds every read, before the first statement there that holds one. A node that both branches of an `If` read, or one branch and the code after the `If`, is computed once, before the `If`.
 
@@ -1147,9 +1217,31 @@ Derives from: [`fact-three-js-generates-a-node-read-more-than-once-into-a-variab
 
 This follows because one rule then places a shared value and the statements of an inline `Fn`. Those must run once on every path that reads them. In three.js, the variable goes at the first read, and a block that cannot see it computes the node again.
 
+##### @spec an-expression-of-constants-is-folded-not-shared
+
+> An expression of constants gets no variable of its own. The target folds it into one literal.
+
+This follows because a variable would hide the literal from the folding that gives it its value.
+
+##### @spec a-shared-value-gets-a-generated-name
+
+> The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+
+This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
+
+##### @spec a-glsl-shared-value-is-held-at-highp
+
+> On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
+
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once), [`fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands`](#fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands)
+
+This follows because a read that stays inline keeps the precision of its operands, such as a `highp` storage element. A variable at the default precision could hold less than the read it stands for.
+
 #### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
 
 > A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
 
 This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
 
@@ -1157,27 +1249,17 @@ This follows because a node has the value it computes at the point of the read. 
 
 > A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
 
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
+
 This follows because the body runs again after it changes what the node reads. A value from before the loop is stale on each later iteration.
 
-#### @spec an-expression-of-constants-is-folded-not-shared
+#### @spec a-node-a-loop-condition-reads-twice-is-computed-at-every-test
 
-> An expression of constants gets no variable of its own. The target folds it into one literal.
+> A node that a loop condition reads more than once is computed again at every test. It gets no variable before the loop.
 
-This follows because a variable would hide the literal from the folding that gives it its value.
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once)
 
-#### @spec a-shared-value-gets-a-generated-name
-
-> The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
-
-This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
-
-#### @spec a-glsl-shared-value-is-held-at-highp
-
-> On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
-
-Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once), [`fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands`](#fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands)
-
-This follows because a read that stays inline keeps the precision of its operands, such as a `highp` storage element. A variable at the default precision could hold less than the read it stands for.
+This follows because the condition runs before every test, after the body may have changed what the node reads.
 
 ### @spec an-operand-that-is-an-expression-keeps-its-grouping
 
@@ -1759,6 +1841,12 @@ This follows because most mistakes in a shader are silent, and a target nobody r
 #### @spec the-integer-sweep-tells-right-from-wrong
 
 > The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
+
+#### @spec the-inline-fn-fuzz-tells-right-from-wrong
+
+> The inline `Fn` fuzz builds the same program from the same seed and shows it with its seed. Its reference model gives the runs of a program written by hand. Its check rejects an outcome that differs in one count, one total or the message of a refusal.
+
+This follows because a fuzz whose failures do not reproduce, or whose check passes a wrong outcome, proves nothing.
 
 #### @spec releasing-the-harness-never-throws
 
@@ -2615,9 +2703,11 @@ This follows because a TSL loop ports by changing its import.
 
 ##### @spec loop-with-a-bool-runs-while-it-holds
 
-> `Loop(condition, body)`, with a `bool` condition, runs `body` while the condition holds when tested, and builds the condition once, before the loop.
+> `Loop(condition, body)`, with a `bool` condition, runs `body` while the condition holds when tested. A variable the condition makes is computed once, before the loop.
 
 Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
+
+This follows because the statement that makes the variable runs where the program builds the condition, before `Loop` takes it, as in TSL. The condition itself is a block that runs at every test. So an `Fn` called outside the program's body that only the condition reads runs at every test, as [`exception-an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test`](#exception-an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test) states.
 
 ##### @spec loop-fills-in-the-range-it-is-not-given
 
@@ -2697,6 +2787,8 @@ This follows because rmsl may hold what TSL lacks, and the owner kept rmsl's own
 
 > A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
 
+This follows because the statement that makes the variable runs where the program builds the node, before `While` takes it. The condition itself is a block that runs at every test. So an `Fn` called outside the program's body that only the condition reads runs at every test, as [`spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test`](#spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test) states.
+
 ##### @exception a-while-condition-given-as-a-function-is-computed-before-every-test
 
 > A `While` condition given as a function is computed before every test, a variable it makes included.
@@ -2718,6 +2810,22 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 ##### @spec a-variable-a-for-condition-makes-stays-in-scope
 
 > The update of a `For`, and the code after the loop, can read a variable that its condition makes.
+
+##### @spec a-variable-a-for-update-makes-compiles-on-every-target
+
+> A variable that the update of a `For` makes compiles on every target, whether a `toVar()` makes it or an `Fn` the update reads more than once. This holds for an update of one statement or several. On GLSL and WGSL it is declared before the loop and assigned in the update. On WGSL an update of several statements goes in a continuing block.
+
+Derives from: [`fact-glsl-takes-no-declaration-in-a-for-update`](#fact-glsl-takes-no-declaration-in-a-for-update), [`fact-wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update)
+
+This follows because a `Continue` must still run the update. So the update stays in the update slot of a GLSL `for`, which takes no declaration. A WGSL `for` takes no declaration in that slot either, and its continuing block runs after a `continue` too.
+
+##### @spec a-variable-a-for-update-makes-stays-in-scope
+
+> On every target, the code after a `For` can read a variable that its update makes. Its body can read it on every iteration after the first.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-a-variable-a-for-update-makes-compiles-on-every-target`](#spec-a-variable-a-for-update-makes-compiles-on-every-target)
+
+This follows because a variable declared before the loop is in scope in the body and after the loop. JavaScript and WASM declare it for the whole function, so GLSL and WGSL declare it before the loop too, not inside the loop. On the first iteration the update has not run, so the body reads no value it set.
 
 ##### @spec a-loop-condition-runs-its-statements-before-every-test
 
@@ -3171,21 +3279,243 @@ This follows because TSL builds a shader the same way.
 
 > A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
 
+#### @spec the-value-of-an-inline-fn-is-read-whole
+
+> An operation that reads the value of an `Fn` called outside the program's body reads it as one operand, on every target. A value that is a sum, read by a product, is multiplied whole.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the value is one node of the program, whatever statements come before it.
+
 #### @spec an-inline-fn-runs-where-it-is-called
 
-> A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
+> The statements of an `Fn` called inside another `Fn`'s body run once, where the call is, whether and wherever the program reads its value. A variable it makes is declared there.
+
+This follows because the body that calls it records its statements at the call, as it records any other statement there.
 
 #### @spec an-inline-fn-runs-once
 
-> The statements of a called `Fn` run once on every path that reads its value. How often and where the program reads it changes nothing.
+> An `Fn` called outside the program's body runs once each time the innermost block that holds every read of its value runs. It runs at the start of the first statement in that block that reads the value. This holds on every target, for any number of reads, and whatever statements the `Fn` holds.
 
-#### @exception an-inline-fn-read-more-than-once-runs-before-every-read
+This follows because a call of an `Fn` means one run of its statements, and the program holds no statement for that call. The innermost block that holds every read is the one place that runs before each read, on every path through it. A loop body is such a block too, and it runs again on every iteration.
 
-> An `Fn` called outside the program's body runs where the program reads its value. Read more than once, it runs once before every read, on every target. It runs in the nearest block that holds every read, before the first statement there that holds one. A path that skips that block runs none of it. A result that holds a `Break()`, `Continue()`, `Return()` or `Discard()` stays where each read is.
+##### @spec an-inline-fn-read-in-one-statement-runs-before-it
+
+> An `Fn` called outside the program's body, whose value one statement reads once or more, runs once at the start of that statement.
+
+##### @spec an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them
+
+> An `Fn` called outside the program's body that returns several values runs once, before every read of any of them, on every target. This holds when one statement reads several of them, and when a statement of its own reads each.
+
+This follows because the call is one run of the statements of the `Fn`, whichever of its values the program reads. Issue #277 settled this.
+
+##### @spec an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop
+
+> An `Fn` called outside the program's body, whose value both the condition and the body of a `For` read, runs once, before the loop. This holds when the condition is that value itself. Each test then reads what the `Fn` returned.
+
+This follows because the condition and the body are blocks of their own inside the `For`. The innermost block that holds both reads is the one that holds the `For`.
+
+##### @spec an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first
+
+> An `Fn` called outside the program's body, whose value several statements of one block read, runs once, at the start of the first of them. The later statements read what it returned.
+
+Derives from: [`fact-tsl-generates-an-inline-fn-read-twice-in-one-block-once`](#fact-tsl-generates-an-inline-fn-read-twice-in-one-block-once)
+
+This follows because that block is the innermost one that holds every read. TSL also generates the statements once there and reuses the value.
+
+##### @exception an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+
+> An `Fn` called outside the program's body, whose value both branches of an `If` read, runs once, before the `If`, on every target.
 
 Derives from: [`fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them`](#fact-tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
-This follows because a called `Fn` means one run of its statements. Where TSL generates them depends on which blocks read the value, so a path can run them twice, once or never. A jump moved ahead of its reads would skip what runs between them, or leave a different loop.
+This follows because the block that holds the `If` is the innermost one that holds both reads. TSL r187 generates the statements in each branch. TSL 0.186 generates them in each branch too. When the `Fn` holds a loop, it generates them once, before the `If`. rmsl keeps its one rule, since TSL's placement is still changing upstream.
+
+##### @exception an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
+
+> An `Fn` called outside the program's body, whose value a branch of an `If` and a statement after the `If` read, runs once, before the `If`, on every target.
+
+Derives from: [`fact-tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it`](#fact-tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it), [`fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left`](#fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the block that holds the `If` is the innermost one that holds both reads. TSL r187 runs the statements in the branch and again after the `If`, so twice when the branch runs. TSL 0.186 can instead read a variable that only the branch set. Both are defects, and one run before the `If` has neither.
+
+##### @spec an-inline-fn-read-once-in-a-loop-runs-on-every-iteration
+
+> An `Fn` called outside the program's body, whose value one statement in a loop body reads, runs on every iteration of that loop.
+
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too)
+
+This follows because the loop body is the innermost block that holds the read, and TSL generates the statements in it too. Issue #257 settled this.
+
+##### @spec an-inline-fn-read-only-inside-another-runs-in-the-block-there
+
+> An `Fn` called outside the program's body, whose value only the statements of another such `Fn` read, runs inside that other `Fn`. It runs in the innermost block there that holds every read. So it runs on every iteration of a loop of that `Fn`, and only when a branch that holds the reads runs. This holds when several roots read that other `Fn`.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
+
+A value of that other `Fn` that the program reads counts as part of its block, since it is computed where that `Fn` runs. So an `Fn` that only such a value reads runs with it, once.
+
+This follows because the body of the other `Fn` is a block like any other. Placed outside it, the statements would run a different number of times. Issue #264 settled this.
+
+##### @spec an-inline-fn-several-roots-read-runs-once-before-the-first
+
+> An `Fn` called outside the program's body, whose value several roots of one program read, runs once each time the program runs. It runs before the first root that reads it, when no block inside one root holds every read. This holds on every target.
+
+Derives from: [`spec-every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects), [`fact-three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable)
+
+This follows because the roots of a program run in order, as the statements of one block. That block, the program, is the innermost one that holds reads in two roots. So the rule runs the `Fn` at the start of the first of them. In three.js, a stage computes a node once when several of its outputs read it. The owner of the design settled this in the review of PR #266.
+
+##### @spec random-programs-of-inline-fns-run-each-as-the-rule-says
+
+> Random programs of `Fn`s called outside the program's body run each `Fn` as [`spec-an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) says, on JavaScript and WASM. Every target refuses the programs the rule refuses, with the message it names. WGSL compute on Dawn runs a sample of the others as the rule says.
+
+The programs read those `Fn`s in branches, after them and in loop bodies. They read them in the init, condition and update of a `For`, and in the condition of a `While` or a `Loop`. They read them inside other such `Fn`s, from several roots, and through every value of an `Fn` that returns two. They read them through expressions that read a node many times. Some `Fn`s break, continue or return.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the cases above meet in real programs in more ways than hand-written tests list. A reference model of the rule, run on programs a seeded generator makes, checks every combination the generator reaches.
+
+##### @spec an-inline-fn-a-loop-condition-reads-runs-at-every-test
+
+> An `Fn` called outside the program's body, whose value only the condition of a loop reads, runs at every test of that condition. This holds for any number of reads there, and for a condition given as a node or as a function.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does)
+
+This follows because a loop condition is a block that runs at every test. It is the innermost block that holds the reads, so the statements run at its start. Issue #241 settled this for `While` and `Loop`.
+
+###### @bug a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute
+
+> On WGSL compute on Dawn on Metal, a storage write that a `While` condition makes before its test counts one run, whatever the number of tests. The WGSL holds the write inside the loop, before the test.
+
+Issue: #265
+
+###### @spec an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
+
+> An `Fn` called outside the program's body, whose value only the condition of a `For` reads, runs before every test of that condition, inside the loop.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`exception-a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test)
+
+This follows because the condition runs again before every test, so a place before the loop would run the statements once.
+
+###### @spec an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test
+
+> An `Fn` called outside the program's body, whose value only a `While` condition given as a node reads, runs at every test of that condition. This holds when the condition reads the value once or twice.
+
+This follows because the node is the whole condition, so the block that runs at every test holds every read.
+
+###### @spec an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test
+
+> An `Fn` called outside the program's body runs at every test of a `While` condition given as a function, when only the function's value reads it. This holds when the condition reads the value once or twice.
+
+This follows because the value a function condition returns sits in the block that runs at every test. The program does not record whether a condition came as a node or a function, so the two forms run the `Fn` alike.
+
+###### @exception an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test
+
+> An `Fn` called outside the program's body, whose value only the condition of `Loop(condition, body)` reads, runs at every test of that condition, on every target. This holds when the condition reads the value once or twice.
+
+Derives from: [`fact-tsl-generates-an-inline-fn-a-loop-condition-reads-once-before-the-loop`](#fact-tsl-generates-an-inline-fn-a-loop-condition-reads-once-before-the-loop), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the condition is a block that runs at every test, as the condition of a `While` is. TSL 0.186 and r187 run the statements once, before the loop, and test only the expression of the value. A condition that reads what those statements compute then tests a stale value, which is a defect. Issue #241 settled this.
+
+###### @spec an-inline-fn-read-only-in-the-statements-of-a-while-condition-runs-before-every-test
+
+> An `Fn` called outside the program's body runs before every test of a `While` loop when only the statements of its condition read its value. The condition is one given as a function.
+
+Derives from: [`spec-sharing-never-changes-what-a-program-does`](#spec-sharing-never-changes-what-a-program-does), [`exception-a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test)
+
+This follows because those statements are a block that runs before every test.
+
+##### @spec a-return-or-discard-in-an-inline-fn-ends-the-invocation-where-it-runs
+
+> A `Return()` or a `Discard()` in an `Fn` called outside the program's body ends the invocation at the place the `Fn` runs. A fragment the `Fn` discards is dropped on every path that reads its value.
+
+This follows because the place the `Fn` runs is before every read, so every path that reads the value meets the jump first. Issue #256 settled this.
+
+###### @spec a-return-in-an-inline-fn-ends-the-function-where-it-runs
+
+> A `Return()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, ends the function before the `If`.
+
+###### @spec a-return-in-an-inline-fn-a-storage-write-reads-ends-the-invocation
+
+> A `Return()` in an `Fn` called outside the program's body, whose value one storage write reads once, ends the invocation there. The write and the statements after it do not run.
+
+This follows because the `Fn` runs at the start of that write, before the value is stored.
+
+###### @spec a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+
+> A `Discard()` in an `Fn` called outside the program's body, whose value both branches of an `If` read, drops the fragment on either path.
+
+##### @spec a-break-or-continue-in-an-inline-fn-acts-on-the-loop-around-where-it-runs
+
+> A `Break()` or a `Continue()` in an `Fn` called outside the program's body acts on the innermost loop around the place the `Fn` runs. A loop of the `Fn`'s own keeps the jumps it holds.
+
+Derives from: [`spec-break-leaves-its-loop`](#spec-break-leaves-its-loop), [`spec-continue-starts-the-next-iteration`](#spec-continue-starts-the-next-iteration)
+
+This follows because the statements of the `Fn` run at that place, as if the program held them there. Issue #256 settled this.
+
+###### @spec a-break-in-a-loop-of-an-inline-fn-leaves-that-loop
+
+> A `Break()` inside a loop that an `Fn` called outside the program's body holds leaves that loop. It compiles on every target, with no loop around the place the `Fn` runs.
+
+###### @spec a-break-in-an-inline-fn-a-storage-write-reads-leaves-the-loop
+
+> A `Break()` in an `Fn` called outside the program's body, whose value one storage write in a loop body reads once, leaves that loop before the write.
+
+This follows because the `Fn` runs at the start of that write, inside the loop body.
+
+###### @spec a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs
+
+> An `Fn` called outside the program's body can read another such `Fn` that holds a `Break()` or a `Continue()`. The other can run outside the first, in a block that holds reads of its own. Its jump then acts on the loop around the place it runs. It is checked there, not at the reads of the first `Fn`.
+
+This follows because the statements of the other `Fn` do not run inside the first one. So no read of the first one says which loop the jump leaves.
+
+###### @spec a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop
+
+> A `Break()` in an `Fn` whose value two statements of one loop body read leaves that loop, before the first of those statements.
+
+###### @spec a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop
+
+> A `Break()` in an `Fn` whose value another such `Fn` reads twice in its loop body leaves that loop.
+
+Derives from: [`spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there`](#spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there)
+
+###### @spec a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused
+
+> Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body when no loop is around the place the `Fn` runs. An `Fn` read in two loops, one after the other, runs outside both.
+
+Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused)
+
+This follows because the jump would run outside every loop, which no target can run.
+
+###### @spec a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused
+
+> Several roots can read the value of an `Fn` called outside the program's body, with no block inside one root that holds every read. Every target refuses a `Break()` or a `Continue()` in such an `Fn`.
+
+Derives from: [`spec-break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused), [`spec-an-inline-fn-several-roots-read-runs-once-before-the-first`](#spec-an-inline-fn-several-roots-read-runs-once-before-the-first)
+
+This follows because the `Fn` then runs before the first root that reads it, where no loop is around it. This holds when each root reads the value inside a loop of its own.
+
+###### @spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
+
+> A `Break()` or a `Continue()` in the init of a `For` that an `Fn` called outside the program's body holds acts on the loop around the place the `Fn` runs. It is refused as a jump outside that `For` would be.
+
+This follows because the init runs once, before the `For` starts. No iteration of that `For` is running for the jump to act on.
+
+###### @spec a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again
+
+> A `Continue()` in an `Fn` called outside the program's body, whose value only a `While` condition reads, tests that condition again. A `Continue()` among the statements of the condition does the same.
+
+Derives from: [`spec-a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test), [`spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test`](#spec-an-inline-fn-a-loop-condition-reads-runs-at-every-test)
+
+This follows because the `Fn` runs at the start of the condition, inside the loop. So its `Continue()` starts the next iteration, and a `While` has no update to run first. The loop ends when the statements of the `Fn` change what it tests. When they change nothing, it runs forever, as the same statements written in the condition would.
+
+###### @exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused
+
+> Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
+
+Derives from: [`fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too`](#fact-tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because the jump would act on the outer loop, while the read in the inner loop says the author meant that one. TSL 0.186 and r187 compile such a program, and the jump acts on the loop around the first read. Which loop a jump leaves then hangs on where the first read sits, which is a defect, so every target refuses the program instead. Issue #256 settled this.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -5773,9 +6103,43 @@ This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCa
 
 ## @fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them
 
-> TSL generates the statements of a node in the branch of an `If` where it first builds the node. When another branch builds the node again, and neither that branch nor a branch around it holds those statements, TSL generates them again there. A read outside every branch gets no statements, even after a branch that holds them.
+> TSL r187 generates the statements of an `Fn` called outside the program's body in each branch of an `If` that reads its value.
 
-This is how three.js's TSL behaves, read from its source: `NodeBuilder.addLineFlowCodeBlock` and `addFlowCodeHierarchy` in `src/nodes/core/NodeBuilder.js`, called from `Node.build`, with the branches made in `ConditionalNode.setup` (three.js 0.186).
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. r187's own reference output for its case `functionWithoutStackSharedConditionalUse`, in `test/unit/tsl/reference.wgsl`, shows the same. The code is `Node.build` in `src/nodes/core/Node.js` and `NodeBuilder.addFlowCodeHierarchy`, with the branches made in `ConditionalNode.setup`.
+
+three.js 0.186, run through the same generator, does the same for an `Fn` with no loop of its own. The `Fn` above, which holds a loop, it generates once, before the `If`.
+
+## @fact tsl-generates-the-statements-of-a-node-where-it-first-reads-it-in-a-loop-too
+
+> TSL generates the statements of a node where it first builds the node, inside a loop body when that read is in one. A later read takes the value without them, also in a loop inside that block. A loop body, unlike a branch of an `If`, does not generate them again. A `Break()` among them acts on the loop around the first read.
+
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. The program read it in a loop body, and in a loop inside that body. In `src/nodes/utils/LoopNode.js`, `LoopNode.generate` builds the body inside the loop's braces.
+
+three.js 0.186, run through the same generator, does the same for an `Fn` with no loop of its own. Its source shows why. `Node.build` in `src/nodes/core/Node.js` keeps the snippet of a node it generated. It adds the statements again only under a `nodeBlock`. `LoopNode.setup` gives the loop body a `nodeLoop` and no `nodeBlock`. The `Fn` above, which holds a loop, 0.186 generates once, before the statement that holds both reads.
+
+## @fact tsl-generates-an-inline-fn-read-twice-in-one-block-once
+
+> TSL generates the statements of an `Fn` called outside the program's body once, at the first of two reads of its value in one block. The second read takes the value it returned.
+
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. three.js 0.186, run through the same generator, does the same.
+
+## @fact tsl-generates-an-inline-fn-again-after-a-branch-that-reads-it
+
+> TSL r187 generates the statements of an `Fn` called outside the program's body in a branch of an `If` that reads its value. A statement after the `If` that reads the value generates them again. So they run twice when the branch runs. A read after a loop whose body reads the value generates them again too.
+
+This is how three.js r187 behaves, measured with r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. three.js 0.186 also generates them again after the `If`, but can reuse a variable that only the branch set, as [`fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left`](#fact-three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left) states.
+
+## @fact tsl-generates-an-inline-fn-a-loop-condition-reads-once-before-the-loop
+
+> TSL generates the statements of an `Fn` called outside the program's body, whose value the `bool` condition of a `Loop` reads, once, before the loop. Each test evaluates only the expression of the value. This holds when the condition reads the value once or twice.
+
+This is how three.js 0.186 and r187 behave, each run through r187's own code generator, `generateCode` in `test/unit/tsl/code.js`, on three.js's `dev` branch. That branch holds PR mrdoob/three.js#34643, merged on 2026-09-25 for r187, which is not yet released. The `Fn` was `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`. `LoopNode.generate` in `src/nodes/utils/LoopNode.js` builds the condition before it writes the loop.
+
+## @fact three-js-0-186-reuses-a-variable-set-only-in-a-block-it-left
+
+> three.js 0.186 can reuse, after an `If` or a loop, a variable that only the branch or the loop body set, without setting it again. When the branch did not run, or the loop ran no iteration, the read takes a variable never set.
+
+This is how three.js 0.186 behaves, run through r187's code generator, `generateCode` in `test/unit/tsl/code.js`. The `Fn` `Fn(() => { const n = float(2).toVar(); Loop(1, () => n.addAssign(1)); return n.add(2) })()`, read in a loop body and after the loop, leaves its value in a variable that only the loop body sets. The read after the loop takes that variable. An `Fn` that adds one to a variable made outside it, read in a branch and after the `If`, sets that variable only in the branch. Upstream PR mrdoob/three.js#34339, still open, describes this defect for a node that sibling branches read. r187 generates the statements again instead.
 
 ## @fact tsl-to-var-takes-a-name
 
@@ -6008,6 +6372,12 @@ This is a fact of the WGSL specification, not a choice.
 > The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 
 Chromium's WebGL 2 compiler refuses `for (int i = 0; i < 3; if (true) { i++; }) { }` with `'if' : syntax error`, and accepts `for (int i = 0; i < 3; i++) { }`.
+
+## @fact glsl-takes-no-declaration-in-a-for-update
+
+> The update of a GLSL `for` is an expression, so a declaration in it is a syntax error. An assignment to a variable declared before the loop is an expression.
+
+This is a fact of the GLSL ES 3.00 grammar, where the update of a `for` is an expression. Chromium's WebGL 2 compiler refuses an update that declares `highp float _rmsl_6 = ...` with `'_rmsl_6' : syntax error`, and accepts the same update once the variable is declared before the loop.
 
 ## @fact wgsl-takes-no-jump-in-a-for-update
 

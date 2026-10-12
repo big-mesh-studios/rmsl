@@ -78,6 +78,7 @@
     "test:fast": "RMSL_SKIP_GPU=1 vitest run",
     "test:sweep": "RMSL_INTEGER_SWEEP=sample vitest run src/integer-sweep.test.ts",
     "test:sweep:full": "RMSL_INTEGER_SWEEP=full vitest run src/integer-sweep.test.ts",
+    "test:fuzz": "RMSL_INLINE_FN_FUZZ=long vitest run src/canon/inline-fn-fuzz.test.ts",
     "test:types": "vitest --typecheck.only --run",
     "test:mutate": "RMSL_SKIP_BUILD=1 RMSL_SKIP_GPU=1 stryker run",
     "test:mutate:deep": "RMSL_SKIP_BUILD=1 stryker run --timeoutMS 120000"

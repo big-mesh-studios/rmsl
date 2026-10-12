@@ -433,7 +433,7 @@ Loop(int(10), ({ i }) => {
 });
 
 Loop(value.lessThan(10), () => {
-  // runs while the bool holds; the condition is built once, before the loop
+  // runs while the bool holds; a variable the condition makes is computed once, before the loop
   value.addAssign(1);
 });
 
@@ -506,9 +506,9 @@ While(condition, () => {
 });
 ```
 
-A condition given as a node is built once, before the loop. To make a
-variable in the condition that is recomputed on every iteration, pass the
-condition as a function:
+A variable that a condition given as a node makes is computed once, before
+the loop. To make a variable in the condition that is recomputed on every
+iteration, pass the condition as a function:
 
 ```typescript
 While(
@@ -522,7 +522,9 @@ While(
 A `For` condition may make variables too: they are computed where the
 condition is tested, and stay in scope after the loop, and in its update. A
 `For` or `While` condition function may also write other statements, which
-run before every test.
+run before every test. An `Fn` called outside the program's body, whose value
+only a loop condition reads, runs before every test too, whether the condition
+is a node or a function, and however often it reads the value.
 
 ### Other
 

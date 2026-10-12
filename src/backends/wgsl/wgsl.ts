@@ -1119,6 +1119,14 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let t = wgslType(vt);
       let varName = (node.params![0] as any).varName || lhs.expr;
       ctx.varDefs.set(varName, t);
+      if (ctx.forUpdateDeclarations) {
+        ctx.forUpdateDeclarations.push(`var ${varName}: ${t};`);
+        return {
+          decls: [...lhs.decls, ...rhs.decls],
+          body: [...lhs.body, ...rhs.body, `${varName} = ${rhs.expr};`],
+          expr: varName,
+        };
+      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `var ${varName}: ${t} = ${rhs.expr};`],
@@ -1188,13 +1196,16 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0.0";
+      let prec: number | undefined;
       for (let p of params) {
         let r = compileWGSLStage(p, ctx);
         allDecls.push(...r.decls);
         allBody.push(...r.body);
         expr = r.expr;
+        prec = r.prec;
       }
-      return { decls: allDecls, body: allBody, expr };
+      // The value keeps the precedence of its operator, so an operation that reads it brackets it.
+      return { decls: allDecls, body: allBody, expr, prec };
     }
 
     case "if": {
@@ -1220,7 +1231,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "for": {
       let init = compileWGSLStage(node.params![0], ctx);
       let cd = compileWGSLStage(node.params![1], ctx);
+      const updateDeclarations: string[] = [];
+      const outerDeclarations = ctx.forUpdateDeclarations;
+      ctx.forUpdateDeclarations = updateDeclarations;
       let update = compileWGSLStage(node.params![2], ctx);
+      ctx.forUpdateDeclarations = outerDeclarations;
       let body = compileWGSLStage(node.params![3], ctx);
       // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
       let initExpr = "";
@@ -1237,15 +1252,15 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let updates = update.body;
       let decls = [...init.decls, ...cd.decls, ...update.decls, ...body.decls];
 
-      // WGSL's for-header holds a single update statement. More than one goes
-      // in a continuing block instead, which runs after the body on every
-      // iteration — including after a continue, which appending them to the
-      // body would not.
+      // A variable the update makes is declared before the loop, as on GLSL. The
+      // header holds one update statement; more go in a continuing block, which
+      // runs after the body on every iteration, after a continue too.
       if (updates.length > 1) {
         return {
           decls,
           body: [
             ...initBody,
+            ...updateDeclarations,
             "{",
             ...(initExpr ? [`  ${initExpr};`] : []),
             "  loop {",
@@ -1266,6 +1281,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         decls,
         body: [
           ...initBody,
+          ...updateDeclarations,
           `for (${initExpr}; ${header}; ${step}) {`,
           ...[...guard, ...body.body].map((l) => "  " + l),
           "}",

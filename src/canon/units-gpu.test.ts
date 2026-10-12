@@ -4,7 +4,9 @@ import {
   builtinPosition,
   bvec3,
   Fn,
+  Loop,
   For,
+  If,
   float,
   instancedArray,
   int,
@@ -43,7 +45,7 @@ import { evaluateWGSL } from "../testing/shader-eval";
 import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { stubDevice, stubGl } from "./scene-stubs";
-import { CONDITION_PAIRS, inlineFnPaths } from "../testing/inline-fn-paths";
+import { CONDITION_PAIRS, inlineFnConditions, inlineFnPaths } from "../testing/inline-fn-paths";
 import { createGlsl } from "../glsl";
 import { createWasmContext } from "../wasm";
 
@@ -1818,7 +1820,10 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   });
 
   /**
-   * @canon exception-an-inline-fn-read-more-than-once-runs-before-every-read
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+   * @canon exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
+   * @canon spec-an-inline-fn-several-statements-of-one-block-read-runs-once-before-the-first
+   * @canon spec-an-inline-fn-read-in-one-statement-runs-before-it
    */
   it("runs an inline Fn read on several paths once on every path that reads it, on WGSL", async () => {
     const { counter, result, first, second, paths } = inlineFnPaths();
@@ -1839,6 +1844,335 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
       }
       adapter.destroy();
     }
+  });
+
+  /**
+   * The condition is tested four times, and the `Fn` counts its runs. On
+   * Dawn on Metal every case counts one run, though the WGSL writes the
+   * increment inside the loop before the test. This test fails while the
+   * defect lasts, so it starts passing, and fails the run, once it is fixed.
+   *
+   * @canon bug-a-storage-write-in-a-while-condition-counts-one-run-on-wgsl-compute
+   */
+  it.skipIf(process.platform !== "darwin").fails(
+    "runs an inline Fn read only in a While or Loop condition at every test, on WGSL",
+    async () => {
+      const { counter, result, conditions } = inlineFnConditions();
+      for (const condition of conditions) {
+        const adapter = createWgslCompute(condition.build());
+        await adapter.attach();
+        const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+        await adapter.compute(out, 1);
+        adapter.destroy();
+        expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, condition.name).toEqual({
+          runs: 4,
+          value: 3,
+        });
+      }
+    },
+  );
+
+  /**
+   * The `Fn` is called outside the program's body, and the loop body reads
+   * its value once.
+   *
+   * @canon spec-an-inline-fn-read-once-in-a-loop-runs-on-every-iteration
+   */
+  it("runs an inline Fn read once in a loop body on every iteration, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const shared = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const program = Fn(() => {
+      Loop(4, () => {
+        result.element(int(0)).addAssign(shared);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 4, value: 8 });
+    adapter.destroy();
+  });
+
+  /**
+   * An inline `Fn` reads another twice in each iteration of its loop, and the
+   * program reads the outer one once.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it("runs an inline Fn read only inside another's loop on every iteration of it, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const f = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const g = Fn(() => {
+      const t = float(0).toVar();
+      Loop(3, () => {
+        t.addAssign(f);
+        t.addAssign(f.mul(10));
+      });
+      return t;
+    })() as any;
+    const adapter = createWgslCompute(
+      Fn(() => {
+        result.element(int(0)).assign(g);
+      })(),
+    );
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 3, value: 66 });
+    adapter.destroy();
+  });
+
+  /**
+   * The inner `Fn` is read twice in a branch of the outer one, and in loops at
+   * two levels.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it("runs an inline Fn read only inside another in the block there that holds every read, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const taken = uniform("float");
+    const counted = () =>
+      Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(2);
+      })() as any;
+    const looping = (f: any) =>
+      Fn(() => {
+        const t = float(0).toVar();
+        Loop(3, () => {
+          t.addAssign(f);
+          t.addAssign(f.mul(10));
+        });
+        return t;
+      })() as any;
+    const writing = (value: any) =>
+      Fn(() => {
+        result.element(int(0)).assign(value);
+      })();
+    const programs: [string, () => any, number, { runs: number; value: number }][] = [
+      [
+        "in a branch",
+        () => {
+          const f = counted();
+          return writing(
+            Fn(() => {
+              const t = float(0).toVar();
+              If(taken.greaterThan(0), () => {
+                t.assign(f);
+                t.addAssign(f.mul(10));
+              });
+              return t;
+            })(),
+          );
+        },
+        0,
+        { runs: 0, value: 0 },
+      ],
+      [
+        "in loops at two levels",
+        () => {
+          const g = looping(counted());
+          return writing(
+            Fn(() => {
+              const t = float(0).toVar();
+              Loop(2, () => {
+                t.addAssign(g);
+                t.addAssign(g.mul(0));
+              });
+              return t;
+            })(),
+          );
+        },
+        0,
+        { runs: 6, value: 132 },
+      ],
+    ];
+    for (const [name, build, branch, expected] of programs) {
+      const adapter = createWgslCompute(build());
+      await adapter.attach();
+      adapter.setUniform(taken, branch);
+      const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+      await adapter.compute(out, 1);
+      expect({ runs: out[counter.name]![0], value: out[result.name]![0] }, name).toEqual(expected);
+      adapter.destroy();
+    }
+  });
+
+  /**
+   * The condition is the value of the `Fn`, and the body reads it twice.
+   *
+   * @canon spec-an-inline-fn-a-for-condition-and-body-read-runs-once-before-the-loop
+   */
+  it("runs an inline Fn once before a For whose condition is its value and whose body reads it, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const steps = instancedArray(1, "float");
+    const f = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return steps.element(int(0)).lessThan(3);
+    })() as any;
+    const program = Fn(() => {
+      For(
+        () => int(0).toVar(),
+        () => f,
+        (i) => i.addAssign(1),
+        () => {
+          steps.element(int(0)).addAssign(1);
+          steps.element(int(0)).addAssign(select(f, float(0), float(0)));
+          steps.element(int(0)).addAssign(select(f, float(0), float(0)));
+        },
+      );
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [steps.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], steps: out[steps.name]![0] }).toEqual({ runs: 1, steps: 3 });
+    adapter.destroy();
+  });
+
+  /**
+   * The `Fn` counts its runs and returns two values, and one statement reads
+   * both.
+   *
+   * @canon spec-an-inline-fn-that-returns-several-values-runs-once-before-every-read-of-them
+   */
+  it("runs an inline Fn that returns two values once when one statement reads both, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const [a, b] = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return [float(2), float(3)];
+    })() as any;
+    const program = Fn(() => {
+      result.element(int(0)).assign(a.add(b));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 1, value: 5 });
+    adapter.destroy();
+  });
+
+  /**
+   * The first root reads the value in a branch and in a loop, the second
+   * once. The `Fn` runs once, before the first root, whichever branch runs.
+   *
+   * @canon spec-an-inline-fn-several-roots-read-runs-once-before-the-first
+   */
+  it("runs an inline Fn several roots read once, before the first root, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(3, "float");
+    const taken = uniform("float");
+    const f = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return counter.element(int(0)).toVar();
+    })() as any;
+    const roots = [
+      Fn(() => {
+        If(taken.greaterThan(0), () => {
+          result.element(int(0)).addAssign(f);
+        });
+        Loop(3, () => {
+          result.element(int(1)).addAssign(f);
+        });
+      })(),
+      Fn(() => {
+        result.element(int(2)).addAssign(f);
+      })(),
+    ];
+    for (const branch of [0, 1]) {
+      const adapter = createWgslCompute(roots, { workgroupSize: 1 });
+      await adapter.attach();
+      adapter.setUniform(taken, branch);
+      const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(3) };
+      await adapter.compute(out, 1);
+      expect({ branch, runs: out[counter.name]![0], values: Array.from(out[result.name]!) }).toEqual({
+        branch,
+        runs: 1,
+        values: [branch, 3, 1],
+      });
+      adapter.destroy();
+    }
+  });
+  /**
+   * The outer `Fn` reads the inner one in both branches of an `If`, and two
+   * roots read the outer one.
+   *
+   * @canon spec-an-inline-fn-read-only-inside-another-runs-in-the-block-there
+   */
+  it("runs an inline Fn read only inside another read from two roots once, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(2, "float");
+    const taken = uniform("float");
+    const g = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const f = Fn(() => {
+      const t = float(0).toVar();
+      If(taken.greaterThan(0), () => {
+        t.assign(g);
+      }).Else(() => {
+        t.assign(g.mul(10));
+      });
+      return t;
+    })() as any;
+    for (const [branch, value] of [
+      [1, 2],
+      [0, 20],
+    ]) {
+      const adapter = createWgslCompute([
+        Fn(() => {
+          result.element(int(0)).assign(f);
+        })(),
+        Fn(() => {
+          result.element(int(1)).assign(f.add(1));
+        })(),
+      ]);
+      await adapter.attach();
+      adapter.setUniform(taken, branch);
+      const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(2) };
+      await adapter.compute(out, 1);
+      expect({ runs: out[counter.name]![0], values: Array.from(out[result.name]!) }).toEqual({
+        runs: 1,
+        values: [value, value + 1],
+      });
+      adapter.destroy();
+    }
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-where-it-is-called
+   */
+  it("runs an Fn called before a loop once, on WGSL", async () => {
+    const counter = instancedArray(1, "float");
+    const result = instancedArray(1, "float");
+    const program = Fn(() => {
+      const shared = Fn(() => {
+        counter.element(int(0)).addAssign(1);
+        return float(2);
+      })() as any;
+      Loop(4, () => {
+        result.element(int(0)).addAssign(shared);
+      });
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    const out = { [counter.name]: new Float32Array(1), [result.name]: new Float32Array(1) };
+    await adapter.compute(out, 1);
+    expect({ runs: out[counter.name]![0], value: out[result.name]![0] }).toEqual({ runs: 1, value: 8 });
+    adapter.destroy();
   });
 
   /**
@@ -2160,7 +2494,7 @@ const bindingOf = (code: string, name: string) =>
  * entry builds it. Each entry returns what it read, or the error it hit.
  */
 const GLSL_DRAWS = `
-import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
+import { Discard, Fn, If, attribute, builtinPosition, float, uniform, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -2179,7 +2513,24 @@ const attempt = (run) => {
 };
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+const side = uniform("float");
+const inlineDiscard = () => {
+  const shared = Fn(() => { Discard(); return float(1); })();
+  return Fn(() => {
+    const colour = vec4(0, 0, 0, 1).toVar();
+    If(side.greaterThan(0), () => { colour.assign(vec4(shared, 0, 0, 1)); }).Else(() => { colour.assign(vec4(0, shared, 0, 1)); });
+    return colour;
+  })();
+};
 globalThis.__rmslGlslDraws = {
+  inlineDiscard: () => attempt(() => {
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), inlineDiscard());
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw();
+    return readPixel(target, 1, 2);
+  }),
   firstAttributeCount: () => attempt(() => {
     const target = canvas();
     const offset = attribute("vec2");
@@ -2204,7 +2555,7 @@ globalThis.__rmslGlslDraws = {
 
 /** The `createWgsl` counterparts, on a 4×4 canvas; each returns what it read, or the error it hit. */
 const WGSL_DRAWS = `
-import { Fn, attribute, builtinPosition, instancedArray, ivec2, uniform, vec2, vec4, texture } from "../rmsl";
+import { Discard, Fn, If, attribute, builtinPosition, float, instancedArray, ivec2, uniform, vec2, vec4, texture } from "../rmsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -2223,11 +2574,28 @@ const attempt = async (run) => {
 };
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+const side = uniform("float");
+const inlineDiscard = () => {
+  const shared = Fn(() => { Discard(); return float(1); })();
+  return Fn(() => {
+    const colour = vec4(0, 0, 0, 1).toVar();
+    If(side.greaterThan(0), () => { colour.assign(vec4(shared, 0, 0, 1)); }).Else(() => { colour.assign(vec4(0, shared, 0, 1)); });
+    return colour;
+  })();
+};
 const drawn = async (adapter, target) => {
   await adapter.device().queue.onSubmittedWorkDone();
   return readPixel(target, 1, 2);
 };
 globalThis.__rmslWgslDraws = {
+  inlineDiscard: () => attempt(async () => {
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: inlineDiscard() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw();
+    return drawn(adapter, target);
+  }),
   texture: () => attempt(async () => {
     const target = canvas();
     const image = uniform("sampler2D");
@@ -2309,6 +2677,16 @@ const wgslEntry = (name: string) =>
 
 describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
   /**
+   * An inline `Fn` that discards is read in both branches of an `If`, and the
+   * unset uniform takes the `Else`, so the pixel stays cleared.
+   *
+   * @canon spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+   */
+  it("drops the fragment from an inline Fn read in both branches of an If, with createGlsl", async () => {
+    expect(await glslEntry("inlineDiscard")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+  }, 120_000);
+
+  /**
    * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
    *
    * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
@@ -2329,6 +2707,16 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
 });
 
 describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
+  /**
+   * An inline `Fn` that discards is read in both branches of an `If`, and the
+   * unset uniform takes the `Else`, so the pixel stays cleared.
+   *
+   * @canon spec-a-discard-in-an-inline-fn-drops-the-fragment-where-it-runs
+   */
+  it("drops the fragment from an inline Fn read in both branches of an If, with createWgsl", async () => {
+    expect(await wgslEntry("inlineDiscard")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+  }, 120_000);
+
   /**
    * `createWgsl` samples the texture set with `setTexture`.
    *

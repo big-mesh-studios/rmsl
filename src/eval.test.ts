@@ -819,7 +819,7 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("reads a variable an Fn call made before a loop in its condition and after it", async () => {
     const twice = Fn((x: Node<"float">) => x.mul(2).toVar());
@@ -1243,7 +1243,7 @@ describe("RMSL evaluation", () => {
   /**
    * An inline Fn's statements run once, however often the value it returns is read.
    *
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("runs an inline Fn's statements once", async () => {
     const counted = (read: (value: Node<"vec3">) => Node<"float">) => () =>
@@ -1315,7 +1315,7 @@ describe("RMSL evaluation", () => {
    * The first Fn's If runs its statements a block deeper; the second Fn's Break
    * still leaves the loop it sits in.
    *
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("breaks out of a loop from an inline Fn read after one with a branch", async () => {
     await expectValue(
