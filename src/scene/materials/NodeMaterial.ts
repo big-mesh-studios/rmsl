@@ -119,7 +119,7 @@ export class NodeMaterial extends Material {
       return clip;
     })() as Node<"vec4">;
 
-    const linked = linkStages(vertex, fragment);
+    const linked = linkStages(vertex, fragment, true);
     const v = collectNodes(linked.vertex);
     const f = collectNodes(linked.fragment);
     const usedUniforms = new Set([...v.uniforms, ...f.uniforms]);
@@ -127,12 +127,12 @@ export class NodeMaterial extends Material {
     const usedVaryings = new Set([...v.varyings, ...f.varyings]);
     // An attribute the fragment stage reads reaches it in a varying the compiler made, which the program names after the attribute.
     const varyings = [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node));
-    for (const attribute of b.attributes.values()) {
-      const carrier = linked.carriers.get(attribute.node.name);
-      if (!carrier) continue;
+    for (const [slot, carrier] of linked.carriers) {
+      const attribute = [...b.attributes.values()].find((binding) => binding.node.name === slot);
+      let name = attribute?.name ?? slot;
       // A varying the material made under the attribute's name keeps it, and the carrier takes the suffix.
-      const taken = varyings.some((binding) => binding.name === attribute.name);
-      varyings.push({ node: carrier, name: taken ? `${attribute.name}Attribute` : attribute.name });
+      while (varyings.some((binding) => binding.name === name)) name += "Attribute";
+      varyings.push({ node: carrier, name });
     }
 
     return {

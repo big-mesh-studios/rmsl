@@ -848,7 +848,9 @@ export function compileWasmFn(
   if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes))));
+  const resultNodes = numberClashingVariables(
+    shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, undefined, true))),
+  );
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));

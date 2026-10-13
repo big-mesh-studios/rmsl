@@ -257,7 +257,7 @@ export function compileWasmRasterizer(
   options: CompileWasmOptions,
 ): WasmRasterRoutine {
   // Each stage is built once, so the declarations below come from the graph that was compiled.
-  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn());
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn(), true);
   const vertexCompiled = compileWasmFn(() => vertexRoots, {
     ...options,
     name: "main",

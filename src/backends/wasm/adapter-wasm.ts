@@ -207,7 +207,7 @@ export function createWasm(
   fragmentFn: (...args: any[]) => any,
   options: CompileWasmOptions = {},
 ): WasmAdapter {
-  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn());
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn(), true);
   const routine = compileWasmRasterizer(
     "createWasm",
     () => vertexRoots,

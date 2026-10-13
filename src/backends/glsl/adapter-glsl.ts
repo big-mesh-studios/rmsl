@@ -340,7 +340,7 @@ export function createGlsl(
   givenFragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
   options?: GlslAdapterOptions,
 ): GlslAdapter {
-  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(givenVertexRoot, givenFragmentRoot);
+  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(givenVertexRoot, givenFragmentRoot, true);
   // Each stage compiles on its own, so a name the two declare differently shows only here.
   assertOneDeclarationPerName([vertexRoot, fragmentRoot]);
   let gl: WebGL2RenderingContext | null = null;

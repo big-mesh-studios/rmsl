@@ -1,7 +1,8 @@
 import { fromProgram } from "../test";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
-import { float, select, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
+import { attributeRaw, Fn, float, select, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
+import { compileWgsl } from "../wgsl";
 import {
   AmbientLight,
   Blending,
@@ -2429,6 +2430,29 @@ describe("a material reads position and normal as TSL does", () => {
     const names = material.build(new Scene()).varyings.map((v) => v.name);
     expect(names).toContain("normal");
     expect(names).toContain("normalAttribute");
+  });
+
+  /**
+   * @canon spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
+   */
+  it("lists the varying of an attribute the fragment stage reads that the material did not register", () => {
+    const outside = attributeRaw("outside", "vec3");
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = () => vec4(outside, 1);
+    expect(material.build(new Scene()).varyings.map((v) => v.name)).toContain("outside");
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+   */
+  it("names the attribute where WGSL refuses a layout Fn that reads it in a material", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const f = Fn(() => b.normal.x).setLayout({ name: "readsNormal", type: "float", inputs: [] });
+      return vec4(f(), 0, 0, 1);
+    };
+    const { fragmentRoot } = material.build(new Scene());
+    expect(() => compileWgsl.fragment(fragmentRoot)).toThrow(/uses the attribute "_rmsl_a\d+"/);
   });
 
   /**

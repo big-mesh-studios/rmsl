@@ -175,7 +175,7 @@ export function compileJSRasterizer(
     reentrant: options.reentrant,
     float: options.float,
   };
-  const linked = linkStages(vertexFn(), fragmentFn());
+  const linked = linkStages(vertexFn(), fragmentFn(), true);
   const vertexStage = compileJSProgram(() => linked.vertex, { ...stageOptions, name: "vtx", stage: "vertex" });
   const fragmentStage = compileJSProgram(() => linked.fragment, {
     ...stageOptions,

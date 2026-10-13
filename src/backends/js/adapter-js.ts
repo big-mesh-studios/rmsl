@@ -172,7 +172,7 @@ export function createJs(
   fragmentFn: (...args: any[]) => any,
   options: CompileJSRasterOptions = {},
 ): JsAdapter {
-  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn());
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn(), true);
   const routine = compileJSRasterizer(
     "createJs",
     () => vertexRoots,

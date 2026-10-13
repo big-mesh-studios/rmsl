@@ -289,7 +289,7 @@ export function uniformBufferSize(end: number): number {
  * (`reflectStage`) rather than read back off the compiled program.
  */
 export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
-  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(options.vertex, options.fragment, false);
+  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(options.vertex, options.fragment);
   let device: GPUDevice | null = null;
 
   let renderPipeline: GPURenderPipeline | null = null;

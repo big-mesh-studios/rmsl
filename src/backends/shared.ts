@@ -836,12 +836,14 @@ export type FoundInRoots = {
  * fragment stage has its `outputStruct` written out and its implicit colour
  * converted, see {@link fragmentColour}. Any other stage, and a program with
  * no stage, refuses an `outputStruct`, which is a fragment stage's result.
+ * `stageInputsInFns` is true for a target that holds a stage's inputs and
+ * varyings as globals, where a function with a layout may reach them.
  */
 export function prepareRoots<T extends Node<ShaderType>>(
   stage: string | undefined,
   roots: readonly T[],
   found?: FoundInRoots,
-  stageInputsInFns = true,
+  stageInputsInFns = false,
 ): T[] {
   const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(
     roots,
@@ -899,7 +901,7 @@ function assertReadsNoAttribute(roots: unknown): void {
 export function linkStages<V, F>(
   vertexRoot: V,
   fragmentRoot: F,
-  stageInputsInFns = true,
+  stageInputsInFns = false,
 ): { vertex: V; fragment: F; carriers: Map<string, any> } {
   const reads: any[] = [];
   // A target that refuses a stage input in a function leaves a read there to the refusal, which names the attribute.
@@ -923,6 +925,8 @@ export function linkStages<V, F>(
     let carrier = varyings.get(slot);
     if (!carrier) {
       carrier = varying(shaderType);
+      // A refusal of the varying names the attribute it carries, which is what the application wrote.
+      carrier.value.carries = slot;
       varyings.set(slot, carrier);
       assignments.push(node({ _t: "void", type: "assign", params: [carrier, n] }) as BaseNode<ShaderType>);
     }
@@ -1356,7 +1360,12 @@ function assertFnBody(definition: FnDefinition, stageInputsInFns: boolean): void
           `Return a value at the end, or give the layout the type "void".`,
       );
     }
-    const stage = stageInputsInFns && FN_REACHABLE_STAGE_VALUES.has(n.type) ? undefined : STAGE_BOUND[n.type];
+    const stage =
+      stageInputsInFns && FN_REACHABLE_STAGE_VALUES.has(n.type)
+        ? undefined
+        : n.type === "varying" && n.value.carries !== undefined
+          ? `the attribute "${n.value.carries}"`
+          : STAGE_BOUND[n.type];
     if (stage !== undefined) {
       throw new Error(
         `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +
@@ -1556,8 +1565,8 @@ function substituteNodes<T>(roots: T, replaced: Map<any, any>, intoCalls = false
     if (intoCalls && node.type === "call") {
       const body = substitute(node.value.body);
       if (body !== node.value.body) {
-        value = definitions.get(node.value.body) ?? { ...node.value, body };
-        definitions.set(node.value.body, value);
+        value = definitions.get(node.value) ?? { ...node.value, body };
+        definitions.set(node.value, value);
       }
     }
     const result =

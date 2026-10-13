@@ -881,7 +881,7 @@ function declareGlslFn(definition: FnDefinition, ctx: CompileCtx): string {
   return declareFn(ctx, definition, (name) => {
     const child = bodyContext(ctx);
     const root = numberClashingVariables(
-      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>])[0]!),
+      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>], undefined, true)[0]!),
     );
     const compiled = compileGLSLStage(root, child);
     ctx.nextId = child.nextId;
@@ -1073,7 +1073,7 @@ export function compileGLSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  nodes = prepareRoots(shaderStage, nodes);
+  nodes = prepareRoots(shaderStage, nodes, undefined, true);
   nodes = numberClashingVariables(shareNodes(nodes));
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
@@ -1213,7 +1213,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
       "compileGlslFn does not support multi-return functions. Define separate functions for each return value.",
     );
   }
-  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built])[0]!));
+  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built], undefined, true)[0]!));
 
   const ctx: CompileCtx = {
     nextId: 0,
