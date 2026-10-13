@@ -182,7 +182,7 @@ export class Builder {
   }
 
   /** The object-space values the fragment stage reads, which the vertex stage passes on as varyings. */
-  readonly fragmentReads = new Set<"position" | "normal">();
+  readonly fragmentReads = new Set<"position">();
 
   /** The vertex stage's position and normal, made once so that every read shares them. */
   private vertexPosition?: Node<"vec3">;
@@ -208,11 +208,8 @@ export class Builder {
    * instanced mesh. The fragment stage reads the geometry's normal.
    */
   get normal(): Node<"vec3"> {
-    if (this.stage === "fragment") {
-      this.fragmentReads.add("normal");
-      return this.varying("normalLocal", "vec3");
-    }
     const geometry = this.attribute("normal", "vec3");
+    if (this.stage === "fragment") return geometry;
     return (this.vertexNormal ??= this.instancing
       ? mat3(this.instanceMatrix).inverse().transpose().mul(geometry).normalize()
       : geometry);

@@ -21,6 +21,7 @@ import {
   someNode,
   swizzleWritePlace,
   var_,
+  varying,
   vec4,
 } from "../core";
 import { componentCountOf, componentKindOf } from "./cpu";
@@ -851,6 +852,7 @@ export function prepareRoots<T extends Node<ShaderType>>(
     );
   }
   roots = substituteNodes(roots, swizzleWrites);
+  if (stage === "fragment") assertReadsNoAttribute(roots);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
   if (holdsOutputStruct) {
@@ -861,6 +863,55 @@ export function prepareRoots<T extends Node<ShaderType>>(
     );
   }
   return [...roots];
+}
+
+/**
+ * Throws when a fragment stage compiled alone reads an attribute, which only a
+ * vertex stage is given. {@link linkStages} turns the read into a varying
+ * first, for a call that takes both stages.
+ */
+function assertReadsNoAttribute(roots: unknown): void {
+  let read: any;
+  someNode(roots, (n) => (n.type === "attribute" ? ((read = n), true) : false));
+  if (read) {
+    throw new Error(
+      `[RMSL] the fragment stage reads the attribute "${read.value.slot}", which only a vertex stage is given. ` +
+        `Compile it together with its vertex stage, or pass the value on in a varying.`,
+    );
+  }
+}
+
+/**
+ * The two stages of a program with each attribute the fragment stage reads
+ * passed on in a varying, as TSL does: the fragment stage reads the varying,
+ * and the vertex stage writes it from the attribute. Nodes of one slot share
+ * one varying. The stages the caller holds are left as they are.
+ */
+export function linkStages<V, F>(vertexRoot: V, fragmentRoot: F): { vertex: V; fragment: F } {
+  const replaced = new Map<any, any>();
+  const varyings = new Map<string, any>();
+  const assignments: BaseNode<ShaderType>[] = [];
+  someNode(fragmentRoot, (n) => {
+    if (n.type !== "attribute") return;
+    const { slot, shaderType } = n.value;
+    let carrier = varyings.get(slot);
+    if (!carrier) {
+      carrier = varying(shaderType);
+      varyings.set(slot, carrier);
+      assignments.push(node({ _t: "void", type: "assign", params: [carrier, n] }) as BaseNode<ShaderType>);
+    }
+    replaced.set(n, carrier);
+  });
+  if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot };
+  const roots: any[] = Array.isArray(vertexRoot) ? [...vertexRoot] : [vertexRoot];
+  const last = roots[roots.length - 1];
+  roots[roots.length - 1] = node({
+    _t: last._t,
+    type: "seq",
+    params: last.type === "seq" ? [...assignments, ...last.params] : [...assignments, last],
+  });
+  const vertex = Array.isArray(vertexRoot) ? roots : roots[0];
+  return { vertex: vertex as V, fragment: substituteNodes(fragmentRoot, replaced) };
 }
 
 /**

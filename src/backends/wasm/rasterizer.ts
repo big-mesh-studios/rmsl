@@ -10,6 +10,7 @@ import {
   WasmFloatWidth,
   WasmParam,
 } from "./wasm";
+import { linkStages } from "../shared";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -256,16 +257,15 @@ export function compileWasmRasterizer(
   options: CompileWasmOptions,
 ): WasmRasterRoutine {
   // Each stage is built once, so the declarations below come from the graph that was compiled.
-  const vertexRoots = vertexFn();
-  const vertexCompiled = compileWasmFn(() => vertexRoots, {
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn());
+  const vertexCompiled = compileWasmFn(() => vertexRoots as any, {
     ...options,
     name: "main",
     params: [],
     stage: "vertex",
     scalarsInMemory: true,
   });
-  const fragmentRoots = fragmentFn();
-  const fragmentCompiled = compileWasmFn(() => fragmentRoots, {
+  const fragmentCompiled = compileWasmFn(() => fragmentRoots as any, {
     ...options,
     name: "main",
     params: [],

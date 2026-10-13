@@ -2562,3 +2562,55 @@ describe("a storage buffer the host never sets on a CPU compute adapter", () => 
     expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
   });
 });
+
+describe("an attribute the fragment stage reads", () => {
+  const triangle = Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+  const pos = attribute("vec3");
+  const tint = attribute("vec3");
+  const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const compiles = [
+    ["JS", compileJS],
+    ["WASM", compileWasm],
+  ] as const;
+  /** The first pixel of a draw whose three vertices carry `values` in `tint`. */
+  const firstPixel = async (compile: (typeof compiles)[number][1], fragment: () => unknown, values: number[]) => {
+    const routine = await compile(vertex as any, fragment as any);
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, [tint.name]: Float64Array.from(values) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    return Array.from(pixels.slice(0, 4));
+  };
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.each(compiles)("gives the fragment stage the attribute, interpolated, on %s", async (_name, compile) => {
+    const fragment = () => Fn(() => vec4(tint, 1))();
+    expect(await firstPixel(compile, fragment, [0, 1, 0, 0, 1, 0, 0, 1, 0])).toEqual([0, 1, 0, 1]);
+    // The pixel lies in the middle of the triangle's overscaled corner, between the vertices' values.
+    const mixed = await firstPixel(compile, fragment, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    expect(mixed[0]! + mixed[1]! + mixed[2]!).toBeCloseTo(1);
+    expect(Math.max(...mixed.slice(0, 3))).toBeLessThan(1);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+   */
+  it.each(compiles)("shares one varying between reads of the attribute on %s", async (_name, compile) => {
+    const fragment = () => Fn(() => vec4(tint.x.add(tint.x), tint.y, 0, 1))();
+    expect(await firstPixel(compile, fragment, [0.25, 0.5, 0, 0.25, 0.5, 0, 0.25, 0.5, 0])).toEqual([0.5, 0.5, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
+   */
+  it.each([
+    ["JS", compileJSFragment],
+    ["WASM", compileWasmFragment],
+  ])("refuses the attribute in a fragment stage compiled alone on %s", (_name, compile) => {
+    expect(() => (compile as CompileStage<unknown>)(() => Fn(() => vec4(tint, 1))(), none)).toThrow(
+      new RegExp(`fragment stage reads the attribute "${tint.name}"`),
+    );
+  });
+});

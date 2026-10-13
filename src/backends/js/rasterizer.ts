@@ -9,6 +9,7 @@ import {
   ScalarKind,
   vertexPosition,
 } from "../cpu";
+import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -174,8 +175,13 @@ export function compileJSRasterizer(
     reentrant: options.reentrant,
     float: options.float,
   };
-  const vertexStage = compileJSProgram(vertexFn, { ...stageOptions, name: "vtx", stage: "vertex" });
-  const fragmentStage = compileJSProgram(fragmentFn, { ...stageOptions, name: "frag", stage: "fragment" });
+  const linked = linkStages(vertexFn(), fragmentFn());
+  const vertexStage = compileJSProgram(() => linked.vertex as any, { ...stageOptions, name: "vtx", stage: "vertex" });
+  const fragmentStage = compileJSProgram(() => linked.fragment as any, {
+    ...stageOptions,
+    name: "frag",
+    stage: "fragment",
+  });
   const writesDepth = fragmentStage.writesDepth;
 
   /** The attribute slots the vertex stage reads, as its program declares them. */

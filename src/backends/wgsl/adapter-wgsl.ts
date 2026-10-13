@@ -20,7 +20,7 @@ import {
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
-import { CompileCtx, VertexRoot } from "../shared";
+import { CompileCtx, linkStages, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -288,7 +288,9 @@ export function uniformBufferSize(end: number): number {
  * are reflected by walking the vertex/fragment graphs directly
  * (`reflectStage`) rather than read back off the compiled program.
  */
-export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
+export function createWgsl(givenOptions: CreateWgslAdapterOptions): WgslAdapter {
+  const linked = linkStages(givenOptions.vertex, givenOptions.fragment);
+  const options = { ...givenOptions, vertex: linked.vertex, fragment: linked.fragment };
   let device: GPUDevice | null = null;
 
   let renderPipeline: GPURenderPipeline | null = null;

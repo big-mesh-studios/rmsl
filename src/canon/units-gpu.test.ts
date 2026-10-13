@@ -2932,3 +2932,81 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
     expect(await wgslEntry("vec3Storage")).toEqual(GREEN);
   }, 120_000);
 });
+
+describe("an attribute the fragment stage reads on a GPU target", () => {
+  const pos = attribute("vec3");
+  const tint = attribute("vec3");
+  const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = () => Fn(() => vec4(tint, 1))();
+  const twice = () => Fn(() => vec4(tint.x.add(tint.x), tint.y, 0, 1))();
+  /** The vertex and fragment source `createGlsl` hands the context for these stages. */
+  const glslSources = (fragmentStage: () => any) => {
+    const { gl, calls } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS || name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+      },
+    );
+    createGlsl(vertex() as any, fragmentStage()).attach({ getContext: () => gl } as any);
+    return calls.filter((c) => c.name === "shaderSource").map((c) => c.args[1] as string);
+  };
+  /** The vertex and fragment source `createWgsl` hands the device for these stages. */
+  const wgslSources = async (fragmentStage: () => any) => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const { device, canvas, modules } = stubDevice();
+      await createWgsl({
+        context: { device } as any,
+        vertex: vertex() as any,
+        fragment: fragmentStage(),
+      }).attach(canvas);
+      return modules.map((m) => m.code);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("passes the attribute to the fragment stage in a varying with createGlsl", () => {
+    const [vertexSource, fragmentSource] = glslSources(fragment);
+    expect(vertexSource).toMatch(new RegExp(`in vec3 ${tint.name};`));
+    expect(vertexSource).toMatch(/out vec3 _rmsl_v\d+;/);
+    expect(vertexSource).toMatch(new RegExp(`_rmsl_v\\d+ = ${tint.name};`));
+    expect(fragmentSource).toMatch(/in vec3 _rmsl_v\d+;/);
+    expect(fragmentSource).not.toContain(tint.name);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("passes the attribute to the fragment stage in a varying with createWgsl", async () => {
+    const [vertexSource, fragmentSource] = await wgslSources(fragment);
+    expect(vertexSource).toContain(tint.name);
+    expect(vertexSource).toMatch(/_rmsl_v\d+\s*:\s*vec3<f32>/);
+    expect(fragmentSource).toMatch(/_rmsl_v\d+\s*:\s*vec3<f32>/);
+    expect(fragmentSource).not.toContain(tint.name);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+   */
+  it("declares one varying for two reads of the attribute with createGlsl and createWgsl", async () => {
+    const [vertexGlsl] = glslSources(twice);
+    expect(vertexGlsl.match(/out vec3 _rmsl_v\d+;/g)).toHaveLength(1);
+    const [vertexWgsl] = await wgslSources(twice);
+    expect(vertexWgsl.match(/_rmsl_v\d+\s*:\s*vec3<f32>/g)).toHaveLength(1);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
+   */
+  it("refuses the attribute in a fragment stage compiled alone on GLSL and WGSL", () => {
+    const named = new RegExp(`fragment stage reads the attribute "${tint.name}"`);
+    expect(() => compileGlsl.fragment(fragment() as any)).toThrow(named);
+    expect(() => compileWgsl.fragment(fragment() as any)).toThrow(named);
+  });
+});

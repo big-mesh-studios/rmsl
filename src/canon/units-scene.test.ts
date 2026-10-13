@@ -2288,6 +2288,9 @@ describe("a material reads position and normal as TSL does", () => {
   };
   const reaches = (root: unknown, target: unknown, skip: unknown[] = []) =>
     someNode(root, (node) => node === target, skip);
+  /** Whether a varying the fragment stage reads is assigned `value` by the vertex stage. */
+  const passesOn = (program: { vertexRoot: unknown; fragmentRoot: unknown }, value: unknown) =>
+    [...collectNodes(program.fragmentRoot as any).varyings].some((v) => assigned(program.vertexRoot, v) === value);
 
   /**
    * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
@@ -2300,9 +2303,9 @@ describe("a material reads position and normal as TSL does", () => {
 
     const read = collectNodes(program.fragmentRoot).varyings;
     const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
-    expect(names).toHaveLength(2);
-    expect(names).not.toContain("positionWorld");
-    expect(names).not.toContain("normalWorld");
+    expect(names).toEqual(["positionLocal"]);
+    expect(collectNodes(program.fragmentRoot).attributes.has(bound(program, "normal"))).toBe(false);
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**
@@ -2313,9 +2316,7 @@ describe("a material reads position and normal as TSL does", () => {
     material.vertexNode = (b) => vec4(b.position, 1);
     material.fragmentNode = (b) => vec4(b.normal, 1);
     const program = material.build(new Scene());
-    const written = collectNodes(program.vertexRoot).varyings;
-    const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
-    expect(names).toContain("normalLocal");
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**
@@ -2328,7 +2329,8 @@ describe("a material reads position and normal as TSL does", () => {
     const program = material.build(new Scene());
     const written = collectNodes(program.vertexRoot).varyings;
     const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
-    expect(names).toEqual(expect.arrayContaining(["positionLocal", "normalLocal"]));
+    expect(names).toContain("positionLocal");
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**
@@ -2386,7 +2388,7 @@ describe("a material reads position and normal as TSL does", () => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => vec4(b.normal, 1);
     const program = material.build(new Scene(), { instancing: true });
-    expect(assigned(program.vertexRoot, bound(program, "normalLocal"))).toBe(bound(program, "normal"));
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**
