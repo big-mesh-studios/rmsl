@@ -3002,6 +3002,18 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
   });
 
   /**
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it("passes a matrix attribute on in a matrix varying with createGlsl and createWgsl", async () => {
+    const matrix = attribute("mat2");
+    const matrixFragment = () => Fn(() => vec4(matrix.mul(vec2(1, 1)), 0, 1))();
+    const [, fragmentGlsl] = glslSources(matrixFragment);
+    expect(fragmentGlsl).toMatch(/in mat2 _rmsl_v\d+;/);
+    const [, fragmentWgsl] = await wgslSources(matrixFragment);
+    expect(fragmentWgsl).toMatch(/_rmsl_v\d+\s*:\s*mat2x2<f32>/);
+  });
+
+  /**
    * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
    */
   it("refuses the attribute in a fragment stage compiled alone on GLSL and WGSL", () => {
@@ -3066,6 +3078,56 @@ globalThis.__rmslFragmentAttributeRun = async () => {
         new URL(".", import.meta.url).pathname,
       );
       expectInterpolated(pixel);
+    },
+    120_000,
+  );
+});
+
+describe.skipIf(!GPU_ENABLED)("a matrix attribute the fragment stage reads, drawn on a GPU", () => {
+  /** Draws a triangle whose fragment stage reads a `mat2` attribute, which every vertex sets to the identity. */
+  const entry = (lang: "glsl" | "wgsl") => `
+import { Fn, attributeRaw, builtinPosition, vec2, vec4 } from "../rmsl";
+import { ${lang === "glsl" ? "createGlsl" : "createWgsl"} } from "../${lang}";
+${READ_PIXEL}
+globalThis.__rmslMatrixAttributeRun = async () => {
+  const pos = attributeRaw("pos", "vec3");
+  const matrix = attributeRaw("matrix", "mat2");
+  const vertex = Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = Fn(() => vec4(matrix.mul(vec2(1, 1)), 0, 1))();
+  const target = document.createElement("canvas");
+  target.width = 4;
+  target.height = 4;
+  const adapter = ${lang === "glsl" ? "createGlsl(vertex, fragment)" : "createWgsl({ vertex, fragment })"};
+  await adapter.attach(target);
+  adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
+  adapter.setAttribute(matrix, Float32Array.of(1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1));
+  adapter.draw({ count: 3 });
+  ${lang === "wgsl" ? "await adapter.device().queue.onSubmittedWorkDone();" : ""}
+  return readPixel(target, 1, 2);
+};`;
+
+  /**
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it("gives the fragment stage the matrix on WebGL with createGlsl", async () => {
+    const pixel = await runInGpuPage(entry("glsl"), "__rmslMatrixAttributeRun", new URL(".", import.meta.url).pathname);
+    expect(pixel).toEqual({ r: 255, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * The device refuses the shader module, and the draw leaves the canvas as it was.
+   *
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it.skipIf(!WEBGPU)(
+    "draws nothing on WebGPU with createWgsl",
+    async () => {
+      const pixel = await runInWebGpuPage(
+        entry("wgsl"),
+        "__rmslMatrixAttributeRun",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(pixel).toEqual({ r: 0, g: 0, b: 0, a: 0 });
     },
     120_000,
   );

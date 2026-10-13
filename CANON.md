@@ -101,6 +101,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
       - [`@spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once`](#spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once) — Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
       - [`@spec a-fragment-stage-compiled-alone-refuses-an-attribute`](#spec-a-fragment-stage-compiled-alone-refuses-an-attribute) — `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
+      - [`@exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects`](#exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects) — A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
@@ -918,6 +919,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
 - [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 - [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
+- [`@fact wgsl-allows-only-numeric-scalars-and-vectors-between-stages`](#fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages) — A WGSL vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type. A matrix is refused, and the shader module fails to compile.
+- [`@fact tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged) — TSL's WGSL builder writes a matrix varying as a `@location` member of the matrix type, and does not split it into columns. A fragment stage of `MeshBasicNodeMaterial` that reads `varying(mat3(a, a, a))` draws nothing on a WebGPU device, which reports the member as invalid.
 - [`@fact tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying`](#fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying) — TSL's `AttributeNode` builds a varying of itself when the stage that reads it is not the vertex stage. The vertex stage assigns the varying from the attribute, and the fragment stage reads it, as `nodeVarying0` for the first. A node built in the vertex stage reads the attribute directly.
 - [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
 - [`@fact tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other) — TSL builds the operands of an operation as one type, and converts each operand of another type to it. An arithmetic or bitwise operator takes the type of its first operand, unless the second is the longer vector, so `int + uint` converts the `uint` to an `int`. A math function such as `clamp`, `pow` or `step` takes the type of its longest operand, and `select` that of its longer branch, the first on a tie. Two scalars of different types compare as `float`. A shift converts its amount to `uint`, and `mix` its weight to `float` when the weight is a scalar.
@@ -991,6 +994,7 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
 
 ### Coverage gaps
 
@@ -1533,6 +1537,14 @@ This follows because a TSL shader reads an attribute in its fragment stage witho
 > `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
 
 This follows because a stage compiled alone has no vertex stage to write the varying. A shader that declares an input nothing feeds does not compile.
+
+##### @exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+
+> A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
+
+Derives from: [`fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages`](#fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages), [`fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged)
+
+This follows because rmsl passes an attribute on in a varying of its own type, as TSL does. TSL leaves a matrix varying as it is. Issue #290 asks whether rmsl should diverge from TSL here.
 
 ### @spec a-program-runs-its-statements-in-the-order-it-writes-them
 
@@ -6518,6 +6530,18 @@ This is how three.js's TSL behaves, read from its source (`Position`, `Instance`
 > TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
 
 This is how three.js's TSL behaves, read from its source (`Normal`, `Instance` and `transformNormal`, three.js 0.186).
+
+## @fact wgsl-allows-only-numeric-scalars-and-vectors-between-stages
+
+> A WGSL vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type. A matrix is refused, and the shader module fails to compile.
+
+This is how Tint, the WGSL compiler of Chromium's WebGPU, behaves. It answers with `'@location' must only be applied to declarations of numeric scalar or numeric vector type` for a `mat3x3<f32>` member.
+
+## @fact tsl-passes-a-matrix-varying-to-wgsl-unchanged
+
+> TSL's WGSL builder writes a matrix varying as a `@location` member of the matrix type, and does not split it into columns. A fragment stage of `MeshBasicNodeMaterial` that reads `varying(mat3(a, a, a))` draws nothing on a WebGPU device, which reports the member as invalid.
+
+This is how three.js's TSL behaves, read from its source (`VaryingNode` and `WGSLNodeBuilder.getVaryings`) and run on a Chromium WebGPU device (three.js 187dev). A `mat3` geometry attribute fails earlier, because a vertex buffer has no format for nine floats.
 
 ## @fact tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying
 

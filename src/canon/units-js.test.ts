@@ -2615,6 +2615,21 @@ describe("an attribute the fragment stage reads", () => {
   });
 
   /**
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it.each(compiles)("gives the fragment stage a matrix attribute on %s", async (_name, compile) => {
+    const matrix = attributeRaw("matrix", "mat2");
+    const fragment = () => Fn(() => vec4(matrix.mul(vec2(1, 1)), 0, 1))();
+    const routine = await compile(vertex as any, fragment as any);
+    const identity = [1, 0, 0, 1];
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, matrix: Float64Array.from([...identity, ...identity, ...identity]) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    expect(Array.from(pixels.slice(0, 4))).toEqual([1, 1, 0, 1]);
+  });
+
+  /**
    * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
    */
   it.each([
