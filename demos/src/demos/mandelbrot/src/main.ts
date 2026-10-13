@@ -1,7 +1,7 @@
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import { compileJSGrid } from "@random-mesh/rmsl/js";
 import { compileWasmGrid } from "@random-mesh/rmsl/wasm";
-import { compileWgsl, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
+import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
 import {
   calcMandelbrot,
   calcMandelbrotCpu,
@@ -140,20 +140,18 @@ type WebGPUState = {
 let webgpu: WebGPUState | null = null;
 let webgpuError: string | null = null;
 
-// Every uniform the WGSL fragment stage reads, sorted the same way
-// `compileWgsl`'s own uniform-struct layout sorts them (by generated slot
-// name) — `wgslUniformLayout` has to see the identical list in the identical
-// order to compute the byte offsets the compiled struct actually uses.
+// Every uniform the WGSL fragment stage reads. The stage and
+// `wgslUniformLayout` see the same list, so they agree on the byte offsets.
 const wgslDeclaredUniforms = [
-  { slot: u_resolution.name, type: "vec2<f32>" },
-  { slot: u_maxIter.name, type: "i32" },
-  { slot: u_useHighPrecision.name, type: "i32" },
-  { slot: u_pan_hi.name, type: "vec2<f32>" },
-  { slot: u_pan_lo.name, type: "vec2<f32>" },
-  { slot: u_scale_hi.name, type: "vec2<f32>" },
-  { slot: u_scale_lo.name, type: "vec2<f32>" },
-  { slot: u_palette.name, type: "i32" },
-].sort((a, b) => a.slot.localeCompare(b.slot));
+  u_resolution,
+  u_maxIter,
+  u_useHighPrecision,
+  u_pan_hi,
+  u_pan_lo,
+  u_scale_hi,
+  u_scale_lo,
+  u_palette,
+];
 
 /** Byte-pack `values` into `layout`'s struct, per each member's own WGSL type. */
 function packUniformBytes(
@@ -199,7 +197,7 @@ async function setupWebGPU(): Promise<void> {
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "premultiplied" });
 
-  const layout = wgslUniformLayout(wgslDeclaredUniforms);
+  const layout = wgslUniformLayout(wgslDeclaredUniforms.map(wgslUniformDeclaration));
   const bufferSize = Math.max(16, Math.ceil(layout.size / 16) * 16);
 
   const vsWGSL = compileWgsl.vertex(vertexMain());

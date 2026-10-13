@@ -29,7 +29,7 @@ renderer machinery is replaced with explicit arguments.
 | `uniform(new Vector2())` (resolution)             | Derived in-shader from `textureSize(...)`.                                                |
 | `time`                                            | `time()` — a shared `float` uniform the host updates.                                     |
 | `passTexture` / `RenderTarget`                    | A `PassGraph` of data-only pass descriptors (see below).                                  |
-| `Loop({ start, end, condition }, ({ i }) => ...)` | RMSL `For(...)` / `Loop(count, (i) => ...)`.                                              |
+| `Loop({ start, end, condition }, ({ i }) => ...)` | Same.                                                                                     |
 | `.toConst()`                                      | Free — RMSL constant-folds.                                                               |
 
 ## Single-pass effects

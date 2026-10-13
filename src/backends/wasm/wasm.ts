@@ -1,4 +1,5 @@
-import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess } from "../../core";
+import { withArticle } from "../../article";
+import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
@@ -44,6 +45,7 @@ import {
   isLeafLiteral,
   resolveSwizzleTarget,
   inlineCalls,
+  LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE,
 } from "../shared";
 import { shareNodes } from "../share";
 import { MATRIX_HELPER_FORMULAS, type Formula, type MatrixHelper } from "../matrix-formulas";
@@ -73,6 +75,9 @@ import {
  * position/fragDepth/value kinds are written by the call and read back
  * after it; "narrow" floats are stored as f32 instead of f64.
  */
+
+/** The attribute slot a vertex stage reads `vertexIndex()` from on WASM, which the rasterizer fills with each vertex's index. */
+export const VERTEX_INDEX_SLOT = "_rmsl_vertexIndex";
 export type WasmParam =
   | { kind: "param"; name: string; shaderType: ShaderType }
   | { kind: "uniform"; slot: string; shaderType: ShaderType }
@@ -94,7 +99,7 @@ export type WasmParam =
   | { kind: "outputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "varyingOutputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "positionMemory"; address: number }
-  | { kind: "fragDepthMemory"; address: number }
+  | { kind: "fragDepthMemory"; address: number; written: boolean }
   | { kind: "discardMemory"; address: number }
   | { kind: "valueMemory"; shaderType: ShaderType; address: number }
   | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number }
@@ -141,9 +146,8 @@ export type CompiledWasm = {
 
   maxMemoryPages: number; // the maximum this module's memory import declared — only enforced when sharedMemory is true
 
-  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
-  /** Whether the module exports `compute(...params, count)`, which runs `main` once per invocation index. */
-  compute?: boolean;
+  /** The shape of the program's value, set when it returns one. A module that is no stage exports `_rmsl_draw` to fill a grid with it. */
+  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" };
   /** Whether the program computes every float in 32 bits, so the host rounds each float input it passes. */
   float32?: boolean;
 };
@@ -316,7 +320,7 @@ function wasmTypeOf(kind: ScalarKind): number {
 }
 
 /** Bytes per component: 8 for float, 4 for int/uint/bool. */
-function componentSizeOf(kind: ScalarKind): number {
+export function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
 }
 
@@ -600,11 +604,13 @@ function emitLiteralStores(node: any, addr: number): number[] {
   return out;
 }
 
-/**
- * What a vector or matrix the host leaves out is read from: an array with no
- * components, each of which is written as zero.
- */
-const ZERO_COMPONENTS: readonly number[] = [];
+/** What a vector or matrix the host leaves out is read from: a zero for each component of a `mat4`. */
+const ZERO_COMPONENTS: readonly number[] = new Array(16).fill(0);
+
+/** A bool the host passes, as 1 where it converts to an `int` that is not zero, as WebGL and WGSL test it, and 0 elsewhere. */
+function hostBoolean(value: unknown): number {
+  return ((value as number) | 0) !== 0 ? 1 : 0;
+}
 
 /**
  * Host-side: packs an array value into linear memory. With `narrow` plus a
@@ -622,17 +628,16 @@ function writeAggregateToMemory(
   const kind = elementKindOf(shaderType);
 
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
-  // A value the host leaves out, or a component past the end of a shorter one, is written as zero.
+  // A value the host leaves out is written as zero. A component converts as the DataView stores it.
   const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
   const count = componentCountOf(shaderType);
   for (let i = 0; i < count; i++) {
-    const raw = (i < arr.length ? arr[i] : 0) ?? 0;
-    const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
+    const num = arr[i] as number;
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
       else view.setFloat64(address + i * compSize, round32 ? Math.fround(num) : num, true);
     } else {
-      view.setInt32(address + i * compSize, num, true);
+      view.setInt32(address + i * compSize, kind === "bool" ? hostBoolean(num) : num, true);
     }
   }
 }
@@ -651,29 +656,28 @@ function writeArrayToMemory(
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  // An element past the end of a shorter array the host passes, or of one it leaves out, is written as zero.
-  const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<any>;
+  // An array the host leaves out reads zero. Any other element, and each component of one, converts as
+  // the DataView stores it, so `undefined` stores as NaN in a float. A vector element given as nothing
+  // reads each component as `undefined`.
   for (let i = 0; i < length; i++) {
-    const el = i < arr.length ? arr[i] : undefined;
+    const el = value == null ? (width === 1 ? null : ZERO_COMPONENTS) : value[i];
     const base = address + i * elementStride;
     if (width === 1) {
-      const num = typeof el === "boolean" ? (el ? 1 : 0) : ((el as number | undefined) ?? 0);
       if (kind === "float") {
-        if (narrow) view.setFloat32(base, num, true);
-        else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
+        if (narrow) view.setFloat32(base, el, true);
+        else view.setFloat64(base, round32 ? Math.fround(el) : el, true);
       } else {
-        view.setInt32(base, num, true);
+        view.setInt32(base, kind === "bool" ? hostBoolean(el) : el, true);
       }
     } else {
       for (let k = 0; k < width; k++) {
-        const raw = el?.[k];
-        const num = typeof raw === "boolean" ? (raw ? 1 : 0) : ((raw as number | undefined) ?? 0);
+        const num = el?.[k];
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);
           else view.setFloat64(at, round32 ? Math.fround(num) : num, true);
         } else {
-          view.setInt32(at, num, true);
+          view.setInt32(at, kind === "bool" ? hostBoolean(num) : num, true);
         }
       }
     }
@@ -734,7 +738,7 @@ function writeScalarToMemory(
   if (kind === "float") {
     if (narrow) view.setFloat32(address, num, true);
     else view.setFloat64(address, round32 ? Math.fround(num) : num, true);
-  } else view.setInt32(address, num, true);
+  } else view.setInt32(address, kind === "bool" ? hostBoolean(num) : num, true);
 }
 
 /** Host-side: writes a value (scalar or aggregate) into memory — the write-side counterpart of readValueFromMemory. */
@@ -807,10 +811,20 @@ function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
  * against a known answer, not quoted from memory: a wrong-but-valid opcode
  * runs and silently miscompiles.
  */
+/** Throws for a program name in the prefix the module's own exports, `_rmsl_draw` and `_rmsl_compute`, carry. */
+function assertProgramName(caller: string, name: string): void {
+  if (name.startsWith(RESERVED_VAR_PREFIX)) {
+    throw new Error(
+      `[RMSL] ${caller}: the name "${name}" starts with "${RESERVED_VAR_PREFIX}", which the compiler reserves for the module's own exports. Give the program another name`,
+    );
+  }
+}
+
 export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
+  assertProgramName("compileWasmFn", options.name);
   if (options.gpuUniformLayout && options.float !== "f32") {
     throw new Error(
       `[RMSL] compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
@@ -882,6 +896,8 @@ export function compileWasmFn(
   // A program that returns nothing has no value slot and nothing to read back.
   let needsResult = options.stage === "vertex" || isAggregate(root._t as string) || root._t === "void";
   let positionWritten = false;
+  /** Whether a fragment stage assigns its depth, not only reads it. */
+  let fragDepthWritten = false;
   const outputAddress = new Map<string, number>();
   const varyingOutputAddress = new Map<string, number>();
   let positionAddress: number | undefined;
@@ -902,7 +918,10 @@ export function compileWasmFn(
   // between roots (the array-return-sugar case) is idempotent.
   assertOneDeclarationPerName(resultNodes);
   for (const n of resultNodes) collect(n);
-  for (const p of memoryParams) if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
+  for (const p of memoryParams) {
+    if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
+    if (p.kind === "fragDepthMemory") p.written = fragDepthWritten;
+  }
 
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
@@ -1100,10 +1119,13 @@ export function compileWasmFn(
   /** Whether `draw` writes its float components as f32, as `float: "f32"` asks of the buffer it fills. */
   const drawFloat32 = float32 && drawComponentKind === "float";
 
-  // A "draw(width, height, bufferBase)" export: loops every pixel, runs the
-  // main function (feeding the pixel in as fragCoord), and stores the output
+  /** A vertex or fragment stage runs once per vertex or fragment from the rasterizer, and needs neither loop. */
+  const stageModule = options.stage === "vertex" || options.stage === "fragment";
+
+  // The "_rmsl_draw(width, height, bufferBase)" export: loops every pixel, runs
+  // the main function (feeding the pixel in as fragCoord), and stores the output
   // into the caller's buffer — the CPU path for whole-image evaluation.
-  if (root._t !== "void") {
+  if (root._t !== "void" && !stageModule) {
     const widthIdx = params.length;
     const heightIdx = params.length + 1;
     const bufferBaseIdx = params.length + 2;
@@ -1230,10 +1252,10 @@ export function compileWasmFn(
   let computeTypeIdx: number | undefined;
   let computeFuncBody: number[] | undefined;
 
-  // A "compute(count)" export for a compute program: runs main once per
-  // index in 0..count, passing the index as invocationIndex() and every other
-  // param through unchanged, so a whole dispatch is one call from the host.
-  if (paramIndex.has("invocationIndex") || storageMetadataAddress.size > 0) {
+  // The "_rmsl_compute(...params, count)" export of every program but a stage:
+  // runs main once per index in 0..count, passing the index as invocationIndex()
+  // and every other param through unchanged, so a whole dispatch is one call.
+  if (!stageModule) {
     const countIdx = params.length;
     const indexIdx = params.length + 1;
     const invocationIndexParam = paramIndex.get("invocationIndex");
@@ -1254,10 +1276,10 @@ export function compileWasmFn(
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32]]), ...wasmVec([])]);
   }
 
-  /** The module's own functions after main, in function-index order: draw, then compute, each when emitted. */
+  /** The module's own functions after main, in function-index order: `_rmsl_draw`, then `_rmsl_compute`, each when emitted. */
   const extraFunctions = [
-    { name: "draw", typeIdx: drawTypeIdx, body: drawFuncBody },
-    { name: "compute", typeIdx: computeTypeIdx, body: computeFuncBody },
+    { name: `${RESERVED_VAR_PREFIX}draw`, typeIdx: drawTypeIdx, body: drawFuncBody },
+    { name: `${RESERVED_VAR_PREFIX}compute`, typeIdx: computeTypeIdx, body: computeFuncBody },
   ].filter((f): f is { name: string; typeIdx: number; body: number[] } => f.typeIdx !== undefined);
 
   /** 65536 bytes per WASM memory page. */
@@ -1366,8 +1388,7 @@ export function compileWasmFn(
     memoryPages, // initial page count a default (non-shared) memory should be created with
     sharedMemory,
     maxMemoryPages,
-    draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
-    compute: computeTypeIdx !== undefined,
+    draw: root._t === "void" ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
     float32,
   };
 
@@ -1502,8 +1523,15 @@ export function compileWasmFn(
         break;
       }
 
+      case "vertexIndex":
+      case "instanceIndex":
       case "attribute": {
-        const v = node.value;
+        if (node.type !== "attribute" && effectiveStage !== "vertex") {
+          throw new Error(`[RMSL] compileWasmFn: ${node.type}() can only be used in vertex shaders`);
+        }
+        // A CPU rasterizer draws one instance, instance 0, which needs no input.
+        if (node.type === "instanceIndex") break;
+        const v = node.type === "vertexIndex" ? { slot: VERTEX_INDEX_SLOT, shaderType: "uint" as const } : node.value;
         assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.attribute);
         if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
@@ -1633,7 +1661,7 @@ export function compileWasmFn(
         needsResult = true;
         if (fragDepthAddress === undefined) {
           fragDepthAddress = allocateFor("float");
-          memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress });
+          memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress, written: false });
         }
         break;
       }
@@ -1641,6 +1669,7 @@ export function compileWasmFn(
       case "assign": {
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
+        if (node.params[0].type === "builtinFragDepth") fragDepthWritten = true;
         // and which storage buffers are written
         assertAssignable(node.params[0], effectiveStage);
         const element = assignedStorageElement(node.params[0]);
@@ -1835,10 +1864,12 @@ export function compileWasmFn(
         return addr;
       }
 
+      case "vertexIndex":
       case "attribute": {
-        const addr = attributeAddress.get(node.value.slot);
+        const slot = node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot;
+        const addr = attributeAddress.get(slot);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${slot}"`);
         return addr;
       }
 
@@ -2116,7 +2147,11 @@ export function compileWasmFn(
    */
   function emitColumnComponentStore(column: any, offset: number[], rhs: any): number[] {
     const target = columnTarget(column);
-    return target.guard(storeDynamic([...target.address, ...offset, WASM_OP.i32Add], "float", walkExpr(rhs)));
+    const value = readOnce(rhs);
+    return [
+      ...value.setup,
+      ...target.guard(storeDynamic([...target.address, ...offset, WASM_OP.i32Add], "float", value.at(0))),
+    ];
   }
 
   /**
@@ -2139,13 +2174,14 @@ export function compileWasmFn(
     const access = storageElementAccess(element);
     const kind = elementKindOf(element._t as string);
     const compSize = componentSizeOf(kind);
-    const prelude = letters.length === 1 ? [] : materializeIfNeeded(rhs);
-    const rhsAddr = letters.length === 1 ? 0 : nodeAddress(rhs);
+    const scalar = letters.length === 1 ? readOnce(rhs) : undefined;
+    const prelude = scalar ? scalar.setup : materializeIfNeeded(rhs);
+    const rhsAddr = scalar ? 0 : nodeAddress(rhs);
     const stores = letters.flatMap((letter, i) =>
       storeDynamic(
         access.address(COMPONENT_INDEX[letter]!),
         kind,
-        letters.length === 1 ? walkExpr(rhs) : loadComponent(rhsAddr, kind, i * compSize),
+        scalar ? scalar.at(0) : loadComponent(rhsAddr, kind, i * compSize),
       ),
     );
     return [...prelude, ...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end];
@@ -2153,18 +2189,22 @@ export function compileWasmFn(
 
   /**
    * Writes `rhs` into a storage element. A write outside the buffer is
-   * dropped, so it cannot land in whatever memory lies past it.
+   * dropped, so it cannot land in whatever memory lies past it. The value is
+   * computed before the bounds check, outside its block, so the statements it
+   * holds run on every write and a jump among them leaves the block it names.
    */
   function emitStorageElementStore(target: any, rhs: any): number[] {
     const type = target._t as string;
     const element = storageElementAccess(target);
     if (!isAggregate(type)) {
       const kind = scalarKindOf(type);
+      const value = readOnce(rhs);
       return [
+        ...value.setup,
         ...element.inBounds,
         WASM_OP.if_,
         WASM_BLOCKTYPE_VOID,
-        ...storeDynamic(element.address(0), kind, walkExpr(rhs)),
+        ...storeDynamic(element.address(0), kind, value.at(0)),
         WASM_OP.end,
       ];
     }
@@ -2234,6 +2274,8 @@ export function compileWasmFn(
         return out;
       }
       case "attribute":
+      case "vertexIndex":
+      case "instanceIndex":
       case "fragCoord":
         return [];
       case "storageElement":
@@ -3613,11 +3655,15 @@ export function compileWasmFn(
         if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
       }
+      case "vertexIndex":
       case "attribute": {
-        const addr = attributeAddress.get(node.value.slot);
+        const slot = node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot;
+        const addr = attributeAddress.get(slot);
         if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
-        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
+        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${slot}`))];
       }
+      case "instanceIndex":
+        return i32ConstBytes(0);
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
       case "storageElement": {
@@ -4127,12 +4173,12 @@ export function compileWasmFn(
       }
       case "break": {
         const top = loopStack[loopStack.length - 1];
-        if (!top) throw new Error('[RMSL] compileWasmFn: "Break" outside a loop');
+        if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.break);
         return [WASM_OP.br, ...wasmUleb128(depth - top.breakDepth)];
       }
       case "continue": {
         const top = loopStack[loopStack.length - 1];
-        if (!top) throw new Error('[RMSL] compileWasmFn: "Continue" outside a loop');
+        if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.continue);
         return [WASM_OP.br, ...wasmUleb128(depth - top.continueDepth)];
       }
       case "scope": {
@@ -4152,11 +4198,25 @@ export function compileWasmFn(
         // after it raises the flag the host reads.
         const sentinel = needsResult ? [] : resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0); // needsResult exits a void block; otherwise carry a zero for the block's result type
         const raise = node.type === "discard" ? storeComponent(discardAddress!, "int", 0, i32ConstBytes(1)) : [];
-        return [...raise, ...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
+        // A result kept in memory gives the zero value of its type, rather than what an earlier call left there.
+        const zeroResult = node.type === "return" && needsResult ? zeroValueBytes() : [];
+        return [...raise, ...zeroResult, ...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in statement position: "${node.type}"`);
     }
+  }
+
+  /** Writes the zero value of the function's type to valueAddress, where an early return leaves the result. */
+  function zeroValueBytes(): number[] {
+    if (valueAddress === undefined || root._t === "void") return [];
+    const type = root._t as string;
+    const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
+    const compSize = componentSizeOf(kind);
+    const zero = kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
+    return Array.from({ length: componentCountOf(type) }, (_, k) =>
+      storeComponent(valueAddress!, kind, k * compSize, zero),
+    ).flat();
   }
 
   /** Puts the function's result where expected: the stack (scalar mode) or valueAddress (aggregate/stage mode). */
@@ -4300,9 +4360,11 @@ export function createWasmInputMarshaller(
   const storageLengths: number[] = new Array(storageParams.length).fill(0);
   let memoryView = new DataView(memory.buffer);
 
-  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`. */
+  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`, and a bool as 1 or 0. */
   function scalarArg(shaderType: ShaderType, value: number): number {
-    return float32 && scalarKindOf(shaderType) === "float" ? Math.fround(value) : value;
+    const kind = scalarKindOf(shaderType);
+    if (kind === "bool") return hostBoolean(value);
+    return float32 && kind === "float" ? Math.fround(value) : value;
   }
 
   /** A view of the memory, made again only when the memory grows and its buffer changes. */
@@ -4365,7 +4427,10 @@ export function createWasmInputMarshaller(
           args[argCount++] = scalarArg(p.shaderType, (ctx.uniforms as any)?.[p.slot] ?? 0);
           break;
         case "attribute":
-          args[argCount++] = scalarArg(p.shaderType, (ctx.attributes as any)?.[p.slot] ?? 0);
+          args[argCount++] = scalarArg(
+            p.shaderType,
+            (p.slot === VERTEX_INDEX_SLOT ? ctx.vertexIndex : (ctx.attributes as any)?.[p.slot]) ?? 0,
+          );
           break;
         case "varying":
           args[argCount++] = scalarArg(p.shaderType, (ctx.varyings as any)?.[p.slot] ?? 0);
@@ -4381,7 +4446,8 @@ export function createWasmInputMarshaller(
           const value = (ctx.uniforms as any)?.[p.slot];
           if (value === undefined || typeof value !== "number" || isAggregate(p.shaderType)) {
             writeValueToMemory(view, p.address, p.shaderType, value, p.narrow, float32);
-          } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
+          } else if (scalarKindOf(p.shaderType) === "bool") view.setInt32(p.address, hostBoolean(value), true);
+          else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
           else if (p.narrow) view.setFloat32(p.address, value, true);
           else view.setFloat64(p.address, float32 ? Math.fround(value) : value, true);
           break;
@@ -4399,7 +4465,12 @@ export function createWasmInputMarshaller(
           );
           break;
         case "attributeMemory":
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
+          writeValueToMemory(
+            view,
+            p.address,
+            p.shaderType,
+            p.slot === VERTEX_INDEX_SLOT ? (ctx.vertexIndex ?? 0) : (ctx.attributes as any)?.[p.slot],
+          );
           break;
         case "varyingMemory":
           writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
@@ -4515,11 +4586,18 @@ function storageElementSize(shaderType: ShaderType): number {
   return componentCountOf(shaderType) * componentSizeOf(kind);
 }
 
+/**
+ * Instantiates a compiled module as a `CpuProgram`. `needs` names the loop of
+ * the module's own the caller is built on, which a module without it is refused
+ * for here rather than at its first call.
+ */
 export function instantiateWasmProgram(
   compiled: CompiledWasm,
   name: string,
   externalMemory?: WebAssembly.Memory,
+  needs?: { caller: string; loop: "draw" | "compute" },
 ): CpuProgram {
+  assertProgramName("instantiateWasmProgram", name);
   const {
     bytes,
     params,
@@ -4529,7 +4607,6 @@ export function instantiateWasmProgram(
     sharedMemory,
     maxMemoryPages,
     draw: drawOutput,
-    compute: hasCompute,
     float32,
   } = compiled;
 
@@ -4548,8 +4625,17 @@ export function instantiateWasmProgram(
     env: { memory },
   });
   const wasmMain = instance.exports[name] as (...args: number[]) => number;
-  const wasmDraw = drawOutput ? (instance.exports.draw as (...args: number[]) => void) : undefined;
-  const wasmCompute = hasCompute ? (instance.exports.compute as (...args: number[]) => void) : undefined;
+  const wasmDraw = drawOutput
+    ? (instance.exports[`${RESERVED_VAR_PREFIX}draw`] as (...args: number[]) => void)
+    : undefined;
+  const wasmCompute = instance.exports[`${RESERVED_VAR_PREFIX}compute`] as ((...args: number[]) => void) | undefined;
+  // A grid whose program returns nothing has no draw loop either, and is refused when it fills, as on JS.
+  const needed = needs && (needs.loop === "compute" || drawOutput);
+  if (needed && !instance.exports[`${RESERVED_VAR_PREFIX}${needs.loop}`]) {
+    throw new Error(
+      `[RMSL] ${needs.caller}: this module exports no "${RESERVED_VAR_PREFIX}${needs.loop}" loop, as a module compiled as a vertex or fragment stage does not`,
+    );
+  }
 
   // outputs read back after each call; textures repacked per call
   const outputParams = params.filter(
@@ -4629,7 +4715,7 @@ export function instantiateWasmProgram(
 
   /**
    * `CpuRoutine.draw`: marshals `ctx` once, then calls the module's own
-   * `draw` export to render the whole `width x height` grid in one call
+   * `_rmsl_draw` export to render the whole `width x height` grid in one call
    * (growing the buffer if needed) — see "A whole grid in one call" in
    * docs/wasm-benchmarks.md for why this exists.
    */
@@ -4649,7 +4735,7 @@ export function instantiateWasmProgram(
     if (out && out.buffer === memory.buffer) {
       if (!(out instanceof DrawArray)) {
         throw new Error(
-          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not a ${out.constructor.name}.`,
+          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not ${withArticle(out.constructor.name)}.`,
         );
       }
       const n = copyArgs(drawArgs, args);
@@ -4685,17 +4771,19 @@ export function instantiateWasmProgram(
 
   /**
    * `CpuRoutine.compute`: marshals `ctx` once, runs every invocation in one
-   * call to the module's own `compute` export, and copies the storage
-   * buffers back once at the end. A program with neither `storage()` nor
-   * `invocationIndex()` has no such export, and loops `main` from here.
+   * call to the module's own `_rmsl_compute` export, and copies the storage
+   * buffers back once at the end.
    */
   function compute(ctx: CpuShaderContext, count: number): void {
+    if (!wasmCompute) {
+      throw new Error(
+        `[RMSL] this module exports no "${RESERVED_VAR_PREFIX}compute" loop: it was compiled as a vertex or fragment stage`,
+      );
+    }
     const { args } = marshalInputs(ctx);
-    if (wasmCompute) {
-      const n = copyArgs(computeArgs, args);
-      computeArgs[n] = count;
-      callExport(wasmCompute, computeArgs, n + 1);
-    } else for (let i = 0; i < count; i++) callExport(wasmMain, args, args.length);
+    const n = copyArgs(computeArgs, args);
+    computeArgs[n] = count;
+    callExport(wasmCompute, computeArgs, n + 1);
     writeBackStorages(ctx);
   }
 
@@ -4747,7 +4835,10 @@ export function instantiateWasmCompute(
   name: string,
   externalMemory?: WebAssembly.Memory,
 ): ComputeStage {
-  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  const program = instantiateWasmProgram(compiled, name, externalMemory, {
+    caller: "instantiateWasmCompute",
+    loop: "compute",
+  });
   return Object.assign((ctx: CpuShaderContext, count: number) => program.compute(ctx, count), {
     storageTypes: program.storageTypes ?? {},
   });
@@ -4759,7 +4850,10 @@ export function instantiateWasmGrid<A extends ShaderType = ShaderType>(
   name: string,
   externalMemory?: WebAssembly.Memory,
 ): CpuGrid<A> {
-  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  const program = instantiateWasmProgram(compiled, name, externalMemory, {
+    caller: "instantiateWasmGrid",
+    loop: "draw",
+  });
   return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A>;
 }
 

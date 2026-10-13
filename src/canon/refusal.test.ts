@@ -256,6 +256,92 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
+   * A graph `deserialize` rebuilt never met the builders that refuse an
+   * operand of the wrong kind, so every target refuses it as it compiles. The
+   * data is edited by hand so that a node reads an operand no builder lets it.
+   */
+  const rewired = (build: () => Node<"vec4">, type: string, from: string) => {
+    const graph = serialize(build());
+    const node = graph.nodes.find((n) => n.type === type)!;
+    node.params![node.params!.length - 1] = graph.nodes.findIndex((n) => n.type === "uniform" && n._t === from);
+    return graph;
+  };
+  const refusedOnEveryTarget = (graph: ReturnType<typeof serialize>, refusal: RegExp) => {
+    const none = { name: "main", params: [] };
+    expect(() => compileGlsl.fragment(deserialize(graph) as Node<"vec4">)).toThrow(refusal);
+    expect(() => compileWgsl.fragment(deserialize(graph) as Node<"vec4">)).toThrow(refusal);
+    expect(() => compileJSFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrow(refusal);
+    expect(() => compileWasmFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrow(refusal);
+  };
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   */
+  it("refuses a deserialized sum of an int and a uint on every target", () => {
+    const count = uniform("int");
+    const mask = uniform("uint");
+    const build = () => Fn(() => vec4(count.add(count).toFloat(), mask.toFloat(), 0, 1))();
+    refusedOnEveryTarget(rewired(build, "add", "uint"), /add\(\) takes operands of one kind, not int and uint/);
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("refuses a deserialized minimum of an int and a float on every target", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4(count.min(count).toFloat(), scale, 0, 1))();
+    refusedOnEveryTarget(rewired(build, "min", "float"), /min\(\) takes operands of one kind, not int and float/);
+  });
+
+  /**
+   * @canon spec-operands-of-different-widths-are-refused
+   */
+  it("refuses a deserialized sum of vectors of different widths on every target", () => {
+    const short = uniform("vec2");
+    const long = uniform("vec3");
+    const build = () => Fn(() => vec4(short.add(short).x, long.x, 0, 1))();
+    refusedOnEveryTarget(rewired(build, "add", "vec3"), /one width/);
+  });
+
+  /**
+   * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
+   */
+  it("refuses a deserialized power of two ints on every target", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4(scale.pow(scale), count.toFloat(), 0, 1))();
+    const graph = rewired(build, "pow", "int");
+    graph.nodes.find((n) => n.type === "pow")!.params![0] = graph.nodes.findIndex((n) => n._t === "int");
+    refusedOnEveryTarget(graph, /pow\(\) takes a float or a float vector, not int/);
+  });
+
+  /**
+   * @canon spec-an-integer-operation-refuses-a-float-operand
+   */
+  it("refuses a deserialized bitwise and of floats on every target", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4(count.bitAnd(count).toFloat(), scale, 0, 1))();
+    const graph = rewired(build, "bitAnd", "float");
+    graph.nodes.find((n) => n.type === "bitAnd")!.params![0] = graph.nodes.findIndex((n) => n._t === "float");
+    refusedOnEveryTarget(graph, /bitAnd\(\) takes an integer or an integer vector, not float/);
+  });
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   */
+  it("refuses a deserialized absolute value of a uint on every target", () => {
+    const count = uniform("int");
+    const mask = uniform("uint");
+    const build = () => Fn(() => vec4(count.abs().toFloat(), mask.toFloat(), 0, 1))();
+    refusedOnEveryTarget(
+      rewired(build, "abs", "uint"),
+      /abs\(\) takes a float or a signed integer, scalar or vector, not uint/,
+    );
+  });
+
+  /**
    * A `For` whose update leaves the loop or the function is refused as it is
    * built, and as every target compiles it, a graph `deserialize` rebuilt
    * included: the update slot of a GLSL, WGSL or JavaScript `for` takes no
@@ -332,12 +418,10 @@ describe("a mistake is refused before the program runs", () => {
       })();
     expect(computeWgsl(build())).toContain("continuing");
     for (const compile of [compileJSCompute, compileWasmCompute]) {
-      const storages = { [scalars.name]: [9, 9, 9, 9], [triples.name]: new Array(12).fill(0) };
+      const storages = { [scalars.name]: Float64Array.of(9, 9, 9, 9), [triples.name]: new Float64Array(12) };
       compile(build, { name: "main", params: [] })({ storages }, 1);
-      expect(storages).toEqual({
-        [scalars.name]: [0, 1, 2, 3],
-        [triples.name]: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-      });
+      expect(Array.from(storages[scalars.name]!)).toEqual([0, 1, 2, 3]);
+      expect(Array.from(storages[triples.name]!)).toEqual([1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0]);
     }
   });
 
@@ -461,8 +545,8 @@ describe("a mistake is refused before the program runs", () => {
 
   /**
    * An array of 2, 3 or 4 numbers is a vector, and one of a length no vector
-   * has is refused, naming the length, where it used to become the float of
-   * its first element.
+   * has is refused, naming the length and the operation it was given to, where
+   * it used to become the float of its first element.
    *
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
    */
@@ -475,7 +559,9 @@ describe("a mistake is refused before the program runs", () => {
       )();
     expect(() => build(4)()).not.toThrow();
     for (const length of [0, 1, 5, 7]) {
-      expect(build(length), `length ${length}`).toThrow(new RegExp(`array of length ${length} is no vector`));
+      expect(build(length), `length ${length}`).toThrow(
+        new RegExp(`array of length ${length} given to add\\(\\) is no vector`),
+      );
     }
   });
 

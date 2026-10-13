@@ -1,4 +1,4 @@
-import { Fn, If, add, clamp, div, equal, int, mix, mul, sub, uv, vec4, type Node } from "../rmsl";
+import { Fn, If, add, clamp, div, equal, int, mix, mul, sub, uv, vec4, type Node, texture } from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 /**
@@ -26,8 +26,8 @@ export const transition = (
   const useMixTexture = equal(useTexture, int(1));
   return Fn(() => {
     const uvNode = uv();
-    const texelOne = textureNodeA.texture(uvNode);
-    const texelTwo = textureNodeB.texture(uvNode);
+    const texelOne = texture(textureNodeA, uvNode);
+    const texelTwo = texture(textureNodeB, uvNode);
     const color = vec4().toVar();
     const crossFade = () => {
       color.assign(mix(texelTwo, texelOne, mixRatio));
@@ -39,7 +39,7 @@ export const transition = (
     }
 
     If(useMixTexture, () => {
-      const transitionTexel = mixTextureNode.texture(uvNode);
+      const transitionTexel = texture(mixTextureNode, uvNode);
       const r = sub(mul(mixRatio, add(mul(threshold, 2.0), 1.0)), threshold);
       const mixf = clamp(mul(transitionTexel.r.sub(r), div(1.0, threshold)), 0.0, 1.0);
       color.assign(mix(texelOne, texelTwo, mixf));

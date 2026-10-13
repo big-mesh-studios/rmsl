@@ -4,10 +4,10 @@ import {
   type ShaderType,
   type UniformArrayNode,
   type UniformNode,
-  type UniformValue,
 } from "../../core";
-import { slotOf, type TypedArray } from "../adapter";
-import { assertWriteFits, storageAttributes } from "../shared";
+import { assertUniformShape, type SetUniformByNode, slotOf } from "../adapter";
+import { assertWriteKind } from "../vertex-format";
+import { assertWriteFits, storageNodesOf } from "../shared";
 import type { CpuProgram } from "../cpu";
 import { compileWasmFn, instantiateWasmProgram } from "./wasm";
 
@@ -28,10 +28,13 @@ export interface WasmContext {
    */
   compute(nodes: ComputeNode | readonly ComputeNode[]): void;
   /** Sets a uniform for every program that reads it, from the next `compute()` on. */
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform: SetUniformByNode;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
-  write(attribute: StorageBufferAttribute, data: TypedArray, offset?: number): void;
+  write(
+    attribute: StorageBufferAttribute,
+    data: Float32Array | Float64Array | Int32Array | Uint32Array,
+    offset?: number,
+  ): void;
   /**
    * The attribute's contents as bytes of its own `arrayClass`, the same layout
    * `WgslContext.getArrayBufferAsync()` returns. WASM holds `float` elements
@@ -85,7 +88,7 @@ export function createWasmContext(): WasmContext {
     const existing = programs.get(node);
     if (existing) return existing;
 
-    const attributes = storageAttributes(node.computeNode);
+    const attributes = new Map(storageNodesOf(node.computeNode).map((n) => [n.name, n.attribute]));
     const compiled = compileWasmFn(() => node.computeNode, { name: "main", params: [], memoryBase: cursor });
     if (compiled.params.some((p) => p.kind === "textureMemory")) {
       throw new Error("[RMSL] createWasmContext: programs that sample textures aren't supported yet.");
@@ -118,11 +121,13 @@ export function createWasmContext(): WasmContext {
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
+      assertUniformShape(uniform, value);
       // Copied, as the WGSL context does, so changing the array afterwards doesn't reach a program.
       uniformValues[slotOf(uniform)] = structuredClone(value) as number | number[];
     },
 
     write(attribute, data, offset = 0) {
+      assertWriteKind(attribute, data, true);
       assertWriteFits(attribute, data.length, offset);
       region(attribute).set(data as ArrayLike<number>, offset * attribute.itemSize);
     },

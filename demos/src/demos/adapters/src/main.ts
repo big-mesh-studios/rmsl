@@ -67,7 +67,6 @@ wgpuAdapter
 const jsAdapter = createJs(
   () => vertexRoot,
   () => fragmentRoot,
-  { attributeTypes: { [pos.name]: "vec2" } },
 );
 jsAdapter.attach(cpuVtxCanvas);
 jsAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);

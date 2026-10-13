@@ -18,6 +18,9 @@ import {
   Fn,
   fragCoord,
   HALF_PI,
+  Break,
+  Continue,
+  For,
   If,
   instancedArray,
   int,
@@ -36,6 +39,7 @@ import {
   mat4x3,
   outputStruct,
   PI,
+  Return,
   screenSize,
   screenUV,
   select,
@@ -52,11 +56,12 @@ import {
   vec3,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmGrid, compileWasmFragment, compileWasmVertex } from "../wasm";
 import {
   assertEvaluationsOfTheTestAgree,
@@ -64,6 +69,9 @@ import {
   closeEvaluators,
   evaluateRecording,
 } from "../testing/shader-eval";
+import { CONDITION_LOOPS, CONDITION_READS } from "../testing/inline-fn-paths";
+import { INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE } from "../backends/share";
+import { LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE } from "../backends/shared";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -79,7 +87,7 @@ const none = { name: "main", params: [] };
 const asFloat = (condition: Node<"bool">) => select(condition, float(1), float(0)) as Node<"float">;
 
 /** Compiles `build` as `stage` on every target, refusing or not as `refused` says. */
-function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any>, refused: RegExp | false) {
+function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any>, refused: RegExp | string | false) {
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
@@ -645,12 +653,206 @@ describe("each leaf on every target it claims", () => {
     const build = (a: Node<"float">) =>
       Fn(() => {
         const total = a.toVar();
-        Loop(int(4), (i) => {
+        Loop(int(4), ({ i }) => {
           total.addAssign(i.toFloat());
         });
         return total;
       })();
     expect(evaluateRecording(build, [1])).toBe(7);
+  });
+
+  /**
+   * @canon spec-loop-with-a-bool-runs-while-it-holds
+   */
+  it("runs a Loop with a bool condition while it holds on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop(total.lessThan(10), () => {
+          total.addAssign(3);
+        });
+        return total;
+      })();
+    expect(evaluateRecording(build, [1])).toBe(10);
+  });
+
+  /**
+   * The condition makes a variable from `n` before the loop, so it reads 0 on
+   * every test, and only the `Break` stops the loop.
+   *
+   * @canon spec-loop-with-a-bool-runs-while-it-holds
+   */
+  it("builds the bool condition of a Loop once, before the loop, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const n = a.toVar();
+        Loop(n.toVar().lessThan(3), () => {
+          n.addAssign(1);
+          If(n.greaterThanEqual(5), () => Break());
+        });
+        return n;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(5);
+  });
+
+  /**
+   * Each index is written as a digit of the result, so the result reads the
+   * indices in the order the loop ran them.
+   *
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it.each([
+    ["only end", { end: 4 }, 123],
+    ["only start", { start: 4 }, 3210],
+    ["a start above its end", { start: 5, end: 2 }, 5432],
+    ["a condition", { start: 1, end: 3, condition: "<=" }, 123],
+  ] as const)("fills in the range of a Loop given %s on every target", (_, range, expected) => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const digits = a.toVar();
+        Loop(range, ({ i }) => {
+          digits.assign(digits.mul(10).add(i.toFloat()));
+        });
+        return digits;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(expected);
+  });
+
+  /**
+   * A literal start above its end counts down, as numbers do; a range given
+   * only an end counts up whatever condition it names; a float count is built
+   * as an int.
+   *
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it("fills in a Loop range from literals, an end alone and a float count on every target", () => {
+    const digitsOf = (loop: (digit: (i: Node<"int">) => void, a: Node<"float">) => void) => (a: Node<"float">) =>
+      Fn(() => {
+        const digits = a.toVar();
+        loop((i) => digits.assign(digits.mul(10).add(i.toFloat())), a);
+        return digits;
+      })();
+    const fromLiterals = digitsOf((digit) => Loop({ start: int(3), end: int(0) }, ({ i }) => digit(i)));
+    const fromEnd = digitsOf((digit) => Loop({ end: 3, condition: ">" }, ({ i }) => digit(i)));
+    const fromFloatCount = digitsOf((digit, a) => Loop(a.add(3), ({ i }) => digit(i)));
+    expect(evaluateRecording(fromLiterals, [0])).toBe(3210);
+    expect(evaluateRecording(fromEnd, [0])).toBe(12);
+    expect(evaluateRecording(fromFloatCount, [0])).toBe(12);
+  });
+
+  /**
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it("counts a Loop over a float index it names on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop({ start: 0, end: 1, type: "float", name: "t", update: 0.25 }, ({ t }) => {
+          total.addAssign(t);
+        });
+        return total;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(1.5);
+  });
+
+  /** Builds a program whose one loop is `loop`. */
+  const buildLoop = (loop: () => void) => () => Fn(() => (loop(), float(0)))();
+
+  /**
+   * @canon exception-loop-refuses-a-range-with-neither-start-nor-end
+   */
+  it("refuses a Loop range with neither start nor end", () => {
+    expect(buildLoop(() => Loop({ name: "t" }, () => {}))).toThrow(/neither "start" nor "end"/);
+  });
+
+  /**
+   * @canon exception-loop-refuses-a-uint-range-that-never-ends
+   */
+  it.each([
+    ["a start counting down to 0", { start: 5, end: 0, type: "uint" }],
+    ["only a start", { start: 3, type: "uint" }],
+    ["a node end of 0", { start: 5, end: uint(0), type: "uint", condition: ">=" }],
+  ] as const)("refuses a uint Loop range given %s, which never ends", (_, range) => {
+    expect(buildLoop(() => Loop(range as any, () => {}))).toThrow(/uint.*never ends/);
+  });
+
+  /**
+   * A float node converts to the index's type, and truncates.
+   *
+   * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
+   */
+  it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
+    expect(buildLoop(() => Loop(2.5, () => {}))).toThrow(/2\.5 is not a whole number, but the index is an int\b/);
+    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrow(/2\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrow(
+      /0\.5 is not a whole number, but the index is a uint\b/,
+    );
+    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrow(/1\.5 is not a whole number/);
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const count = a.toVar();
+        Loop(float(2.5), () => count.addAssign(1));
+        return count;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(2);
+  });
+
+  /**
+   * @canon exception-loop-refuses-two-ranges-of-one-name
+   */
+  it("refuses two Loop ranges whose indices take one name", () => {
+    expect(buildLoop(() => Loop({ end: 2, name: "j" }, 3, () => {}))).toThrow(/two ranges.*"j"/);
+    expect(buildLoop(() => Loop({ end: 2, name: "k" }, { end: 2, name: "k" }, () => {}))).toThrow(/two ranges.*"k"/);
+  });
+
+  /**
+   * @canon spec-loop-steps-by-its-update
+   */
+  it("steps a Loop by a number, a node or a function update on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop({ start: 0, end: 10, update: 3 }, ({ i }) => {
+          total.addAssign(i.toFloat());
+        });
+        Loop({ start: 10, end: 0, condition: ">", update: int(4) }, ({ i }) => {
+          total.addAssign(i.toFloat().mul(100));
+        });
+        Loop({ start: 1, end: 20, update: ({ i }) => i.mulAssign(2) }, ({ i }) => {
+          total.addAssign(i.toFloat().mul(10000));
+        });
+        return total;
+      })();
+    // 0 + 3 + 6 + 9, then (10 + 6 + 2) * 100, then (1 + 2 + 4 + 8 + 16) * 10000.
+    expect(evaluateRecording(build, [0])).toBe(18 + 1800 + 310000);
+  });
+
+  /**
+   * @canon spec-loop-nests-a-loop-for-each-range
+   */
+  it("nests a Loop for each range it is given on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = a.toVar();
+        Loop(3, 2, ({ i, j }) => {
+          total.addAssign(i.toFloat().mul(10).add(j.toFloat()));
+        });
+        return total;
+      })();
+    // i runs 0 to 2 and j 0 to 1: (0 + 1) + (10 + 11) + (20 + 21).
+    expect(evaluateRecording(build, [0])).toBe(63);
+  });
+
+  /**
+   * @canon exception-a-loop-update-is-not-shader-text
+   */
+  it("refuses a Loop update given as a string", () => {
+    const build = () =>
+      Fn(() => {
+        // @ts-expect-error: an update is a number, a node or a function
+        Loop({ end: 4, update: "+= 2" }, () => {});
+      })();
+    expect(build).toThrow(/update/);
   });
 
   /**
@@ -665,6 +867,25 @@ describe("each leaf on every target it claims", () => {
         return twice(twice(a));
       })();
     expect(evaluateRecording(build, [3])).toBe(12);
+  });
+
+  /**
+   * The `Fn` returns a sum, and the program multiplies it. The fuzz found
+   * this with seed 1931: JavaScript wrote the sum into the product without
+   * brackets, so it multiplied only its last term, and a loop whose condition
+   * read such a value never ended.
+   *
+   * @canon spec-the-value-of-an-inline-fn-is-read-whole
+   */
+  it("multiplies the whole value an inline Fn returns, a sum, on every target (seed 1931)", () => {
+    const build = (a: Node<"float">) => {
+      const sum = Fn(() => {
+        const t = a.toVar();
+        return t.add(1);
+      })() as any;
+      return Fn(() => sum.mul(2))();
+    };
+    expect(evaluateRecording(build, [3])).toBe(8);
   });
 
   /**
@@ -774,7 +995,7 @@ describe("each leaf on every target it claims", () => {
     const triangle = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
     const inputs = { attributes: { [position.name]: triangle } };
     const options = { width: 1, height: 1 };
-    const js = compileJS(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } });
+    const js = compileJS(vertex, fragment);
     expect(Array.from(js.draw(inputs, options))).toEqual([1, 0, 0, 1]);
     const wasm = compileWasm(vertex, fragment);
     expect(Array.from(wasm.draw(inputs, options))).toEqual([1, 0, 0, 1]);
@@ -961,67 +1182,280 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * A later call leaves out what an earlier one set, so a component the first wrote cannot pass for zero.
+   *
    * @canon spec-a-component-the-host-leaves-out-reads-zero
    */
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine as typeof compileJSRoutine],
-  ] as const)(
-    "reads a component the host leaves out of a vector as zero, and leaves an extra one unread, on %s",
-    (_, compile) => {
-      const v = uniform("vec2");
-      const pairs = uniformArray("vec2", 2);
-      const items = instancedArray(4, "float");
-      const build = () =>
-        Fn(() =>
-          v.y
-            .add(pairs.element(int(0)).y)
-            .add(items.element(int(2)))
-            .toVar(),
-        )() as any;
-      const routine = compile(build, none);
-      const storages = { [items.name]: Float64Array.of(1, 2, 3, 4) };
-      const run = (value: unknown[], pair: unknown[]) =>
-        routine({ uniforms: { [v.name]: value, [pairs.name]: [pair] }, storages });
-      expect(run([1, 2], [5, 6])).toBe(11);
-      // Later calls, so a component an earlier call wrote cannot pass for one a call leaves out.
-      expect(run([1], [5])).toBe(3);
-      expect(run([1, undefined], [5, undefined])).toBe(3);
-      // Components past the end are not read, and nothing beside the input is written.
-      expect(run([1, 2, 9, 9, 9, 9, 9, 9, 9, 9], [5, 6, 9, 9])).toBe(11);
-    },
-  );
+  ] as const)("reads every component of a vector or uniform array the host leaves out as zero on %s", (_, compile) => {
+    const v = uniform("vec2");
+    const pairs = uniformArray("vec2", 2);
+    const items = uniformArray("float", 2);
+    const build = (p: any) =>
+      Fn(() =>
+        v.y
+          .add(pairs.element(int(1)).y)
+          .add(items.element(int(1)))
+          .add(p.y)
+          .toVar(),
+      )() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "p", type: "vec2" }] });
+    const set = {
+      params: { p: [0, 1] },
+      uniforms: {
+        [v.name]: [0, 2],
+        [pairs.name]: [
+          [0, 0],
+          [0, 4],
+        ],
+        [items.name]: [0, 8],
+      },
+    };
+    expect(routine(set)).toBe(15);
+    expect(routine({})).toBe(0);
+    expect(routine(set)).toBe(15);
+    expect(
+      routine({
+        params: { p: null },
+        uniforms: { [v.name]: null, [pairs.name]: null, [items.name]: undefined },
+      } as any),
+    ).toBe(0);
+  });
 
   /**
-   * @canon spec-a-uniform-array-element-the-host-leaves-out-reads-zero
+   * @canon spec-an-undefined-component-converts-as-a-typed-slot-does
    */
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine as typeof compileJSRoutine],
-  ] as const)("reads an element past the end of a shorter uniform array as zero on %s", (_, compile) => {
-    const items = uniformArray("float", 3);
-    const pairs = uniformArray("vec2", 2);
-    const build = () =>
-      Fn(() =>
-        items
-          .element(int(2))
-          .add(pairs.element(int(1)).y)
-          .toVar(),
-      )() as any;
-    const routine = compile(build, none);
-    expect(
-      routine({
-        uniforms: {
-          [items.name]: [1, 2, 3],
-          [pairs.name]: [
-            [0, 0],
-            [0, 4],
-          ],
-        },
-      }),
-    ).toBe(7);
-    expect(routine({ uniforms: { [items.name]: [1, 2], [pairs.name]: [[0, 0]] } })).toBe(0);
-    expect(routine({})).toBe(0);
+  ] as const)(
+    "reads a component the host gives as undefined as a typed slot of its kind holds it on %s",
+    (_, compile) => {
+      const read = (type: "vec3" | "ivec3" | "uvec3" | "bvec3" | "mat2", width: "f32" | "f64" = "f64") => {
+        const v = uniform(type);
+        const pairs = uniformArray(type, 1);
+        const second = (x: any) => (type === "mat2" ? x.element(int(0)).y : x.y);
+        const asNumber = (x: any) => (type === "bvec3" ? select(x, float(1), float(0)) : x.toFloat());
+        const routine = compile(
+          (p: any) =>
+            Fn(() => vec3(asNumber(second(p)), asNumber(second(v)), asNumber(second(pairs.element(int(0))))))() as any,
+          { name: "main", params: [{ name: "p", type }], float: width } as any,
+        );
+        return (value: unknown[]) =>
+          Array.from(
+            routine({ params: { p: value }, uniforms: { [v.name]: value, [pairs.name]: [value] } } as any) as any,
+          );
+      };
+      expect(read("vec3")([1, undefined, 3])).toEqual([NaN, NaN, NaN]);
+      expect(read("vec3", "f32")([1, undefined, 3])).toEqual([NaN, NaN, NaN]);
+      expect(read("mat2")([1, undefined, 3, 4])).toEqual([NaN, NaN, NaN]);
+      expect(read("ivec3")([1, undefined, 3])).toEqual([0, 0, 0]);
+      expect(read("uvec3")([1, undefined, 3])).toEqual([0, 0, 0]);
+      expect(read("bvec3")([true, undefined, true])).toEqual([0, 0, 0]);
+      expect(read("vec3")([1, null, 3])).toEqual([0, 0, 0]);
+      expect(read("ivec3")([1, null, 3])).toEqual([0, 0, 0]);
+    },
+  );
+
+  /**
+   * The element read sits between two the host set, so an element that read
+   * its neighbour, or the whole array left out, would show. A vector element
+   * given as `null` reads as one given as `undefined`, each of its components
+   * `undefined`.
+   *
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)(
+    "reads an element of a uniform array the host gives as undefined as a typed slot of its kind holds it on %s",
+    (_, compile) => {
+      const read = (type: "float" | "int" | "uint" | "bool" | "vec2" | "ivec2", width: "f32" | "f64" = "f64") => {
+        const items = uniformArray(type, 3);
+        const asNumber = (x: any) => (/bool/.test(type) ? select(x, float(1), float(0)) : x.toFloat());
+        const second = (x: any) => (/vec/.test(type) ? x.y : x);
+        const routine = compile(() => Fn(() => asNumber(second(items.element(int(1)))).toVar())() as any, {
+          name: "main",
+          params: [],
+          float: width,
+        } as any);
+        return (middle: unknown) => {
+          const set = /vec/.test(type) ? [1, 1] : 1;
+          return routine({ uniforms: { [items.name]: [set, middle, set] } } as any);
+        };
+      };
+      expect(read("float")(undefined)).toBeNaN();
+      expect(read("float", "f32")(undefined)).toBeNaN();
+      expect(read("vec2")(undefined)).toBeNaN();
+      expect(read("vec2", "f32")(undefined)).toBeNaN();
+      for (const type of ["int", "uint", "bool", "ivec2"] as const) expect(read(type)(undefined), type).toBe(0);
+      for (const type of ["float", "int", "bool", "ivec2"] as const) expect(read(type)(null), type).toBe(0);
+      expect(read("vec2")(null)).toBeNaN();
+    },
+  );
+
+  /**
+   * Each of `reads` compiled into a routine of its own that returns the scalar it reads, given `value` as
+   * a parameter `a` of `type`, a uniform, the second element of a uniform array and the second component
+   * of a vector, all of the kind of `type`.
+   */
+  function readHostValue(
+    compile: typeof compileJSRoutine,
+    type: "int" | "uint" | "float" | "bool",
+    float: "f32" | "f64" = "f64",
+  ): (value: unknown) => unknown[] {
+    const vector = { int: "ivec2", uint: "uvec2", float: "vec2", bool: "bvec2" } as const;
+    const u = uniform(type);
+    const items = uniformArray(type, 2);
+    const pair = uniform(vector[type]);
+    const asNumber = (b: any) => (type === "bool" ? asFloat(b).add(b.toFloat().mul(10)) : b);
+    const reads = [(a: any) => a, () => u, () => items.element(int(1)), () => pair.y];
+    const routines = reads.map((read) =>
+      compile((a: any) => Fn(() => asNumber(read(a)).toVar())() as any, {
+        name: "main",
+        params: [{ name: "a", type }],
+        float,
+      } as any),
+    );
+    return (value) =>
+      routines.map((routine) =>
+        routine({
+          params: { a: value },
+          uniforms: { [u.name]: value, [items.name]: [0, value], [pair.name]: [0, value] },
+        } as any),
+      );
+  }
+
+  /**
+   * @canon spec-an-integer-host-value-truncates-and-wraps
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("truncates and wraps an integer the host gives on %s", (_, compile) => {
+    for (const type of ["int", "uint"] as const) {
+      const each = readHostValue(compile, type);
+      for (const value of [2.7, -2.7, -1, 2 ** 32 + 3, 2 ** 31, NaN, Infinity, "2", "x", true]) {
+        const n = value as unknown as number;
+        expect(each(value), `${type} ${String(value)}`).toEqual(Array(4).fill(type === "int" ? n | 0 : n >>> 0));
+      }
+    }
+  });
+
+  /**
+   * @canon spec-a-float-host-value-converts-to-a-number
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("converts a float the host gives to a number on %s", (_, compile) => {
+    for (const width of ["f64", "f32"] as const) {
+      const each = readHostValue(compile, "float", width);
+      for (const [value, number] of [
+        ["2", 2],
+        [true, 1],
+        [false, 0],
+        ["x", NaN],
+        [0.1, width === "f32" ? Math.fround(0.1) : 0.1],
+      ] as const) {
+        expect(each(value), `${String(value)} at ${width}`).toEqual(Array(4).fill(number));
+      }
+    }
+  });
+
+  /**
+   * The bool reads both as a condition and as a number, which is 1 where it is true.
+   *
+   * @canon spec-a-bool-host-value-reads-true-for-a-nonzero-integer
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads a bool the host gives as true where it converts to an integer not zero on %s", (_, compile) => {
+    const each = readHostValue(compile, "bool");
+    for (const value of [true, 1, 2, -1, 2 ** 32 + 1, "1"])
+      expect(each(value), String(value)).toEqual([11, 11, 11, 11]);
+    for (const value of [false, 0, 0.5, "x", NaN, 2 ** 32]) expect(each(value), String(value)).toEqual([0, 0, 0, 0]);
+  });
+
+  /**
+   * @canon spec-a-float-host-value-converts-to-a-number
+   */
+  it.each([
+    ["JS", compileJSFragment],
+    ["WASM", compileWasmFragment as typeof compileJSFragment],
+  ] as const)("converts a varying the host gives a stage to a number on %s", (_, compile) => {
+    const s = varying("float");
+    const v = varying("vec2");
+    const fragment = compile(() => Fn(() => vec4(s, v.y, 0, 1))() as any, none) as any;
+    expect(Array.from(fragment({ varyings: { [s.name]: "2", [v.name]: [0, true] } }).value)).toEqual([2, 1, 0, 1]);
+  });
+
+  /**
+   * Neither a routine nor a stage checks the shape of what it is given. A component a shorter vector
+   * lacks reads as the typed slot it lands in holds undefined, and one past the end of a longer
+   * vector is not read.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it.each([
+    ["JS", compileJSRoutine, compileJSVertex, compileJSFragment],
+    [
+      "WASM",
+      compileWasmRoutine as typeof compileJSRoutine,
+      compileWasmVertex as typeof compileJSVertex,
+      compileWasmFragment as typeof compileJSFragment,
+    ],
+  ] as const)(
+    "reads a value of another shape than its type without refusing it on %s",
+    (_, routine, vertex, fragment) => {
+      const v = uniform("vec3");
+      const s = uniform("float");
+      const run = routine((p: any) => Fn(() => vec3(v.z, p.y, s))() as any, {
+        name: "main",
+        params: [{ name: "p", type: "vec2" }],
+      });
+      const read = (values: Record<string, unknown>) =>
+        Array.from(
+          run({ params: { p: values.p }, uniforms: { [v.name]: values.v, [s.name]: values.s } } as any) as any,
+        );
+      expect(read({ v: [0, 2], p: [0, 1, 9, 9], s: [4] })).toEqual([NaN, 1, 4]);
+      expect(read({ v: [0, 0, 2], p: [0, 1], s: 4 })).toEqual([2, 1, 4]);
+      const corner = attribute("vec2");
+      const shade = varying("vec3");
+      const vertexStage = vertex(
+        () => Fn(() => builtinPosition().assign(vec4(corner.y, corner.x, 0, 1)))() as any,
+        none,
+      );
+      expect(vertexStage({ attributes: { [corner.name]: [1, 2, 9] } } as any).position[0]).toBe(2);
+      const fragmentStage = fragment(() => Fn(() => vec4(shade, 1))() as any, none);
+      expect(Array.from(fragmentStage({ varyings: { [shade.name]: [1, 0] } } as any)!.value as any)).toEqual([
+        1,
+        0,
+        NaN,
+        1,
+      ]);
+    },
+  );
+
+  /**
+   * The source `compileJSFn` gives is the program `precompileJS` ships, so it carries no check of its inputs.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it("reads a value of another shape than its type in the function compileJSFn compiles to source", () => {
+    const v = uniform("vec3");
+    const source = compileJSFn((p: any) => Fn(() => v.z.add(p.y).toVar())() as any, {
+      name: "main",
+      params: [{ name: "p", type: "vec2" }],
+    });
+    const routine = new Function(source)() as (ctx: unknown) => number;
+    expect(routine({ params: { p: [0, 1] }, uniforms: { [v.name]: [0, 0, 2] } })).toBe(3);
+    expect(routine({ params: { p: [0, 1, 7] }, uniforms: { [v.name]: [0, 0, 2, 9] } })).toBe(3);
+    expect(routine({ params: { p: [0, 1] }, uniforms: { [v.name]: [0, 2] } })).toBeNaN();
   });
 
   /**
@@ -1045,6 +1479,59 @@ describe("each leaf on every target it claims", () => {
     expect(routine({ params: { i: 2 }, uniforms })).toBe(24);
     expect(routine({ params: { i: -1 }, uniforms })).toBe(24);
     expect(routine({ params: { i: 0 }, uniforms })).toBe(13);
+  });
+
+  /** Float indices a conversion to `int` takes past the end or below zero, and those it takes to 0. */
+  const floatIndicesToTheLast = [4294967297, -4294967295, 2147483648, 1e20, -1e20, Infinity, -Infinity, -1.5];
+  const floatIndicesToTheFirst = [NaN, -0.5, 0.75];
+
+  /**
+   * @canon spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads the last element of a uniform array for any float index out of range on %s", (_, compile) => {
+    const items = uniformArray("float", 3);
+    const build = (i: any) => Fn(() => items.element(i).add(0).toVar())() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "i", type: "float" }] });
+    const read = (i: number) => routine({ params: { i }, uniforms: { [items.name]: [10, 20, 30] } });
+    for (const i of floatIndicesToTheLast) expect(read(i), `index ${i}`).toBe(30);
+    for (const i of floatIndicesToTheFirst) expect(read(i), `index ${i}`).toBe(10);
+  });
+
+  /**
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reaches the last component or column for any float index out of range on %s", (_, compile) => {
+    const stored = instancedArray(2, "vec4");
+    const build = (i: any) =>
+      Fn(() => {
+        const v = vec4(1, 2, 3, 4).toVar();
+        v.element(i).assign(float(20));
+        const m = mat2(1, 2, 3, 4).toVar();
+        m.element(i).assign(vec2(7, 7));
+        stored.element(int(0)).element(i).assign(float(9));
+        const read = vec4(1, 2, 3, 4).element(i);
+        const column = mat2(1, 2, 3, 4).element(i).y;
+        const component = stored.element(int(1)).element(i);
+        // Each access weighted by a power of ten, so the sum shows which element each reached.
+        return read
+          .add(column.mul(10))
+          .add(component.mul(100))
+          .add(v.w.mul(1000))
+          .add(stored.element(int(0)).w.mul(10000))
+          .add(m.element(int(1)).x.mul(100000))
+          .toVar();
+      })() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "i", type: "float" }] });
+    const run = (i: number) =>
+      routine({ params: { i }, storages: { [stored.name]: new Float64Array([1, 2, 3, 4, 5, 6, 7, 8]) } });
+    for (const i of floatIndicesToTheLast) expect(run(i), `index ${i}`).toBe(810844);
+    for (const i of floatIndicesToTheFirst) expect(run(i), `index ${i}`).toBe(344521);
   });
 
   /**
@@ -1090,7 +1577,7 @@ describe("each leaf on every target it claims", () => {
     ["WASM", compileWasmRoutine as typeof compileJSRoutine],
   ] as const)("fetches the texel a float coordinate truncates to from an integer texture on %s", (_, compile) => {
     const tex = uniform("isampler2D") as any;
-    const build = (x: any) => Fn(() => tex.texture(vec2(x, 0.25)).x.toVar())() as any;
+    const build = (x: any) => Fn(() => texture(tex, vec2(x, 0.25)).x.toVar())() as any;
     const run = compile(build, { name: "main", params: [{ name: "x", type: "float" }] });
     const textures = { [tex.name]: { data: Int32Array.of(10, 20, 30, 40), width: 2, height: 2, channels: 1 as const } };
     expect(run({ params: { x: 0.75 }, textures })).toBe(10);
@@ -1134,5 +1621,686 @@ describe("each leaf on every target it claims", () => {
     expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual(new Float64Array([2, 0, 0, 1]));
     const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
     expect(wasm.value ?? wasm).toEqual(new Float64Array([2, 0, 0, 1]));
+  });
+
+  /**
+   * The inline `Fn` is called outside the program's body, and declares a
+   * variable that GLSL and WGSL refuse to read outside the block that declares
+   * it. `a` above zero takes the first branch, and above one the nested one.
+   *
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+   * @canon exception-an-inline-fn-read-in-a-branch-and-after-it-runs-once-before-the-if
+   */
+  it("runs an inline Fn read on several paths where every read sees its variable, on every target", () => {
+    const program = (body: (shared: any, a: Node<"float">, out: any) => void) => (a: Node<"float">) => {
+      const shared = Fn(() => {
+        const counted = a.add(1).toVar();
+        counted.addAssign(1);
+        return counted;
+      })() as any;
+      return Fn(() => {
+        const out = float(0).toVar();
+        body(shared, a, out);
+        return out;
+      })();
+    };
+    const branches = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        out.assign(shared.fract().add(shared));
+      }).Else(() => {
+        out.assign(shared.mul(10));
+      });
+    });
+    expect(evaluateRecording(branches, [1])).toBe(3);
+    expect(evaluateRecording(branches, [-5])).toBe(-30);
+    const branchAndAfter = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        out.assign(shared.mul(10));
+      });
+      out.addAssign(shared);
+    });
+    expect(evaluateRecording(branchAndAfter, [1])).toBe(33);
+    expect(evaluateRecording(branchAndAfter, [-5])).toBe(-3);
+    const nested = program((shared, a, out) => {
+      If(a.greaterThan(0), () => {
+        If(a.greaterThan(1), () => {
+          out.assign(shared);
+        }).Else(() => {
+          out.assign(shared.mul(10));
+        });
+        out.addAssign(shared.mul(100));
+      });
+    });
+    expect(evaluateRecording(nested, [2])).toBe(404);
+    expect(evaluateRecording(nested, [0.5])).toBe(2.5 * 110);
+    expect(evaluateRecording(nested, [-5])).toBe(0);
+  });
+
+  /**
+   * One inline `Fn` makes the variable `runs`, which the program reads before
+   * the loop, so it is made there once. Another adds one to it at each run and
+   * returns `a`, and only the condition reads that one. The result is the runs
+   * times 100 plus the final `n`.
+   *
+   * @canon spec-an-inline-fn-a-while-condition-given-as-a-node-reads-runs-at-every-test
+   * @canon spec-an-inline-fn-a-while-condition-given-as-a-function-reads-runs-at-every-test
+   * @canon exception-an-inline-fn-a-loop-bool-condition-reads-runs-at-every-test
+   */
+  it("runs an inline Fn read only in a While or Loop condition at every test, on every target", () => {
+    for (const [loop, write] of CONDITION_LOOPS) {
+      for (const [reads, test] of CONDITION_READS) {
+        const build = (a: Node<"float">) => {
+          const runs = Fn(() => float(0).toVar())() as any;
+          const f = Fn(() => {
+            runs.addAssign(1);
+            return a;
+          })() as any;
+          return Fn(() => {
+            const n = runs.toVar();
+            write(
+              () => test(n, f),
+              () => n.addAssign(1),
+            );
+            return runs.mul(100).add(n);
+          })();
+        };
+        expect(evaluateRecording(build, [3]), `${loop}, ${reads}`).toBe(403);
+      }
+    }
+  });
+
+  /**
+   * A jump the program's body holds outside every loop: alone, in a branch,
+   * after a loop that ended, or in the init of a `For`, which runs before the
+   * loop starts. The same jump in a loop body compiles.
+   *
+   * @canon spec-break-or-continue-outside-a-loop-is-refused
+   */
+  it.each([
+    ["break", Break],
+    ["continue", Continue],
+  ] as const)("refuses %s outside every loop on every target, and compiles it in one", (name, jump) => {
+    const drop = uniform("float");
+    const places: [string, () => Node<any>][] = [
+      [
+        "alone",
+        () =>
+          Fn(() => {
+            jump();
+            return vec4(1);
+          })(),
+      ],
+      [
+        "in a branch",
+        () =>
+          Fn(() => {
+            If(drop.greaterThan(0), () => jump());
+            return vec4(1);
+          })(),
+      ],
+      [
+        "after a loop",
+        () =>
+          Fn(() => {
+            const total = float(0).toVar();
+            Loop(2, () => {
+              total.addAssign(1);
+            });
+            If(drop.greaterThan(0), () => jump());
+            return vec4(total);
+          })(),
+      ],
+      [
+        "in the init of a For",
+        () =>
+          Fn(() => {
+            const total = float(0).toVar();
+            For(
+              () => {
+                If(drop.greaterThan(0), () => jump());
+                return int(0).toVar();
+              },
+              (i) => i.lessThan(2),
+              (i) => i.addAssign(1),
+              () => total.addAssign(1),
+            );
+            return vec4(total);
+          })(),
+      ],
+    ];
+    for (const [place, build] of places) {
+      try {
+        expectOnEveryTarget("fragment", build, LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[name]);
+      } catch (error) {
+        throw new Error(`${name} ${place}: ${(error as Error).message}`);
+      }
+    }
+    expectOnEveryTarget(
+      "fragment",
+      () =>
+        Fn(() => {
+          const total = float(0).toVar();
+          Loop(2, () => {
+            If(drop.greaterThan(0), () => jump());
+            total.addAssign(1);
+          });
+          return vec4(total);
+        })(),
+      false,
+    );
+  });
+});
+
+describe("an inline Fn that jumps, read in several statements", () => {
+  /**
+   * The `Fn` returns early when `a` is above zero, and both branches of an `If`
+   * read its value. It runs before the `If`, so the function gives its zero
+   * value on either path.
+   *
+   * @canon spec-a-return-in-an-inline-fn-ends-the-function-where-it-runs
+   */
+  it("ends a function from an inline Fn read in both branches of an If, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Return();
+        });
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const out = float(5).toVar();
+        If(a.lessThan(10), () => {
+          out.assign(shared.mul(2));
+        }).Else(() => {
+          out.assign(shared.mul(3));
+        });
+        return out;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(0);
+    expect(evaluateRecording(build, [20])).toBe(0);
+    expect(evaluateRecording(build, [-1])).toBe(2);
+  });
+
+  /**
+   * Both branches of an `If` in the loop body read the value of an `Fn` that
+   * breaks when `a` is above zero. It runs at the start of that `If`, on the
+   * first iteration, which takes the `Else`.
+   *
+   * @canon spec-a-break-in-an-inline-fn-read-twice-in-one-loop-body-leaves-that-loop
+   */
+  it("leaves the loop from an inline Fn read in both branches of an If in its body, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Break();
+        });
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            total.addAssign(100);
+            If(i.greaterThan(0), () => {
+              total.addAssign(shared);
+            }).Else(() => {
+              total.addAssign(shared.mul(10));
+            });
+          },
+        );
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(100);
+    expect(evaluateRecording(build, [-1])).toBe(312);
+  });
+
+  /**
+   * The `Fn` counts up to `a` in a loop of its own and breaks there. Both
+   * branches of an `If` read its value, outside every loop of the program.
+   *
+   * @canon spec-a-break-in-a-loop-of-an-inline-fn-leaves-that-loop
+   */
+  it("leaves a loop of an inline Fn's own read in both branches of an If, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const shared = Fn(() => {
+        const n = float(0).toVar();
+        Loop(5, () => {
+          If(n.greaterThanEqual(a), () => {
+            Break();
+          });
+          n.addAssign(1);
+        });
+        return n;
+      })() as any;
+      return Fn(() => {
+        const out = float(0).toVar();
+        If(a.greaterThan(2), () => {
+          out.assign(shared);
+        }).Else(() => {
+          out.assign(shared.mul(10));
+        });
+        return out;
+      })();
+    };
+    expect(evaluateRecording(build, [3])).toBe(3);
+    expect(evaluateRecording(build, [1])).toBe(10);
+  });
+
+  /**
+   * The outer `Fn` reads the inner one twice in its loop body, and the program
+   * reads the outer one once. The inner one runs in that loop body, so its
+   * `Break()` leaves that loop.
+   *
+   * @canon spec-a-break-in-an-inline-fn-read-only-inside-another-s-loop-leaves-that-loop
+   */
+  it("leaves the loop of an inline Fn from another read twice in its body, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const inner = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Break();
+        });
+        return float(1);
+      })() as any;
+      const outer = Fn(() => {
+        const t = float(0).toVar();
+        Loop(3, () => {
+          t.addAssign(100);
+          t.addAssign(inner.add(inner.mul(10)));
+        });
+        return t;
+      })() as any;
+      return Fn(() => outer.add(1).toVar())();
+    };
+    expect(evaluateRecording(build, [1])).toBe(101);
+    expect(evaluateRecording(build, [-1])).toBe(334);
+  });
+
+  /**
+   * A `For` condition reads the value of an `Fn` that breaks twice, and runs
+   * it before every test, inside the loop.
+   *
+   * @canon spec-an-inline-fn-read-only-in-a-for-condition-runs-before-every-test
+   */
+  it("leaves a For from an inline Fn its condition reads twice, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const limit = Fn(() => {
+        If(a.greaterThan(0), () => {
+          Break();
+        });
+        return float(3);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.lessThan(limit.add(limit.mul(0))),
+          (n) => n.addAssign(1),
+          () => {
+            total.addAssign(1);
+          },
+        );
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(0);
+    expect(evaluateRecording(build, [-1])).toBe(3);
+  });
+
+  /**
+   * The value is read in two loops, one after the other, so the block that
+   * holds every read is outside both.
+   *
+   * @canon spec-a-break-or-continue-in-an-inline-fn-with-no-loop-around-where-it-runs-is-refused
+   */
+  it.each([
+    ["break", Break],
+    ["continue", Continue],
+  ] as const)("refuses %s in an inline Fn read in two loops on every target", (name, jump) => {
+    const drop = uniform("float");
+    const build = () => {
+      const shared = Fn(() => {
+        If(drop.greaterThan(0), () => jump());
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(shared);
+        });
+        Loop(2, () => {
+          total.addAssign(shared.mul(10));
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[name]);
+  });
+
+  /**
+   * One read is in the loop body, the other in a loop inside it. The `Fn` runs
+   * in the outer body, where its `Break()` would leave the outer loop.
+   *
+   * @canon exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused
+   */
+  it("refuses Break in an inline Fn with a read in a loop inside the one around it, on every target", () => {
+    const drop = uniform("float");
+    const build = () => {
+      const shared = Fn(() => {
+        If(drop.greaterThan(0), () => Break());
+        return float(1);
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(shared);
+          Loop(2, () => {
+            total.addAssign(shared.mul(10));
+          });
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE.break);
+  });
+
+  /**
+   * Two roots read the value, so the `Fn` runs before the first of them,
+   * outside every loop, whether the first root reads it outside every loop or
+   * in a loop of its own.
+   *
+   * @canon spec-a-break-or-continue-in-an-inline-fn-several-roots-read-is-refused
+   */
+  it.each([
+    ["break", "outside every loop", Break],
+    ["continue", "outside every loop", Continue],
+    ["break", "in a loop", Break],
+    ["continue", "in a loop", Continue],
+  ] as const)("refuses %s in an inline Fn two roots read, the first %s, on every target", (name, first, jump) => {
+    const drop = uniform("float");
+    const build = () => {
+      const stop = Fn(() => {
+        If(drop.greaterThan(1), () => jump());
+        return float(1);
+      })() as any;
+      return [
+        Fn(() => {
+          const total = float(0).toVar();
+          if (first === "in a loop") Loop(2, () => total.addAssign(stop));
+          else total.assign(stop);
+        })(),
+        Fn(() => {
+          const total = float(0).toVar();
+          Loop(3, () => {
+            Loop(2, () => {
+              total.addAssign(stop);
+            });
+          });
+        })(),
+      ];
+    };
+    const compilers: [string, () => unknown][] = [
+      ["GLSL", () => compileGlsl.fragment(build())],
+      ["WGSL", () => compileWgsl.compute(build())],
+      ["JS", () => compileJSRoutine(build as any, none)],
+      ["WASM", () => compileWasmRoutine(build as any, none)],
+    ];
+    for (const [target, compile] of compilers)
+      expect(compile, target).toThrow(INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[name]);
+  });
+
+  /**
+   * The `Fn` returns two values, and only the second reads an `Fn` that
+   * breaks, which runs with the first. The program reads the first in a loop
+   * body and the second in a loop inside it, so the `Break()` would leave the
+   * outer loop while a read sits in the inner one. Before, only the jumps the
+   * value read first reaches were checked, and the program compiled.
+   *
+   * @canon exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused
+   */
+  it("refuses a Break that only the second value of an inline Fn reaches, read in a deeper loop, on every target", () => {
+    const drop = uniform("float");
+    const build = () => {
+      const stop = Fn(() => {
+        If(drop.greaterThan(1), () => Break());
+        return float(1);
+      })() as any;
+      const [first, second] = Fn(() => {
+        const t = drop.toVar();
+        return [t, t.add(stop)];
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(first);
+          Loop(2, () => {
+            total.addAssign(second);
+          });
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE.break);
+  });
+
+  /**
+   * The breaking `Fn` is read in the outer loop's body and inside another
+   * `Fn`, which the body reads and a loop inside it reads too. The breaking
+   * one runs at the start of the outer body, where its `Break()` leaves the
+   * outer loop. The other holds no jump of its own, so its read in the inner
+   * loop is no read of the breaking one there. Before, its read in the inner
+   * loop refused the program as a jump in a deeper loop.
+   *
+   * @canon spec-a-break-in-an-inline-fn-that-runs-outside-another-that-reads-it-acts-where-it-runs
+   */
+  it("leaves the loop around where an inline Fn runs, when another Fn that reads it runs elsewhere, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const stop = Fn(() => {
+        If(a.greaterThan(5), () => Break());
+        return a.toVar();
+      })() as any;
+      const doubled = Fn(() => stop.mul(2).toVar())() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(stop);
+          total.addAssign(doubled);
+          Loop(2, () => {
+            total.addAssign(doubled.mul(10));
+          });
+        });
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(2 * (1 + 2 + 40));
+    expect(evaluateRecording(build, [6])).toBe(0);
+  });
+
+  /**
+   * The `Fn` holds a `For` whose init breaks. The init runs before that `For`,
+   * so the `Break()` leaves the loop around the place the `Fn` runs: the loop
+   * body that reads the value twice.
+   *
+   * @canon spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
+   */
+  it("leaves the loop around an inline Fn from the init of a For it holds, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const counted = Fn(() => {
+        const t = float(0).toVar();
+        For(
+          () => {
+            If(a.greaterThan(0), () => {
+              Break();
+            });
+            return float(0).toVar();
+          },
+          (i) => i.lessThan(2),
+          (i) => i.addAssign(1),
+          () => {
+            t.addAssign(1);
+          },
+        );
+        return t;
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(3, () => {
+          total.addAssign(100);
+          total.addAssign(counted.add(counted.mul(10)));
+        });
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(100);
+    expect(evaluateRecording(build, [-1])).toBe(366);
+  });
+
+  /**
+   * The init of the `For` in the `Fn` breaks, and two loops one after the
+   * other read the value, so no loop is around the place the `Fn` runs.
+   *
+   * @canon spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for
+   */
+  it("refuses a Break in the init of a For of an inline Fn read in two loops, on every target", () => {
+    const drop = uniform("float");
+    const build = () => {
+      const counted = Fn(() => {
+        const t = float(0).toVar();
+        For(
+          () => {
+            If(drop.greaterThan(0), () => Break());
+            return float(0).toVar();
+          },
+          (i) => i.lessThan(2),
+          (i) => i.addAssign(1),
+          () => {
+            t.addAssign(1);
+          },
+        );
+        return t;
+      })() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        Loop(2, () => {
+          total.addAssign(counted);
+        });
+        Loop(2, () => {
+          total.addAssign(counted.mul(10));
+        });
+        return vec4(total);
+      })();
+    };
+    expectOnEveryTarget("fragment", build, INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE.break);
+  });
+});
+
+describe("a variable the update of a For makes", () => {
+  /**
+   * The update reads the value of an `Fn` that makes a variable twice, so the
+   * `Fn` runs in the update, where GLSL takes no declaration.
+   *
+   * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
+   */
+  it("steps a For by an inline Fn its update reads twice, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const step = Fn(() => a.mul(2).toVar())() as any;
+      return Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(10),
+          (i) => i.assign(i.add(step).add(step)),
+          () => {
+            total.addAssign(1);
+          },
+        );
+        return total;
+      })();
+    };
+    expect(evaluateRecording(build, [1])).toBe(3);
+  });
+
+  /**
+   * The update is one statement, a declaration, which WGSL takes in a
+   * continuing block, not in the for header. The body steps the loop.
+   *
+   * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
+   */
+  it("runs a For whose update is a variable alone, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(a),
+          (i) => {
+            i.mul(2).toVar();
+          },
+          (i) => {
+            i.addAssign(1);
+            total.addAssign(10);
+          },
+        );
+        return total;
+      })();
+    expect(evaluateRecording(build, [3])).toBe(30);
+  });
+
+  /**
+   * @canon spec-a-variable-a-for-update-makes-compiles-on-every-target
+   */
+  it("steps a For by a variable its update makes, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(10),
+          (i) => {
+            const step = i.add(a).toVar();
+            i.assign(step.add(step));
+          },
+          () => {
+            total.addAssign(1);
+          },
+        );
+        return total;
+      })();
+    expect(evaluateRecording(build, [1])).toBe(3);
+  });
+
+  /**
+   * The update makes a variable, which the body reads from the second
+   * iteration on, and the code after the loop reads once the loop ends.
+   * WGSL declared it in the loop's continuing block, where neither saw it.
+   *
+   * @canon spec-a-variable-a-for-update-makes-stays-in-scope
+   */
+  it("reads a variable the update of a For makes in its body and after the loop, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        let made: any;
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => {
+            made = i.mul(10).add(a).toVar();
+            i.addAssign(1);
+          },
+          (i) => {
+            If(i.greaterThan(0), () => {
+              total.addAssign(made);
+            });
+          },
+        );
+        return total.add(made.mul(100));
+      })();
+    // The body reads a and 10 + a; after the loop the variable holds 20 + a.
+    expect(evaluateRecording(build, [1])).toBe(1 + 11 + 2100);
   });
 });

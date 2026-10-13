@@ -819,7 +819,7 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("reads a variable an Fn call made before a loop in its condition and after it", async () => {
     const twice = Fn((x: Node<"float">) => x.mul(2).toVar());
@@ -1053,10 +1053,30 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
+   * The early return fires for a positive argument, before the variable is set.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("gives the zero value of the function's type for an early Return", async () => {
+    const early = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(5).toVar();
+        If(x.greaterThan(0), () => {
+          Return();
+        });
+        out.assign(x.add(10));
+        return out;
+      })();
+    await expectValue(early, [1], 0);
+    await expectValue(early, [-1], 9);
+  }, 60_000);
+
+  /**
    * break_ and continue_ change which iterations contribute, so the sum says
    * whether they landed.
    *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("honours break_ and continue_", async () => {
     const sumUntilBreak = (limit: Node<"float">) =>
@@ -1223,7 +1243,7 @@ describe("RMSL evaluation", () => {
   /**
    * An inline Fn's statements run once, however often the value it returns is read.
    *
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("runs an inline Fn's statements once", async () => {
     const counted = (read: (value: Node<"vec3">) => Node<"float">) => () =>
@@ -1295,7 +1315,7 @@ describe("RMSL evaluation", () => {
    * The first Fn's If runs its statements a block deeper; the second Fn's Break
    * still leaves the loop it sits in.
    *
-   * @canon spec-an-inline-fn-runs-once
+   * @canon spec-an-inline-fn-runs-where-it-is-called
    */
   it("breaks out of a loop from an inline Fn read after one with a branch", async () => {
     await expectValue(

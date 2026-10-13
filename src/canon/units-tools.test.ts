@@ -10,6 +10,7 @@ import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift, transition } from "../effects";
 import { fromProgram, render, runner } from "../test";
 import { compileWat, precompileJS, precompileShaders, precompileWasm } from "../vite/vite";
+import { withArticle } from "../article";
 import {
   assertEvaluationsOfTheTestAgree,
   assertRecordedEvaluationsAgree,
@@ -508,6 +509,19 @@ describe("the Vite plugins", () => {
   });
 
   /**
+   * The error names the object by its class, after the article the class's sound takes.
+   *
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
+  it("fails the build on a default export holding a URL", async () => {
+    const id = `${FIXTURES}url-member.ts`;
+    const plugin = precompileShaders({ include: "url-member.ts" }) as unknown as Transform;
+    await expect(
+      plugin.transform.call({}, 'export default { link: new URL("https://example.com") };\n', id),
+    ).rejects.toThrow(/\ba URL at default\.link/);
+  });
+
+  /**
    * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
    */
   it("fails the build on a default export holding a negative zero", async () => {
@@ -553,6 +567,66 @@ describe("the Vite plugins", () => {
   });
 
   /**
+   * @canon spec-a-wat-module-exports-its-shared-variant-or-undefined
+   */
+  it("exports a shared variant of a .wat module that imports a memory, and undefined for one that does not", async () => {
+    const plugin = compileWat() as unknown as Load;
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-wat-"));
+    try {
+      const plain = join(dir, "plain.wat");
+      writeFileSync(plain, "(module)");
+      const load = async (path: string) =>
+        (await import(`data:text/javascript,${encodeURIComponent((await plugin.load(path))!)}`)) as Record<string, any>;
+      const withoutMemory = await load(plain);
+      expect(Object.keys(withoutMemory)).toContain("shared");
+      expect(withoutMemory.shared).toBeUndefined();
+      expect((await load(RASTERIZER_WAT)).shared).toBeInstanceOf(Uint8Array);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * The memory import is spread over lines, names its memory and gives a
+   * maximum; the shared variant links against a shared memory.
+   *
+   * @canon spec-a-wat-module-exports-its-shared-variant-or-undefined
+   */
+  it("exports a shared variant of a .wat module whose memory import has a name, a maximum and line breaks", async () => {
+    const plugin = compileWat() as unknown as Load;
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-wat-"));
+    try {
+      const path = join(dir, "named.wat");
+      writeFileSync(path, '(module\n  (import "env" "memory"\n    (memory $mem 1 4)))');
+      const { shared } = (await import(
+        `data:text/javascript,${encodeURIComponent((await plugin.load(path))!)}`
+      )) as Record<string, any>;
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true });
+      expect(() => new WebAssembly.Instance(new WebAssembly.Module(shared), { env: { memory } })).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * The memory is imported inline in its own declaration, a form the loader
+   * does not rewrite.
+   *
+   * @canon spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared
+   */
+  it("refuses a .wat module whose memory import it cannot make shared", async () => {
+    const plugin = compileWat() as unknown as Load;
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-wat-"));
+    try {
+      const path = join(dir, "inline.wat");
+      writeFileSync(path, '(module (memory (import "env" "memory") 1))');
+      await expect(plugin.load(path)).rejects.toThrow(/inline\.wat/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
    * @canon spec-a-precompiled-wasm-program-is-ready-when-its-module-loads
    */
   it("instantiates each WASM program before its module finishes loading", async () => {
@@ -572,5 +646,31 @@ describe("the Vite plugins", () => {
     const result = mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } });
     expect(result).not.toBeInstanceOf(Promise);
     expect(result).toEqual(new Float64Array([0.5, 1, 1.5]));
+  });
+});
+
+describe("the article before a name in a message", () => {
+  /**
+   * @canon spec-a-message-puts-the-article-its-sound-takes-before-a-name
+   */
+  it.each([
+    ["int", "an int"],
+    ["ivec2", "an ivec2"],
+    ["Int32Array", "an Int32Array"],
+    ["object", "an object"],
+    ["undefined", "an undefined"],
+    ["uint", "a uint"],
+    ["uvec3", "a uvec3"],
+    ["usampler2D", "a usampler2D"],
+    ["unorm8x4", "a unorm8x4"],
+    ["uniform", "a uniform"],
+    ["Uint32Array", "a Uint32Array"],
+    ["float", "a float"],
+    ["URL", "a URL"],
+    ["HTMLElement", "an HTMLElement"],
+    ["SVGElement", "an SVGElement"],
+    ["DOMRect", "a DOMRect"],
+  ])("puts its article before %s", (word, expected) => {
+    expect(withArticle(word)).toBe(expected);
   });
 });

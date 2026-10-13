@@ -5,6 +5,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
   bool,
+  builtinFragDepth,
   builtinPosition,
   bvec2,
   Discard,
@@ -27,11 +28,15 @@ import {
   uint,
   textureLoad,
   uniform,
+  uniformArray,
   varying,
   vec2,
   vec3,
   vec4,
   type Node,
+  instanceIndex,
+  texture,
+  vertexIndex,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { jsHelperSource } from "../backends/js/js";
@@ -44,6 +49,7 @@ import {
   compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
+  createJs,
   createJsCompute,
   createJsGrid,
   createJsRoutine,
@@ -55,6 +61,7 @@ import {
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
+  createWasm,
   createWasmCompute,
   createWasmGrid,
   createWasmRoutine,
@@ -66,6 +73,7 @@ import {
   evaluateRecording,
 } from "../testing/shader-eval";
 import type { ComputeStage, FragmentStage, VertexStage } from "../backends/cpu";
+import { Vector3 } from "../scene/math";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -221,12 +229,12 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       let tex!: any;
       const program = Fn(() => {
         tex = uniform("sampler2D");
-        return tex.texture(vec2(0.5, 0.5));
+        return texture(tex, vec2(0.5, 0.5));
       })();
       const routine = compile(() => program, none);
-      const texture = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
+      const texels = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
       const red = (filters: { magFilter: "nearest" | "linear"; minFilter: "nearest" | "linear" }) =>
-        (routine({ textures: { [tex.name]: { ...texture, ...filters } } }) as Float64Array)[0];
+        (routine({ textures: { [tex.name]: { ...texels, ...filters } } }) as Float64Array)[0];
       expect(red({ magFilter: "nearest", minFilter: "linear" })).toBe(20);
       expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(15);
     },
@@ -281,7 +289,6 @@ describe("the JS target's internal decisions, on every target they claim", () =>
     const routine = compileRaster(
       () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
       () => Fn(() => vec4(1, 0, 0, 1))() as any,
-      { attributeTypes: { [pos.name]: "vec3" } },
     );
     const draw = (triangle: number[]) =>
       Array.from(
@@ -376,7 +383,6 @@ describe("a JS routine's results", () => {
             builtinPosition().assign(p);
           })() as any,
         () => Fn(() => vec4(1, 1, 1, 1).toVar())() as any,
-        { attributeTypes: { [position.name]: "vec3" } },
       );
       const image = routine.draw(
         { attributes: { [position.name]: new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]) } },
@@ -408,7 +414,6 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
   const routine = compileJS(
     () => Fn(() => builtinPosition().assign(vec4(position.x, position.y, position.z, 1)))() as any,
     () => Fn(() => (fragment ? fragment(color, drop) : color).toVar())() as any,
-    { attributeTypes: { [position.name]: "vec3" } },
   );
   const draw = (triangles: number[], rgba: number[], options: Record<string, unknown> = {}, dropped = 0) =>
     routine.draw(
@@ -475,18 +480,17 @@ describe("a varying a CPU vertex stage does not write", () => {
   /**
    * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
    */
-  it("is 0 when the call returns before the statement that writes it", () => {
+  it("is 0 when the call takes a path that does not write it", () => {
     const shade = varying("float");
     const pair = varying("vec2");
     const stop = uniform("int");
     const build = () =>
       Fn(() => {
         builtinPosition().assign(vec4(0, 0, 0, 1));
-        If(stop.equal(int(1)), () => {
-          Return();
+        If(stop.notEqual(int(1)), () => {
+          shade.assign(float(0.25));
+          pair.assign(vec2(1, 2));
         });
-        shade.assign(float(0.25));
-        pair.assign(vec2(1, 2));
       })() as any;
     const source = compileJSFn(build, { name: "main", params: [], stage: "vertex" });
     expect(source).toContain(`res.varyings["${shade.name}"] = 0;`);
@@ -514,7 +518,6 @@ describe("a varying a CPU vertex stage does not write", () => {
           builtinPosition().assign(vec4(position, 1));
         })() as any,
       () => Fn(() => vec4(select(hit, float(1), float(0)), 0, 0, 1))() as any,
-      { attributeTypes: { [position.name]: "vec3", [flag.name]: "float" } },
     );
     const ctx = {
       attributes: {
@@ -549,7 +552,7 @@ describe("a varying a CPU vertex stage does not write", () => {
       },
     };
     const options = { width: 4, height: 4 };
-    const js = compileJS(vertex, fragment, { attributeTypes: { [position.name]: "vec3", [flag.name]: "float" } });
+    const js = compileJS(vertex, fragment);
     const wasm = compileWasm(vertex, fragment);
     const drawn = Array.from(js.draw(ctx, options));
     // Only the first vertex writes the varying, so it fades from 1 there to 0 at the others.
@@ -574,7 +577,6 @@ describe("the varyings a JS rasterizer interpolates", () => {
           builtinPosition().assign(vec4(position, 1));
         })() as any,
       () => Fn(() => vec4(shade, 0, 0, 1))() as any,
-      { attributeTypes: { [position.name]: "vec3" } },
     );
     const ctx = { attributes: { [position.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
     for (let draw = 0; draw < 2; draw++) {
@@ -588,7 +590,7 @@ describe("the varyings a JS rasterizer interpolates", () => {
 
 describe("a JS rasterizer's discarded fragment", () => {
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("leaves the colour under a discarded fragment as it was", () => {
     const draw = flatRasterizer((color, drop) => {
@@ -793,7 +795,7 @@ describe("what a JS routine allocates per call", () => {
    */
   it("samples a cube map without allocating on JS", () => {
     const cube = uniform("samplerCube");
-    const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
+    const source = compileJSFn(() => Fn(() => texture(cube, vec3(1, 0, 0)).toVar())(), none);
     expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
   });
   /**
@@ -1079,7 +1081,7 @@ describe("a JS storage access outside its buffer", () => {
     const params = [{ name: "i", type: "int" as const }];
     const build = (i: Node<"int">) =>
       Fn(() => scalars.element(i).add(pairs.element(i).y).add(pairs.element(i).x.mul(10)).toVar())() as any;
-    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: [3, 4, 5, 6] });
+    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: Float64Array.of(3, 4, 5, 6) });
     for (const i of [10, -1, 2]) {
       const ctx = { params: { i }, storages: storages() };
       expect(compileJSRoutine(build, { name: "main", params })(ctx)).toBe(0);
@@ -1130,9 +1132,10 @@ describe("a JS storage access outside its buffer", () => {
         pairs.element(int(2)).xy.assign(vec2(9, 9));
       })() as any;
     for (const compile of [compileJSCompute, compileWasmCompute]) {
-      const storages = { [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] };
+      const storages = { [scalars.name]: Float64Array.of(1, 2), [pairs.name]: Float32Array.of(3, 4, 5, 6) };
       compile(build, { name: "main", params: [] })({ storages }, 1);
-      expect(storages).toEqual({ [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] });
+      expect(Array.from(storages[scalars.name]!)).toEqual([1, 2]);
+      expect(Array.from(storages[pairs.name]!)).toEqual([3, 4, 5, 6]);
     }
   });
 });
@@ -1189,7 +1192,7 @@ describe("the element-wise operations of a JS function", () => {
     expect(source).not.toContain("typeof");
     // A scalar that is not a local is read into one once, before the components are written.
     expect(source).toMatch(
-      /(_rmsl_t\d+) = \(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
+      /(_rmsl_t\d+) = \+\(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
     );
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(
       new Float64Array([0.5, 1, 1.5]),
@@ -1276,7 +1279,7 @@ describe("the scalars and inputs of a JS function", () => {
     const source = compileJSFn(() => Fn(() => vec3(v.add(1).x, i.add(1).toFloat()).toVar())() as any, none);
     // Copied one component at a time where it is read, into a slot of the input's kind.
     expect(source).toMatch(
-      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\] \?\? 0;/,
+      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\];/,
     );
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     const run = compileJSRoutine(() => Fn(() => v.add(1).toVar())() as any, none);
@@ -1399,7 +1402,6 @@ describe("the scalars and inputs of a JS function", () => {
           builtinPosition().assign(vec4(position, 1));
         })(),
       () => Fn(() => vec4(shade, 1))(),
-      { attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" } },
     );
     // Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw.
     const ctx = {
@@ -1451,7 +1453,6 @@ describe("what a JS program keeps after a call", () => {
     const raster = compileJS(
       () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
       () => Fn(() => vec4(1))(),
-      { attributeTypes: { [position.name]: "vec3" } },
     );
     const attributes = { [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0) };
     expect(
@@ -1479,5 +1480,1085 @@ describe("the rounding helper of JS", () => {
     const scalar = compileJSFn(() => Fn(() => uniform("float").round())() as any, none);
     const vector = compileJSFn(() => Fn(() => vec3(uniform("float")).round())() as any, none);
     for (const compiled of [scalar, vector]) expect(String(compiled)).toContain("function _rmsl_roundEven");
+  });
+});
+
+describe("the fragments a CPU rasterizer draws", () => {
+  /**
+   * The first draw writes -1, kept as 0; the second writes -0.5, also 0, which
+   * passes a less-or-equal test against it.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it.each(rasterizers)("%s: clamps the depth a fragment writes to 0 to 1", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const depth = uniform("float");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(depth);
+          return color;
+        })() as any,
+    );
+    const draw = (d: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        {
+          attributes: { [pos.name]: new Float64Array(screenAt(0.5)) },
+          uniforms: { [depth.name]: d, [color.name]: rgba },
+        },
+        { width: 1, height: 1, clearDepth },
+      );
+    draw(-1, [1, 0, 0, 1], true);
+    expect(Array.from(draw(-0.5, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
+   * A whole triangle, one whose first vertex lies behind the eye, so that no
+   * triangle the clip makes starts at it, and one whose first two vertices do,
+   * so that the clip makes its first vertex between the other two.
+   *
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it.each(rasterizers)("%s: reads an integer varying as the triangle's first vertex wrote it", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const id = attribute("int");
+    const k = varying("int");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          k.assign(id);
+          builtinPosition().assign(vec4(pos.x, pos.y, pos.z, pos.z));
+        })() as any,
+      () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+    );
+    const reds = (positions: number[]) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(positions), [id.name]: Int32Array.of(7, 1, 2) } },
+          { width: 4, height: 4 },
+        ),
+      ).filter((_, i) => i % 4 === 0 && i < 64);
+    const whole = reds([-1, -1, 1, 3, -1, 1, -1, 3, 1]);
+    const clipped = reds([-1, -1, -1, 1, -1, 2, -1, 1, 2]);
+    const clippedTwice = reds([-1, -1, -1, 1, -1, -1, 0, 0, 2]);
+    expect(new Set(whole)).toEqual(new Set([7]));
+    for (const image of [clipped, clippedTwice]) {
+      expect(new Set(image.filter((r) => r !== 0))).toEqual(new Set([7]));
+      expect(image.some((r) => r === 7)).toBe(true);
+    }
+  });
+
+  /**
+   * The second draw has twice the vertices of the first, so a WASM routine
+   * lays out its memory for it differently.
+   *
+   * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
+   */
+  it.each(rasterizers)("%s: keeps the image of the last draw under a draw that does not clear", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+    );
+    const left = [-1, -1, 0, -1, -1, 3];
+    const right = [0, -1, 2, -1, 0, 3];
+    const draw = (corners: number[], rgba: number[], clear: boolean) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, clear },
+        ),
+      );
+    draw(left, [1, 0, 0, 1], true);
+    expect(draw([...right, ...right], [0, 0, 1, 1], false)).toEqual([1, 0, 0, 1, 0, 0, 1, 1]);
+  });
+
+  /**
+   * The triangle lies at depth 0.5, and the fragment writes the depth it reads
+   * plus 0.25 and draws it as red.
+   *
+   * @canon spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+   */
+  it.each(rasterizers)("%s: reads the interpolated depth before the fragment writes one", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(builtinFragDepth().add(0.25));
+          return vec4(builtinFragDepth(), 0, 0, 1);
+        })() as any,
+    );
+    const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
+    expect(Array.from(got)).toEqual([0.75, 0, 0, 1]);
+  });
+
+  /**
+   * The triangle lies at depth 0.5, and the fragment draws the depth it reads
+   * as red without writing one.
+   *
+   * @canon spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+   */
+  it.each(rasterizers)("%s: reads the interpolated depth in a fragment that never writes one", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1))() as any,
+    );
+    const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
+    expect(Array.from(got)).toEqual([0.5, 0, 0, 1]);
+  });
+
+  /**
+   * A fragment stage that reads its depth and a uniform draws a triangle at
+   * depth 0.25, then one at 0.75 behind it. The uniforms are counted as the
+   * stage reads them. The WASM rasterizer copies its uniforms into memory, so
+   * the host cannot count its reads.
+   *
+   * @canon spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects
+   */
+  it("JS: runs no fragment stage that only reads its depth for a fragment behind the depth buffer", () => {
+    const pos = attribute("vec3");
+    const tint = uniform("float");
+    const routine = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => vec4(builtinFragDepth(), tint, 0, 1))() as any,
+    );
+    let reads = 0;
+    const uniforms = new Proxy({ [tint.name]: 1 } as Record<string, unknown>, {
+      get: (target, key) => {
+        if (key === tint.name) reads++;
+        return target[key as string];
+      },
+    });
+    const draw = (z: number, clear: boolean) =>
+      routine.draw(
+        { attributes: { [pos.name]: new Float64Array(screenAt(z)) }, uniforms },
+        { width: 1, height: 1, clear, clearDepth: clear },
+      );
+    draw(0.25, true);
+    const readsInFront = reads;
+    expect(readsInFront).toBeGreaterThan(0);
+    expect(Array.from(draw(0.75, false))).toEqual([0.25, 1, 0, 1]);
+    expect(reads).toBe(readsInFront);
+  });
+
+  /**
+   * Each shape is drawn into a 4×4 target in both windings, its edges given in
+   * pixels. Each pattern is what Chromium's WebGPU shades for the same shape,
+   * a row of `#` for each row of pixels from the top.
+   *
+   * @canon spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge
+   */
+  it.each(rasterizers)(
+    "%s: shades a pixel centre on a top or left edge, not a bottom or right one",
+    (_, compileRaster) => {
+      const pos = attribute("vec2");
+      const routine = compileRaster(
+        () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+        () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      );
+      /** The pattern a draw of `corners`, x and y in pixels, shades: a row of `#` and `.` for each row from the top. */
+      const shaded = (corners: number[]) => {
+        const clip = corners.map((v, i) => (i % 2 === 0 ? (v / 4) * 2 - 1 : 1 - (v / 4) * 2));
+        const reds = routine.draw({ attributes: { [pos.name]: new Float64Array(clip) } }, { width: 4, height: 4 });
+        return Array.from({ length: 4 }, (_, y) =>
+          Array.from({ length: 4 }, (_, x) => (reds[(y * 4 + x) * 4] === 1 ? "#" : ".")).join(""),
+        ).join("/");
+      };
+      /** The patterns of `corners` as given and with each triangle's vertices in reverse. */
+      const bothWindings = (corners: number[]) => {
+        const reversed = corners.map((_, i) => corners[i - (i % 6) + 4 - (i % 6) + 2 * (i % 2)]!);
+        return [shaded(corners), shaded(reversed)];
+      };
+      const rectangle = (l: number, t: number, r: number, b: number) => [l, t, r, t, l, b, l, b, r, t, r, b];
+      const columns = "##../##../##../##..";
+      const rows = "####/####/..../....";
+      const topLeft = "####/####/####/####";
+      const bottomRight = "##../##../..../....";
+      expect(bothWindings(rectangle(0.5, -1, 2.5, 5))).toEqual([columns, columns]);
+      expect(bothWindings(rectangle(-1, 0.5, 5, 2.5))).toEqual([rows, rows]);
+      expect(bothWindings([0.5, 0.5, 0.5, 9, 9, 0.5])).toEqual([topLeft, topLeft]);
+      expect(bothWindings([2.5, 2.5, 2.5, -9, -9, 2.5])).toEqual([bottomRight, bottomRight]);
+    },
+  );
+
+  /**
+   * The host passes the integer attribute first, which holds one triangle, and
+   * the positions, which the program reads first, two. A count taken from
+   * anything but the integer attribute's components draws the second.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+   * @canon spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
+   */
+  it.each(rasterizers)("%s: counts the vertices of an integer first attribute", (_, compileRaster) => {
+    const id = attribute("int");
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos.x, pos.y, id.toFloat().mul(0), 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+    );
+    const left = [-1, -1, 0, -1, -1, 3];
+    const right = [0, -1, 2, -1, 0, 3];
+    const reds = Array.from(
+      routine.draw(
+        { attributes: { [id.name]: Int32Array.of(0, 0, 0), [pos.name]: new Float64Array([...left, ...right]) } },
+        { width: 2, height: 1 },
+      ),
+    ).filter((_, i) => i % 4 === 0);
+    expect(reds).toEqual([1, 0]);
+  });
+
+  /**
+   * @canon spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
+   * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
+   */
+  it.each(rasterizers)("%s: leaves a pixel's colour for a fragment stage that writes none", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const color = uniform("vec4");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any;
+    const drawn = compileRaster(vertex, () => Fn(() => color)() as any);
+    const colourless = compileRaster(vertex, () => Fn(() => {})() as any);
+    const ctx = {
+      attributes: { [pos.name]: new Float64Array(screenAt(0.5)) },
+      uniforms: { [color.name]: [1, 0, 0, 1] },
+    };
+    const out = drawn.draw(ctx, { width: 1, height: 1 });
+    expect(Array.from(colourless.draw(ctx, { width: 1, height: 1, out, clear: false }))).toEqual([1, 0, 0, 1]);
+  });
+
+  /**
+   * The first draw paints both pixels red into a buffer of the caller's; the
+   * second, given none, paints only the left one blue over the routine's own
+   * image, which no draw has painted.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: leaves its own image alone in a draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+    );
+    const draw = (corners: number[], rgba: number[], options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, ...options },
+        ),
+      );
+    const out = new Float64Array(8);
+    expect(draw([-1, -1, 3, -1, -1, 3], [1, 0, 0, 1], { clear: true, out })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+    expect(draw([-1, -1, 0, -1, -1, 3], [0, 0, 1, 1], { clear: false })).toEqual([0, 0, 1, 1, 0, 0, 0, 0]);
+  });
+
+  /**
+   * The first draw paints the routine's 2×1 image red; the second draws a
+   * larger image into a buffer of the caller's; the third, at 2×1 again,
+   * paints nothing and does not clear, so it shows the red image.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: keeps its own image through a larger draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+    );
+    const draw = (corners: number[], width: number, height: number, options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, ...options }),
+      );
+    draw([-1, -1, 3, -1, -1, 3], 2, 1, { clear: true });
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, { clear: true, out: new Float64Array(64) });
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 1, { clear: false })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+  });
+
+  /**
+   * The first draw paints a 4×4 image red; the second, at 2×8, paints nothing
+   * and does not clear, so it shows what it draws over.
+   *
+   * @canon spec-a-cpu-draw-of-another-size-starts-from-a-transparent-image
+   */
+  it.each(rasterizers)("%s: draws over a transparent image at another size", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+    );
+    const draw = (corners: number[], width: number, height: number, clear: boolean) =>
+      Array.from(routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, clear }));
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, true);
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 8, false)).toEqual(new Array(64).fill(0));
+  });
+
+  /**
+   * The triangle's colour is what its integer attributes read, from arrays of
+   * their kinds. A draw checks no array's kind: an array of another kind, or a
+   * plain array, is drawn from as it is.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it.each(rasterizers)("%s: draws with an integer attribute from an array of any kind", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const signed = attribute("int");
+    const unsigned = attribute("uvec2");
+    const shade = varying("vec3");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          shade.assign(vec3(signed.toFloat(), unsigned.x.toFloat(), unsigned.y.toFloat()));
+          builtinPosition().assign(vec4(pos, 0, 1));
+        })() as any,
+      () => Fn(() => vec4(shade, 1))() as any,
+    );
+    const draw = (attributes: Record<string, any>) => routine.draw({ attributes }, { width: 1, height: 1 });
+    const corners = new Float64Array([-1, -1, 3, -1, -1, 3]);
+    const got = draw({
+      [pos.name]: corners,
+      [signed.name]: Int32Array.of(-1, -1, -1),
+      [unsigned.name]: Uint32Array.of(4294967295, 2, 4294967295, 2, 4294967295, 2),
+    });
+    expect(Array.from(got)).toEqual([-1, 4294967295, 2, 1]);
+    const unsignedData = new Uint32Array(6);
+    expect(() =>
+      draw({ [pos.name]: corners, [signed.name]: new Float64Array(3), [unsigned.name]: unsignedData }),
+    ).not.toThrow();
+    expect(() =>
+      draw({ [pos.name]: corners, [signed.name]: new Int32Array(3), [unsigned.name]: new Int32Array(6) }),
+    ).not.toThrow();
+    expect(() =>
+      draw({ [pos.name]: [-1, -1, 3, -1, -1, 3], [signed.name]: new Int32Array(3), [unsigned.name]: unsignedData }),
+    ).not.toThrow();
+  });
+
+  /**
+   * A depth kept from a draw of another size would be read at another pixel.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it.each(rasterizers)("%s: clears its depth buffer for a draw of another size", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => color)() as any,
+    );
+    const draw = (z: number, rgba: number[], width: number, height: number, clearDepth: boolean) =>
+      routine.draw(
+        { attributes: { [pos.name]: new Float64Array(screenAt(z)) }, uniforms: { [color.name]: rgba } },
+        { width, height, clearDepth },
+      );
+    draw(0.1, [1, 0, 0, 1], 4, 1, true);
+    expect(Array.from(draw(0.5, [0, 0, 1, 1], 2, 2, false))).toEqual([0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1]);
+  });
+
+  /**
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it("tests the depth the fragment stage writes in the JS rasterizer", () => {
+    const pos = attribute("vec3");
+    const depth = uniform("float");
+    const color = uniform("vec4");
+    const routine = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(depth);
+          return color;
+        })() as any,
+    );
+    const draw = (z: number, d: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        {
+          attributes: { [pos.name]: new Float64Array(screenAt(z)) },
+          uniforms: { [depth.name]: d, [color.name]: rgba },
+        },
+        { width: 1, height: 1, clearDepth },
+      );
+    // Each depth the fragment writes reverses the order its triangle's own depth gives.
+    draw(0.25, 0.9, [1, 0, 0, 1], true);
+    expect(Array.from(draw(0.5, 0, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
+   * @canon spec-discard-drops-the-fragment
+   */
+  it("writes no depth for a discarded fragment in the JS rasterizer", () => {
+    const draw = flatRasterizer((color, drop) => {
+      If(drop.greaterThan(0), () => Discard());
+      return color;
+    });
+    draw(screenAt(0.25), [0, 1, 0, 1], {}, 1);
+    expect(Array.from(draw(screenAt(0.5), [0, 0, 1, 1], { clear: false, clearDepth: false }).slice(0, 4))).toEqual([
+      0, 0, 1, 1,
+    ]);
+  });
+
+  /**
+   * @canon spec-a-pixel-on-a-shared-edge-is-shaded-once
+   */
+  it("gives a pixel on a shared edge to one triangle whatever their order in the JS rasterizer", () => {
+    const draw = flatRasterizer();
+    const upper = [-1, 1, 0, 1, -1, 0, 1, 1, 0];
+    const lower = [-1, 1, 0, -1, -1, 0, 1, -1, 0];
+    const composes = { clear: false, clearDepth: false };
+    draw(upper, [1, 0, 0, 1]);
+    const upperFirst = Array.from(draw(lower, [0, 0, 1, 1], composes));
+    draw(lower, [0, 0, 1, 1]);
+    const lowerFirst = Array.from(draw(upper, [1, 0, 0, 1], composes));
+    expect(upperFirst).toEqual(lowerFirst);
+  });
+
+  /**
+   * @canon spec-a-rasterizer-clips-outside-the-depth-range
+   */
+  it("clips a triangle below zero depth in the JS rasterizer", () => {
+    const draw = flatRasterizer();
+    const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
+    expect(Array.from(image)).toEqual(new Array(16).fill(0));
+  });
+});
+
+describe("the index accessors on JS", () => {
+  /** A triangle over the pixel only when its vertices read the indices 3, 4 and 5, coloured by its instance. */
+  function indexed() {
+    const pos = attribute("vec3");
+    const instance = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        const v = vertexIndex();
+        instance.assign(instanceIndex().toFloat().add(0.5));
+        builtinPosition().assign(
+          vec4(v.equal(uint(4)).select(float(3), float(-1)), v.equal(uint(5)).select(float(3), float(-1)), 0, 1),
+        );
+      })();
+    const fragment = () => Fn(() => vec4(instance, 0, 0, 1))();
+    const routine = compileJS(vertex as any, fragment as any);
+    return routine.draw(
+      { attributes: { [pos.name]: new Float64Array(18) } },
+      { width: 1, height: 1, first: 3, count: 3 },
+    );
+  }
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for
+   */
+  it("reads the vertex index counted from the start of the attributes on JS", () => {
+    expect(Array.from(indexed())[3]).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-instance-zero
+   */
+  it("reads instance 0 on JS", () => {
+    expect(Array.from(indexed())[0]).toBe(0.5);
+  });
+
+  /**
+   * @canon spec-the-index-accessors-are-read-only
+   */
+  it("refuses a write to the vertex index on JS", () => {
+    const vertex = () =>
+      Fn(() => {
+        (vertexIndex() as any).assign(uint(1));
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+      })();
+    expect(() => compileJS(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrow(/built-in input/);
+  });
+});
+
+describe("the count of a draw that names none on JS", () => {
+  /**
+   * The program reads only \`pos\`, so the 12 values of \`unused\`, passed first, count for nothing.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+   * @canon spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
+   */
+  it("counts from the first attribute the program reads on JS", () => {
+    const unused = attribute("vec2");
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const routine = compileJS(vertex as any, fragment as any);
+    const pixel = routine.draw(
+      {
+        attributes: { [unused.name]: new Float64Array(12), [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(pixel)).toEqual([0, 1, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused
+   */
+  it("refuses a draw missing an attribute the program reads on JS and WASM", async () => {
+    const pos = attribute("vec3");
+    const tint = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos.add(tint), 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const inputs = { attributes: { [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
+    const missing = new RegExp(`missing attribute "${tint.name}"`);
+    expect(() => compileJS(vertex as any, fragment as any).draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+    const wasm = await compileWasm(vertex as any, fragment as any);
+    expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+  });
+});
+
+describe("an early Return in a function on the CPU targets", () => {
+  /**
+   * The call that takes the early return comes after one that writes the
+   * vector, so a result left unwritten would show the earlier call's value.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as CompileCpuRoutine],
+  ])("gives a vector function the zero vector on %s", (_name, compile) => {
+    const routine = compile(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return vec2(x, 1);
+        })(),
+      { name: "early", params: [{ name: "x", type: "float" }] },
+    );
+    expect(Array.from(routine({ params: { x: -1 } }) as ArrayLike<number>)).toEqual([-1, 1]);
+    expect(Array.from(routine({ params: { x: 1 } }) as ArrayLike<number>)).toEqual([0, 0]);
+  });
+
+  /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("gives a reentrant JS grid's pixel the zero value on an early return", () => {
+    const grid = compileJSGrid(
+      () =>
+        Fn(() => {
+          If(fragCoord().x.greaterThan(1), () => {
+            Return();
+          });
+          return float(7);
+        })() as any,
+      { name: "main", params: [], reentrant: true },
+    );
+    expect(Array.from(grid({}, 2, 1) as ArrayLike<number>)).toEqual([7, 0]);
+  });
+
+  /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("ends a JS routine that returns nothing the same way early and at its end", () => {
+    const gate = uniform("float");
+    const routine = compileJSRoutine(
+      () =>
+        Fn(() => {
+          const v = float(1).toVar();
+          If(gate.greaterThan(0), () => {
+            Return();
+          });
+          v.assign(float(2));
+        })() as any,
+      { name: "main", params: [] },
+    );
+    expect(routine({ uniforms: { [gate.name]: 1 } })).toBeUndefined();
+    expect(routine({ uniforms: { [gate.name]: 0 } })).toBeUndefined();
+  });
+
+  /**
+   * Both early returns zero the slot the function returns its matrix in.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("returns a JS matrix function's own result slot zeroed at an early return", () => {
+    const source = compileJSFn(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(1), () => {
+            Return();
+          });
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return mat2(x, 0, 0, x);
+        })(),
+      { name: "early", params: [{ name: "x", type: "float" }] },
+    );
+    const early = [...source.matchAll(/return (\w+)\.fill\(0\);/g)].map((m) => m[1]);
+    expect(early).toHaveLength(2);
+    expect(source).toContain(`return ${early[0]};`);
+    expect(new Set(early).size).toBe(1);
+  });
+
+  /**
+   * The constant condition drops the branch that reads the depth.
+   *
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("compiles a JS fragment whose depth is read only in a select branch it folds away", () => {
+    const build = () => Fn(() => vec4(select(bool(false), builtinFragDepth(), float(0.5)), 0, 0, 1))() as any;
+    expect(() => compileJSFn(build, { name: "main", params: [], stage: "fragment" })).not.toThrow();
+  });
+
+  /**
+   * A program that writes its depth returns its result object, so an early
+   * return returns that object too.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("returns the result object of a JS program that returns nothing", () => {
+    const gate = uniform("float");
+    const source = compileJSFn(
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(float(0.5));
+          If(gate.greaterThan(0), () => {
+            Return();
+          });
+        })() as any,
+      { name: "main", params: [] },
+    );
+    expect(source).toMatch(/\{\s*return res;\s*\}/);
+  });
+});
+
+describe("an inline Fn read in both branches of an If on JS", () => {
+  /**
+   * @canon exception-an-inline-fn-both-branches-of-an-if-read-runs-once-before-the-if
+   */
+  it("runs an inline Fn read in both branches of an If once, before the If, on JS", () => {
+    const counter = instancedArray(1, "float");
+    const shared = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const taken = uniform("float");
+    const result = instancedArray(1, "float");
+    const build = () =>
+      Fn(() => {
+        If(taken.greaterThan(0), () => {
+          result.element(int(0)).assign(shared.fract().add(shared));
+        }).Else(() => {
+          result.element(int(0)).assign(shared.mul(10));
+        });
+      })();
+    const runs = (branch: number) => {
+      const data = new Float64Array(1);
+      const out = new Float64Array(1);
+      compileJSRoutine(
+        build as any,
+        none,
+      )({
+        storages: { [counter.name]: data, [result.name]: out },
+        uniforms: { [taken.name]: branch },
+      });
+      return { runs: data[0], value: out[0] };
+    };
+    expect(runs(1)).toEqual({ runs: 1, value: 2 });
+    expect(runs(0)).toEqual({ runs: 1, value: 20 });
+  });
+});
+
+describe("the array a CPU adapter takes for an attribute", () => {
+  const adapters: [string, typeof createJs][] = [
+    ["createJs", createJs],
+    ["createWasm", createWasm as unknown as typeof createJs],
+  ];
+
+  /**
+   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   */
+  it.each(adapters)("%s refuses an array of another kind, named by node or by slot", (_, create) => {
+    const position = attribute("vec2");
+    const ids = attribute("ivec2");
+    const flags = attribute("uint");
+    const adapter = create(
+      () =>
+        Fn(() => builtinPosition().assign(vec4(position.add(vec2(ids.x.toFloat(), flags.toFloat())), 0, 1)))() as any,
+      () => Fn(() => vec4(0, 1, 0, 1))() as any,
+    );
+    expect(() => adapter.setAttribute(ids, new Float32Array(6) as any)).toThrow(/\bivec2\b.*Int32Array.*Float32Array/);
+    expect(() => adapter.setAttribute(ids.name, new Uint32Array(6))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(flags, new Int32Array(3) as any)).toThrow(/\buint\b.*Uint32Array/);
+    expect(() => adapter.setAttribute(position, new Int32Array(6) as any)).toThrow(/\bvec2\b.*Float32Array/);
+    expect(() => adapter.setAttribute(position, new Float64Array(6))).not.toThrow();
+    expect(() => adapter.setAttribute(ids, new Int32Array(6))).not.toThrow();
+  });
+});
+
+describe("the array a CPU adapter takes for a storage buffer", () => {
+  /**
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an array of another kind, named by node or by slot", (_, create) => {
+    const counts = instancedArray(2, "int");
+    const weights = instancedArray(2, "float");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        weights.element(i).assign(weights.element(i).add(counts.element(i).toFloat()));
+      })(),
+    );
+    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
+      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(weights, new Int32Array(2) as any)).toThrow(/\bfloat\b storage buffer/);
+    expect(() => adapter.setAttribute(weights, new Float64Array(2))).not.toThrow();
+    expect(() => adapter.setAttribute(counts, new Int32Array(2))).not.toThrow();
+  });
+
+  /**
+   * A grid adapter knows the element type of a storage buffer from its node.
+   *
+   * @canon spec-a-storage-buffer-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsGrid", createJsGrid],
+    ["createWasmGrid", createWasmGrid as unknown as typeof createJsGrid],
+  ])("%s refuses a storage array of another kind given with the node", (_, create) => {
+    const shades = instancedArray(1, "uint");
+    const adapter = create({ draw: Fn(() => vec4(shades.element(0).toFloat(), 0, 0, 1))() });
+    expect(() => adapter.setAttribute(shades, new Int32Array(1) as any)).toThrow(
+      /\buint\b storage buffer.*Uint32Array/,
+    );
+    expect(() => adapter.setAttribute(shades, new Uint32Array(1))).not.toThrow();
+  });
+});
+
+/** A program that reads a uniform of each shape, as one `vec4` node. */
+const cpuUniformShapes = () => {
+  const count = uniform("int");
+  const offsets = uniformArray("int", 2);
+  const tint = uniform("vec3");
+  const turn = uniform("mat2");
+  const pairs = uniformArray("vec2", 2);
+  const value = count
+    .add(offsets.element(int(1)))
+    .toFloat()
+    .add(tint.x)
+    .add(turn.element(int(1)).y)
+    .add(pairs.element(int(1)).y);
+  return { count, offsets, tint, turn, pairs, colour: Fn(() => vec4(value, 0, 0, 1))() };
+};
+
+/** Each CPU adapter over the `vec4` node `colour`, with the `setUniform` it gives. */
+const cpuAdapters: [string, (colour: Node<"vec4">) => { setUniform(uniform: any, value: unknown): void }][] = [
+  [
+    "createJs",
+    (colour) =>
+      createJs(
+        () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))(),
+        () => colour,
+      ),
+  ],
+  [
+    "createWasm",
+    (colour) =>
+      createWasm(
+        () => Fn(() => builtinPosition().assign(vec4(0, 0, 0, 1)))(),
+        () => colour,
+      ),
+  ],
+  ["createJsGrid", (colour) => createJsGrid({ draw: colour })],
+  ["createWasmGrid", (colour) => createWasmGrid({ draw: colour })],
+  ["createJsRoutine", (colour) => createJsRoutine(colour)],
+  ["createWasmRoutine", (colour) => createWasmRoutine(colour)],
+  [
+    "createJsCompute",
+    (colour) => {
+      const out = instancedArray(1, "vec4");
+      return createJsCompute(Fn(() => out.element(invocationIndex()).assign(colour))());
+    },
+  ],
+  [
+    "createWasmCompute",
+    (colour) => {
+      const out = instancedArray(1, "vec4");
+      return createWasmCompute(Fn(() => out.element(invocationIndex()).assign(colour))());
+    },
+  ],
+];
+
+describe("the shape of a value a CPU adapter takes", () => {
+  /**
+   * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   * @canon spec-an-undefined-uniform-array-element-converts-as-a-typed-slot-does
+   */
+  it.each(cpuAdapters)(
+    "%s refuses a uniform value of another shape through setUniform, by node or by slot",
+    (_, create) => {
+      const { count, offsets, tint, turn, pairs, colour } = cpuUniformShapes();
+      const adapter = create(colour);
+      expect(() => adapter.setUniform(count, [2])).toThrow(
+        `[RMSL] the int uniform "${count.name}" takes one value, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(tint, [1, 2])).toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
+      );
+      expect(() => adapter.setUniform(tint.name, 1)).toThrow(
+        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not 1`,
+      );
+      expect(() =>
+        adapter.setUniform(turn.name, [
+          [1, 0],
+          [0, 1],
+        ]),
+      ).toThrow(`[RMSL] the mat2 uniform "${turn.name}" takes 4 components, not an array of 2`);
+      expect(() => adapter.setUniform(offsets.name, [1])).toThrow(
+        `[RMSL] the int uniform array "${offsets.name}" takes 2 elements, not an array of 1`,
+      );
+      expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrow(
+        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
+      );
+      for (const nothing of [undefined, null])
+        expect(() => adapter.setUniform(pairs, [[1, 2], nothing])).toThrow(
+          `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
+        );
+      expect(() => adapter.setUniform(offsets, [1, undefined])).not.toThrow();
+      expect(() => adapter.setUniform(offsets.name, [null, 2])).not.toThrow();
+      expect(() => adapter.setUniform(count, 2.7)).not.toThrow();
+      expect(() => adapter.setUniform(tint, Float32Array.of(1, 2, 3))).not.toThrow();
+      expect(() => adapter.setUniform(turn.name, [1, 0, 0, 1])).not.toThrow();
+      expect(() => adapter.setUniform(pairs.name, [Float32Array.of(1, 2), [3, 4]])).not.toThrow();
+      expect(() => adapter.setUniform(tint, null)).not.toThrow();
+    },
+  );
+
+  /**
+   * An object that is no array is named by its class, or as an object when it has none of its own.
+   *
+   * @canon spec-a-shape-refusal-names-what-the-host-gave
+   */
+  it.each(cpuAdapters)("%s names an object given for a uniform by what it is", (_, create) => {
+    const { count, tint, colour } = cpuUniformShapes();
+    const adapter = create(colour);
+    expect(() => adapter.setUniform(tint, new Vector3(1, 2, 3))).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not a Vector3`,
+    );
+    expect(() => adapter.setUniform(count, { value: 2 })).toThrow(
+      `[RMSL] the int uniform "${count.name}" takes one value, not an object`,
+    );
+    expect(() => adapter.setUniform(tint, Object.create(null))).toThrow(
+      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an object`,
+    );
+  });
+
+  /**
+   * A value the host changes after it set it is not checked again: the run reads what the array holds.
+   *
+   * @canon spec-a-cpu-adapter-refuses-a-value-of-another-shape-where-it-is-set
+   */
+  it.each([
+    ["createJsRoutine", createJsRoutine],
+    ["createWasmRoutine", createWasmRoutine as typeof createJsRoutine],
+  ])("%s refuses a parameter of another shape at run, and checks no uniform there", (_, create) => {
+    const tint = uniform("vec3");
+    const adapter = create(Fn(() => tint.z)(), { params: [{ name: "p", type: "vec2" }] });
+    expect(() => adapter.run({ p: [1] as any })).toThrow(
+      '[RMSL] the vec2 parameter "p" takes 2 components, not an array of 1',
+    );
+    expect(() => adapter.run({ p: 1 as any })).toThrow('[RMSL] the vec2 parameter "p" takes 2 components, not 1');
+    const value = [0, 0, 2];
+    adapter.setUniform(tint, value as [number, number, number]);
+    expect(adapter.run({ p: [0, 1] })).toBe(2);
+    value.length = 2;
+    expect(() => adapter.run({ p: [0, 1] })).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it.each([
+    ["createJsRoutine", createJsRoutine],
+    ["createWasmRoutine", createWasmRoutine as typeof createJsRoutine],
+  ])("%s reads a uniform set to null or undefined as zero", (_, create) => {
+    const k = uniform("float");
+    const v = uniform("vec3");
+    const pairs = uniformArray("vec2", 2);
+    const adapter = create(Fn(() => vec3(k, v.y, pairs.element(int(1)).y))());
+    for (const left of [null, undefined]) {
+      adapter.setUniform(k, 1);
+      adapter.setUniform(v, [0, 2, 0]);
+      adapter.setUniform(pairs, [
+        [0, 0],
+        [0, 4],
+      ]);
+      expect(Array.from(adapter.run() as Float64Array)).toEqual([1, 2, 4]);
+      for (const u of [k, v, pairs]) adapter.setUniform(u as any, left as any);
+      expect(Array.from(adapter.run() as Float64Array), String(left)).toEqual([0, 0, 0]);
+    }
+  });
+});
+
+describe("the storage arrays a CPU program takes", () => {
+  /**
+   * A routine or compute stage reads the arrays of ctx.storages as the host gives them.
+   *
+   * @canon spec-a-compiled-program-trusts-its-inputs
+   */
+  it.each([
+    ["compileJSCompute", compileJSCompute],
+    ["compileWasmCompute", compileWasmCompute as typeof compileJSCompute],
+  ])("%s takes an array of another kind in ctx.storages without refusing it", (_, stage) => {
+    const counts = instancedArray(2, "int");
+    const weights = instancedArray(2, "float");
+    const compute = stage(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          weights.element(i).assign(counts.element(i).toFloat());
+        })() as any,
+      none,
+    );
+    const filled = new Float32Array(2);
+    expect(() =>
+      compute({ storages: { [counts.name]: Float32Array.of(3, 4) as any, [weights.name]: filled } }, 2),
+    ).not.toThrow();
+    expect(Array.from(filled)).toEqual([3, 4]);
+  });
+});
+
+describe("the readback array a CPU compute adapter takes", () => {
+  /**
+   * The refusal comes before the dispatch, so the storage the adapter holds keeps its values.
+   *
+   * @canon spec-a-readback-array-takes-only-an-array-of-its-element-kind
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an out array of another kind", (_, create) => {
+    const counts = instancedArray(2, "int");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    const held = Int32Array.of(1, 2);
+    adapter.setAttribute(counts, held);
+    expect(() => adapter.compute({ [counts.name]: new Float32Array(2) })).toThrow(
+      new RegExp(`the int storage buffer "${counts.name}" takes an Int32Array, not a Float32Array`),
+    );
+    expect(Array.from(held)).toEqual([1, 2]);
+    const out = new Int32Array(2);
+    adapter.compute({ [counts.name]: out });
+    expect(Array.from(out)).toEqual([2, 3]);
+  });
+
+  /**
+   * The refusal comes before the dispatch, so the storage the adapter holds keeps its values.
+   *
+   * @canon spec-a-readback-array-holds-at-least-the-values-of-its-slot
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as unknown as typeof createJsCompute],
+  ])("%s refuses an out array shorter than its slot", (_, create) => {
+    const counts = instancedArray(3, "int");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        counts.element(i).assign(counts.element(i).add(1));
+      })(),
+    );
+    const held = Int32Array.of(1, 2, 3);
+    adapter.setAttribute(counts, held);
+    expect(() => adapter.compute({ [counts.name]: new Int32Array(2) })).toThrow(
+      `[RMSL] out["${counts.name}"] holds 2 values, and the slot has 3`,
+    );
+    expect(Array.from(held)).toEqual([1, 2, 3]);
+    const out = new Int32Array(4);
+    adapter.compute({ [counts.name]: out });
+    expect(Array.from(out)).toEqual([2, 3, 4, 0]);
+  });
+});
+
+describe("a storage buffer the host never sets on a CPU compute adapter", () => {
+  /**
+   * The program reads one buffer made from data and one made from a count,
+   * writes a third, and reads back all three, with no `setAttribute`. The
+   * write to the buffer made from a count leaves its node's array as it was.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s starts each storage buffer the host never set as its array", (_, create) => {
+    const given = instancedArray(Float32Array.of(1, 2), "float");
+    const zeroed = instancedArray(2, "float");
+    const out = instancedArray(2, "float");
+    const adapter = create(
+      Fn(() => {
+        const i = invocationIndex();
+        out.element(i).assign(given.element(i).add(zeroed.element(i)).add(7));
+        zeroed.element(i).assign(float(3));
+      })(),
+    );
+    const read = {
+      [given.name]: new Float32Array(2),
+      [zeroed.name]: new Float32Array(2),
+      [out.name]: new Float32Array(2),
+    };
+    adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([8, 9]);
+    expect(Array.from(read[given.name]!)).toEqual([1, 2]);
+    expect(Array.from(read[zeroed.name]!)).toEqual([3, 3]);
+    expect(Array.from(zeroed.attribute.array)).toEqual([0, 0]);
+    adapter.compute(read, 2);
+    expect(Array.from(read[out.name]!)).toEqual([11, 12]);
+  });
+  /**
+   * The adapters compute floats in f64 by default, so a float buffer the
+   * host never sets holds a third as an f64 does, as one the host sets as a
+   * `Float64Array` would.
+   *
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s holds a float buffer the host never set at the width it computes in", (_, create) => {
+    const out = instancedArray(1, "float");
+    const adapter = create(
+      Fn(() => {
+        out.element(int(0)).assign(float(1).div(3));
+      })(),
+    );
+    const read = { [out.name]: new Float64Array(1) };
+    adapter.compute(read, 1);
+    expect(read[out.name]![0]).toBe(1 / 3);
+  });
+
+  /**
+   * No buffer is set, so the dispatch covers the first the program declares.
+   *
+   * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+   */
+  it.each([
+    ["createJsCompute", createJsCompute],
+    ["createWasmCompute", createWasmCompute as typeof createJsCompute],
+  ] as const)("%s given no count covers the program's first buffer before the host sets one", (_, create) => {
+    const out = instancedArray(3, "float");
+    const adapter = create(
+      Fn(() => {
+        out.element(invocationIndex()).assign(float(5));
+      })(),
+    );
+    const read = { [out.name]: new Float32Array(3) };
+    adapter.compute(read);
+    expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
   });
 });

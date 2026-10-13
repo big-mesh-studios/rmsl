@@ -1,8 +1,10 @@
+import { withArticle } from "../article";
 import { build } from "esbuild";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
 import type { Plugin } from "vite";
 import wabtInit from "wabt";
+import { watModuleSource } from "./wat-module";
 
 export type ViteFilter = string | RegExp | Array<string | RegExp>;
 
@@ -133,7 +135,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
  * asset once at load and hands the bytes to `instantiateWasmRoutine` — imported
  * from `@random-mesh/rmsl/wasm`, the only rmsl the rewritten module ever
  * references — along with the rest of what `compileWasmFn` returned
- * (`params`/`resultType`/`textureHeapBase`/`draw`/`compute`), turning the two back
+ * (`params`/`resultType`/`textureHeapBase`/`draw`), turning the two back
  * into a live, callable module. No eval, no graph builder or bytecode
  * emitter shipped to the browser; only the small piece of glue that marshals
  * calls in and results out.
@@ -192,7 +194,9 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
 
 /**
  * Loads every `.wat` (WebAssembly Text Format) file as `export default`ing
- * its compiled bytes (a `Uint8Array`), via `wabt`'s `wat2wasm`.
+ * its compiled bytes (a `Uint8Array`), via `wabt`'s `wat2wasm`. A module that
+ * imports a memory also exports `shared`: the same module importing it shared,
+ * which a shared memory links against.
  *
  * Meant for a module whose WASM is entirely static — unlike rmsl's own
  * graph-driven backends, which compile bytecode at runtime for whatever
@@ -212,9 +216,7 @@ export function compileWat(options: PrecompileShadersOptions = {}): Plugin {
       if (matches(filePath, options.exclude)) return null;
 
       wabt ??= await wabtInit();
-      const source = await readFile(id, "utf8");
-      const bytes = new Uint8Array(wabt.parseWat(filePath, source).toBinary({}).buffer);
-      return `export default new Uint8Array([${bytes.join(",")}]);`;
+      return watModuleSource(wabt, filePath, await readFile(id, "utf8"));
     },
   };
 }
@@ -326,7 +328,9 @@ function notJsonData(value: unknown, path: string): string | undefined {
     }
     return undefined;
   }
-  const what = typeof value === "object" ? `a ${(value as object).constructor?.name ?? "object"}` : `a ${typeof value}`;
+  const what = withArticle(
+    typeof value === "object" ? ((value as object).constructor?.name ?? "object") : typeof value,
+  );
   return `${what} at ${path}`;
 }
 
@@ -361,9 +365,7 @@ async function bundleModule(code: string, filePath: string): Promise<{ text: str
           setup(pluginBuild) {
             pluginBuild.onLoad({ filter: /\.wat$/ }, async (args) => {
               const wabt = await wabtInit();
-              const source = await readFile(args.path, "utf8");
-              const bytes = new Uint8Array(wabt.parseWat(args.path, source).toBinary({}).buffer);
-              return { contents: `export default new Uint8Array([${bytes.join(",")}]);`, loader: "js" };
+              return { contents: watModuleSource(wabt, args.path, await readFile(args.path, "utf8")), loader: "js" };
             });
           },
         },

@@ -1,4 +1,4 @@
-import { Fn, mat3, vec4, type Node } from "../../rmsl";
+import { Fn, vec4, type Node } from "../../rmsl";
 import { Material } from "./Material";
 import {
   Builder,
@@ -58,19 +58,29 @@ export class NodeMaterial extends Material {
   protected setup(_b: Builder, _scene: Scene): void {}
 
   protected buildVertexBody(b: Builder): Node<"vec4"> {
-    const position = resolveSlot(this.positionNode, b) ?? b.position;
-    const position4 = vec4(position, 1);
-    // The instance matrix applies first, in local space, and the mesh's own
-    // model matrix follows — for a plain mesh the instance transform is absent.
-    const localPosition = b.instancing ? b.instanceMatrix.mul(position4) : position4;
-    const worldPosition = b.modelMatrix.mul(localPosition);
+    // The builder's position and normal carry the instance matrix already, and
+    // the mesh's own model matrix follows.
+    const worldPosition = b.modelMatrix.mul(vec4(this.localPosition(b), 1));
     b.positionWorld.assign(worldPosition.xyz);
-    let normal = resolveSlot(this.normalNode, b) ?? b.normal;
-    if (b.instancing) normal = mat3(b.instanceMatrix).mul(normal);
-    b.normalWorld.assign(b.normalMatrix.mul(normal).normalize());
+    b.normalWorld.assign(b.normalMatrix.mul(b.normal).normalize());
     b.uvVarying.assign(b.uv);
     if (b.instancingColor) b.instanceColorVarying.assign(b.instanceColor);
     return b.projectionMatrix.mul(b.viewMatrix.mul(worldPosition));
+  }
+
+  private readonly localPositions = new WeakMap<Builder, Node<"vec3">>();
+
+  /**
+   * The object-space position the vertex stage ends with, as TSL's
+   * `positionLocal`: `positionNode`, or else the builder's position.
+   */
+  protected localPosition(b: Builder): Node<"vec3"> {
+    let position = this.localPositions.get(b);
+    if (!position) {
+      position = resolveSlot(this.positionNode, b) ?? b.position;
+      this.localPositions.set(b, position);
+    }
+    return position;
   }
 
   /** Returns the final color (a vec4, alpha included) for this material. */
@@ -92,13 +102,21 @@ export class NodeMaterial extends Material {
     b.instancingColor = options.instancingColor ?? false;
     this.setup(b, scene);
 
-    b.stage = "vertex";
-    const vertex = Fn(() => (this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b)))() as Node<"vec4">;
+    // The fragment stage is built first, so the vertex stage knows which
+    // object-space attributes to pass it.
     b.stage = "fragment";
     const fragment = Fn(() => {
       const color = this.fragmentNode ? this.fragmentNode(b) : this.buildFragmentBody(b);
       // The per-instance color tints the material's color, whatever it is.
       return b.instancingColor ? vec4(color.rgb.mul(b.instanceColorVarying), color.a) : color;
+    })() as Node<"vec4">;
+    b.stage = "vertex";
+    const vertex = Fn(() => {
+      const clip = this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b);
+      // The fragment stage reads the position the vertex stage ends with, and the geometry's normal.
+      if (b.fragmentReads.has("position")) b.varying("positionLocal", "vec3").assign(this.localPosition(b));
+      if (b.fragmentReads.has("normal")) b.varying("normalLocal", "vec3").assign(b.attribute("normal", "vec3"));
+      return clip;
     })() as Node<"vec4">;
 
     const v = collectNodes(vertex);

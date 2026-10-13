@@ -7,7 +7,7 @@ import { GL_STATE, READ_PIXEL, runInGpuPage } from "../testing/browser";
  * draws it in. Pixel (x, y) counts from the top left.
  */
 const SCENE = `
-import { Fn, attribute, builtinPosition, fragCoord, uniform, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, fragCoord, texture, uint, uniform, varying, vec2, vec4, vertexIndex } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createJs, createJsGrid } from "../js";
 import { createWasm, createWasmGrid } from "../wasm";
@@ -17,7 +17,7 @@ const position = attribute("vec3");
 const colour = uniform("vec4");
 const vertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 const fragment = () => Fn(() => colour)();
-// A vertex stage that also reads an attribute the host never sets, which moves the triangle out of view unless it holds 0.
+// A vertex stage that also reads an attribute that moves the triangle out of view unless it holds 0.
 const offset = attribute("vec4");
 const offsetVertex = () => Fn(() => { builtinPosition().assign(vec4(position.add(offset.xyz.mul(8)), 1)); })();
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -36,7 +36,7 @@ const drawWith = (adapter) => {
   return readPixel(target, 1, 2);
 };
 const image = uniform("sampler2D");
-const texturedFragment = () => Fn(() => image.texture(vec2(0.75, 0.25)))();
+const texturedFragment = () => Fn(() => texture(image, vec2(0.75, 0.25)))();
 const drawTextured = (adapter) => {
   const target = canvas();
   adapter.attach(target);
@@ -47,6 +47,20 @@ const drawTextured = (adapter) => {
     width: 2,
     height: 2,
   });
+  adapter.draw({ count: 3 });
+  return readPixel(target, 1, 2);
+};
+// A triangle over the canvas whose vertices write their index to an integer varying.
+const flatIndex = () => {
+  const k = varying("int");
+  const vertex = Fn(() => {
+    const v = vertexIndex();
+    k.assign(v.toInt());
+    return vec4(v.equal(uint(1)).select(float(3), float(-1)), v.equal(uint(2)).select(float(3), float(-1)), 0, 1);
+  })();
+  const target = canvas();
+  const adapter = createGlsl(vertex, Fn(() => vec4(k.toFloat().div(2), 0, 0, 1))());
+  adapter.attach(target);
   adapter.draw({ count: 3 });
   return readPixel(target, 1, 2);
 };
@@ -74,6 +88,7 @@ const drawnOver = (dirty) => {
   const adapter = createGlsl(offsetVertex(), texturedFragment());
   adapter.attach(target);
   adapter.setAttribute(position, TRIANGLE);
+  adapter.setAttribute(offset, new Float32Array(12));
   adapter.setTexture(image, {
     data: Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255),
     width: 2,
@@ -90,10 +105,11 @@ const glslStateChanged = (preserveState) => {
   const before = glState(gl);
   const changed = new Set();
   const check = () => changedGlState(before, glState(gl)).forEach((name) => changed.add(name));
-  const adapter = createGlsl(offsetVertex(), Fn(() => image.texture(vec2(0.75, 0.25)).mul(colour))(), { preserveState });
+  const adapter = createGlsl(offsetVertex(), Fn(() => texture(image, vec2(0.75, 0.25)).mul(colour))(), { preserveState });
   adapter.attach(target);
   check();
   adapter.setAttribute(position, TRIANGLE);
+  adapter.setAttribute(offset, new Float32Array(12));
   check();
   adapter.setUniform(colour, [0, 1, 0, 1]);
   check();
@@ -112,14 +128,15 @@ const drawRoutine = (adapter) => {
 };
 globalThis.__rmslAdapterDraw = {
   glsl: () => drawWith(createGlsl(vertex(), fragment())),
-  js: () => drawWith(createJs(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
-  wasm: () => drawWith(createWasm(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
+  js: () => drawWith(createJs(vertex, fragment)),
+  wasm: () => drawWith(createWasm(vertex, fragment)),
   glslTexture: () => drawTextured(createGlsl(vertex(), texturedFragment())),
   glslRetexture: () => drawRetextured(createGlsl(vertex(), texturedFragment())),
-  jsTexture: () => drawTextured(createJs(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
-  wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
+  jsTexture: () => drawTextured(createJs(vertex, texturedFragment)),
+  wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment)),
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
+  glslFlatIndex: () => flatIndex(),
   glslStateKept: () => glslStateChanged(false),
   glslDrawsOver: () => ({ dirty: drawnOver(true), clean: drawnOver(false) }),
   glslStatePreserved: () => glslStateChanged(true),
@@ -129,6 +146,200 @@ globalThis.__rmslAdapterDraw = {
 afterAll(async () => {
   await releaseGpu();
 }, 120_000);
+
+/**
+ * A full-screen triangle on a 4×4 canvas that `createGlsl` colours from a
+ * storage buffer, by entry. Each entry returns the pixel it read, or the error
+ * it hit.
+ */
+const STORAGE_SCENE = `
+import { For, Fn, attribute, builtinPosition, float, instancedArray, int, texture, uniform, vec2, vec3, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+${READ_PIXEL}
+const position = attribute("vec3");
+const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+const vertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+/** Draws \`fragment\` with createGlsl over \`vertexStage\`, after \`set\` gives the adapter its values. */
+const draw = (fragment, set = () => {}, vertexStage = vertex()) => {
+  try {
+    const target = document.createElement("canvas");
+    target.width = 4;
+    target.height = 4;
+    const adapter = createGlsl(vertexStage, fragment);
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    set(adapter);
+    adapter.draw({ count: 3 });
+    return readPixel(target, 1, 2);
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+globalThis.__rmslStorageDraw = {
+  vec3: () => {
+    const colours = instancedArray(Float32Array.of(1, 0, 0, 0, 1, 0), "vec3");
+    return draw(Fn(() => vec4(colours.element(int(1)), 1))());
+  },
+  wrapped: () => {
+    const values = instancedArray(Float32Array.from({ length: 40 }, (_, i) => i / 64), "float");
+    return draw(Fn(() => vec4(values.element(int(37)), 0, 0, 1))());
+  },
+  ivec2: () => {
+    const values = instancedArray(Int32Array.of(0, 0, -3, 255), "ivec2");
+    return draw(Fn(() => vec4(0, values.element(int(1)).y.toFloat().div(255), 0, 1))());
+  },
+  uint: () => {
+    const values = instancedArray(Uint32Array.of(7, 4294967295), "uint");
+    return draw(Fn(() => vec4(0, values.element(int(1)).equal(4294967295).select(1, 0), 0, 1))());
+  },
+  mat3: () => {
+    const matrices = instancedArray(Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0), "mat3");
+    return draw(Fn(() => vec4(matrices.element(int(1)).mul(vec3(0, 0, 1)), 1))());
+  },
+  refilled: () => {
+    const colours = instancedArray(2, "vec4");
+    return draw(Fn(() => colours.element(int(1)))(), (adapter) =>
+      adapter.setAttribute(colours.name, Float32Array.of(1, 0, 0, 1, 0, 1, 0, 1)),
+    );
+  },
+  setUniformOnStorage: () => {
+    const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
+    return draw(Fn(() => colours.element(int(0)))(), (adapter) => adapter.setUniform(colours.name, 1));
+  },
+  setTextureOnStorage: () => {
+    const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
+    return draw(Fn(() => colours.element(int(0)))(), (adapter) =>
+      adapter.setTexture(colours.name, { width: 1, height: 1, data: Uint8Array.of(255, 0, 0, 255) }),
+    );
+  },
+  setUniformOnTexture: () => {
+    const image = uniform("sampler2D");
+    return draw(Fn(() => texture(image, vec2(0, 0)))(), (adapter) => adapter.setUniform(image.name, 1));
+  },
+  // A context whose MAX_TEXTURE_SIZE is 4, where 40 texels need a texture 8 wide.
+  oversize: () => {
+    const values = instancedArray(Float32Array.from({ length: 40 }, (_, i) => i / 64), "float");
+    const getParameter = WebGL2RenderingContext.prototype.getParameter;
+    WebGL2RenderingContext.prototype.getParameter = function (name) {
+      return name === this.MAX_TEXTURE_SIZE ? 4 : getParameter.call(this, name);
+    };
+    try {
+      return { ...draw(Fn(() => vec4(values.element(int(37)), 0, 0, 1))()), name: values.name };
+    } finally {
+      WebGL2RenderingContext.prototype.getParameter = getParameter;
+    }
+  },
+  // The update steps i through 0, 1, 2, 3, so the body runs three times.
+  forUpdate: () => {
+    const next = instancedArray(Int32Array.of(1, 2, 3, 3), "int");
+    return draw(
+      Fn(() => {
+        const steps = float(0).toVar();
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => i.assign(next.element(i)),
+          () => steps.addAssign(1),
+        );
+        return vec4(0, steps.div(3), 0, 1);
+      })(),
+    );
+  },
+  vertexStage: () => {
+    const shift = instancedArray(Float32Array.of(0, 0, 8, 8), "vec2");
+    const shifted = Fn(() => { builtinPosition().assign(vec4(position.xy.add(shift.element(int(0))), 0, 1)); })();
+    return draw(Fn(() => vec4(0, 1, 0, 1))(), undefined, shifted);
+  },
+};
+`;
+
+describe.skipIf(!GPU_ENABLED)("createGlsl reading storage in a render stage", () => {
+  /** Draws the entry \`name\` of \`STORAGE_SCENE\` and reads back its pixel. */
+  const drawn = async (name: string) =>
+    runInGpuPage(
+      `${STORAGE_SCENE}\nglobalThis.__rmslStorageDrawRun = async () => globalThis.__rmslStorageDraw.${name}();`,
+      "__rmslStorageDrawRun",
+      new URL(".", import.meta.url).pathname,
+    );
+  const GREEN = { r: 0, g: 255, b: 0, a: 255 };
+
+  /**
+   * @canon spec-a-storage-texel-holds-one-element-or-one-column
+   */
+  it.each(["vec3", "ivec2", "uint", "mat3"])(
+    "reads a %s element of a storage buffer with createGlsl",
+    async (entry) => {
+      expect(await drawn(entry)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * 40 texels make a texture 8 wide, so element 37 sits at column 5 of row 4.
+   *
+   * @canon spec-a-storage-texture-is-a-power-of-two-wide
+   */
+  it("reads an element past the first row of a storage texture with createGlsl", async () => {
+    expect(await drawn("wrapped")).toEqual({ r: 147, g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
+   */
+  it("names setAttribute for setUniform on a storage buffer's slot with createGlsl", async () => {
+    expect(await drawn("setUniformOnStorage")).toEqual({
+      error: expect.stringMatching(/storage buffer.*setAttribute/),
+    });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-refuses-set-texture-on-a-storage-slot
+   */
+  it("names setAttribute for setTexture on a storage buffer's slot with createGlsl", async () => {
+    expect(await drawn("setTextureOnStorage")).toEqual({
+      error: expect.stringMatching(/storage buffer.*setAttribute/),
+    });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
+   */
+  it("names setTexture for setUniform on a texture's slot with createGlsl", async () => {
+    expect(await drawn("setUniformOnTexture")).toEqual({ error: expect.stringMatching(/texture.*setTexture/) });
+  }, 120_000);
+
+  /**
+   * The page lowers the context's MAX_TEXTURE_SIZE to 4, below the 8 texels
+   * wide that 40 elements need.
+   *
+   * @canon spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit
+   */
+  it("refuses a storage buffer past the context's texture size limit with createGlsl", async () => {
+    const { error, name } = (await drawn("oversize")) as { error?: string; name: string };
+    expect(error).toMatch(new RegExp(`"${name}".*8×5.*MAX_TEXTURE_SIZE of 4`));
+  }, 120_000);
+
+  /**
+   * @canon spec-a-glsl-stage-reads-a-storage-element-in-one-expression
+   */
+  it("reads a storage element in the update of a For with createGlsl", async () => {
+    expect(await drawn("forUpdate")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads
+   */
+  it("reads storage from a vertex stage with createGlsl", async () => {
+    expect(await drawn("vertexStage")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads
+   */
+  it("reads what setAttribute put in a storage buffer with createGlsl", async () => {
+    expect(await drawn("refilled")).toEqual(GREEN);
+  }, 120_000);
+});
 
 describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () => {
   /** Draws with one adapter in the browser and reads back its pixel. */
@@ -168,8 +379,16 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
+   * The vertices write 0, 1 and 2, drawn as red of half that.
+   *
+   * @canon exception-a-glsl-flat-varying-takes-the-last-vertex
+   */
+  it("reads an integer varying as the triangle's last vertex wrote it on GLSL", async () => {
+    expect(await drawn("glslFlatIndex")).toEqual({ r: 255, g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
    * @canon spec-a-webgl-call-sets-the-state-it-reads
-   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
    */
   it("draws over state the page set as it draws on a fresh context with createGlsl", async () => {
     const { dirty, clean } = await drawn("glslDrawsOver");
@@ -228,13 +447,9 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
-   * @canon bug-create-wasm-grid-fails-under-its-default-name
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
    */
-  it.fails(
-    "draws a fragCoord program over its canvas with createWasmGrid",
-    async () => {
-      expect(await drawn("wasmRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
-    },
-    120_000,
-  );
+  it("draws a fragCoord program over its canvas with createWasmGrid under its default name", async () => {
+    expect(await drawn("wasmRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
+  }, 120_000);
 });

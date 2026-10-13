@@ -1,5 +1,5 @@
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
-import { float, mix, vec3, vec4, type Node } from "../rmsl";
+import { float, mix, vec3, vec4, type Node, texture } from "../rmsl";
 
 /**
  * Post-processing effect for color grading via a 3D lookup table.
@@ -25,6 +25,6 @@ export const lut3D = (
   const pixelWidth = float(1.0).div(size);
   const halfPixelWidth = float(0.5).div(size);
   const uvw = vec3(halfPixelWidth).add(inputNode.rgb.mul(float(1.0).sub(pixelWidth)));
-  const lutValue = vec4(lutNode.texture(uvw).rgb, inputNode.a);
+  const lutValue = vec4(texture(lutNode, uvw).rgb, inputNode.a);
   return vec4(mix(inputNode, lutValue, intensity));
 };

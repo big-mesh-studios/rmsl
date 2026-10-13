@@ -1,4 +1,5 @@
-import { type Node, type ShaderType, type VariableNode } from "../rmsl";
+import { withArticle } from "../article";
+import { type Node, type ShaderType, type UniformValue, type VariableNode } from "../rmsl";
 import { compileJSFn, compileJSFragment, compileJSVertex, type CpuShaderContext, type CpuTextureData } from "../js";
 import { isVector, type CpuValue, type FragmentResult, type VertexResult } from "../backends/cpu";
 import { compileJSProgram } from "../backends/js/js";
@@ -425,7 +426,7 @@ export interface ProgramSlot {
 export interface ProgramUniform extends ProgramSlot {
   scope?: string;
   /** Where a material-scope uniform gets its value. */
-  value?: (context: any) => number | number[];
+  value?: (context: any) => UniformValue<ShaderType>;
 }
 
 export interface ProgramSampler extends ProgramSlot {
@@ -555,7 +556,7 @@ function slotNames(bindings: readonly ProgramSlot[] | undefined): Map<string, st
 /** What a program can say a uniform holds, or a sensible stand-in. */
 function programValue(binding: ProgramUniform, options: ProgramOptions): unknown {
   try {
-    const own = binding.value?.(options.context);
+    const own: unknown = binding.value?.(options.context);
     if (own !== undefined && !(Array.isArray(own) && own.length === 0)) return own;
   } catch {
     // A value function that reaches for a camera or a mesh it was not given.
@@ -797,7 +798,7 @@ function bound<A extends object>(kind: string, field: keyof ShaderInputs, values
         // generated name is no use to bind by: point at the node instead.
         const wanted = name
           ? `reads the ${kind} "${name}", which nothing bound. ` + `Pass it under \`${field}\`.`
-          : `reads a ${kind} nothing bound, in the slot the compiler generated ` +
+          : `reads ${withArticle(kind)} nothing bound, in the slot the compiler generated ` +
             `as "${key}". Pass its node under \`${field}\`, as [node, value].`;
         const listed = reads.named && field === "uniforms" ? " It is listed in the runner's `unbound`." : "";
         throw new Error(`[RMSL/test] the ${reads.stage} stage ${wanted}${listed}`);

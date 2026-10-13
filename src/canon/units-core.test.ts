@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
 import {
   attribute,
+  attributeRaw,
   equal,
   float,
   Fn,
@@ -12,6 +13,7 @@ import {
   StorageInstancedBufferAttribute,
   int,
   Loop,
+  While,
   mat3,
   mix,
   select,
@@ -45,6 +47,7 @@ import {
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
 import type { CompileCpuRoutine } from "../backends/cpu";
+import { shareNodes } from "../backends/share";
 
 // Each test's programs are compared after it, so a disagreement fails the test that made the program.
 afterEach(assertEvaluationsOfTheTestAgree, 120_000);
@@ -188,6 +191,17 @@ describe("units of the core", () => {
     const names = Object.keys(rmsl);
     expect(names).toEqual(expect.arrayContaining(["Fn", "serialize", "deserialize"]));
     expect(names.filter((name) => /^(compile|create|instantiate)/.test(name))).toEqual([]);
+    expect(names).not.toContain("var_");
+    expect(names).not.toContain("assertBlockScope");
+  });
+
+  /**
+   * An attribute whose raw name is empty is refused.
+   *
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
+  it("refuses an attribute with an empty name", () => {
+    expect(() => attributeRaw("", "float")).toThrow(/empty/);
   });
 });
 
@@ -316,6 +330,148 @@ describe("what a program does with a node it reads more than once", () => {
   });
 
   /**
+   * Each level is an `Fn` called outside the program's body that reads the one
+   * below twice, so 24 levels hold 2^24 paths to the innermost one. The work a
+   * compile does is counted as the reads of the operands of each node. Twice
+   * the levels then take about twice the reads, where a compile that walked
+   * each path, or every level once per level, takes four times or more.
+   *
+   * @canon spec-nested-inline-fns-compile-in-time-that-grows-with-the-levels
+   */
+  it.each([
+    ["GLSL", (build: any) => compileGlslFn(build, param).length],
+    ["WGSL", (build: any) => compileWgslFn(build, param).length],
+    ["JS", (build: any) => compileJSFn(build, param).length],
+    ["WASM", (build: any) => compileWasmFn(build, param).bytes.length],
+  ] as const)("compiles inline Fns nested 24 levels, each reading the one below twice, on %s", (_target, size) => {
+    let operandReads = 0;
+    /** Counts every read of the operands of each node `root` reaches. */
+    const counted = (root: any) => {
+      const seen = new Set<any>();
+      const visit = (n: any) => {
+        if (!n || typeof n !== "object" || seen.has(n) || !Array.isArray(n.params)) return;
+        seen.add(n);
+        let params = n.params;
+        Object.defineProperty(n, "params", {
+          enumerable: true,
+          configurable: true,
+          get: () => (operandReads++, params),
+          set: (value) => (params = value),
+        });
+        params.forEach(visit);
+      };
+      visit(root);
+      return root;
+    };
+    const nestedFns = (levels: number) => (a: Node<"float">) => {
+      let f: any = Fn(() => a.mul(2).toVar())();
+      for (let i = 0; i < levels; i++) {
+        const below = f;
+        f = Fn(() => below.add(below.mul(3)).toVar())();
+      }
+      return counted(f);
+    };
+    /** The operand reads and the output size of a compile of `levels` levels. */
+    const work = (levels: number) => {
+      operandReads = 0;
+      const output = size(nestedFns(levels));
+      return { reads: operandReads, output };
+    };
+    const shallow = work(12);
+    const deep = work(24);
+    expect(deep.reads / shallow.reads).toBeLessThan(3);
+    expect(deep.output / shallow.output).toBeLessThan(4);
+  });
+
+  /** Makes every read of the operands of each node `root` reaches add one to `count.reads`. */
+  const countOperandReads = (root: any, count: { reads: number }) => {
+    const seen = new Set<any>();
+    const visit = (n: any) => {
+      if (!n || typeof n !== "object" || seen.has(n) || !Array.isArray(n.params)) return;
+      seen.add(n);
+      let params = n.params;
+      Object.defineProperty(n, "params", {
+        enumerable: true,
+        configurable: true,
+        get: () => (count.reads++, params),
+        set: (value) => (params = value),
+      });
+      params.forEach(visit);
+    };
+    visit(root);
+    return root;
+  };
+
+  /**
+   * An expression that adds a value to itself, nested `n` levels, reaches an
+   * inline `Fn` through 2^`n` paths. The work a compile does is counted as the
+   * reads of the operands of each node: 30 levels take less than three times
+   * the reads of 15. A walk of every path takes 2^15 times as many, and 30
+   * levels never finished.
+   *
+   * @canon spec-an-inline-fn-an-expression-reads-through-many-paths-compiles-in-time-that-grows-with-its-nodes
+   */
+  it.each([
+    ["GLSL", (build: any) => compileGlslFn(build, param)],
+    ["WGSL", (build: any) => compileWgslFn(build, param)],
+    ["JS", (build: any) => compileJSFn(build, param)],
+    ["WASM", (build: any) => compileWasmFn(build, param)],
+  ] as const)("compiles an inline Fn read through 30 levels of doubling on %s", (_target, compile) => {
+    const reads = (levels: number) => {
+      const count = { reads: 0 };
+      compile((a: Node<"float">) => {
+        let x: any = Fn(() => a.mul(2).toVar())();
+        for (let i = 0; i < levels; i++) x = x.add(x);
+        return countOperandReads(Fn(() => x)(), count);
+      });
+      return count.reads;
+    };
+    expect(reads(30) / reads(15)).toBeLessThan(3);
+  });
+
+  /**
+   * Each level is an inline `Fn` that reads the one below once, so the reads
+   * of the deepest sit inside every level above it. The work of the pass that
+   * places them is counted as the elements it steps through in iterating
+   * arrays, which copying the path from the program to each read does. Twice
+   * the levels take about twice the steps; copying the whole path at each
+   * level takes four times.
+   *
+   * @canon spec-the-sharing-pass-places-nested-inline-fns-in-time-that-grows-with-the-levels
+   */
+  it("places inline Fns nested 200 levels, each reading the one below once, in steps that grow with the levels", () => {
+    const chain = (levels: number) => {
+      let f: any = Fn(() => float(2).toVar())();
+      for (let i = 0; i < levels; i++) {
+        const below = f;
+        f = Fn(() => below.add(1).toVar())();
+      }
+      return Fn(() => f.mul(1))();
+    };
+    const steps = (levels: number) => {
+      const root = chain(levels);
+      const iterator = Array.prototype[Symbol.iterator];
+      let count = 0;
+      Array.prototype[Symbol.iterator] = function (this: unknown[]) {
+        const inner = iterator.call(this);
+        return {
+          next: () => (count++, inner.next()),
+          [Symbol.iterator]() {
+            return this;
+          },
+        } as ArrayIterator<unknown>;
+      };
+      try {
+        shareNodes(root);
+      } finally {
+        Array.prototype[Symbol.iterator] = iterator;
+      }
+      return count;
+    };
+    expect(steps(200) / steps(100)).toBeLessThan(3);
+  });
+
+  /**
    * @canon spec-output-grows-in-proportion-to-the-levels-of-nested-reads
    */
   it.each([
@@ -367,6 +523,25 @@ describe("what a program does with a node it reads more than once", () => {
   });
 
   /**
+   * The three swizzles read one element, which GLSL fetches through a call to
+   * its storage helper.
+   *
+   * @canon spec-a-storage-element-read-more-than-once-is-read-once
+   */
+  it("reads a storage element that a stage reads three times once on GLSL, WGSL and JS", () => {
+    const colours = instancedArray(4, "vec4");
+    const build = () => {
+      const element = colours.element(int(0));
+      return Fn(() => vec4(element.x, element.y, element.z, 1))() as Node<"vec4">;
+    };
+    const { glsl, wgsl, js } = sources(build);
+    const main = glsl.slice(glsl.indexOf("void main"));
+    expect(main.match(/_rmsl_storage_vec4\(/g)).toHaveLength(1);
+    expect(wgsl).toMatch(sharedLocal);
+    expect(js).toMatch(sharedLocal);
+  });
+
+  /**
    * @canon spec-a-shared-value-gets-a-generated-name
    */
   it("names the variable of a shared node _rmsl_gen_ and a number on GLSL, WGSL and JS", () => {
@@ -382,9 +557,9 @@ describe("what a program does with a node it reads more than once", () => {
   });
 
   /**
-   * @canon spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in
+   * @canon exception-a-shared-value-is-made-before-every-read
    */
-  it("computes a value read in both branches of an If in each, on every target", () => {
+  it("computes a value read in both branches of an If once, before the If, on every target", () => {
     const build = (a: Node<"float">) =>
       Fn(() => {
         const shared = a.sin().add(a.cos());
@@ -398,6 +573,32 @@ describe("what a program does with a node it reads more than once", () => {
       })();
     expect(evaluateRecording(build, [1])).toBeCloseTo(Math.sin(1) + Math.cos(1), 10);
     expect(evaluateRecording(build, [-1])).toBeCloseTo((Math.sin(-1) + Math.cos(-1)) * 10, 10);
+  });
+
+  /**
+   * The uniform is not changed by any statement, so the value made before the
+   * `If` holds in the branch and after it.
+   *
+   * @canon exception-a-shared-value-is-made-before-every-read
+   */
+  it("computes a value read in a branch and after the If once, before the If, on GLSL, WGSL and JS", () => {
+    const build = () => {
+      const u = uniform("float");
+      return Fn(() => {
+        const shared = u.sin().add(u.cos());
+        const out = vec4(0).toVar();
+        If(u.greaterThan(0), () => {
+          out.x.assign(shared);
+        });
+        out.y.assign(shared);
+        return out;
+      })() as Node<"vec4">;
+    };
+    const { glsl, wgsl, js } = sources(build);
+    for (const source of [glsl.slice(glsl.indexOf("void main")), wgsl, js.slice(js.indexOf("function main"))]) {
+      expect(source.match(/sin\(/g)).toHaveLength(1);
+      expect(source.indexOf("sin(")).toBeLessThan(source.indexOf("if ("));
+    }
   });
 
   /**
@@ -430,6 +631,24 @@ describe("what a program does with a node it reads more than once", () => {
     expect(glsl).not.toMatch(sharedLocal);
     expect(wgsl).not.toMatch(sharedLocal);
     expect(js).not.toContain("_rmsl_gen_");
+  });
+
+  /**
+   * The condition reads `n + 1` twice, and the body changes `n`, so a value
+   * computed once before the loop would never stop it.
+   *
+   * @canon spec-a-node-a-loop-condition-reads-twice-is-computed-at-every-test
+   */
+  it("computes a node a While condition reads twice at every test, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const n = a.toVar();
+        While(n.add(1).mul(n.add(1)).lessThan(20), () => {
+          n.assign(n.add(1));
+        });
+        return n;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(4);
   });
 
   /**
@@ -539,6 +758,7 @@ describe("a bare number takes the type beside it", () => {
 describe("an integer and a float operand", () => {
   /**
    * @canon spec-an-integer-and-a-float-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
    */
   it("are refused by an operation and by a comparison, with the same error on every target", () => {
     const count = uniform("int") as any;
@@ -549,7 +769,285 @@ describe("an integer and a float operand", () => {
       expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
       expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
       expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+      expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
     }
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("names the conversion of each operand to the other's kind", () => {
+    const count = uniform("int") as any;
+    const scale = uniform("float") as any;
+    expect(() => count.add(scale)).toThrow("Convert the int with toFloat() or the float with toInt() first.");
+    expect(() => uniform("vec3").mul(uniform("uvec3") as any)).toThrow(
+      "Convert the vec3 with toUVec3() or the uvec3 with toVec3() first.",
+    );
+  });
+});
+
+describe("operands of two kinds in an operation that takes several", () => {
+  const count = uniform("int") as any;
+  const mask = uniform("uint") as any;
+  const scale = uniform("float") as any;
+  const direction = uniform("vec3") as any;
+  const steps = uniform("ivec3") as any;
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it.each([
+    ["bitAnd", () => count.bitAnd(mask)],
+    ["bitOr", () => mask.bitOr(count)],
+    ["bitXor", () => count.bitXor(mask)],
+    ["clamp", () => count.clamp(mask, mask)],
+    ["clamp, by its bounds", () => count.clamp(0, mask)],
+    ["select", () => select(count.lessThan(0), count, mask)],
+    ["select, as a method", () => count.lessThan(0).select(mask, count)],
+  ])("refuses an int beside a uint in %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
+    expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+    expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+  });
+
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it.each([
+    ["clamp", () => scale.clamp(count, count)],
+    ["select", () => select(count.lessThan(0), scale, count).toFloat()],
+  ])("refuses an integer beside a float in %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value(), 0, 0, 1))();
+    expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+    expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+    expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+  });
+});
+
+describe("an integer operand of a function defined only for floats", () => {
+  const count = uniform("int") as any;
+  const mask = uniform("uint") as any;
+  const scale = uniform("float") as any;
+  const direction = uniform("vec3") as any;
+  const steps = uniform("ivec3") as any;
+  const flags = uniform("bvec3") as any;
+
+  /**
+   * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
+   * @canon exception-an-operation-refuses-an-operand-tsl-leaves-to-the-driver
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it.each([
+    ["sin", () => count.sin()],
+    ["atan", () => mask.atan()],
+    ["sqrt", () => rmsl.sqrt(count)],
+    ["exp2", () => count.exp2()],
+    ["floor", () => mask.floor()],
+    ["round", () => rmsl.round(count)],
+    ["fract", () => count.fract()],
+    ["radians", () => count.radians()],
+    ["fwidth", () => count.fwidth()],
+    ["normalize", () => steps.normalize().x],
+    ["cbrt", () => count.cbrt()],
+    ["oneMinus", () => count.oneMinus()],
+    ["reciprocal", () => mask.reciprocal()],
+    ["lengthSq", () => steps.lengthSq()],
+    ["pow", () => count.pow(count)],
+    ["pow, of a float by an int", () => scale.pow(count)],
+    ["mix", () => rmsl.mix(steps, steps, steps).x],
+    ["mix, by an int weight", () => rmsl.mix(direction, direction, count).x],
+    ["mix, of a float and an int", () => rmsl.mix(scale, count, 0.5)],
+    ["step", () => rmsl.step(count, count)],
+    ["step, of an int edge", () => rmsl.step(count, scale)],
+    ["smoothstep", () => rmsl.smoothstep(count, count, count)],
+    ["atan of two operands", () => rmsl.atan(scale, count)],
+    ["reflect", () => rmsl.reflect(steps, steps).x],
+    ["reflect, of a vec3 by an ivec3", () => rmsl.reflect(direction, steps).x],
+    ["refract", () => rmsl.refract(direction, direction, count).x],
+    ["faceForward", () => rmsl.faceForward(direction, steps, direction).x],
+    ["cross", () => rmsl.cross(steps, steps).x],
+    ["cross, of a vec3 and an ivec3", () => rmsl.cross(direction, steps).x],
+    ["sin of a boolean vector", () => flags.sin().x],
+  ])("refuses an integer operand of %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value(), 0, 0, 1))();
+    const refusal = /takes a float or a float vector/;
+    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
+    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
+    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
+    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+  });
+
+  /**
+   * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
+   */
+  it("names the conversion of the operand to a float", () => {
+    expect(() => count.pow(count)).toThrow(
+      "pow() takes a float or a float vector, not int. Convert it with toFloat() first.",
+    );
+    expect(() => steps.normalize()).toThrow(
+      "normalize() takes a float or a float vector, not ivec3. Convert it with toVec3() first.",
+    );
+    expect(() => rmsl.atan(scale, mask)).toThrow("atan() takes a float or a float vector, not uint.");
+  });
+});
+
+describe("a float operand of an integer operation", () => {
+  const count = uniform("int") as any;
+  const mask = uniform("uint") as any;
+  const scale = uniform("float") as any;
+  const plane = uniform("vec2") as any;
+  const flag = uniform("bool") as any;
+
+  /**
+   * @canon spec-an-integer-operation-refuses-a-float-operand
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it.each([
+    ["bitAnd", () => scale.bitAnd(scale)],
+    ["bitAnd, of an int and a float", () => count.bitAnd(scale)],
+    ["bitOr", () => rmsl.bitOr(scale, mask)],
+    ["bitXor", () => rmsl.bitXor(plane, plane).x],
+    ["bitNot", () => scale.bitNot()],
+    ["bitNot of a bool", () => flag.bitNot()],
+    ["bitAnd of bools", () => flag.bitAnd(flag)],
+    ["shiftLeft, by a float amount", () => count.shiftLeft(scale)],
+    ["shiftRight, of a float", () => scale.shiftRight(mask)],
+  ])("refuses a float operand of %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
+    const refusal = /takes an integer or an integer vector/;
+    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
+    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
+    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
+    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+  });
+
+  /**
+   * @canon spec-an-integer-operation-refuses-a-float-operand
+   */
+  it("names the conversion of the float to the kind of the integer beside it", () => {
+    expect(() => scale.bitXor(scale)).toThrow(
+      "bitXor() takes an integer or an integer vector, not float. Convert it with toInt() first.",
+    );
+    expect(() => rmsl.bitOr(scale, mask)).toThrow("Convert it with toUint() first.");
+    expect(() => plane.bitAnd(plane)).toThrow("Convert it with toIVec2() first.");
+  });
+
+  /**
+   * @canon spec-a-shift-amount-may-be-of-either-integer-kind
+   */
+  it("names only the conversion of the float for a shift", () => {
+    expect(() => count.shiftLeft(scale)).toThrow(
+      "shiftLeft() takes an integer or an integer vector, not float. Convert it with toInt() first.",
+    );
+    expect(() => scale.shiftRight(mask)).toThrow(
+      "shiftRight() takes an integer or an integer vector, not float. Convert it with toUint() first.",
+    );
+  });
+});
+
+describe("an unsigned operand of an operation defined only for signed values", () => {
+  const mask = uniform("uint") as any;
+  const masks = uniform("uvec3") as any;
+  const flag = uniform("bool") as any;
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   * @canon exception-an-operation-refuses-an-operand-tsl-leaves-to-the-driver
+   */
+  it.each([
+    ["abs", () => mask.abs()],
+    ["abs of a vector", () => rmsl.abs(masks).x],
+    ["sign", () => mask.sign()],
+    ["negate", () => mask.negate()],
+    ["negate of a vector", () => rmsl.negate(masks).x],
+    ["difference", () => mask.difference(mask)],
+    ["abs of a bool", () => flag.abs()],
+  ])("refuses an unsigned operand of %s, on every target", (_, value) => {
+    const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
+    const refusal = /takes a float or a signed integer/;
+    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
+    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
+    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
+    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+  });
+
+  /**
+   * @canon spec-a-signed-operation-refuses-an-unsigned-operand
+   */
+  it("names the conversion to a signed integer, and keeps the signed and float cases", () => {
+    expect(() => mask.sign()).toThrow(
+      "sign() takes a float or a signed integer, scalar or vector, not uint. Convert it with toInt() first.",
+    );
+    expect(() => masks.negate()).toThrow("Convert it with toIVec3() first.");
+    expect(evaluateRecording((a) => a.toInt().negate().abs().toFloat(), [3])).toBe(3);
+    expect(evaluateRecording((a) => a.negate().sign(), [3])).toBe(-1);
+  });
+});
+
+describe("the amount of a shift", () => {
+  /**
+   * @canon spec-a-shift-amount-may-be-of-either-integer-kind
+   */
+  it("may be a uint beside an int value, or an int beside a uint value, on every target", () => {
+    const signed = (a: Node<"float">) => a.toInt().shiftLeft(a.toUint()).toFloat();
+    const unsigned = (a: Node<"float">) => a.toUint().shiftRight(a.toInt().sub(1)).toFloat();
+    expect(evaluateRecording(signed, [3])).toBe(24);
+    expect(evaluateRecording(unsigned, [3])).toBe(0);
+    expect(evaluateRecording((a) => a.mul(4).toUint().shiftRight(a.toInt()).toFloat(), [3])).toBe(1);
+    const wasm = (build: any) => compileWasmRoutine((a: any) => Fn(() => build(a))(), param);
+    expect(wasm(signed)({ params: { a: 3 } })).toBe(24);
+    expect(wasm(unsigned)({ params: { a: 3 } })).toBe(0);
+  });
+});
+
+describe("a signed and an unsigned integer operand", () => {
+  /**
+   * An int beside a uint, or an ivec beside a uvec, reaches the compilers only
+   * through a cast, since the types refuse it.
+   *
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   * @canon exception-an-operation-refuses-an-operand-tsl-would-convert
+   */
+  it("are refused by an operation and by a comparison, with the same error on every target", () => {
+    const count = uniform("int") as any;
+    const mask = uniform("uint") as any;
+    const signed = uniform("ivec2") as any;
+    const unsigned = uniform("uvec2") as any;
+    const builds = [
+      () => Fn(() => vec4(count.add(mask).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(mask.sub(count).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(count.mod(mask).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(count.max(mask).toFloat(), 0, 0, 1))(),
+      () => Fn(() => vec4(count.lessThan(mask).select(1, 0), 0, 0, 1))(),
+      () => Fn(() => vec4(signed.mul(unsigned).toVec2(), 0, 1))(),
+      () => Fn(() => vec4(signed.add(mask).toVec2(), 0, 1))(),
+      () => Fn(() => vec4(signed.equal(unsigned).all().select(1, 0), 0, 0, 1))(),
+    ];
+    for (const build of builds) {
+      expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+      expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+    }
+  });
+
+  /**
+   * @canon spec-a-signed-and-an-unsigned-integer-operand-are-refused
+   */
+  it("names the conversion of each operand to the other's kind", () => {
+    const count = uniform("int") as any;
+    const mask = uniform("uint") as any;
+    expect(() => count.add(mask)).toThrow(
+      "add() takes operands of one kind, not int and uint. Convert the int with toUint() or the uint with toInt() first.",
+    );
+    expect(() => (uniform("uvec4") as any).min(uniform("ivec4"))).toThrow(
+      "Convert the uvec4 with toIVec4() or the ivec4 with toUVec4() first.",
+    );
   });
 });
 

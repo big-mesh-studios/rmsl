@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
+import { Fn, vec3, vec4, mix, instancedArray, int, ivec2, ivec3, uvec2, uvec3, texture } from "../rmsl";
 import { compileJSFragment } from "../js";
 import {
   recordingGLSL as compileGlsl,
@@ -187,6 +187,29 @@ describe("node materials", () => {
     expect(roughness.value!(null as never)).toBe(0.7);
   });
   /**
+   * @canon spec-a-uniform-name-registered-again-gives-its-first-node
+   */
+  it("gives a uniform name registered again with its type the first node and value", () => {
+    const b = new Builder();
+    const first = b.materialUniform("tint", "vec3", () => [1, 0, 0]);
+    const again = b.uniform("tint", "vec3", "camera", () => [0, 1, 0]);
+    expect(again).toBe(first);
+    const binding = b.uniforms.get("tint")!;
+    expect(binding.scope).toBe("material");
+    expect(binding.value!(null as never)).toEqual([1, 0, 0]);
+    expect(b.cameraPosition).toBe(b.cameraPosition);
+  });
+  /**
+   * @canon spec-a-uniform-name-registered-again-with-another-type-is-refused
+   */
+  it("refuses a uniform name registered again with another type", () => {
+    const b = new Builder();
+    b.materialUniform("tint", "vec3", () => [1, 0, 0]);
+    expect(() => b.materialUniform("tint", "vec4", () => [1, 0, 0, 1])).toThrow(
+      '[RMSL/scene] uniform "tint" is a vec3, and is registered again as a vec4',
+    );
+  });
+  /**
    * @canon spec-a-material-program-holds-only-what-its-graph-reads
    */
   it("MaterialProgram carries the referenced attributes and varyings", () => {
@@ -218,7 +241,7 @@ describe("node materials", () => {
     scene.add(mesh);
 
     const program = (mesh.material as MeshStandardMaterial).build(scene);
-    const uniforms: Record<string, number | number[]> = {};
+    const uniforms: Record<string, unknown> = {};
     for (const binding of program.uniforms) {
       if (binding.scope === "camera") uniforms[binding.node.name] = cameraUniformValue(binding.name, camera);
       else if (binding.scope === "object") uniforms[binding.node.name] = objectUniformValue(binding.name, mesh);
@@ -240,7 +263,7 @@ describe("node materials", () => {
    * @canon spec-a-material-reads-any-sampler-type
    */
   it("registers and compiles the integer and 3D samplers", () => {
-    const texture = () => new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
+    const image = () => new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
     const cases: {
       type: "isampler2D" | "isampler3D" | "usampler2D" | "usampler3D";
       coords: ReturnType<typeof ivec2 | typeof ivec3 | typeof uvec2 | typeof uvec3>;
@@ -254,8 +277,8 @@ describe("node materials", () => {
     for (const { type, coords, wgsl } of cases) {
       const material = new MeshBasicMaterial();
       material.fragmentNode = (b) => {
-        const tex = b.sampler("data", type, texture);
-        return tex.texture(coords as never).toVec4();
+        const tex = b.sampler("data", type, image);
+        return texture(tex as never, coords as never).toVec4();
       };
       const program = material.build(new Scene());
       const binding = program.samplers.find((s) => s.name === "data")!;
@@ -282,7 +305,7 @@ describe("node materials", () => {
       // qualifier and reserved.
       const flat = b.sampler("diffuse", () => new DataTexture(new Uint8Array(4), 1, 1));
       const volume = b.sampler("volume", "sampler3D", () => new DataTexture(new Uint8Array(8), 2, 2, 2));
-      return flat.texture(b.uv).add(volume.texture(vec3(0, 0, 0)));
+      return texture(flat, b.uv).add(texture(volume, vec3(0, 0, 0)));
     };
     const program = material.build(new Scene());
     const flat = program.samplers.find((s) => s.name === "diffuse")!;
@@ -298,6 +321,21 @@ describe("node materials", () => {
     expect(wgsl).toContain("texture_2d<f32>");
     expect(wgsl).toContain("texture_3d<f32>");
     expect(wgsl).toContain("volume_s: sampler");
+  });
+});
+
+describe("a material that reads storage", () => {
+  /**
+   * Both renderers build a material through `build`, so the refusal there
+   * holds for each.
+   *
+   * @canon spec-a-scene-renderer-refuses-a-material-that-reads-storage
+   */
+  it("is refused as it is built, naming the buffer", () => {
+    const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
+    const material = new NodeMaterial();
+    material.fragmentNode = () => colours.element(int(0));
+    expect(() => material.build(new Scene())).toThrow(new RegExp(`storage buffer "${colours.name}"`));
   });
 });
 

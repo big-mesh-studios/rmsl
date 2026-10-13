@@ -9,15 +9,22 @@ export type CpuShaderContext = {
   textures?: Record<string, CpuTextureData>;
   /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
   fragCoord?: [number, number] | Float64Array;
+  /** Vertex being processed, which `vertexIndex()` reads on the CPU target. */
+  vertexIndex?: number;
+  /** The depth `builtinFragDepth()` reads on the CPU target until the program writes one. */
+  fragDepth?: number;
   /**
    * Backing arrays for `storage()` slots, keyed by each storage node's `.name`.
    * A `storage()`-based program runs once per element with `index` set to
    * that element's position — the same per-invocation semantics WGSL's
    * compute path gives it, driven by a compute stage instead of the GPU's own
    * dispatch. Any invocation may read or write any element. Each buffer is one
-   * flat array that holds the components of its elements one after another.
+   * flat typed array of its component kind that holds the components of its
+   * elements one after another: an `Int32Array` for `int` elements, a
+   * `Uint32Array` for `uint` ones, and a `Float64Array` or a `Float32Array`
+   * for float ones. A call reads what it is given and checks nothing.
    */
-  storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
+  storages?: Record<string, Float32Array | Float64Array | Int32Array | Uint32Array>;
   /**
    * Storage buffers already in the WASM routine's own memory, by slot: the
    * byte address of the first element and the element count. A slot listed

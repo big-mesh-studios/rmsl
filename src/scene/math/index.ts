@@ -1,11 +1,11 @@
-export { Vector2 } from "./Vector2";
-export { Vector3 } from "./Vector3";
-export { Vector4 } from "./Vector4";
-export { Matrix3 } from "./Matrix3";
-export { Matrix4 } from "./Matrix4";
-export { Quaternion } from "./Quaternion";
+export { Vector2, type Vector2Tuple } from "./Vector2";
+export { Vector3, type Vector3Tuple } from "./Vector3";
+export { Vector4, type Vector4Tuple } from "./Vector4";
+export { Matrix3, type Matrix3Tuple } from "./Matrix3";
+export { Matrix4, type Matrix4Tuple } from "./Matrix4";
+export { Quaternion, type QuaternionTuple } from "./Quaternion";
 export { Euler, type EulerOrder } from "./Euler";
-export { Color } from "./Color";
+export { Color, type ColorTuple } from "./Color";
 export { Spherical } from "./Spherical";
 export * as MathUtils from "./MathUtils";
 export {

@@ -1,9 +1,13 @@
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import { Node, RoutineParam, ShaderType } from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
+  AttributeOrStorage,
   DrawClearOptions,
   DrawCountOptions,
+  hostInputGuard,
+  HostArray,
+  SetUniform,
   slotOf,
   TypedArray,
   UniformOrSlot,
@@ -17,7 +21,7 @@ import {
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
-import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
+import { compileJS, compileJSRasterizer, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
 
@@ -50,12 +54,12 @@ export function createJsGrid(options: CreateJsGridOptions): CpuAdapter {
     float: options.float,
   });
 
-  return createCpuAdapter({ draw });
+  return createCpuAdapter({ draw, guard: hostInputGuard(options.draw, true) });
 }
 
 export interface CreateJsRoutineOptions {
   name?: string;
-  params?: CompileJSOptions["params"];
+  params?: readonly RoutineParam[];
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
   float?: CompileJSOptions["float"];
@@ -63,21 +67,26 @@ export interface CreateJsRoutineOptions {
 
 /**
  * Compiles a function of parameters and uniforms with {@link compileJSRoutine}
- * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
- * keep what the host gives it, and `run(params)` calls the routine with them.
+ * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` refuses a value of
+ * another shape than its uniform's type and keeps the rest, `setTexture` keeps
+ * what the host gives it, and `run(params)` refuses a parameter of another
+ * shape than its type and calls the routine with them.
  */
-export function createJsRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
-  fn: Node<A>,
-  options: CreateJsRoutineOptions & { float?: W } = {},
-): CpuRoutineAdapter<A, W> {
-  return createCpuRoutineAdapter<A, W>(
+export function createJsRoutine<
+  A extends ShaderType,
+  W extends FloatWidth = "f64",
+  const P extends readonly RoutineParam[] = readonly [],
+>(fn: Node<A>, options: CreateJsRoutineOptions & { float?: W; params?: P } = {}): CpuRoutineAdapter<A, W, P> {
+  return createCpuRoutineAdapter<A, W, P>(
     compileJSRoutine(() => fn, {
       name: options.name ?? "routine",
-      params: options.params ?? [],
+      params: [...(options.params ?? [])],
       derivatives: options.derivatives,
       reentrant: options.reentrant,
       float: options.float,
     }),
+    options.params ?? ([] as readonly RoutineParam[] as P),
+    hostInputGuard(fn, true),
   );
 }
 
@@ -100,10 +109,11 @@ export interface CreateJsComputeOptions {
  * one per element of the first storage buffer `setAttribute` was given.
  */
 export interface JsComputeAdapter {
-  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  setUniform(slot: string, value: number | number[]): void;
-  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setUniform: SetUniform;
+  setAttribute<T extends ShaderType>(
+    attribute: AttributeOrStorage<T>,
+    data: HostArray<T, Float32Array | Float64Array>,
+  ): void;
   setAttribute(slot: string, data: TypedArray): void;
   compute(out?: AdapterResult, count?: number): AdapterResult | void;
 }
@@ -126,13 +136,13 @@ export function createJsCompute(
     float: options.float,
   });
 
-  return createCpuAdapter({ compute: computeRoutine });
+  return createCpuAdapter({ compute: computeRoutine, guard: hostInputGuard(compute, true), float: options.float });
 }
 
 /**
  * `draw()`'s own options — `count`/`first` from `DrawCountOptions`, same
- * as GL/WGSL: unset `count` defaults to the first attribute
- * the host passed. `clear` and `clearDepth` default to `true`: the common case
+ * as GL/WGSL: unset `count` defaults to the first attribute the program
+ * reads, in the order the host passed them. `clear` and `clearDepth` default to `true`: the common case
  * for a single-material adapter is one `draw()` call, one whole frame —
  * mirroring how a WebGPU render pass declares `loadOp`/`depthLoadOp`
  * together, per pass, rather than clearing as a separate operation. Pass
@@ -152,7 +162,7 @@ export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions {
  * draw state, `attach` opens a 2D canvas context, and `draw()` runs one
  * frame into it. See {@link JsDrawOptions} for `count`/`first`/`clear`/`clearDepth`.
  */
-export interface JsAdapter extends Adapter<void, JsDrawOptions> {
+export interface JsAdapter extends Adapter<void, JsDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: JsDrawOptions): void;
 }
@@ -160,9 +170,17 @@ export interface JsAdapter extends Adapter<void, JsDrawOptions> {
 export function createJs(
   vertexFn: (...args: any[]) => any,
   fragmentFn: (...args: any[]) => any,
-  options: CompileJSRasterOptions,
+  options: CompileJSRasterOptions = {},
 ): JsAdapter {
-  const routine = compileJS(vertexFn, fragmentFn, options);
+  const vertexRoots = vertexFn();
+  const fragmentRoots = fragmentFn();
+  const routine = compileJSRasterizer(
+    "createJs",
+    () => vertexRoots,
+    () => fragmentRoots,
+    options,
+  );
+  const guard = hostInputGuard([vertexRoots, fragmentRoots], true);
 
   const uniforms: Record<string, unknown> = {};
   const attributes: Record<string, TypedArray> = {};
@@ -170,16 +188,15 @@ export function createJs(
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
-  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
-  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
-  function setUniform(slot: string, value: number | number[]): void;
   function setUniform(uniform: UniformOrSlot, value: unknown): void {
+    guard.uniform(uniform, value);
     uniforms[slotOf(uniform)] = value;
   }
 
-  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute<T extends ShaderType>(attribute: AttributeOrStorage<T>, data: TypedArray): void;
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeOrSlot, data: TypedArray): void {
+    guard.array(attribute, data);
     attributes[slotOf(attribute)] = data;
   }
 

@@ -96,11 +96,13 @@ import {
   vec4,
   While,
   xor,
+  texture,
+  textureLevel,
 } from "./rmsl";
-import { compileGlslFn } from "./glsl";
+import { compileGlslFn, createGlsl } from "./glsl";
 import { compileWgslFn, wgslUniformLayout } from "./wgsl";
 import { compileJSRoutine, compileJSFn } from "./js";
-import { compileWasmRoutine } from "./wasm";
+import { compileWasmFragment, compileWasmRoutine, compileWasmVertex } from "./wasm";
 // Recording stand-ins for the real compilers: each returns the language it is
 // named for and additionally compiles the program to the other, so every shader
 // the tests generate is checked by a real GLSL and WGSL implementation in the
@@ -526,7 +528,7 @@ describe("RMSL", () => {
   it("compiles texture sampling to GLSL", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5)).toVar();
+      return texture(tex, vec2(0.5, 0.5)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform sampler2D");
@@ -539,7 +541,7 @@ describe("RMSL", () => {
   it("compiles texture sampling to WGSL", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5)).toVar();
+      return texture(tex, vec2(0.5, 0.5)).toVar();
     });
     let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_2d<f32>");
@@ -547,15 +549,41 @@ describe("RMSL", () => {
   });
 
   /**
-   * TSL calls the functions `texture(value, uv)` and `textureLevel(value, uv,
-   * level)`. rmsl calls the methods `texture` and `textureLod` of a sampler.
-   *
-   * @canon bug-samplers-are-sampled-by-method-where-tsl-samples-by-function
+   * @canon spec-texture-and-texture-level-are-functions-of-the-sampler
    */
-  it.fails("samples through the functions texture and textureLevel, as TSL does", () => {
+  it("samples through the functions texture and textureLevel, as TSL does", () => {
     const api = rmslExports as any;
     expect(typeof api.texture).toBe("function");
     expect(typeof api.textureLevel).toBe("function");
+    const sampler = uniform("sampler2D") as any;
+    expect(sampler.texture).toBeUndefined();
+    expect(sampler.textureLod).toBeUndefined();
+  });
+
+  /**
+   * @canon spec-texture-refuses-a-value-that-is-not-a-texture
+   */
+  it("refuses a value that is not a texture in texture and textureLevel", () => {
+    expect(() => texture(vec4(1) as any, vec2(0, 0))).toThrow(/texture: its first argument is a vec4, not a sampler/);
+    expect(() => textureLevel(float(1) as any, vec2(0, 0), float(0))).toThrow(
+      /textureLevel: its first argument is a float, not a sampler/,
+    );
+    expect(() => texture(uvec2(1, 1) as any, vec2(0, 0))).toThrow(
+      /texture: its first argument is a uvec2, not a sampler/,
+    );
+    expect(() => texture(ivec2(1, 1) as any, vec2(0, 0))).toThrow(
+      /texture: its first argument is an ivec2, not a sampler/,
+    );
+  });
+
+  /**
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
+  it("refuses an integer cube map in texture and textureLevel", () => {
+    // @ts-expect-error: texture takes no integer cube map
+    expect(() => texture(uniform("isamplerCube"), ivec3(0, 0, 0))).toThrow(/isamplerCube.*cube map/);
+    // @ts-expect-error: textureLevel takes no integer cube map
+    expect(() => textureLevel(uniform("usamplerCube"), uvec3(0, 0, 0), int(0))).toThrow(/usamplerCube.*cube map/);
   });
 
   /**
@@ -564,7 +592,7 @@ describe("RMSL", () => {
   it("compiles textureLod to GLSL", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler2D");
-      return tex.textureLod(vec2(0.5, 0.5), float(0.0)).toVar();
+      return textureLevel(tex, vec2(0.5, 0.5), float(0.0)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("textureLod(");
@@ -579,7 +607,7 @@ describe("RMSL", () => {
   it("compiles sampler3D sampling to GLSL", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler3D");
-      return tex.texture(vec3(0.5, 0.5, 0.5)).toVar();
+      return texture(tex, vec3(0.5, 0.5, 0.5)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform sampler3D");
@@ -592,7 +620,7 @@ describe("RMSL", () => {
   it("compiles sampler3D textureLod to GLSL", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler3D");
-      return tex.textureLod(vec3(0.5, 0.5, 0.5), float(0.0)).toVar();
+      return textureLevel(tex, vec3(0.5, 0.5, 0.5), float(0.0)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform sampler3D");
@@ -605,7 +633,7 @@ describe("RMSL", () => {
   it("compiles sampler3D sampling to WGSL", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler3D");
-      return tex.texture(vec3(0.5, 0.5, 0.5)).toVar();
+      return texture(tex, vec3(0.5, 0.5, 0.5)).toVar();
     });
     let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_3d<f32>");
@@ -857,7 +885,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   * @canon spec-builtin-frag-depth-compiles-to-the-depth-output-of-the-target
    */
   it("builtinFragDepth() maps to gl_FragDepth in GLSL fragment", () => {
     let prog = Fn(() => {
@@ -871,7 +899,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   * @canon spec-builtin-frag-depth-compiles-to-the-depth-output-of-the-target
    */
   it("builtinFragDepth() maps to @builtin(frag_depth) in WGSL fragment", () => {
     let prog = Fn(() => {
@@ -893,6 +921,40 @@ describe("RMSL", () => {
     let prog = Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar());
     expect(() => compileGlsl.vertex(prog())).toThrow("builtinFragDepth");
     expect(() => compileWgsl.vertex(prog())).toThrow("builtinFragDepth");
+  });
+
+  /**
+   * The stage writes its depth on one branch only, so the other path keeps
+   * the depth `main` starts from.
+   *
+   * @canon exception-a-fragment-path-that-writes-no-depth-keeps-its-own
+   */
+  it("starts a fragment stage that writes its depth from the fragment's own depth on GLSL and WGSL", () => {
+    const near = uniform("bool");
+    const prog = () =>
+      Fn(() => {
+        If(near, () => {
+          builtinFragDepth().assign(float(0.5));
+        });
+        return vec4(1);
+      })();
+    const glsl = compileGlsl.fragment(prog());
+    expect(glsl.indexOf("gl_FragDepth = gl_FragCoord.z;")).toBeGreaterThan(-1);
+    expect(glsl.indexOf("gl_FragDepth = gl_FragCoord.z;")).toBeLessThan(glsl.indexOf("if ("));
+    const wgsl = compileWgsl.fragment(prog());
+    expect(wgsl).toContain("@builtin(position) _rmsl_fragCoordInput: vec4<f32>");
+    expect(wgsl.indexOf("result._rmsl_fragDepth = _rmsl_fragCoordInput.z;")).toBeGreaterThan(-1);
+    expect(wgsl.indexOf("result._rmsl_fragDepth = _rmsl_fragCoordInput.z;")).toBeLessThan(wgsl.indexOf("if ("));
+    expect(wgsl).not.toContain("_rmsl_fragDepth = 1.0");
+  });
+
+  /**
+   * @canon exception-a-fragment-path-that-writes-no-depth-keeps-its-own
+   */
+  it("reads the fragment's own depth before a write on GLSL and WGSL", () => {
+    const prog = () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1))();
+    expect(compileGlsl.fragment(prog())).toContain("gl_FragDepth = gl_FragCoord.z;");
+    expect(compileWgsl.fragment(prog())).toContain("result._rmsl_fragDepth = _rmsl_fragCoordInput.z;");
   });
 
   /**
@@ -1039,7 +1101,7 @@ describe("RMSL", () => {
     let prog = Fn(() => {
       let u = uniform("float");
       let tex = uniform("sampler2D");
-      return tex.texture(vec2(0, 0)).add(u);
+      return texture(tex, vec2(0, 0)).add(u);
     });
     let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toContain("@group(0) @binding(0) var<uniform>");
@@ -1053,7 +1115,7 @@ describe("RMSL", () => {
   it("WGSL gives a sampler3D a texture binding and a companion sampler", () => {
     let prog = Fn(() => {
       let tex = uniform("sampler3D");
-      return tex.texture(vec3(0, 0, 0));
+      return texture(tex, vec3(0, 0, 0));
     });
     let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toMatch(/@group\(1\) @binding\(0\) var \S+: texture_3d<f32>;/);
@@ -1108,7 +1170,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
    */
   it("break_ compiles in GLSL", () => {
     let prog = Fn(() => {
@@ -1127,7 +1189,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("continue_ compiles in WGSL", () => {
     let prog = Fn(() => {
@@ -1529,7 +1591,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("discard compiles to GLSL", () => {
     let prog = Fn(() => {
@@ -1543,7 +1605,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("discard compiles to WGSL", () => {
     let prog = Fn(() => {
@@ -1737,6 +1799,42 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(() => compileWgslFn(build as any, options)).toThrow(message);
     expect(() => compileJSRoutine(build as any, options)).toThrow(message);
     expect(() => compileWasmRoutine(build as any, options)).toThrow(message);
+  });
+
+  /**
+   * @canon spec-a-raw-name-names-one-type
+   */
+  it("names a uint uniform with the article its sound takes", () => {
+    let build = () => Fn(() => uniformRaw("count", "uint").toFloat().add(uniformRaw("count", "int").toFloat()))();
+    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrow(
+      '[RMSL] "count" names a uint uniform and an int uniform',
+    );
+  });
+
+  /**
+   * @canon spec-a-raw-name-names-one-type
+   */
+  it("refuses one name for uniforms of different precisions on every backend", () => {
+    let build = () =>
+      Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "float").setPrecision("low")))();
+    let message =
+      '[RMSL] "brightness" names a float uniform and a float uniform of precision "low": one name is one declaration. Give them different names';
+    let options = { name: "main", params: [] };
+    expect(() => compileGlslFn(build as any, options)).toThrow(message);
+    expect(() => compileWgslFn(build as any, options)).toThrow(message);
+    expect(() => compileJSRoutine(build as any, options)).toThrow(message);
+    expect(() => compileWasmRoutine(build as any, options)).toThrow(message);
+  });
+
+  /**
+   * @canon spec-create-glsl-checks-the-names-of-its-two-stages-together
+   */
+  it("refuses a createGlsl whose stages declare one uniform at two precisions", () => {
+    let vertex = Fn(() => vec4(uniformRaw("brightness", "float").setPrecision("low"), 0, 0, 1))();
+    let fragment = Fn(() => vec4(uniformRaw("brightness", "float"), 0, 0, 1))();
+    expect(() => createGlsl(vertex as any, fragment as any)).toThrow(
+      '[RMSL] "brightness" names a float uniform of precision "low" and a float uniform: one name is one declaration',
+    );
   });
 
   /**
@@ -2411,7 +2509,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     let prog = Fn(() => {
       let tex = uniform("sampler2D");
       let scale = uniform("float");
-      return tex.texture(vec2(0.5, 0.5)).mul(scale);
+      return texture(tex, vec2(0.5, 0.5)).mul(scale);
     });
     let wgsl = compileWgsl(prog());
 
@@ -2603,7 +2701,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-texture-keeps-a-binding-of-its-own
    */
   it("keeps a texture out of the uniform struct in a standalone function", () => {
-    let wgsl = compileWgslFn(() => uniform("sampler2D").texture(vec2(0.5, 0.5)), {
+    let wgsl = compileWgslFn(() => texture(uniform("sampler2D"), vec2(0.5, 0.5)), {
       name: "sample",
       params: [],
     });
@@ -2622,7 +2720,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-texture-keeps-a-binding-of-its-own
    */
   it("keeps a sampler3D out of the uniform struct in a standalone function", () => {
-    let wgsl = compileWgslFn(() => uniform("sampler3D").texture(vec3(0.5, 0.5, 0.5)), {
+    let wgsl = compileWgslFn(() => texture(uniform("sampler3D"), vec3(0.5, 0.5, 0.5)), {
       name: "sample3D",
       params: [],
     });
@@ -2844,7 +2942,7 @@ describe("integer samplers", () => {
   it("compiles isampler3D sampling to a GLSL texelFetch", () => {
     let prog = Fn(() => {
       let tex = uniform("isampler3D");
-      return tex.texture(ivec3(1, 2, 3)).toVar();
+      return texture(tex, ivec3(1, 2, 3)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform isampler3D");
@@ -2857,7 +2955,7 @@ describe("integer samplers", () => {
   it("compiles usampler3D sampling to a GLSL texelFetch with an lod", () => {
     let prog = Fn(() => {
       let tex = uniform("usampler3D");
-      return tex.textureLod(uvec3(1, 2, 3), int(0)).toVar();
+      return textureLevel(tex, uvec3(1, 2, 3), int(0)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform usampler3D");
@@ -2870,7 +2968,7 @@ describe("integer samplers", () => {
   it("compiles isampler2D to a WGSL textureLoad with no sampler", () => {
     let prog = Fn(() => {
       let tex = uniform("isampler2D");
-      return tex.texture(ivec2(1, 2)).toVar();
+      return texture(tex, ivec2(1, 2)).toVar();
     });
     let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_2d<i32>");
@@ -2884,7 +2982,7 @@ describe("integer samplers", () => {
   it("declares high precision for integer samplers in GLSL", () => {
     let prog = Fn(() => {
       let tex = uniform("usampler2D");
-      return tex.texture(uvec2(1, 2)).toVar();
+      return texture(tex, uvec2(1, 2)).toVar();
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("precision highp usampler2D;");
@@ -2894,7 +2992,7 @@ describe("integer samplers", () => {
    * @canon spec-an-integer-sampler-declares-the-asked-precision
    */
   it("declares the asked precision for integer samplers in GLSL", () => {
-    let prog = Fn(() => uniform("isampler2D").texture(ivec2(1, 2)).toVar());
+    let prog = Fn(() => texture(uniform("isampler2D"), ivec2(1, 2)).toVar());
     let glsl = compileGlsl(prog(), { precision: "mediump" });
     expect(glsl).toContain("precision mediump isampler2D;");
     expect(glsl).not.toContain("precision highp");
@@ -2954,7 +3052,7 @@ describe("GLSL precision", () => {
    * @canon spec-a-float-sampler-declares-the-asked-precision
    */
   it("applies the configured precision to sampler declarations", () => {
-    let prog = Fn(() => uniform("sampler2D").texture(vec2(0, 0)).toVar());
+    let prog = Fn(() => texture(uniform("sampler2D"), vec2(0, 0)).toVar());
     let glsl = compileGlsl(prog(), { precision: "lowp" });
     expect(glsl).toContain("precision lowp float;");
     expect(glsl).toContain("precision lowp sampler2D;");
@@ -2970,6 +3068,55 @@ describe("GLSL precision", () => {
     // layer would read the pair as GLSL failing on what WGSL accepted.
     let prog = Fn(() => float(1).toVar());
     expect(expectCompileRejection(() => compileGlsl(prog(), { precision: "high" as any }))).toMatch(/precision/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("qualifies the declaration of a uniform that sets its own precision", () => {
+    const gain = uniform("float");
+    const tints = uniformArray("vec4", 2);
+    const image = uniform("sampler2D");
+    expect(gain.setPrecision("medium")).toBe(gain);
+    tints.setPrecision("low");
+    image.setPrecision("high");
+    const prog = Fn(() =>
+      texture(image, vec2(0, 0))
+        .add(tints.element(int(1)))
+        .mul(gain)
+        .toVar(),
+    );
+    const glsl = compileGlsl(prog(), { precision: "mediump" });
+    expect(glsl).toContain(`uniform mediump float ${gain.name};`);
+    expect(glsl).toContain(`uniform lowp vec4 ${tints.name}[2];`);
+    expect(glsl).toContain(`uniform highp sampler2D ${image.name};`);
+    expect(glsl).toContain("precision mediump float;");
+    expect(compileWgsl(prog())).not.toMatch(/lowp|mediump|highp/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("refuses a precision other than low, medium or high on a uniform", () => {
+    // @ts-expect-error: a uniform's precision is "low", "medium" or "high"
+    expect(() => uniform("float").setPrecision("mediump")).toThrow(/precision/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("refuses a precision on a bool or boolean vector uniform", () => {
+    expect(() => uniform("bool").setPrecision("low")).toThrow(/bool uniform takes no precision/);
+    expect(() => uniformArray("bvec2", 2).setPrecision("high")).toThrow(/bvec2 uniform takes no precision/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("qualifies a uniform that sets its own precision in a compileGlslFn function", () => {
+    const gain = uniform("float").setPrecision("low");
+    const glsl = compileGlslFn((v: any) => v.mul(gain), { name: "scale", params: [{ name: "v", type: "float" }] });
+    expect(glsl).toContain(`uniform lowp float ${gain.name};`);
   });
 });
 
@@ -3257,7 +3404,7 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon exception-for-is-a-name-tsl-lacks
+   * @canon spec-for-is-a-loop-of-rmsls-own
    */
   it("For runs a counted loop", () => {
     let prog = Fn(() => {
@@ -3277,7 +3424,7 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon exception-while-is-a-name-tsl-lacks
+   * @canon spec-while-is-a-loop-of-rmsls-own
    */
   it("While runs a conditional loop", () => {
     let prog = Fn(() => {
@@ -3292,12 +3439,12 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon exception-loop-passes-its-index-directly
+   * @canon spec-loop-runs-its-body-count-times
    */
-  it("Loop(count, (i) => ...) iterates like TSL's counting loop", () => {
+  it("Loop(count, ({ i }) => ...) iterates like TSL's counting loop", () => {
     let prog = Fn(() => {
       let total = float(0).toVar();
-      Loop(int(4), (i) => {
+      Loop(int(4), ({ i }) => {
         total.assign(total.add(float(i)));
       });
       return total;
@@ -3330,7 +3477,8 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("Break / Continue emit their statements", () => {
     let prog = Fn(() => {
@@ -3360,46 +3508,29 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
-  it("Return emits an early return", () => {
-    let prog = Fn(() => {
-      let out = float(0).toVar();
-      If(float(1).greaterThan(0), () => {
-        Return();
-      });
-      out.assign(float(1));
-      return out;
-    });
-    let glsl = compileGlsl(prog());
-    expect(glsl).toContain("return;");
-    let wgsl = compileWgsl(prog());
-    expect(wgsl).toMatch(/\{\s*return result;\s*\}/);
-  });
-
-  /**
-   * A WGSL vertex stage returns its output struct, so an early `Return()`
-   * returns it too, where a bare `return;` would be refused.
-   *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
-   */
-  it("Return in a vertex stage returns the result on WGSL", () => {
-    const vertex = Fn(() => {
-      If(float(1).greaterThan(0), () => {
-        Return();
-      });
-      builtinPosition().assign(vec4(0, 0, 0, 1));
-    })();
-    const wgsl = compileWgsl.vertex(vertex as any);
-    expect(wgsl).toMatch(/\{\s*return result;\s*\}/);
-    expect(wgsl).not.toMatch(/\breturn;/);
+  it("Return in a GLSL function returns the zero value of its type", () => {
+    const glsl = compileGlslFn(
+      (x: any) =>
+        Fn(() => {
+          const out = float(0).toVar();
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          out.assign(float(1));
+          return out;
+        })(),
+      { name: "f", params: [{ name: "x", type: "float" }] },
+    );
+    expect(glsl).toMatch(/\{\s*return float\(0\);\s*\}/);
   });
 
   /**
    * A WGSL function with a return type has no output struct, so an early
    * `Return()` in it returns the zero value of that type.
    *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
   it("Return in a WGSL function returns the zero value of its type", () => {
     const wgsl = compileWgslFn(
@@ -3417,24 +3548,63 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * A fragment stage that writes nothing has no output struct, so its early
-   * `Return()` stays a bare `return;`.
-   *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
-  it("Return in a fragment stage that writes nothing stays bare on WGSL", () => {
-    const fragment = Fn(() => {
-      If(uniform("float").greaterThan(0), () => {
-        Return();
-      });
-    })();
-    const wgsl = compileWgsl.fragment(fragment as any);
-    expect(wgsl).toMatch(/\breturn;/);
-    expect(wgsl).not.toContain("FragmentOutput");
+  it("ends a GLSL or WGSL function that returns nothing at an early Return", () => {
+    const body = (x: any) =>
+      Fn(() => {
+        const v = x.toVar();
+        If(x.greaterThan(0), () => {
+          Return();
+        });
+        v.assign(1);
+      })();
+    const options = { name: "f", params: [{ name: "x", type: "float" as const }] };
+    expect(compileWgslFn(body, options)).toMatch(/\{\s*return;\s*\}/);
+    expect(compileGlslFn(body, options)).toMatch(/\{\s*return;\s*\}/);
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * The helper is an `Fn` the stage calls inline, so its `Return()` would end
+   * the stage too.
+   *
+   * @canon exception-a-return-that-would-end-a-stage-is-refused
+   */
+  it("refuses a Return that would end a vertex or fragment stage on every target", () => {
+    const gate = uniform("float");
+    const vertex = () =>
+      Fn(() => {
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+        If(gate.greaterThan(0), () => {
+          Return();
+        });
+      })();
+    const helper = Fn(() => {
+      If(gate.greaterThan(0), () => {
+        Return();
+      });
+      return float(0.5);
+    });
+    const fragment = () => Fn(() => vec4(helper(), 0, 0, 1))();
+    const none = { name: "main", params: [] };
+    expect(() => compileGlsl.vertex(vertex())).toThrow(
+      /Return\(\) would end the vertex stage, leaving the outputs it writes after it unwritten/,
+    );
+    expect(() => compileWgsl.vertex(vertex() as any)).toThrow(/Return\(\) would end the vertex stage/);
+    expect(() => compileJSFn(vertex as any, { ...none, stage: "vertex" })).toThrow(
+      /Return\(\) would end the vertex stage/,
+    );
+    expect(() => compileWasmVertex(vertex as any, none)).toThrow(/Return\(\) would end the vertex stage/);
+    expect(() => compileGlsl.fragment(fragment())).toThrow(/Return\(\) would end the fragment stage/);
+    expect(() => compileWgsl.fragment(fragment())).toThrow(/Return\(\) would end the fragment stage/);
+    expect(() => compileJSFn(fragment as any, { ...none, stage: "fragment" })).toThrow(
+      /Return\(\) would end the fragment stage/,
+    );
+    expect(() => compileWasmFragment(fragment as any, none)).toThrow(/Return\(\) would end the fragment stage/);
+  });
+
+  /**
+   * @canon spec-discard-drops-the-fragment
    */
   it("Discard emits the fragment discard", () => {
     let prog = Fn(() => {
@@ -3660,6 +3830,25 @@ describe("TSL free-function API", () => {
     expect(() => vec3(0).add([[1], [2], [3]] as any)).toThrow(
       /vec3 holds numbers or nodes, and this one holds a nested array/,
     );
+  });
+
+  /**
+   * A refused array names the operation it was given to, as a method, as the
+   * first or a later argument of a free function, and as a constructor part.
+   *
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("names the operation a refused array was given to", () => {
+    const junk = [1, 2, "x", 4] as any;
+    expect(() => vec4(0).add(junk)).toThrow(/array given to add\(\) as a vec4/);
+    expect(() => vec4(0).lessThan(junk)).toThrow(/array given to lessThan\(\) as a vec4/);
+    expect(() => vec4(0).dot(junk)).toThrow(/array given to dot\(\) as a vec4/);
+    expect(() => vec4(0).mix(junk, 0.5)).toThrow(/array given to mix\(\) as a vec4/);
+    expect(() => abs(junk)).toThrow(/array given to abs\(\) as a vec4/);
+    expect(() => add(junk, vec4(0))).toThrow(/array given to add\(\) as a vec4/);
+    expect(() => clamp(vec4(0), junk, 1)).toThrow(/array given to clamp\(\) as a vec4/);
+    expect(() => vec4(junk)).toThrow(/array given to vec4\(\) as a vec4/);
+    expect(() => vec4(0).add([1, 2, 3, 4, 5] as any)).toThrow(/array of length 5 given to add\(\) is no vector/);
   });
 
   /**

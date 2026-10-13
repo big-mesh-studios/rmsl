@@ -219,25 +219,42 @@ byte offset means a different value in each, and different again in the buffer
 the host packs.
 
 Pass the program's whole uniform set to both stages, and to
-`wgslUniformLayout` when packing the buffer, and all three agree:
+`wgslUniformLayout` when packing the buffer, and all three agree. A texture in
+the list is bound on its own, so the struct and the layout both leave it out:
 
 ```typescript
-const uniforms = [
-  { slot: "materialColor", type: "vec3<f32>" },
-  { slot: "modelMatrix", type: "mat4x4<f32>" },
-  { slot: "projectionMatrix", type: "mat4x4<f32>" },
-  { slot: "viewMatrix", type: "mat4x4<f32>" },
-];
+const uniforms = [materialColor, modelMatrix, projectionMatrix, viewMatrix, albedoMap];
 
 const vertex = compileWgsl.vertex(vertexRoot, { uniforms });
 const fragment = compileWgsl.fragment(fragmentRoot, { uniforms });
-const layout = wgslUniformLayout(uniforms); // the offsets to write at
+const layout = wgslUniformLayout(uniforms.map(wgslUniformDeclaration)); // the offsets to write at
 ```
 
 A member a stage never reads costs it nothing. A uniform a stage _does_ read but
 the list leaves out is an error, named by slot, rather than a shader that fails
 to compile in the driver. `@random-mesh/rmsl/scene`'s WebGPU renderer does this
 for every material it draws.
+
+### Two stages, one set of textures and buffers
+
+The same holds for textures and storage buffers. Pass the program's textures as
+`samplers`, in the order the host binds them: each texture binds in group 1 at
+its index in the list, and the sampler of each float texture binds in group 2,
+in the order of the float textures. `storages` binds each storage buffer of a
+render stage in group 3 at its index. Both lists hold the nodes themselves:
+
+```typescript
+const samplers = [albedoMap, normalMap];
+const storages = [instanceOffsets];
+
+const vertex = compileWgsl.vertex(vertexRoot, { uniforms, samplers, storages });
+const fragment = compileWgsl.fragment(fragmentRoot, { uniforms, samplers, storages });
+// albedoMap at @group(1) @binding(0), its sampler at @group(2) @binding(0)
+```
+
+A stage that samples a texture, or reads a buffer, its list leaves out is an
+error that names it. Without a list, a stage binds its textures and buffers in
+the order the program created them.
 
 ## Standalone Function Compilers
 
@@ -492,7 +509,7 @@ from a texture's three.js constants for the two renderers — so the same readin
 of what a texture asked for drives all three backends.
 
 Two things a GPU does that this does not: there is no mip chain, so
-`textureLod`'s level argument is ignored, and a texel fetch neither filters nor
+`textureLevel`'s level argument is ignored, and a texel fetch neither filters nor
 wraps — as on a GPU, where `texelFetch`/`textureLoad` read the texel or nothing.
 
 `@random-mesh/rmsl/scene` textures state this in three.js's constants
@@ -572,13 +589,13 @@ tolerant comparisons. See [Testing](testing.md).
 
 ### Integer texture sampling
 
-Integer textures are not filterable in either language, so `texture()`/`textureLod()`
+Integer textures are not filterable in either language, so `texture()`/`textureLevel()`
 compile to an unfiltered fetch at **integer texel coordinates**:
 
-| RMSL                                | GLSL                             | WGSL                                  |
-| ----------------------------------- | -------------------------------- | ------------------------------------- |
-| `isampler2D.texture(ivec2)`         | `texelFetch(s, ivec2, 0)`        | `textureLoad(t, vec2<i32>, 0i)`       |
-| `usampler3D.textureLod(uvec3, lod)` | `texelFetch(s, ivec3, int(lod))` | `textureLoad(t, vec3<i32>, i32(lod))` |
+| RMSL                                   | GLSL                             | WGSL                                  |
+| -------------------------------------- | -------------------------------- | ------------------------------------- |
+| `texture(isampler2D, ivec2)`           | `texelFetch(s, ivec2, 0)`        | `textureLoad(t, vec2<i32>, 0i)`       |
+| `textureLevel(usampler3D, uvec3, lod)` | `texelFetch(s, ivec3, int(lod))` | `textureLoad(t, vec3<i32>, i32(lod))` |
 
 The result is `ivec4` for `isampler*` and `uvec4` for `usampler*`. WGSL binds no
 sampler for these — only the texture — because `textureLoad` does not take one.

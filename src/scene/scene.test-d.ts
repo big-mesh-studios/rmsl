@@ -111,7 +111,7 @@ describe("node materials", () => {
     const material = new MeshStandardMaterial();
     material.colorNode = (b) => b.uv.x.toVec3();
     material.roughnessNode = () => float(0.5);
-    material.normalNode = (b) => b.normalWorld;
+    material.normalNode = (b) => b.normalView;
     material.opacityNode = () => float(1);
     expectTypeOf(material).toMatchTypeOf<NodeMaterial>();
   });
@@ -120,8 +120,9 @@ describe("node materials", () => {
    */
   it("exposes typed accessors on the builder", () => {
     const b = new Builder();
-    expectTypeOf(b.position).toEqualTypeOf<AttributeNode<"vec3">>();
-    expectTypeOf(b.normal).toEqualTypeOf<AttributeNode<"vec3">>();
+    expectTypeOf(b.position).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(b.normal).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(b.normalView).toEqualTypeOf<Node<"vec3">>();
     expectTypeOf(b.uv).toEqualTypeOf<AttributeNode<"vec2">>();
     expectTypeOf(b.positionWorld).toEqualTypeOf<VaryingNode<"vec3">>();
     expectTypeOf(b.normalWorld).toEqualTypeOf<VaryingNode<"vec3">>();
@@ -141,6 +142,29 @@ describe("node materials", () => {
     expectTypeOf(b.instanceMatrix).toEqualTypeOf<AttributeNode<"mat4">>();
     expectTypeOf(b.instanceColor).toEqualTypeOf<AttributeNode<"vec3">>();
     expectTypeOf(b.instanceColorVarying).toEqualTypeOf<VaryingNode<"vec3">>();
+  });
+  /**
+   * @canon spec-the-types-hold-a-material-uniforms-value-to-its-shape
+   */
+  it("takes a uniform value function returning the shape of the uniform's type", () => {
+    const b = new Builder();
+    expectTypeOf(b.materialUniform("tint", "vec3", () => [1, 0, 0])).toEqualTypeOf<UniformNode<"vec3">>();
+    b.materialUniform("tint", "vec3", () => Float32Array.of(1, 0, 0));
+    b.materialUniform("opacity", "float", () => 0.5);
+    b.materialUniform("flag", "bool", () => true);
+    b.materialUniform("turn", "mat2", () => [1, 0, 0, 1]);
+    b.materialUniform("ids", "ivec2", () => Int32Array.of(1, 2));
+    b.uniform("tint", "vec3", "material", () => [1, 0, 0]);
+    // @ts-expect-error a vec3 takes three components
+    b.materialUniform("tint", "vec3", () => [1, 0]);
+    // @ts-expect-error a float takes one value, not an array
+    b.materialUniform("opacity", "float", () => [0.5]);
+    // @ts-expect-error a mat3 takes nine components
+    b.materialUniform("frame", "mat3", () => []);
+    // @ts-expect-error an ivec2 takes an Int32Array, not a float array
+    b.materialUniform("ids", "ivec2", () => Float32Array.of(1, 2));
+    // @ts-expect-error a vec4 takes four components
+    b.uniform("color", "vec4", "material", () => [1, 0, 0]);
   });
   /**
    * @canon spec-a-material-reads-any-sampler-type

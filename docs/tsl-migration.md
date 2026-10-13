@@ -53,7 +53,7 @@ normalize length dFdx dFdy fwidth sin cos tan asin acos atan sinh cosh tanh
 asinh acosh atanh pow pow2 pow3 pow4 min max step reflect distance difference
 dot cross mix clamp refract smoothstep faceForward all any transpose determinant
 inverse element select luminance rand interleavedGradientNoise
-premultiplyAlpha unpremultiplyAlpha textureLoad textureSize`
+premultiplyAlpha unpremultiplyAlpha texture textureLevel textureLoad textureSize`
 
 Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 `mix(a, b, t)`, `clamp(x, low, high)`, `faceForward(n, i, nref)`, `atan(y, x)`.
@@ -75,9 +75,10 @@ Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 | `Fn(fn, layout)`, `Fn(fn).setLayout(layout)`            | same, with a `{ name, type, inputs }` layout: a function of its own on GLSL and WGSL, and its body run where it is called on JS and WASM. It refuses a variable of the caller, a stage input or output, a `Return()` in a function that gives a value, and an argument of another type than its input (TSL converts it). TSL reads a string in place of the layout, `Fn(fn, "float")`, as the return type only and emits no function; it is refused |
 | `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `Switch(x).Case(…).Default(…)`                          | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `Loop(count, ({ i }) => …)`                             | `Loop(count, (i) => …)` — `i` is passed directly rather than destructured                                                                                                                                                                                                                                                                                                                                                                           |
-| `While(cond, () => …)`                                  | same; a condition that makes a variable, as with `toVar()`, goes in a function, `While(() => cond, …)`, to be computed every iteration                                                                                                                                                                                                                                                                                                              |
-| `For(…)`                                                | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `Loop(count, ({ i }) => …)`                             | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `Loop(cond, () => …)`                                   | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `Loop({ start, end, type, condition, update }, …)`      | same, except that a string `update` is refused: give a number, a node or a function                                                                                                                                                                                                                                                                                                                                                                 |
+| —                                                       | `While(cond, () => …)` and `For(init, cond, update, body)` are rmsl's own; TSL has neither                                                                                                                                                                                                                                                                                                                                                          |
 | `Break()` / `Continue()`                                | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `Discard()` / `Return()`                                | same                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
@@ -109,11 +110,36 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   the shader compiler to refuse it. A swizzle written through names each
   component once: TSL's WebGPU backend writes `v.xx.assign(value)` component
   by component, so the last one wins; RMSL throws.
-- **`Loop`** takes `(count, (i) => …)` with `i` as a direct `int` node, not an
-  object to destructure. The `{ start, end, update }` and nested-loop forms of
-  TSL's `Loop` are not implemented; use `For`/`While` for those.
+- **`Loop`** takes each of TSL's shapes and passes `{ i }`, but refuses an
+  `update` given as a string, which TSL writes into the shader as text: give a
+  number, a node or a function.
 - **`Fn` return values** are implicit — the value the body returns is the
-  result. `Return()` only emits a void early-return.
+  result. `Return()` takes no value: in a function that returns one, an early
+  `Return()` gives the zero value of its type on every target, where TSL's bare
+  `return` does not compile. A `Return()` that would end a vertex or fragment
+  stage, in the stage itself or in a helper `Fn` it calls, is refused, where TSL
+  leaves the stage's outputs unwritten: use `If`/`Else`, or `Discard()` to drop
+  a fragment.
+- **`builtinFragDepth()`** starts from the fragment's own depth, so a path that
+  writes none keeps it, where TSL gives such a path 0 on WebGPU and an
+  undefined depth on WebGL.
+- **Operands of two kinds are refused.** An operation on a float and an
+  integer, or on an `int` and a `uint` (or their vectors), throws on every
+  target: arithmetic and bitwise operators, comparisons, `select`, and math
+  functions of several operands such as `clamp`, `mix`, `pow` and `step`. TSL
+  converts one operand to the type of the other instead. Convert it yourself,
+  with `toFloat()`, `toInt()`, `toUint()` or a vector conversion. A bare number
+  still takes the type beside it, and a shift amount may be an `int` or a
+  `uint` beside a value of either. A float operand of a bitwise operator or a
+  shift is refused too, where TSL converts it to an `int`.
+- **A function defined only for floats refuses an integer.** `sin`, `floor`,
+  `pow`, `mix`, `step`, `normalize`, `cross` and every other math function that
+  GLSL and WGSL define only for floats throw on an `int`, `uint` or `bool`
+  operand, where TSL emits the call and the driver refuses it (`cross` excepted:
+  TSL converts its operands to `vec3`). `abs`, `sign` and `negate` take an
+  `int` but throw on a `uint` or `bool`, which TSL leaves to the driver: WebGL
+  has no `abs` or `sign` of a `uint`, and WebGPU no `sign` or negation of one.
+  `min`, `max` and `clamp` take either integer kind.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.
@@ -133,20 +159,27 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   element, or a matrix with columns of three, keeps its packed layout on the
   attribute and in what `getArrayBufferAsync()` returns: the WGSL context pads
   each column of three to 16 bytes only in the GPU buffer, where TSL rewrites
-  the attribute itself to 4 components.
+  the attribute itself to 4 components. A storage node has `element(i)`,
+  `toReadOnly()`, `name`, `access` and `attribute`, and none of the
+  operations of its element type: `buffer.add(1)` is a type error, and every
+  backend refuses it when compiled. TSL compiles it to the whole array on
+  WebGPU and to a vertex attribute on WebGL. Read `buffer.element(i)` instead.
 - **Drawing from storage**: a vertex or fragment stage reads a `storage()`
   node on WGSL, read-only, as in TSL; writing one there throws.
   `vertexIndex()` and `instanceIndex()` give the vertex and instance being
   drawn. `createWgsl({ vertex, fragment, context })` binds the stages'
   storage nodes to a `WgslContext`'s buffers, so a draw reads what its
-  compute programs wrote, without a copy. GLSL has no storage buffers,
-  since WebGL2 doesn't, and throws on one.
+  compute programs wrote, without a copy. WebGL2 has no storage buffers,
+  so on GLSL a vertex or fragment stage reads one through a data texture,
+  as three.js's WebGLRenderer does, and writing one there throws.
+  `createGlsl` uploads the texture from the buffer's contents at `attach`,
+  and `setAttribute` on the buffer's slot fills it again.
 - **Post-processing** is available from the `@random-mesh/rmsl/effects`
   subpath. The effects are pure node graphs — pass sampler uniforms and
   parameters, get a color node. See [effects.md](./effects.md) for the
   mapping of three.js's renderer-bound wrappers (`convertToTexture`,
   `passTexture`, `uv()`, `time`, ...) to RMSL.
-- **`textureLoad(tex, coords)` / `textureSize(tex)`** are supported as free
-  functions, and `select(cond, a, b)`, `luminance`, `rand`,
+- **`texture(tex, uv)` / `textureLevel(tex, uv, level)` / `textureLoad(tex, coords)` / `textureSize(tex)`**
+  are supported as free functions, as TSL's are, and `select(cond, a, b)`, `luminance`, `rand`,
   `interleavedGradientNoise`, `premultiplyAlpha` / `unpremultiplyAlpha` mirror
   the TSL names.

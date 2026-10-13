@@ -1,12 +1,17 @@
 import {
   attribute,
+  mat3,
   uniformRaw,
   varying,
+  vec4,
   type AttributeNode,
+  type Node,
   type ShaderType,
   type UniformNode,
+  type UniformValue,
   type VaryingNode,
 } from "../../../rmsl";
+import { withArticle } from "../../../article";
 import type { Camera } from "../../cameras/Camera";
 import type { Mesh } from "../../objects/Mesh";
 import type { Texture } from "../../textures/Texture";
@@ -24,7 +29,7 @@ export interface UniformBinding {
   name: string;
   scope: UniformScope;
   /** Value source; material-scope uniforms always carry one. */
-  value?: (ctx: UniformContext) => number | number[];
+  value?: (ctx: UniformContext) => UniformValue<ShaderType>;
 }
 
 export interface AttributeBinding {
@@ -111,17 +116,26 @@ export class Builder {
     return existing.node as VaryingNode<T>;
   }
 
+  /**
+   * The uniform registered under `name`, made on the first call. A later call
+   * with the same type returns that node and keeps its scope and value
+   * function; one with another type throws.
+   */
   uniform<T extends ShaderType>(
     name: string,
     type: T,
     scope: UniformScope,
-    value?: (ctx: UniformContext) => number | number[],
+    value?: (ctx: UniformContext) => UniformValue<T>,
   ): UniformNode<T> {
-    let existing = this.uniforms.get(name) as UniformBinding | undefined;
+    let existing = this.uniforms.get(name);
     if (!existing) {
       const node = uniformRaw(name, type);
       this.uniforms.set(name, { node, name, scope, value });
       existing = this.uniforms.get(name)!;
+    } else if (existing.node._t !== type) {
+      throw new Error(
+        `[RMSL/scene] uniform "${name}" is ${withArticle(existing.node._t)}, and is registered again as ${withArticle(type)}`,
+      );
     }
     return existing.node as UniformNode<T>;
   }
@@ -130,7 +144,7 @@ export class Builder {
   materialUniform<T extends ShaderType>(
     name: string,
     type: T,
-    value: (ctx: UniformContext) => number | number[],
+    value: (ctx: UniformContext) => UniformValue<T>,
   ): UniformNode<T> {
     return this.uniform(name, type, "material", value);
   }
@@ -167,15 +181,55 @@ export class Builder {
     return existing.node as UniformNode<T>;
   }
 
-  // Each resolves to the raw attribute in the vertex stage, and to the
-  // varying it writes in the fragment stage (which cannot read a vertex
-  // input directly).
-  get position(): AttributeNode<"vec3"> {
-    return this.stage === "vertex" ? this.attribute("position", "vec3") : this.varying("positionWorld", "vec3");
+  /** The object-space values the fragment stage reads, which the vertex stage passes on as varyings. */
+  readonly fragmentReads = new Set<"position" | "normal">();
+
+  /** The vertex stage's position and normal, made once so that every read shares them. */
+  private vertexPosition?: Node<"vec3">;
+  private vertexNormal?: Node<"vec3">;
+
+  /**
+   * The object-space position, as TSL's `positionLocal`. The vertex stage reads
+   * the geometry's position, through the instance matrix of an instanced mesh.
+   * The fragment stage reads the position the vertex stage ends with.
+   */
+  get position(): Node<"vec3"> {
+    if (this.stage === "fragment") {
+      this.fragmentReads.add("position");
+      return this.varying("positionLocal", "vec3");
+    }
+    const geometry = this.attribute("position", "vec3");
+    return (this.vertexPosition ??= this.instancing ? this.instanceMatrix.mul(vec4(geometry, 1)).xyz : geometry);
   }
 
-  get normal(): AttributeNode<"vec3"> {
-    return this.stage === "vertex" ? this.attribute("normal", "vec3") : this.varying("normalWorld", "vec3");
+  /**
+   * The object-space normal, as TSL's `normalLocal`. The vertex stage reads the
+   * geometry's normal, through the instance matrix's inverse transpose of an
+   * instanced mesh. The fragment stage reads the geometry's normal.
+   */
+  get normal(): Node<"vec3"> {
+    if (this.stage === "fragment") {
+      this.fragmentReads.add("normal");
+      return this.varying("normalLocal", "vec3");
+    }
+    const geometry = this.attribute("normal", "vec3");
+    return (this.vertexNormal ??= this.instancing
+      ? mat3(this.instanceMatrix).inverse().transpose().mul(geometry).normalize()
+      : geometry);
+  }
+
+  /** The geometry's normal in view space, for a `normalNode` to start from, as TSL's `normalView` inside it. */
+  get normalView(): Node<"vec3"> {
+    return this.viewMatrix.mul(vec4(this.normalWorld, 0)).xyz.normalize();
+  }
+
+  /**
+   * A view-space normal turned into world space, as TSL's
+   * `transformNormalByInverseViewMatrix`. The transpose of the view matrix is
+   * the inverse of its rotation.
+   */
+  normalWorldOf(normalView: Node<"vec3">): Node<"vec3"> {
+    return this.viewMatrix.transpose().mul(vec4(normalView, 0)).xyz.normalize();
   }
 
   get uv(): AttributeNode<"vec2"> {

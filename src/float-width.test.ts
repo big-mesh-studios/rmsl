@@ -97,7 +97,7 @@ describe("a CPU compile at float: f32", () => {
   it.each([
     ["JS", compileJSCompute],
     ["WASM", compileWasmCompute],
-  ] as const)("%s: reads a storage buffer the host passes as plain numbers at 32 bits", (_, compile) => {
+  ] as const)("%s: reads a storage buffer the host passes as 64-bit floats at 32 bits", (_, compile) => {
     const buf = instancedArray(2, "vec2");
     const stage = compile(
       () =>
@@ -107,9 +107,9 @@ describe("a CPU compile at float: f32", () => {
         })() as any,
       { name: "step", params: [], float: "f32" },
     );
-    const data = [0.1, 0.2, 1 / 3, 16777217];
+    const data = Float64Array.of(0.1, 0.2, 1 / 3, 16777217);
     stage({ storages: { [buf.name]: data } }, 2);
-    expect(data).toEqual([f(0.1), f(0.2), f(1 / 3), f(16777217)]);
+    expect(Array.from(data)).toEqual([f(0.1), f(0.2), f(1 / 3), f(16777217)]);
   });
 
   /**
@@ -153,7 +153,6 @@ describe("a CPU compile at float: f32", () => {
     };
     const draw = { width: 4, height: 4, clear: true, clearDepth: true };
     const js = compileJS(vertex, fragment, {
-      attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" },
       float: "f32",
     }).draw({ attributes }, draw);
     const wasm = await compileWasm(vertex, fragment, { float: "f32" }).draw({ attributes }, draw);
@@ -182,7 +181,6 @@ describe("a CPU compile at float: f32", () => {
     };
     const draw = { width: 4, height: 4, clear: true, clearDepth: true };
     const js = compileJS(vertex, fragment, {
-      attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" },
       float: "f32",
     }).draw({ attributes }, draw);
     const wasm = await compileWasm(vertex, fragment, { float: "f32" }).draw({ attributes }, draw);

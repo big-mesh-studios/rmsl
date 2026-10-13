@@ -199,7 +199,7 @@ describe("exports no other test reaches", () => {
    */
   it("gives a program the renderer's resolution, and nothing for a name it does not know", () => {
     expect(rendererUniformValue("resolution", 640, 480)).toEqual([640, 480]);
-    expect(rendererUniformValue("unknown", 640, 480)).toEqual([]);
+    expect(rendererUniformValue("unknown", 640, 480)).toBeUndefined();
   });
 
   /**

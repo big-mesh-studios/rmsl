@@ -2,6 +2,9 @@ import { Matrix3 } from "./Matrix3";
 import { Matrix4 } from "./Matrix4";
 import { Quaternion } from "./Quaternion";
 
+/** A tuple of the three components of a `Vector3`, `[x, y, z]`. */
+export type Vector3Tuple = [number, number, number];
+
 export class Vector3 {
   x: number;
   y: number;
@@ -259,7 +262,11 @@ export class Vector3 {
     return this;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The components as a new tuple. */
+  toArray(): Vector3Tuple;
+  /** Writes the components into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     array[offset] = this.x;
     array[offset + 1] = this.y;
     array[offset + 2] = this.z;

@@ -1,4 +1,4 @@
-import { vec4, type Node, type UniformNode } from "../../rmsl";
+import { vec4, type Node, type UniformNode, texture } from "../../rmsl";
 import type { GLSLPrecision } from "../../glsl";
 import { NodeMaterial, resolveSlot, type SlotValue } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
@@ -53,7 +53,7 @@ export class MeshBasicMaterial extends NodeMaterial {
     const color = resolveSlot(this.colorNode, b) ?? this.colorUniform!;
     const opacity = resolveSlot(this.opacityNode, b) ?? this.opacityUniform!;
     const uv = resolveSlot(this.uvNode, b) ?? b.uvVarying;
-    const finalColor = this.mapUniform ? color.mul(this.mapUniform.texture(uv).rgb) : color;
+    const finalColor = this.mapUniform ? color.mul(texture(this.mapUniform, uv).rgb) : color;
     return vec4(finalColor, opacity);
   }
 }

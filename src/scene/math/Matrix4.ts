@@ -1,12 +1,32 @@
 import { Quaternion } from "./Quaternion";
 import { Vector3 } from "./Vector3";
 
+/** A tuple of the sixteen elements of a `Matrix4`, column after column. */
+export type Matrix4Tuple = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
+
 /**
- * A 4x4 matrix, stored column-major in a sixteen-element `number[]`, matching
+ * A 4x4 matrix, stored column-major in a sixteen-element {@link Matrix4Tuple}, matching
  * the convention the RMSL apps already use for `Float32Array` matrices.
  */
 export class Matrix4 {
-  readonly elements: number[];
+  readonly elements: Matrix4Tuple;
 
   constructor(
     n11 = 1,
@@ -546,7 +566,11 @@ export class Matrix4 {
     return this;
   }
 
-  toArray(array: number[] = [], offset = 0): number[] {
+  /** The elements as a new tuple. */
+  toArray(): Matrix4Tuple;
+  /** Writes the elements into `array` from `offset` on, and returns it. */
+  toArray<TArray extends ArrayLike<number>>(array: TArray, offset?: number): TArray;
+  toArray(array: { [index: number]: number } = [], offset = 0): { [index: number]: number } {
     for (let i = 0; i < 16; i++) array[offset + i] = this.elements[i];
     return array;
   }

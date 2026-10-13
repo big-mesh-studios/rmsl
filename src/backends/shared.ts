@@ -1,4 +1,5 @@
 import { safeName } from "./reserved-names";
+import { withArticle } from "../article";
 import {
   assertCallFits,
   assertFnIsClosed,
@@ -6,19 +7,24 @@ import {
   assertForUpdateNode,
   type FnDefinition,
   BaseNode,
+  LOOP_JUMP_STATEMENTS,
   MATRIX_DIMENSIONS,
   Node,
   NodeImpl,
   ShaderType,
+  StorageAccess,
+  StorageNode,
   StorageBufferAttribute,
   TYPE_WIDTH,
   node,
+  operandRefusal,
   someNode,
   swizzleWritePlace,
   var_,
   vec4,
 } from "../core";
 import { componentCountOf, componentKindOf } from "./cpu";
+import { isInlineFn } from "./share";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
  * its operator precedence (higher = tighter binding, for bracket reduction).
@@ -86,8 +92,21 @@ export interface CompileCtx {
   /**
    * The uniforms the program reads, by name: two nodes with one name are one
    * uniform. `length` is set only for uniform arrays, and gives their element count.
+   * WGSL also records each uniform's node and its `order` of creation. GLSL
+   * sets `precision` on a uniform that carries a qualifier of its own.
    */
-  uniforms: Map<string, { type: string; slot: string; length?: number }>;
+  uniforms: Map<
+    string,
+    {
+      type: string;
+      slot: string;
+      length?: number;
+      order?: number;
+      node?: BaseNode<ShaderType>;
+      precision?: "lowp" | "mediump" | "highp";
+    }
+  >;
+  /** The storage buffers the program reads, by slot; `order` is the creation order of the buffer. */
   storages?: Map<
     string,
     {
@@ -95,6 +114,7 @@ export interface CompileCtx {
       type: string;
       access: "read" | "write" | "read_write";
       wgslName: string;
+      order: number;
     }
   >;
   /**
@@ -105,7 +125,7 @@ export interface CompileCtx {
    */
   storageTypes?: Map<string, string>;
   /** The attributes the program reads, by name; `id` is the first one's, which orders them as they were made. */
-  attributes: Map<string, { id: number; type: string; slot: string }>;
+  attributes: Map<string, { id: number; type: string; shaderType: string; slot: string }>;
   /** The varyings the program reads or writes, by name. */
   varyings: Map<string, { id: number; type: string; slot: string }>;
   outputs: Map<number, { type: string; slot: string; location: number }>;
@@ -131,6 +151,8 @@ export interface CompileCtx {
    * out on demand rather than always.
    */
   wgslHelpers: Set<string>;
+  /** GLSL helper functions the shader needs, by name, emitted ahead of `main`. */
+  glslHelpers?: Map<string, string>;
   /**
    * Whether the program assigned the position itself. A vertex stage that has
    * done so needs no implicit write, and its result is free to be anything.
@@ -138,8 +160,18 @@ export interface CompileCtx {
   positionWritten: boolean;
   inFn: boolean;
   fragDepthUsed: boolean;
+  /** Whether a fragment stage assigns its depth, where `fragDepthUsed` holds for a read too. */
+  fragDepthWritten?: boolean;
   /** Whether the shader reads the fragment's screen position. */
   fragCoordUsed: boolean;
+  /** What an early `Return()` compiles to: the function's zero value, in the form its last return takes. */
+  returnStatement?: string;
+  /**
+   * The declarations of the variables the update of a GLSL `for` makes, while
+   * that update compiles. The update is an expression, so each variable is
+   * declared ahead of the loop and assigned in the update.
+   */
+  forUpdateDeclarations?: string[];
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
   vertexIndexUsed?: boolean;
   instanceIndexUsed?: boolean;
@@ -175,8 +207,6 @@ export interface CompileCtx {
   derivatives: "throw" | "zero";
   /** Per-call variable bindings instead of hoisted per-program scratch. */
   reentrant: boolean;
-  /** Whether the program writes outputs/position/fragDepth via a result object. */
-  jsNeedsRes: boolean;
   /** JS target: whether the program computes every float in 32 bits, as `float: "f32"` asks. */
   jsFloat32?: boolean;
   /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
@@ -675,6 +705,21 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
   return lowered;
 }
 
+/** Why a `Break()` or a `Continue()` with no loop around it is refused, for each jump. */
+export const LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE: Record<"break" | "continue", string> = {
+  break: '[RMSL] "Break" outside a loop: no loop is around it for it to leave. Call it inside a loop body.',
+  continue: '[RMSL] "Continue" outside a loop: no loop is around it to start again. Call it inside a loop body.',
+};
+
+/**
+ * Whether slot `i` of `statement` is a block of the program, whose statements
+ * run where the statement puts them: an item of a `seq`, a branch of an `If`,
+ * or the init of a `For`. A loop's other slots run inside it. Any other slot
+ * holds a value, and a value with statements of its own is an inline `Fn`.
+ */
+const isBlockSlot = (statement: any, i: number) =>
+  statement.type === "seq" || (statement.type === "if" && i > 0) || (statement.type === "for" && i === 0);
+
 /** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
 function refuseWholeStorageRead(storage: any): never {
   throw new Error(`[RMSL] storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`);
@@ -682,14 +727,24 @@ function refuseWholeStorageRead(storage: any): never {
 
 /**
  * Checks every node of `roots`, in one walk, for the refusals every compiler
- * shares: a storage node read as a whole rather than through `.element(i)`
+ * shares: an operation on operands it does not take, see {@link operandRefusal},
+ * a storage node read as a whole rather than through `.element(i)`
  * (an assignment to one has its own refusal, in `assertAssignable`), a node of
  * a `for` update that the update slot of a `for` cannot take, and a write by
- * index through a swizzle that its read would refuse. It gives each such write
- * made a write into the vector the swizzle reads, see {@link swizzleWritePlace},
- * and whether the program holds an `outputStruct`.
+ * index through a swizzle that its read would refuse. It refuses a `Break()`
+ * or a `Continue()` outside every loop, the init of a `For` included, which
+ * runs before its loop starts. A jump in an inline `Fn` acts where the `Fn`
+ * runs, which the sharing pass decides, so `placeInlineFns` checks it. It
+ * gives each such write made a write into the vector the swizzle reads, see
+ * {@link swizzleWritePlace}, and whether the program holds an `outputStruct`.
  */
-function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; holdsOutputStruct: boolean } {
+function checkRoots(roots: readonly unknown[]): {
+  swizzleWrites: Map<any, any>;
+  holdsOutputStruct: boolean;
+  holdsReturn: boolean;
+  holdsStageWrite: boolean;
+  holdsVarying: boolean;
+} {
   const swizzleWrites = new Map<any, any>();
   const checkedFns = new Set<unknown>();
   const checkFn = (definition: FnDefinition): void => {
@@ -697,23 +752,39 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
     checkedFns.add(definition.body);
     assertFnIsClosed(definition);
     assertFnBody(definition);
-    visit(definition.body, false);
+    // A function may call `Return()`: it ends the function, not the stage.
+    const stageHeldReturn = holdsReturn;
+    visit(definition.body, false, true);
+    holdsReturn = stageHeldReturn;
   };
   let holdsOutputStruct = false;
+  let holdsReturn = false;
+  let holdsStageWrite = false;
+  let holdsVarying = false;
   for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(root);
-  // A node is visited once outside every update and once inside one.
-  const visited = [new Set<unknown>(), new Set<unknown>()];
-  const visit = (node: any, inUpdate: boolean): void => {
-    if (!node || typeof node !== "object" || visited[+inUpdate]!.has(node)) return;
-    visited[+inUpdate]!.add(node);
-    if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
+  // A node is visited once in each place: in a loop update, elsewhere in a
+  // loop or an inline Fn, and among the statements of the program outside every loop.
+  const visited = [new Set<unknown>(), new Set<unknown>(), new Set<unknown>()];
+  const visit = (node: any, inUpdate: boolean, outsideLoops: boolean): void => {
+    if (!node || typeof node !== "object") return;
+    const seen = visited[inUpdate ? 2 : +outsideLoops]!;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate, outsideLoops));
     if (inUpdate) assertForUpdateNode(node);
+    if (outsideLoops && LOOP_JUMP_STATEMENTS.has(node.type))
+      throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[node.type as "break" | "continue"]);
+    const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
+    if (refusal) throw new Error(`[RMSL] ${refusal}`);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     assertNodeNames(node);
     if (node.type === "call") {
       assertCallFits(node);
       checkFn(node.value);
     }
+    if (node.type === "return") holdsReturn = true;
+    if (STAGE_WRITES.has(node.type)) holdsStageWrite = true;
+    if (node.type === "varying") holdsVarying = true;
     if (node.type === "assign" && isSwizzleWrite(node.params[0])) {
       const target = node.params[0];
       assertNoRepeatedSwizzle(target);
@@ -728,12 +799,31 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
     node.params?.forEach((param: any, i: number) => {
       const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
       if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(param);
-      visit(param, inUpdate || (node.type === "for" && i === 2));
+      const outside =
+        outsideLoops &&
+        !(node.type === "while" || (node.type === "for" && i > 0)) &&
+        (isBlockSlot(node, i) || !isInlineFn(param));
+      visit(param, inUpdate || (node.type === "for" && i === 2), outside);
     });
   };
-  visit(roots, false);
-  return { swizzleWrites, holdsOutputStruct };
+  visit(roots, false, true);
+  return { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying };
 }
+
+/** The node types a stage writes its result through, rather than through the value it returns. */
+const STAGE_WRITES = new Set(["output", "outputStruct", "builtinPosition", "builtinFragDepth"]);
+
+/** What the shared walk of {@link prepareRoots} found in a program, for a compiler that asks. */
+export type FoundInRoots = {
+  /** Whether the program holds a `Return()`. */
+  holdsReturn?: boolean;
+  /**
+   * Whether the program writes what only a stage's result object holds: an
+   * output, the position, the depth, or a vertex stage's varying. It holds
+   * every write compiling reaches, and a write in a branch that folds away too.
+   */
+  writesStageResult?: boolean;
+};
 
 /**
  * The roots of a stage, ready to compile, once every compiler's shared
@@ -743,8 +833,23 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
  * converted, see {@link fragmentColour}. Any other stage, and a program with
  * no stage, refuses an `outputStruct`, which is a fragment stage's result.
  */
-export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
-  const { swizzleWrites, holdsOutputStruct } = checkRoots(roots);
+export function prepareRoots<T extends Node<ShaderType>>(
+  stage: string | undefined,
+  roots: readonly T[],
+  found?: FoundInRoots,
+): T[] {
+  const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(roots);
+  if (found) {
+    found.holdsReturn = holdsReturn;
+    found.writesStageResult = holdsStageWrite || (stage === "vertex" && holdsVarying);
+  }
+  if ((stage === "vertex" || stage === "fragment") && holdsReturn) {
+    throw new Error(
+      `[RMSL] Return() would end the ${stage} stage, leaving the outputs it writes after it unwritten on every target. ` +
+        `Write the rest of the stage in an If or Else instead` +
+        (stage === "fragment" ? ", or drop the fragment with Discard()." : "."),
+    );
+  }
   roots = substituteNodes(roots, swizzleWrites);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
@@ -858,7 +963,7 @@ export function assertConstantIndexInRange(
   const items = array !== undefined ? "elements" : shape ? "columns" : "components";
   const k = Math.trunc(Number(constant.value));
   if (!(k >= 0 && k < count)) {
-    throw new Error(`[RMSL] index ${k} is outside a ${what}'s ${items} 0 to ${count - 1}`);
+    throw new Error(`[RMSL] index ${k} is outside ${withArticle(what)}'s ${items} 0 to ${count - 1}`);
   }
   return k;
 }
@@ -989,23 +1094,41 @@ export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"
   });
 }
 
-/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
-export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {
-  const attributes = new Map<string, StorageBufferAttribute>();
+/** A storage node as the program's graph holds it: a node of its element type. */
+export type StorageGraphNode = StorageNode<ShaderType> & BaseNode<ShaderType>;
+
+/**
+ * One entry for each storage buffer reachable from the roots, in the order the
+ * program created the buffers: a node over the buffer, and the widest access
+ * any node over it needs.
+ */
+export function storageBuffersOf(roots: unknown): { node: StorageGraphNode; access: StorageAccess }[] {
+  const buffers = new Map<string, { node: StorageGraphNode; access: StorageAccess }>();
   someNode(roots, (node) => {
-    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
+    if (node.type !== "storage") return;
+    const buffer = buffers.get(node.value.slot);
+    if (!buffer) buffers.set(node.value.slot, { node: node as StorageGraphNode, access: node.value.access });
+    else if (buffer.access !== node.value.access) buffer.access = "read_write";
   });
-  return attributes;
+  return [...buffers.values()].sort((a, b) => a.node.attribute.id - b.node.attribute.id);
+}
+
+/** The type of a uniform, and the length of a uniform array, as its node's value holds them. */
+export type UniformDeclaration = { readonly shaderType: string; readonly length?: number };
+
+/** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
+export function storageNodesOf(roots: unknown): StorageGraphNode[] {
+  return storageBuffersOf(roots).map((buffer) => buffer.node);
 }
 
 /** What a uniform, attribute or varying node declares, in the words of an error about its name. */
 function describeNamed(node: any): string | undefined {
   const value = node.value;
-  const article = /^[aeiou]/.test(value?.shaderType ?? "") ? "an" : "a";
-  if (node.type === "uniform") return `${article} ${value.shaderType} uniform`;
-  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}`;
-  if (node.type === "attribute") return `${article} ${value.shaderType} attribute`;
-  if (node.type === "varying") return `${article} ${value.shaderType} varying`;
+  const precision = value?.precision ? ` of precision "${value.precision}"` : "";
+  if (node.type === "uniform") return `${withArticle(value.shaderType)} uniform${precision}`;
+  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}${precision}`;
+  if (node.type === "attribute") return `${withArticle(value.shaderType)} attribute`;
+  if (node.type === "varying") return `${withArticle(value.shaderType)} varying`;
   return undefined;
 }
 
@@ -1094,6 +1217,8 @@ const READ_ONLY_NAMES: Record<string, string> = {
   attribute: "an attribute",
   fragCoord: "a built-in input",
   invocationIndex: "a built-in input",
+  vertexIndex: "a built-in input",
+  instanceIndex: "a built-in input",
 };
 
 /** The stage outputs only one stage writes, which stage, and what to call them in an error. */
@@ -1178,6 +1303,7 @@ const RESERVED_NAME = "_rmsl_";
 export function bodyContext(ctx: CompileCtx): CompileCtx {
   ctx.storageTypes ??= new Map();
   ctx.userFns ??= { names: new Map(), taken: new Set(), declarations: [] };
+  ctx.glslHelpers ??= new Map();
   return { ...ctx, memo: new Map(), varDefs: new Map(), inFn: true };
 }
 
@@ -1344,9 +1470,14 @@ function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
  * uniform, an attribute or a computed value is refused the same way on each,
  * and so is an element of a storage node made read-only, a stage output
  * written outside the stage that writes it, and a parameter of the compiled
- * function.
+ * function. With `storageWritesNeedCompute`, as on a GPU target, a storage
+ * element is written only from a compute stage.
  */
-export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): void {
+export function assertAssignable(
+  target: any,
+  stage: "vertex" | "fragment" | "compute",
+  storageWritesNeedCompute = false,
+): void {
   assertNoRepeatedSwizzle(target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
@@ -1371,6 +1502,9 @@ export function assertAssignable(target: any, stage: "vertex" | "fragment" | "co
   }
   if (root.type === "storageElement" && root.params[0].value.access === "read") {
     throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
+  }
+  if (storageWritesNeedCompute && root.type === "storageElement" && stage !== "compute") {
+    throw new Error(`[RMSL] storage buffers are read-only in a ${stage} shader; write them from a compute program`);
   }
 }
 

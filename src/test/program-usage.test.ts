@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { uniform, vec2, vec4 } from "../rmsl";
+import { uniform, vec2, vec4, texture } from "../rmsl";
 import { sepia } from "../effects";
 import {
   Scene,
@@ -217,7 +217,7 @@ describe("fromPass", () => {
     const source = uniform("sampler2D");
     const pass = {
       name: "sepia",
-      color: sepia(source.texture(vec2(0.5, 0.5))),
+      color: sepia(texture(source, vec2(0.5, 0.5))),
       inputs: { source },
     };
     const run = fromPass(pass);
@@ -233,7 +233,7 @@ describe("fromPass", () => {
    */
   it("renders a pass over a grid, its screen size bound by hand", () => {
     const source = uniform("sampler2D");
-    const pass = { color: vec4(source.texture(vec2(0.5, 0.5)).rgb, 1), inputs: { source } };
+    const pass = { color: vec4(texture(source, vec2(0.5, 0.5)).rgb, 1), inputs: { source } };
     const image = render(
       fromPass(pass, {
         textures: { source: { data: [0, 128 / 255, 1, 1], width: 1, height: 1 } },
@@ -247,7 +247,7 @@ describe("fromPass", () => {
    */
   it("leaves a pass's own screen-size uniform to uniformsIn", () => {
     const source = uniform("sampler2D");
-    const pass = { color: vec4(source.texture(vec2(0, 0)).rgb, 1), inputs: { source } };
+    const pass = { color: vec4(texture(source, vec2(0, 0)).rgb, 1), inputs: { source } };
     expect(uniformsIn(pass.color).map((node) => node.name)).toEqual([source.name]);
   });
 });

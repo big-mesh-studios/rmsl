@@ -174,39 +174,35 @@ reduce to `bvecN`. An operand that is an `int` scalar is broadcast.
 As IVecOps but unsigned and without `.negate()`/`.abs()`; `.element(i)` →
 `Node<"uint">`.
 
-### SamplerOps (sampler2D)
+### Sampling a texture
 
-| Method                     | Returns | Description                   |
-| -------------------------- | ------- | ----------------------------- |
-| `.texture(coords)`         | `vec4`  | Sample texture at coordinates |
-| `.textureLod(coords, lod)` | `vec4`  | Sample with explicit LOD      |
+A texture is sampled with functions that take the sampler first, as TSL's are:
 
-### Sampler3DOps (sampler3D)
+| Function                           | Returns | Description                     |
+| ---------------------------------- | ------- | ------------------------------- |
+| `texture(sampler, uv)`             | `vec4`  | Sample the texture at `uv`      |
+| `textureLevel(sampler, uv, level)` | `vec4`  | Sample at an explicit mip level |
 
-A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube map.
-
-| Method                     | Returns | Description                          |
-| -------------------------- | ------- | ------------------------------------ |
-| `.texture(coords)`         | `vec4`  | Sample texture at volume coordinates |
-| `.textureLod(coords, lod)` | `vec4`  | Sample with explicit LOD             |
+A `sampler2D` takes a `vec2`. A `sampler3D` takes its volume coordinate, a
+`vec3`, as a `samplerCube` takes a direction.
 
 ### Integer samplers (isampler2D/3D/Cube, usampler2D/3D/Cube)
 
 Signed and unsigned integer textures. Integer textures are not filterable, so
-`.texture()`/`.textureLod()` compile to an unfiltered fetch — `texelFetch` in
+`texture()`/`textureLevel()` compile to an unfiltered fetch — `texelFetch` in
 GLSL, `textureLoad` in WGSL, which there needs **no sampler binding**. They take
 integer texel coordinates of the sampler's width and return an integer vector:
 
-| Sampler                     | `.texture()` returns | Coordinates |
-| --------------------------- | -------------------- | ----------- |
-| `isampler2D`                | `Node<"ivec4">`      | `ivec2`     |
-| `isampler3D`/`isamplerCube` | `Node<"ivec4">`      | `ivec3`     |
-| `usampler2D`                | `Node<"uvec4">`      | `uvec2`     |
-| `usampler3D`/`usamplerCube` | `Node<"uvec4">`      | `uvec3`     |
+| Sampler                     | `texture()` returns | Coordinates |
+| --------------------------- | ------------------- | ----------- |
+| `isampler2D`                | `Node<"ivec4">`     | `ivec2`     |
+| `isampler3D`/`isamplerCube` | `Node<"ivec4">`     | `ivec3`     |
+| `usampler2D`                | `Node<"uvec4">`     | `uvec2`     |
+| `usampler3D`/`usamplerCube` | `Node<"uvec4">`     | `uvec3`     |
 
 ```typescript
 let voxel = uniform("usampler3D");
-let density = voxel.texture(uvec3(x, y, z)); // Node<"uvec4">
+let density = texture(voxel, uvec3(x, y, z)); // Node<"uvec4">
 ```
 
 ### BoolOps
@@ -289,8 +285,12 @@ uniform("vec4").assign(b); // type error: a uniform is read-only
 ```
 
 A `Var<A>` is accepted wherever a `Node<A>` is. A function that writes a node it
-is given takes a `Var<A>`. `.toReadOnly()` on a storage node returns a
-`ReadOnlyStorageNode<A>`, whose elements are `Node<A>`s.
+is given takes a `Var<A>`. `.toReadOnly()` on a storage node makes that node read-only, as TSL's does, and
+returns it as a `ReadOnlyStorageNode<A>`, whose elements are `Node<A>`s. Another
+reference to the node, typed as writable, is read-only too, and the compiler
+refuses a write through it. A storage node itself has no value, only its
+elements do, so it has none of the operations of its element type, and is no
+operand: read and write it through `.element(i)`.
 
 ## Node Methods
 
@@ -425,15 +425,38 @@ To compute a value the chain reads:
 
 ### Loop
 
-TSL's counting loop:
+TSL's `Loop`, in each of its shapes. Its indices reach the body as an object:
 
 ```typescript
-Loop(int(10), (i) => {
-  // body, `i` is the int index from 0 to 9
+Loop(int(10), ({ i }) => {
+  // `i` is the int index from 0 to 9
+});
+
+Loop(value.lessThan(10), () => {
+  // runs while the bool holds; a variable the condition makes is computed once, before the loop
+  value.addAssign(1);
+});
+
+Loop({ start: 10, end: 0 }, ({ i }) => {
+  // counts down 10, 9, …, 0: a start above the end tests `>=`
+});
+
+Loop({ start: 0, end: 1, type: "float", update: 0.25, name: "t" }, ({ t }) => {
+  // a float index named `t`: 0, 0.25, 0.5, 0.75
+});
+
+Loop(4, 2, ({ i, j }) => {
+  // nested: i from 0 to 3, j from 0 to 1
 });
 ```
 
-It lowers to the same `For` machinery.
+A range given only `end` counts up from 0. Given only `start`, it counts down
+from `start - 1` to 0. With no `condition`, it counts up with `<`, or down with
+`>=` when `start` and `end` are numbers and `start` is the greater. With no
+`update`, it steps by 1. A number or a node `update` is the step, and a function
+`update` steps the index itself, as in `update: ({ i }) => i.mulAssign(2)`. An
+`update` given as a string, which TSL writes into the shader as text, is
+refused: the JS and WASM targets have no shader text.
 
 ### Switch
 
@@ -459,6 +482,8 @@ refused.
 
 ### For
 
+`For` and `While` are loops of rmsl's own; TSL has neither.
+
 ```typescript
 For(
   () => int(0).toVar(), // init - returns loop variable
@@ -481,9 +506,9 @@ While(condition, () => {
 });
 ```
 
-A condition given as a node is built once, before the loop. To make a
-variable in the condition that is recomputed on every iteration, pass the
-condition as a function:
+A variable that a condition given as a node makes is computed once, before
+the loop. To make a variable in the condition that is recomputed on every
+iteration, pass the condition as a function:
 
 ```typescript
 While(
@@ -497,18 +522,20 @@ While(
 A `For` condition may make variables too: they are computed where the
 condition is tested, and stay in scope after the loop, and in its update. A
 `For` or `While` condition function may also write other statements, which
-run before every test.
+run before every test. An `Fn` called outside the program's body, whose value
+only a loop condition reads, runs before every test too, whether the condition
+is a node or a function, and however often it reads the value.
 
 ### Other
 
 - **`Discard()`** - fragment discard (like GLSL `discard`)
 - **`Break()`** - break from a loop
 - **`Continue()`** - continue to the next iteration
-- **`Return()`** - early return from an `Fn`. In an `Fn` with a layout it leaves that function only, and the layout's type must be `"void"`.
+- **`Return()`** - early return from a routine, a function compiled on its own, or a compute program. A function that returns a value gives the zero value of its type. A `Return()` that would end a vertex or fragment stage is refused: use `If`/`Else`, or `Discard()` in a fragment stage. In an `Fn` with a layout it leaves that function only, and the layout's type must be `"void"`.
 
 ### Functions with a layout
 
-An `Fn` without a layout is inlined: its body is copied into the caller at each call. Given a layout, as in TSL, by `Fn(fn, layout)` or `.setLayout(layout)`, it is a function of its own:
+An `Fn` without a layout is inlined: its statements are written into the caller, and each call is written out in full. Given a layout, as in TSL, by `Fn(fn, layout)` or `.setLayout(layout)`, it is a function of its own:
 
 ```ts
 const shade = Fn(([n, l]) => n.dot(l).max(0)).setLayout({
@@ -520,7 +547,7 @@ const shade = Fn(([n, l]) => n.dot(l).max(0)).setLayout({
   ],
 });
 
-const a = shade(normalWorld, lightA); // called, not copied
+const a = shade(normalWorld, lightA); // called, not written out
 const b = shade(normalWorld, lightB);
 ```
 
