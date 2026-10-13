@@ -3014,7 +3014,7 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
   });
 
   /**
-   * @canon exception-wgsl-refuses-a-layout-fn-that-reads-an-input-of-its-stage
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
    */
   it("refuses a layout Fn that reads the attribute with createWgsl", async () => {
     const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
@@ -3144,6 +3144,7 @@ globalThis.__rmslMatrixAttributeRun = async () => {
 describe.skipIf(!GPU_ENABLED)("a layout Fn that reads the inputs of its stage, drawn on WebGL", () => {
   /**
    * @canon spec-a-layout-fn-reads-an-attribute
+   * @canon spec-a-layout-fn-assigns-a-varying
    * @canon spec-a-layout-fn-reads-a-varying
    * @canon spec-a-layout-fn-reads-a-built-in-input
    */
@@ -3160,8 +3161,12 @@ globalThis.__rmslLayoutFnInputs = async () => {
     const readsAttribute = Fn(() => tint).setLayout({ name: "readsAttribute", type: "float", inputs: [] });
     const readsVarying = Fn(() => half).setLayout({ name: "readsVarying", type: "float", inputs: [] });
     const readsCoord = Fn(() => fragCoord().x.mul(0).add(1)).setLayout({ name: "readsCoord", type: "float", inputs: [] });
-    const vertex = Fn(() => {
+    const assignsVarying = Fn(() => {
       half.assign(float(0.5));
+      return float(1);
+    }).setLayout({ name: "assignsVarying", type: "float", inputs: [] });
+    const vertex = Fn(() => {
+      assignsVarying();
       builtinPosition().assign(vec4(pos, 1));
     })();
     const fragment = Fn(() => vec4(readsAttribute(), readsVarying(), readsCoord(), 1))();

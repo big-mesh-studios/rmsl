@@ -1315,8 +1315,8 @@ const WRITTEN_BY_ONE_STAGE: Record<string, { stage: string; name: string }> = {
   builtinFragDepth: { stage: "fragment", name: "the fragment depth" },
 };
 
-/** The node types of a stage's inputs, which a function reads on a target that has them as globals. */
-const FN_READABLE_STAGE_INPUTS = new Set([
+/** The node types of a stage's inputs, and its varyings, which a function reaches on a target that has them as globals. */
+const FN_REACHABLE_STAGE_VALUES = new Set([
   "attribute",
   "varying",
   "fragCoord",
@@ -1356,13 +1356,7 @@ function assertFnBody(definition: FnDefinition, stageInputsInFns: boolean): void
           `Return a value at the end, or give the layout the type "void".`,
       );
     }
-    if (stageInputsInFns && n.type === "assign" && assignmentRoot(n.params[0])?.type === "varying") {
-      throw new Error(
-        `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} writes a varying, which belongs to the vertex stage and not to a function. ` +
-          `Return the value and assign the varying where the function is called.`,
-      );
-    }
-    const stage = stageInputsInFns && FN_READABLE_STAGE_INPUTS.has(n.type) ? undefined : STAGE_BOUND[n.type];
+    const stage = stageInputsInFns && FN_REACHABLE_STAGE_VALUES.has(n.type) ? undefined : STAGE_BOUND[n.type];
     if (stage !== undefined) {
       throw new Error(
         `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +

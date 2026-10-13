@@ -505,7 +505,6 @@ describe("a mistake in a function with a layout is refused", () => {
   it.each([
     ["the fragment depth", "fragment", () => builtinFragDepth().assign(float(0.5)), /uses the fragment depth/],
     ["the position", "vertex", () => builtinPosition().assign(vec4(0, 0, 0, 1)), /uses the position/],
-    ["a varying", "vertex", () => varying("float").assign(float(1)), /(writes|uses) a varying/],
   ] as const)("refuses a body that writes %s, on every target", (_, stage, write, refusal) => {
     const f = Fn(() => {
       write();
@@ -558,8 +557,32 @@ describe("a mistake in a function with a layout is refused", () => {
     }
   });
 
+  /** A vertex stage whose layout `Fn` assigns the varying and returns 1. */
+  const assignsVarying = () => {
+    const written = varying("float");
+    const f = Fn(() => {
+      written.assign(float(0.5));
+      return float(1);
+    }).setLayout({ name: "assignsVarying", type: "float", inputs: [] });
+    return { written, build: () => Fn(() => vec4(f(), 0, 0, 1))() };
+  };
+
   /**
-   * @canon exception-wgsl-refuses-a-layout-fn-that-reads-an-input-of-its-stage
+   * @canon spec-a-layout-fn-assigns-a-varying
+   */
+  it("assigns a varying from a function, on GLSL, JS and WASM", () => {
+    const { written, build } = assignsVarying();
+    expect(compileGlslStage.vertex(build())).toMatch(new RegExp(`${written.name} = 0\\.5`));
+    for (const compile of [compileJSVertex, compileWasmVertex]) {
+      const stage = (compile as any)(build, none) as (ctx: object) => {
+        varyings: Record<string, ArrayLike<number> | number>;
+      };
+      expect(stage({}).varyings[written.name]).toBe(0.5);
+    }
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
    */
   it.each([
     ["an attribute", readsStageInput("f", () => attribute("float").add(0)), /uses an attribute/],
@@ -567,6 +590,14 @@ describe("a mistake in a function with a layout is refused", () => {
     ["fragCoord()", reads.builtIn, /uses fragCoord\(\)/],
   ] as const)("refuses a body that reads %s on WGSL", (_, build, refusal) => {
     expect(expectCompileRejection(() => compileWgsl.fragment(build()))).toMatch(refusal);
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+   */
+  it("refuses a body that assigns a varying on WGSL", () => {
+    const { build } = assignsVarying();
+    expect(expectCompileRejection(() => compileWgsl.vertex(build()))).toMatch(/uses a varying/);
   });
 
   /**
