@@ -2632,18 +2632,20 @@ describe("an attribute the fragment stage reads", () => {
   });
 
   /**
-   * @canon spec-a-layout-fn-uses-no-input-or-output-of-its-stage
+   * The function reads the attribute twice, and the program passes it on once.
+   *
+   * @canon spec-a-layout-fn-reads-an-attribute
    */
-  it.each(compiles)(
-    "still refuses a layout Fn that reads an attribute, linked to a vertex stage, on %s",
-    async (_name, compile) => {
-      const readsTint = Fn(() => tint.x).setLayout({ name: "readsTint", type: "float", inputs: [] });
-      const fragment = () => Fn(() => vec4(readsTint(), 0, 0, 1))();
-      await expect(Promise.resolve().then(() => compile(vertex as any, fragment as any))).rejects.toThrow(
-        /uses an attribute/,
-      );
-    },
-  );
+  it.each(compiles)("reads an attribute from a layout Fn, linked to a vertex stage, on %s", async (_name, compile) => {
+    const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
+    const fragment = () => Fn(() => vec4(0, readsTint().add(readsTint()), 0, 1))();
+    const routine = await compile(vertex as any, fragment as any);
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, [tint.name]: Float64Array.of(0, 0.25, 0, 0, 0.25, 0, 0, 0.25, 0) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    expect(Array.from(pixels.slice(0, 4))).toEqual([0, 0.5, 0, 1]);
+  });
 
   /**
    * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying

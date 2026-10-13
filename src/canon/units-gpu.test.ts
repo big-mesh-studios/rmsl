@@ -3014,6 +3014,14 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
   });
 
   /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reads-an-input-of-its-stage
+   */
+  it("refuses a layout Fn that reads the attribute with createWgsl", async () => {
+    const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
+    await expect(wgslSources(() => Fn(() => vec4(0, readsTint(), 0, 1))())).rejects.toThrow(/uses an attribute/);
+  });
+
+  /**
    * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
    */
   it("refuses the attribute in a fragment stage compiled alone on GLSL and WGSL", () => {
@@ -3131,4 +3139,44 @@ globalThis.__rmslMatrixAttributeRun = async () => {
     },
     120_000,
   );
+});
+
+describe.skipIf(!GPU_ENABLED)("a layout Fn that reads the inputs of its stage, drawn on WebGL", () => {
+  /**
+   * @canon spec-a-layout-fn-reads-an-attribute
+   * @canon spec-a-layout-fn-reads-a-varying
+   * @canon spec-a-layout-fn-reads-a-built-in-input
+   */
+  it("reads an attribute, a varying and fragCoord() from functions with createGlsl", async () => {
+    const entry = `
+import { Fn, attributeRaw, builtinPosition, fragCoord, varying, vec4, float } from "../rmsl";
+import { createGlsl } from "../glsl";
+${READ_PIXEL}
+globalThis.__rmslLayoutFnInputs = async () => {
+  try {
+    const pos = attributeRaw("pos", "vec3");
+    const tint = attributeRaw("tint", "float");
+    const half = varying("float");
+    const readsAttribute = Fn(() => tint).setLayout({ name: "readsAttribute", type: "float", inputs: [] });
+    const readsVarying = Fn(() => half).setLayout({ name: "readsVarying", type: "float", inputs: [] });
+    const readsCoord = Fn(() => fragCoord().x.mul(0).add(1)).setLayout({ name: "readsCoord", type: "float", inputs: [] });
+    const vertex = Fn(() => {
+      half.assign(float(0.5));
+      builtinPosition().assign(vec4(pos, 1));
+    })();
+    const fragment = Fn(() => vec4(readsAttribute(), readsVarying(), readsCoord(), 1))();
+    const target = document.createElement("canvas");
+    target.width = 4;
+    target.height = 4;
+    const adapter = createGlsl(vertex, fragment);
+    adapter.attach(target);
+    adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
+    adapter.setAttribute(tint, Float32Array.of(1, 1, 1));
+    adapter.draw({ count: 3 });
+    return readPixel(target, 1, 2);
+  } catch (e) { return "THREW " + String(e.message || e).slice(0, 300); }
+};`;
+    const pixel = await runInGpuPage(entry, "__rmslLayoutFnInputs", new URL(".", import.meta.url).pathname);
+    expect(pixel).toEqual({ r: 255, g: 128, b: 255, a: 255 });
+  }, 120_000);
 });

@@ -1639,7 +1639,7 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  nodes = prepareRoots(shaderStage, nodes);
+  nodes = prepareRoots(shaderStage, nodes, undefined, false);
   nodes = numberClashingVariables(shareNodes(nodes));
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
@@ -2103,7 +2103,7 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
       "compileWgslFn does not support multi-return functions. Define separate functions for each return value.",
     );
   }
-  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built])[0]!));
+  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built], undefined, false)[0]!));
 
   const ctx: CompileCtx = {
     // The function the wrapper declares and its parameters are names a layout function cannot take.
