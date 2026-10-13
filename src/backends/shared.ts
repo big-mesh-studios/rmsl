@@ -1,6 +1,11 @@
+import { safeName } from "./reserved-names";
 import { withArticle } from "../article";
 import {
+  assertCallFits,
+  assertFnIsClosed,
+  assertNodeNames,
   assertForUpdateNode,
+  type FnDefinition,
   BaseNode,
   LOOP_JUMP_STATEMENTS,
   MATRIX_DIMENSIONS,
@@ -206,6 +211,23 @@ export interface CompileCtx {
   jsFloat32?: boolean;
   /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
   jsTarget?: unknown;
+  /**
+   * GLSL and WGSL: the functions the program declares for its `Fn`s with a
+   * layout, shared by the context of the program and the context of each body.
+   */
+  userFns?: UserFns;
+  /** JS target: the labels of the `scope`s being compiled, innermost last; a `Return()` leaves the innermost. */
+  jsScopes?: string[];
+}
+
+/** The functions a program declares for its `Fn`s with a layout. */
+export interface UserFns {
+  /** The name each function is declared under, by its body. */
+  names: Map<BaseNode<ShaderType>, string>;
+  /** The names taken in the program. */
+  taken: Set<string>;
+  /** The text of each declared function, a function ahead of any function that calls it. */
+  declarations: string[];
 }
 
 // === Constant folding ===
@@ -724,6 +746,17 @@ function checkRoots(roots: readonly unknown[]): {
   holdsVarying: boolean;
 } {
   const swizzleWrites = new Map<any, any>();
+  const checkedFns = new Set<unknown>();
+  const checkFn = (definition: FnDefinition): void => {
+    if (checkedFns.has(definition.body)) return;
+    checkedFns.add(definition.body);
+    assertFnIsClosed(definition);
+    assertFnBody(definition);
+    // A function may call `Return()`: it ends the function, not the stage.
+    const stageHeldReturn = holdsReturn;
+    visit(definition.body, false, true);
+    holdsReturn = stageHeldReturn;
+  };
   let holdsOutputStruct = false;
   let holdsReturn = false;
   let holdsStageWrite = false;
@@ -744,6 +777,11 @@ function checkRoots(roots: readonly unknown[]): {
     const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
     if (refusal) throw new Error(`[RMSL] ${refusal}`);
     if (node.type === "outputStruct") holdsOutputStruct = true;
+    assertNodeNames(node);
+    if (node.type === "call") {
+      assertCallFits(node);
+      checkFn(node.value);
+    }
     if (node.type === "return") holdsReturn = true;
     if (STAGE_WRITES.has(node.type)) holdsStageWrite = true;
     if (node.type === "varying") holdsVarying = true;
@@ -1121,6 +1159,9 @@ export function assertOneDeclarationPerName(roots: unknown): void {
  * two `Fn`s compiled as the roots of one program can each take `color`, and the
  * program would declare it twice. The first variable keeps its name and each
  * later one gets the next free number appended, as `toVar` does within one `Fn`.
+ * A variable named like a function with a layout is numbered too, as a variable
+ * of that name would hide the function where it is called, and a variable named
+ * like a keyword or built-in is renamed, see {@link safeName}.
  *
  * A variable is one node, so a renamed copy of it takes the place of every read.
  * The roots come back as copies where a variable was renamed, and the graph the
@@ -1128,27 +1169,36 @@ export function assertOneDeclarationPerName(roots: unknown): void {
  */
 export function numberClashingVariables<T>(roots: T): T {
   const byName = new Map<string, any[]>();
+  const functions = new Set<string>();
   someNode(roots, (node) => {
+    if (node.type === "call" && node.value.name !== undefined) functions.add(node.value.name);
     if (node.type !== "var" || node.value.parameter) return;
-    const group = byName.get(node.value.varName);
-    if (group === undefined) byName.set(node.value.varName, [node]);
+    // A name GLSL or WGSL cannot declare is a hint, and the variable declares the name that stands for it.
+    const name = safeName(node.value.varName);
+    const group = byName.get(name);
+    if (group === undefined) byName.set(name, [node]);
     else if (!group.includes(node)) group.push(node);
   });
-  const taken = new Set(byName.keys());
+  const taken = new Set([...byName.keys(), ...functions]);
   const renamed = new Map<any, any>();
   for (const [name, variables] of byName) {
-    for (const variable of variables.slice(1)) {
-      let number = 1;
-      while (taken.has(`${name}${number}`)) number++;
-      const varName = `${name}${number}`;
-      taken.add(varName);
+    // A function keeps the name it is declared and called by, so a variable of that name is renamed.
+    variables.forEach((variable, i) => {
+      let varName = name;
+      if (i > 0 || functions.has(name)) {
+        let number = 1;
+        while (taken.has(`${name}${number}`)) number++;
+        varName = `${name}${number}`;
+        taken.add(varName);
+      }
+      if (varName === variable.value.varName) return;
       renamed.set(
         variable,
         Object.assign(Object.create(Object.getPrototypeOf(variable)), variable, {
           value: { ...variable.value, varName },
         }),
       );
-    }
+    });
   }
   return substituteNodes(roots, renamed);
 }
@@ -1177,6 +1227,184 @@ const WRITTEN_BY_ONE_STAGE: Record<string, { stage: string; name: string }> = {
   builtinPosition: { stage: "vertex", name: "the position" },
   builtinFragDepth: { stage: "fragment", name: "the fragment depth" },
 };
+
+/** The node types that belong to a stage: its inputs and its outputs, which WGSL passes to and from its entry point. */
+const STAGE_BOUND: Record<string, string> = {
+  attribute: "an attribute",
+  varying: "a varying",
+  output: "an output",
+  outputStruct: "an output",
+  builtinPosition: "the position",
+  builtinFragDepth: "the fragment depth",
+  fragCoord: "fragCoord()",
+  instanceIndex: "instanceIndex()",
+  invocationIndex: "invocationIndex()",
+  vertexIndex: "vertexIndex()",
+};
+
+/**
+ * Throws if the body of a function with a layout holds a `Return` although the
+ * function gives a value, or reads or writes something that belongs to a stage.
+ * A call inside it is checked with its own body.
+ */
+function assertFnBody(definition: FnDefinition): void {
+  const seen = new Set<unknown>();
+  const walk = (n: any): void => {
+    if (!n || typeof n !== "object" || seen.has(n)) return;
+    seen.add(n);
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (n.type === "return" && definition.type !== "void") {
+      throw new Error(
+        `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} gives a ${definition.type}, and its body calls Return(), which gives no value. ` +
+          `Return a value at the end, or give the layout the type "void".`,
+      );
+    }
+    const stage = STAGE_BOUND[n.type];
+    if (stage !== undefined) {
+      throw new Error(
+        `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +
+          `Pass its value in as an input.`,
+      );
+    }
+    n.params?.forEach(walk);
+  };
+  walk(definition.body);
+}
+
+/**
+ * The name a function of a program is declared under, with `emit` called the
+ * first time to write its lines. A name taken gets `_` and the next free number
+ * appended, and a function without a name gets a generated one.
+ */
+export function declareFn(ctx: CompileCtx, definition: FnDefinition, emit: (name: string) => string): string {
+  const fns: UserFns = (ctx.userFns ??= { names: new Map(), taken: new Set(), declarations: [] });
+  const known = fns.names.get(definition.body);
+  if (known !== undefined) return known;
+  const base = definition.name ?? `${RESERVED_NAME}fn`;
+  let name: string = base;
+  if (definition.name === undefined || fns.taken.has(name)) {
+    let number = 1;
+    while (fns.taken.has(`${base}_${number}`)) number++;
+    name = `${base}_${number}`;
+  }
+  fns.taken.add(name);
+  fns.names.set(definition.body, name);
+  fns.declarations.push(emit(name));
+  return name;
+}
+
+const RESERVED_NAME = "_rmsl_";
+
+/**
+ * A context for compiling the body of a function: the maps that collect what
+ * the program declares are the program's own, and what a statement remembers is
+ * the body's own.
+ */
+export function bodyContext(ctx: CompileCtx): CompileCtx {
+  ctx.storageTypes ??= new Map();
+  ctx.userFns ??= { names: new Map(), taken: new Set(), declarations: [] };
+  ctx.glslHelpers ??= new Map();
+  return { ...ctx, memo: new Map(), varDefs: new Map(), inFn: true };
+}
+
+/**
+ * The roots with every call of an `Fn` with a layout written out where it is
+ * called, for a target that has no use for a function of its own. The inputs
+ * are bound to variables the call makes, and the variables of the body are
+ * renamed for each call, so two calls of one function do not share them.
+ *
+ * A call that is a statement, or the value of a `let`, puts the statements of
+ * the body into the block it stands in. A body that calls `Return()` goes in a
+ * `scope`, which `Return()` leaves. Any other call is a `seq` that holds the
+ * statements ahead of its value. The graph the caller holds is left as it is.
+ */
+export function inlineCalls<T>(roots: T): T {
+  let instance = 0;
+  const lowered = new Map<any, any>();
+  const copyOf = (original: any, params: any[]) =>
+    Object.assign(Object.create(Object.getPrototypeOf(original)), original, { params });
+
+  /** Whether the body returns early, not counting the bodies of the calls inside it. */
+  const returns = (body: any): boolean => {
+    const seen = new Set<unknown>();
+    const walk = (n: any): boolean => {
+      if (!n || typeof n !== "object" || seen.has(n)) return false;
+      seen.add(n);
+      return n.type === "return" || (Array.isArray(n.params) && n.params.some(walk));
+    };
+    return walk(body);
+  };
+
+  /** The call written out: its statements, and the node that holds its value. */
+  const expand = (call: any): { statements: any[]; value: any } => {
+    const id = instance++;
+    const definition = call.value as FnDefinition;
+    const rename = (name: string) => `${RESERVED_NAME}c${id}_${name}`;
+    const variables = new Map<string, any>();
+    const variable = (n: any) => {
+      let v = variables.get(n.value.varName);
+      if (v === undefined) {
+        v = var_(rename(n.value.varName), n.value.varType);
+        variables.set(n.value.varName, v);
+      }
+      return v;
+    };
+    const copies = new Map<any, any>();
+    const copy = (n: any): any => {
+      if (!n || typeof n !== "object") return n;
+      if (copies.has(n)) return copies.get(n);
+      let result = n;
+      if (n.type === "var") result = variable(n);
+      else if (Array.isArray(n.params)) result = copyOf(n, n.params.map(copy));
+      copies.set(n, result);
+      return result;
+    };
+    const bindings = definition.inputs.map((input, i) => {
+      const parameter = variable({ value: { varName: input.name, varType: input.type } });
+      return node({ _t: "void", type: "let", params: [parameter, lower(call.params[i])] }) as any;
+    });
+    const body = lower(copy(definition.body));
+    const statements = body.params.slice(0, -1);
+    const value = body.params[body.params.length - 1];
+    if (!returns(definition.body)) return { statements: [...bindings, ...statements], value };
+    const scope = node({ _t: "void", type: "scope", params: [node({ _t: "void", type: "seq", params: statements })] });
+    return { statements: [...bindings, scope], value };
+  };
+
+  /** A block's statements, with the calls that are statements written out inside it. */
+  const block = (statements: any[]): any[] =>
+    statements.flatMap((statement) => {
+      if (statement?.type === "call") return expand(statement).statements;
+      if (statement?.type === "let" && statement.params[1]?.type === "call") {
+        const { statements: before, value } = expand(statement.params[1]);
+        return [...before, copyOf(statement, [lower(statement.params[0]), value])];
+      }
+      return [lower(statement)];
+    });
+
+  function lower(n: any): any {
+    if (!n || typeof n !== "object") return n;
+    if (Array.isArray(n)) return n.map(lower);
+    const known = lowered.get(n);
+    if (known !== undefined) return known;
+    let result = n;
+    if (n.type === "call") {
+      const { statements, value } = expand(n);
+      result = node({ _t: n._t, type: "seq", params: [...statements, value] });
+    } else if (n.type === "seq") {
+      const params = block(n.params ?? []);
+      const unchanged = params.length === n.params.length && params.every((p, i) => p === n.params[i]);
+      result = unchanged ? n : copyOf(n, params);
+    } else if (Array.isArray(n.params)) {
+      const params = n.params.map(lower);
+      result = params.every((p: any, i: number) => p === n.params[i]) ? n : copyOf(n, params);
+    }
+    lowered.set(n, result);
+    return result;
+  }
+
+  return lower(roots);
+}
 
 /**
  * A parameter of a function a backend compiles with its `compile…Fn`, as the

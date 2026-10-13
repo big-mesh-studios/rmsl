@@ -1,6 +1,8 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, UniformPrecision } from "../../core";
+import { BaseNode, FnDefinition, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, UniformPrecision } from "../../core";
 import {
   assertAssignable,
+  bodyContext,
+  declareFn,
   parameterNode,
   CompileCtx,
   CompileFnOptions,
@@ -828,6 +830,16 @@ export function compileGLSLNode(
       return { decls: [], body: [ctx.returnStatement ?? "return;"], expr: "0.0" };
     }
 
+    case "call": {
+      const name = declareGlslFn(node.value as FnDefinition, ctx);
+      const args = (node.params ?? []).map((p: any): CompiledNode => compileGLSLStage(p, ctx));
+      const decls = args.flatMap((a: CompiledNode) => a.decls);
+      const body = args.flatMap((a: CompiledNode) => a.body);
+      const call = `${name}(${args.map((a: CompiledNode) => a.expr).join(", ")})`;
+      if (node._t === "void") return { decls, body: [...body, `${call};`], expr: "0.0" };
+      return { decls, body, expr: call, prec: PREC_ATOM };
+    }
+
     case "storage": {
       // WebGL 2 has no storage buffers, so a render stage reads one through a
       // texture of its elements, under the buffer's slot name.
@@ -859,6 +871,26 @@ export function compileGLSLNode(
       // this means the compiler lost one.
       throw new Error(`[RMSL] Unsupported node type in GLSL compiler: "${node.type}"`);
   }
+}
+
+/**
+ * Declares the function of an `Fn` with a layout once, from its body compiled
+ * in a context of its own, and gives the name it is called by.
+ */
+function declareGlslFn(definition: FnDefinition, ctx: CompileCtx): string {
+  return declareFn(ctx, definition, (name) => {
+    const child = bodyContext(ctx);
+    const root = numberClashingVariables(
+      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>])[0]!),
+    );
+    const compiled = compileGLSLStage(root, child);
+    ctx.nextId = child.nextId;
+    const returnType = glslType(definition.type);
+    const params = definition.inputs.map((input) => `${glslType(input.type)} ${input.name}`).join(", ");
+    const lines = [...compiled.decls, ...compiled.body];
+    if (definition.type !== "void") lines.push(`return ${compiled.expr};`);
+    return `${returnType} ${name}(${params}) {\n${lines.map((l) => `  ${l}`).join("\n")}\n}`;
+  });
 }
 
 /** The sampler type of the texture that holds a storage buffer of `elementType`. */
@@ -1119,6 +1151,8 @@ export function compileGLSLWithStage(
   }
   for (let helper of ctx.glslHelpers?.values() ?? []) lines.push(helper, "");
 
+  for (const declaration of ctx.userFns?.declarations ?? []) lines.push(declaration, "");
+
   if (shaderStage === "vertex") {
     lines.push("void main(void) {");
     for (let line of allBody) {
@@ -1184,6 +1218,12 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const ctx: CompileCtx = {
     nextId: 0,
     shaderStage: "fragment",
+    // The function the wrapper declares and its parameters are names a layout function cannot take.
+    userFns: {
+      names: new Map(),
+      taken: new Set([options.name, ...options.params.map((p) => p.name)]),
+      declarations: [],
+    },
     uniforms: new Map(),
     attributes: new Map(),
     varyings: new Map(),
@@ -1219,6 +1259,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     code += "\n";
   }
   for (const helper of ctx.glslHelpers?.values() ?? []) code += `${helper}\n\n`;
+  for (const declaration of ctx.userFns?.declarations ?? []) code += `${declaration}\n\n`;
   code += `${returnType} ${options.name}(${paramStr}) {\n`;
   for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;

@@ -740,3 +740,30 @@ describe("the width of a float's arithmetic", () => {
     expectTypeOf(float(2).div(3)).toEqualTypeOf<Node<"float">>();
   });
 });
+
+describe("an Fn with a layout", () => {
+  const layout = {
+    name: "shade",
+    type: "float",
+    inputs: [
+      { name: "n", type: "vec3" },
+      { name: "l", type: "vec3" },
+    ],
+  } as const;
+
+  it("takes its inputs as a tuple and is called with them spread", () => {
+    const shade = Fn(([n, l]: [Node<"vec3">, Node<"vec3">]) => n.dot(l).max(0)).setLayout(layout);
+    expectTypeOf(shade).parameters.toEqualTypeOf<[Node<"vec3">, Node<"vec3">]>();
+    expectTypeOf(shade(vec3(1), vec3(2))).toEqualTypeOf<Node<"float">>();
+    const given = Fn(([n, l]: [Node<"vec3">, Node<"vec3">]) => n.dot(l), layout);
+    expectTypeOf(given).parameters.toEqualTypeOf<[Node<"vec3">, Node<"vec3">]>();
+  });
+
+  it("refuses a call whose arguments are not the inputs", () => {
+    const shade = Fn(([n, l]: [Node<"vec3">, Node<"vec3">]) => n.dot(l)).setLayout(layout);
+    // @ts-expect-error a float is no vec3
+    shade(float(1), vec3(2));
+    // @ts-expect-error one input is missing
+    shade(vec3(1));
+  });
+});

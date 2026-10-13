@@ -4,7 +4,19 @@ import { LOOP_JUMP_STATEMENTS, LOOP_STATEMENTS, node, var_ } from "../core";
 export const SHARED_NAME_PREFIX = "_rmsl_gen_";
 
 /** Node types that are statements, whose parameters are blocks or expressions the pass places by kind. */
-const STATEMENTS = new Set(["seq", "let", "assign", "if", "for", "while", "break", "continue", "return", "discard"]);
+const STATEMENTS = new Set([
+  "seq",
+  "let",
+  "assign",
+  "if",
+  "for",
+  "while",
+  "scope",
+  "break",
+  "continue",
+  "return",
+  "discard",
+]);
 
 /**
  * Node types read where they are, however often. A swizzle or an element reads
@@ -66,7 +78,7 @@ function inlineFnJumpInADeeperLoop(jump: string) {
 /** Node types that are literals, which a target folds. */
 const LITERALS = new Set(["float", "int", "uint", "bool"]);
 
-const isStatement = (n: any) => STATEMENTS.has(n.type);
+const isStatement = (n: any) => STATEMENTS.has(n.type) || (n.type === "call" && n._t === "void");
 
 /** Whether `n` is the result of an inline `Fn` with statements of its own. */
 export const isInlineFn = (n: any) => n?.type === "seq" && (n.params ?? []).some(isStatement);
@@ -605,9 +617,11 @@ function isConstant(n: any, memo: Map<any, boolean>): boolean {
   const known = memo.get(n);
   if (known !== undefined) return known;
   const result =
-    Array.isArray(n.params) && n.params.length > 0
-      ? n.params.every((p: any) => isConstant(p, memo))
-      : LITERALS.has(n.type) || (n.type === n._t && Array.isArray(n.value));
+    n.type === "call"
+      ? false
+      : Array.isArray(n.params) && n.params.length > 0
+        ? n.params.every((p: any) => isConstant(p, memo))
+        : LITERALS.has(n.type) || (n.type === n._t && Array.isArray(n.value));
   memo.set(n, result);
   return result;
 }
@@ -665,7 +679,7 @@ export function shareNodes<T>(roots: T): T {
   /** Whether `n` is a node that gets a variable when it is read more than once. */
   const isShareable = (n: any): boolean =>
     Array.isArray(n.params) &&
-    n.params.length > 0 &&
+    (n.params.length > 0 || n.type === "call") &&
     n._t !== "void" &&
     !READ_WHERE_IT_IS.has(n.type) &&
     !isConstant(n, constantsMemo);
@@ -724,6 +738,14 @@ export function shareNodes<T>(roots: T): T {
       case "while":
         expanded.add(statement);
         countBody(statement, 1, path);
+        return;
+      case "scope":
+        expanded.add(statement);
+        countBody(statement, 0, path);
+        return;
+      case "call":
+        expanded.add(statement);
+        for (const p of statement.params ?? []) if (!holdsStatements(p, statementsMemo)) read(p, path);
         return;
       default:
         expanded.add(statement);
@@ -852,6 +874,18 @@ export function shareNodes<T>(roots: T): T {
         epoch++;
         const params = s.params.slice();
         params[params.length - 1] = enclosed(s, params.length - 1);
+        if (!sameParams(params, s.params)) result = copyOf(s, params);
+        epoch++;
+        break;
+      }
+      case "scope": {
+        const body = enclosed(s, 0);
+        if (body !== s.params[0]) result = copyOf(s, [body]);
+        epoch++;
+        break;
+      }
+      case "call": {
+        const params = s.params.map((p: any) => rewrite(p, out));
         if (!sameParams(params, s.params)) result = copyOf(s, params);
         epoch++;
         break;

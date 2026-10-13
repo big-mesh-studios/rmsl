@@ -53,6 +53,7 @@ import {
   tryFold,
   withoutSemicolon,
   wrapExpr,
+  inlineCalls,
 } from "../shared";
 import { matrixHelperSource } from "../matrix-formulas";
 import { shareNodes } from "../share";
@@ -2550,7 +2551,16 @@ export function compileJSNode(
     }
 
     case "return": {
-      return { decls: [], body: [ctx.returnStatement ?? "return;"], expr: "0" };
+      const label = ctx.jsScopes?.at(-1);
+      return { decls: [], body: [label === undefined ? (ctx.returnStatement ?? "return;") : `break ${label};`], expr: "0" };
+    }
+
+    case "scope": {
+      const label = `_rmsl_scope${ctx.nextId++}`;
+      (ctx.jsScopes ??= []).push(label);
+      const body = compileJSBoundary(node.params[0], ctx);
+      ctx.jsScopes.pop();
+      return { decls: body.decls, body: [`${label}: {`, ...body.body.map((l) => "  " + l), "}"], expr: "0" };
     }
 
     default:
@@ -2604,7 +2614,7 @@ function compileJSFnDetailed(
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const found: FoundInRoots = {};
-  const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes, found)));
+  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, found))));
 
   const ctx: CompileCtx = {
     nextId: 0,

@@ -4,6 +4,7 @@ import {
   allocUniformId,
   allocVaryingId,
   attachUniformArrayElement,
+  assertNodeNames,
   claimVarName,
   node,
   NODE_TYPES,
@@ -12,6 +13,7 @@ import {
   StorageBufferAttribute,
   StorageInstancedBufferAttribute,
   type BaseNode,
+  type FnDefinition,
   type Node,
   type ShaderType,
   type StorageAccess,
@@ -134,9 +136,13 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
     if (n.type === "storage") {
       const value = n.value as { shaderType: string; access: StorageAccess; attribute: StorageBufferAttribute };
       entry.value = { shaderType: value.shaderType, access: value.access, buffer: bufferIndex.get(value.attribute)! };
+    } else if (n.type === "call") {
+      const { name, type, inputs, body } = n.value as FnDefinition;
+      entry.value = { name, type, inputs, body: add(body) };
     } else if (n.type === "var") {
-      const { varName, varType } = n.value as { varName: string; varType: string };
+      const { varName, varType, parameter } = n.value as { varName: string; varType: string; parameter?: boolean };
       entry.value = isGenerated(varName) ? { varType, local: local(varName) } : { varType, varName };
+      if (parameter) (entry.value as { parameter?: boolean }).parameter = true;
     } else if (NAMED[n.type]) {
       const { id: _, slot, ...rest } = n.value as { id: number; slot: string };
       entry.value = isGenerated(slot) ? { ...rest, local: local(slot) } : { ...rest, slot };
@@ -255,6 +261,16 @@ function deserializeNode(
         ? rest
         : { ...rest, varName: localName(names, local, () => ({ name: claimVarName(undefined) })).name };
   }
+  if (entry.type === "call") {
+    const { body, ...rest } = value as Record<string, unknown> & { body: number };
+    const at = indexInto(body, total, `node ${nodes.length}`, "a function body");
+    if (at >= nodes.length) {
+      throw new Error(
+        `[RMSL] deserialize: node ${nodes.length} names a function body at ${at}, after it; a body has to come before the call`,
+      );
+    }
+    value = { ...rest, body: nodes[at] };
+  }
   const named = NAMED[entry.type];
   if (named) {
     const { local, slot, ...rest } = value as { local?: number; slot?: string };
@@ -275,6 +291,7 @@ function deserializeNode(
   }
 
   const result = node({ _t: entry._t, type: entry.type, value, params, name }) as any;
+  assertNodeNames(result, `deserialize: node ${nodes.length}, `);
   if (entry.type === "uniformArray") {
     result.length = value!.length;
     attachUniformArrayElement(result, entry._t as ShaderType);

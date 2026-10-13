@@ -531,7 +531,32 @@ is a node or a function, and however often it reads the value.
 - **`Discard()`** - fragment discard (like GLSL `discard`)
 - **`Break()`** - break from a loop
 - **`Continue()`** - continue to the next iteration
-- **`Return()`** - early return from a routine, a function compiled on its own, or a compute program. A function that returns a value gives the zero value of its type. A `Return()` that would end a vertex or fragment stage is refused: use `If`/`Else`, or `Discard()` in a fragment stage
+- **`Return()`** - early return from a routine, a function compiled on its own, or a compute program. A function that returns a value gives the zero value of its type. A `Return()` that would end a vertex or fragment stage is refused: use `If`/`Else`, or `Discard()` in a fragment stage. In an `Fn` with a layout it leaves that function only, and the layout's type must be `"void"`.
+
+### Functions with a layout
+
+An `Fn` without a layout is inlined: its statements are written into the caller, and each call is written out in full. Given a layout, as in TSL, by `Fn(fn, layout)` or `.setLayout(layout)`, it is a function of its own:
+
+```ts
+const shade = Fn(([n, l]) => n.dot(l).max(0)).setLayout({
+  name: "shade",
+  type: "float",
+  inputs: [
+    { name: "n", type: "vec3" },
+    { name: "l", type: "vec3" },
+  ],
+});
+
+const a = shade(normalWorld, lightA); // called, not written out
+const b = shade(normalWorld, lightB);
+```
+
+GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS, WASM) run its body where it is called. The result is the same on every target.
+
+- The body receives its inputs as one value that destructures as an array, `([n, l])`, and as an object, `({ n, l })`. A call passes them by position or as one object, `shade({ n, l })`.
+- A layout without a `name` gets a generated one. Two functions with one name get `_1`, `_2`, … appended. A function, input or variable name that GLSL or WGSL cannot declare, such as a keyword or a built-in, is declared under a name they can, as `float_` for `float`; the body still reads an input by the name the layout gives.
+- The arguments must have the types of the inputs, and the body must return the layout's type. A number is a `float`.
+- The body sees its inputs, its own variables and the program's uniforms, textures and storage buffers. A variable of the caller is refused with its name; pass it in as an input and return the new value. Attributes, varyings, stage outputs, the position and built-in inputs such as `fragCoord()` are refused too: pass their values in.
 
 ## I/O
 

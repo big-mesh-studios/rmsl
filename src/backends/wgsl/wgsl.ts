@@ -1,6 +1,7 @@
 import { withArticle } from "../../article";
 import {
   BaseNode,
+  FnDefinition,
   MATRIX_DIMENSIONS,
   Node,
   ShaderType,
@@ -27,6 +28,8 @@ import {
   assertSquareMatrix,
   assertConstantIndexInRange,
   assertAssignable,
+  bodyContext,
+  declareFn,
   parameterNode,
   assertStageResult,
   prepareRoots,
@@ -384,6 +387,26 @@ export function compileWGSLStage(node: BaseNode<ShaderType> | any, ctx: CompileC
  */
 function wgslLiteralPrec(literal: string): number {
   return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
+}
+
+/**
+ * Declares the function of an `Fn` with a layout once, from its body compiled
+ * in a context of its own, and gives the name it is called by.
+ */
+function declareWgslFn(definition: FnDefinition, ctx: CompileCtx): string {
+  return declareFn(ctx, definition, (name) => {
+    const child = bodyContext(ctx);
+    const root = numberClashingVariables(
+      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>])[0]!),
+    );
+    const compiled = compileWGSLStage(root, child);
+    ctx.nextId = child.nextId;
+    const params = definition.inputs.map((input) => `${input.name}: ${wgslType(input.type)}`).join(", ");
+    const returns = definition.type === "void" ? "" : ` -> ${wgslType(definition.type)}`;
+    const lines = [...compiled.decls, ...compiled.body];
+    if (definition.type !== "void") lines.push(`return ${compiled.expr};`);
+    return `fn ${name}(${params})${returns} {\n${lines.map((l) => `  ${l}`).join("\n")}\n}`;
+  });
 }
 
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
@@ -1313,9 +1336,21 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       return { decls: [], body: ["continue;"], expr: "0.0" };
     }
 
+    case "call": {
+      const name = declareWgslFn(node.value as FnDefinition, ctx);
+      const args = (node.params ?? []).map((p: any): CompiledNode => compileWGSLStage(p, ctx));
+      const decls = args.flatMap((a: CompiledNode) => a.decls);
+      const body = args.flatMap((a: CompiledNode) => a.body);
+      const call = `${name}(${args.map((a: CompiledNode) => a.expr).join(", ")})`;
+      if (node._t === "void") return { decls, body: [...body, `${call};`], expr: "0.0" };
+      return { decls, body, expr: call, prec: PREC_ATOM };
+    }
+
     case "return": {
       // A stage refuses a Return before it compiles, so this is a function's or a compute program's.
-      return { decls: [], body: [ctx.returnStatement ?? "return;"], expr: "0.0" };
+      // A function with a layout returns nothing, as only a `void` one may call `Return()`.
+      const statement = ctx.inFn ? "return;" : (ctx.returnStatement ?? "return;");
+      return { decls: [], body: [statement], expr: "0.0" };
     }
 
     default:
@@ -1708,6 +1743,7 @@ export function compileWGSLWithStage(
   for (const helper of [...ctx.wgslHelpers].sort()) {
     lines.push(WGSL_HELPERS[helper], "");
   }
+  for (const declaration of ctx.userFns?.declarations ?? []) lines.push(declaration, "");
 
   if (shaderStage === "vertex") {
     if (ctx.attributes.size > 0) {
@@ -2070,6 +2106,12 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built])[0]!));
 
   const ctx: CompileCtx = {
+    // The function the wrapper declares and its parameters are names a layout function cannot take.
+    userFns: {
+      names: new Map(),
+      taken: new Set([options.name, ...options.params.map((p) => p.name)]),
+      declarations: [],
+    },
     nextId: 0,
     shaderStage: "fragment",
     uniforms: new Map(),
@@ -2111,6 +2153,7 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   for (const helper of [...ctx.wgslHelpers].sort()) {
     code += `${WGSL_HELPERS[helper]}\n\n`;
   }
+  for (const declaration of ctx.userFns?.declarations ?? []) code += `${declaration}\n\n`;
   code += `fn ${options.name}(${paramStr})${returnsNothing ? "" : ` -> ${returnType}`} {\n`;
   for (const line of compiled.decls) {
     code += `  ${line}\n`;

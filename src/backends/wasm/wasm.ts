@@ -44,6 +44,7 @@ import {
   COMPONENT_INDEX,
   isLeafLiteral,
   resolveSwizzleTarget,
+  inlineCalls,
   LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE,
 } from "../shared";
 import { shareNodes } from "../share";
@@ -847,7 +848,7 @@ export function compileWasmFn(
   if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
+  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes))));
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
@@ -965,6 +966,8 @@ export function compileWasmFn(
   // branch out of it, and loopStack tracks break/continue targets.
   const EXIT_BLOCK_DEPTH = 1;
   const loopStack: { breakDepth: number; continueDepth: number }[] = [];
+  /** The depths of the `scope`s being emitted, innermost last; a `Return()` branches out of the innermost. */
+  const scopeStack: number[] = [];
   // Tracks the block depth in scope wherever expression evaluation currently
   // sits, so a "seq" node encountered mid-expression (a nested Fn call's
   // result) can lower its leading statements with walkStmt at the right
@@ -4178,7 +4181,18 @@ export function compileWasmFn(
         if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.continue);
         return [WASM_OP.br, ...wasmUleb128(depth - top.continueDepth)];
       }
+      case "scope": {
+        scopeStack.push(depth + 1);
+        try {
+          const body = inRegion(() => walkStmt(node.params[0], depth + 1));
+          return [WASM_OP.block, WASM_BLOCKTYPE_VOID, ...body, WASM_OP.end];
+        } finally {
+          scopeStack.pop();
+        }
+      }
       case "return":
+        if (scopeStack.length > 0) return [WASM_OP.br, ...wasmUleb128(depth - scopeStack[scopeStack.length - 1]!)];
+      // falls through: outside every scope, return leaves the function as discard does.
       case "discard": {
         // discard leaves early exactly like return, with the same exit sentinel,
         // after it raises the flag the host reads.
