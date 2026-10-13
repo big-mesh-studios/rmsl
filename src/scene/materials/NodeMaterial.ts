@@ -114,7 +114,7 @@ export class NodeMaterial extends Material {
     b.stage = "vertex";
     const vertex = Fn(() => {
       const clip = this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b);
-      // The fragment stage reads the position the vertex stage ends with, and the geometry's normal.
+      // The fragment stage reads the position the vertex stage ends with; the compiler passes on any attribute it reads.
       if (b.fragmentReads.has("position")) b.varying("positionLocal", "vec3").assign(this.localPosition(b));
       return clip;
     })() as Node<"vec4">;

@@ -3010,3 +3010,63 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
     expect(() => compileWgsl.fragment(fragment() as any)).toThrow(named);
   });
 });
+
+describe.skipIf(!GPU_ENABLED)("an attribute the fragment stage reads, drawn on a GPU", () => {
+  /** The corner by the red vertex reads mostly red, and the pixel midway between the green and blue vertices half of each. */
+  const expectInterpolated = ([nearRed, midway]: { r: number; g: number; b: number }[]) => {
+    expect(nearRed!.r).toBeGreaterThan(nearRed!.g);
+    expect(nearRed!.r).toBeGreaterThan(nearRed!.b);
+    expect(midway!.r).toBeLessThan(40);
+    expect(midway!.g).toBeGreaterThan(80);
+    expect(midway!.b).toBeGreaterThan(80);
+  };
+  /** Draws a triangle whose fragment stage reads the `tint` attribute, which the vertices set to red, green and blue. */
+  const entry = (lang: "glsl" | "wgsl") => `
+import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
+import { ${lang === "glsl" ? "createGlsl" : "createWgsl"} } from "../${lang}";
+${READ_PIXEL}
+globalThis.__rmslFragmentAttributeRun = async () => {
+  const pos = attribute("vec3");
+  const tint = attribute("vec3");
+  const vertex = Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = Fn(() => vec4(tint, 1))();
+  const target = document.createElement("canvas");
+  target.width = 4;
+  target.height = 4;
+  const adapter = ${lang === "glsl" ? "createGlsl(vertex, fragment)" : "createWgsl({ vertex, fragment })"};
+  await adapter.attach(target);
+  adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
+  adapter.setAttribute(tint, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+  adapter.draw({ count: 3 });
+  ${lang === "wgsl" ? "await adapter.device().queue.onSubmittedWorkDone();" : ""}
+  return [readPixel(target, 0, 3), readPixel(target, 3, 0)];
+};`;
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("gives the fragment stage the attribute on WebGL with createGlsl", async () => {
+    const pixel = await runInGpuPage(
+      entry("glsl"),
+      "__rmslFragmentAttributeRun",
+      new URL(".", import.meta.url).pathname,
+    );
+    expectInterpolated(pixel);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.skipIf(!WEBGPU)(
+    "gives the fragment stage the attribute on WebGPU with createWgsl",
+    async () => {
+      const pixel = await runInWebGpuPage(
+        entry("wgsl"),
+        "__rmslFragmentAttributeRun",
+        new URL(".", import.meta.url).pathname,
+      );
+      expectInterpolated(pixel);
+    },
+    120_000,
+  );
+});

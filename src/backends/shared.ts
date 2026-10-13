@@ -852,9 +852,10 @@ export function prepareRoots<T extends Node<ShaderType>>(
     );
   }
   roots = substituteNodes(roots, swizzleWrites);
-  if (stage === "fragment") assertReadsNoAttribute(roots);
-  if (stage === "fragment")
+  if (stage === "fragment") {
+    assertReadsNoAttribute(roots);
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
+  }
   if (holdsOutputStruct) {
     throw new Error(
       `[RMSL] outputStruct is the value a fragment stage returns, and this program is compiled ` +
@@ -902,9 +903,10 @@ export function linkStages<V, F>(vertexRoot: V, fragmentRoot: F): { vertex: V; f
     }
     replaced.set(n, carrier);
   });
-  if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot };
+  const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
+  // A vertex stage that makes no root is refused by the compile that follows.
+  if (replaced.size === 0 || !last || typeof last !== "object") return { vertex: vertexRoot, fragment: fragmentRoot };
   const roots: any[] = Array.isArray(vertexRoot) ? [...vertexRoot] : [vertexRoot];
-  const last = roots[roots.length - 1];
   roots[roots.length - 1] = node({
     _t: last._t,
     type: "seq",
