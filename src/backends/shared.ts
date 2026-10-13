@@ -889,6 +889,8 @@ function assertReadsNoAttribute(roots: unknown): void {
  * one varying. The stages the caller holds are left as they are.
  */
 export function linkStages<V, F>(vertexRoot: V, fragmentRoot: F): { vertex: V; fragment: F } {
+  // Reads of one slot become one varying, so a conflict between them has to show before they merge.
+  assertOneDeclarationPerName(fragmentRoot);
   const replaced = new Map<any, any>();
   const varyings = new Map<string, any>();
   const assignments: BaseNode<ShaderType>[] = [];

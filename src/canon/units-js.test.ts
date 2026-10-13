@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
+  attributeRaw,
   bool,
   builtinFragDepth,
   builtinPosition,
@@ -2600,6 +2601,17 @@ describe("an attribute the fragment stage reads", () => {
   it.each(compiles)("shares one varying between reads of the attribute on %s", async (_name, compile) => {
     const fragment = () => Fn(() => vec4(tint.x.add(tint.x), tint.y, 0, 1))();
     expect(await firstPixel(compile, fragment, [0.25, 0.5, 0, 0.25, 0.5, 0, 0.25, 0.5, 0])).toEqual([0.5, 0.5, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+   */
+  it.each(compiles)("refuses two reads of one slot that declare different types on %s", async (_name, compile) => {
+    const narrow = attributeRaw("shared", "vec3");
+    const wide = attributeRaw("shared", "vec4");
+    await expect(
+      Promise.resolve().then(() => compile(vertex as any, (() => Fn(() => vec4(narrow, wide.x))()) as any)),
+    ).rejects.toThrow(/"shared" names .* one name is one declaration/);
   });
 
   /**
