@@ -129,9 +129,10 @@ export class NodeMaterial extends Material {
     const varyings = [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node));
     for (const attribute of b.attributes.values()) {
       const carrier = linked.carriers.get(attribute.node.name);
-      if (carrier && !varyings.some((binding) => binding.name === attribute.name)) {
-        varyings.push({ node: carrier, name: attribute.name });
-      }
+      if (!carrier) continue;
+      // A varying the material made under the attribute's name keeps it, and the carrier takes the suffix.
+      const taken = varyings.some((binding) => binding.name === attribute.name);
+      varyings.push({ node: carrier, name: taken ? `${attribute.name}Attribute` : attribute.name });
     }
 
     return {

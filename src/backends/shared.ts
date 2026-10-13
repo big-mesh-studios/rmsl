@@ -893,13 +893,23 @@ export function linkStages<V, F>(
   vertexRoot: V,
   fragmentRoot: F,
 ): { vertex: V; fragment: F; carriers: Map<string, any> } {
+  const reads: any[] = [];
+  // Only the reads that substituteNodes can replace: it follows params, and so does this, but neither enters the body of a call.
+  const visited = new Set<unknown>();
+  const find = (n: any): void => {
+    if (!n || typeof n !== "object" || visited.has(n)) return;
+    visited.add(n);
+    if (Array.isArray(n)) return n.forEach(find);
+    if (n.type === "attribute") reads.push(n);
+    if (Array.isArray(n.params)) n.params.forEach(find);
+  };
+  find(fragmentRoot);
   // Reads of one slot become one varying, so a conflict between them has to show before they merge.
-  assertOneDeclarationPerName(fragmentRoot);
+  if (reads.length > 0) assertOneDeclarationPerName(fragmentRoot);
   const replaced = new Map<any, any>();
   const varyings = new Map<string, any>();
   const assignments: BaseNode<ShaderType>[] = [];
-  someNode(fragmentRoot, (n) => {
-    if (n.type !== "attribute") return;
+  for (const n of reads) {
     const { slot, shaderType } = n.value;
     let carrier = varyings.get(slot);
     if (!carrier) {
@@ -908,7 +918,7 @@ export function linkStages<V, F>(
       assignments.push(node({ _t: "void", type: "assign", params: [carrier, n] }) as BaseNode<ShaderType>);
     }
     replaced.set(n, carrier);
-  });
+  }
   const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
   // A vertex stage that makes no root is refused by the compile that follows.
   if (replaced.size === 0 || !last || typeof last !== "object") {

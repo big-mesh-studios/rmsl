@@ -794,7 +794,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-plugin-with-no-include-rewrites-nothing`](#spec-a-plugin-with-no-include-rewrites-nothing) — A Vite plugin given no `include` rewrites no module.
     - [`@spec a-plugin-leaves-a-module-its-exclude-matches`](#spec-a-plugin-leaves-a-module-its-exclude-matches) — A Vite plugin leaves a module its `exclude` matches as it is, though its `include` matches it too.
   - [`@spec a-material-program-holds-only-what-its-graph-reads`](#spec-a-material-program-holds-only-what-its-graph-reads) — A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
-  - [`@spec a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads`](#spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads) — A `MaterialProgram` lists the varying that carries an attribute its fragment stage reads, under the name of the attribute's binding, such as `normal`. A test addresses it by that name.
+  - [`@spec a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads`](#spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads) — A `MaterialProgram` lists the varying that carries an attribute its fragment stage reads, under the name of the attribute's binding, such as `normal`. A test addresses it by that name. Where the material made a varying of that name, the carrier is listed as `<name>Attribute`.
   - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
@@ -5771,7 +5771,7 @@ This follows because a binding the program never reads still costs an upload on 
 
 ### @spec a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
 
-> A `MaterialProgram` lists the varying that carries an attribute its fragment stage reads, under the name of the attribute's binding, such as `normal`. A test addresses it by that name.
+> A `MaterialProgram` lists the varying that carries an attribute its fragment stage reads, under the name of the attribute's binding, such as `normal`. A test addresses it by that name. Where the material made a varying of that name, the carrier is listed as `<name>Attribute`.
 
 Derives from: [`spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it)
 

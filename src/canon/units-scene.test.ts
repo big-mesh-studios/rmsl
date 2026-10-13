@@ -2419,6 +2419,21 @@ describe("a material reads position and normal as TSL does", () => {
   /**
    * @canon spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
    */
+  it("lists the varying that carries an attribute under its name, with a suffix where a varying has it", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.varying("normal", "vec3").add(b.attribute("normal", "vec3")), 1);
+    material.vertexNode = (b) => {
+      b.varying("normal", "vec3").assign(b.attribute("normal", "vec3"));
+      return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+    };
+    const names = material.build(new Scene()).varyings.map((v) => v.name);
+    expect(names).toContain("normal");
+    expect(names).toContain("normalAttribute");
+  });
+
+  /**
+   * @canon spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
+   */
   it("lists the varying that carries the fragment normal under the attribute's name", () => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => vec4(b.normal, 1);
