@@ -125,13 +125,21 @@ export class NodeMaterial extends Material {
     const usedUniforms = new Set([...v.uniforms, ...f.uniforms]);
     const usedAttributes = new Set([...v.attributes, ...f.attributes]);
     const usedVaryings = new Set([...v.varyings, ...f.varyings]);
+    // An attribute the fragment stage reads reaches it in a varying the compiler made, which the program names after the attribute.
+    const varyings = [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node));
+    for (const attribute of b.attributes.values()) {
+      const carrier = linked.carriers.get(attribute.node.name);
+      if (carrier && !varyings.some((binding) => binding.name === attribute.name)) {
+        varyings.push({ node: carrier, name: attribute.name });
+      }
+    }
 
     return {
       vertexRoot: linked.vertex,
       fragmentRoot: linked.fragment,
       uniforms: [...b.uniforms.values()].filter((binding) => usedUniforms.has(binding.node)),
       attributes: [...b.attributes.values()].filter((binding) => usedAttributes.has(binding.node)),
-      varyings: [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node)),
+      varyings,
       samplers: [...b.samplers.values()],
     };
   }

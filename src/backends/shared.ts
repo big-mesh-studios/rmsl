@@ -877,7 +877,7 @@ function assertReadsNoAttribute(roots: unknown): void {
   if (read) {
     throw new Error(
       `[RMSL] the fragment stage reads the attribute "${read.value.slot}", which only a vertex stage is given. ` +
-        `Compile it together with its vertex stage, or pass the value on in a varying.`,
+        `Compile it together with its vertex stage, in createGlsl, createWgsl, compileJS or compileWasm, or pass the value on in a varying.`,
     );
   }
 }
@@ -886,9 +886,13 @@ function assertReadsNoAttribute(roots: unknown): void {
  * The two stages of a program with each attribute the fragment stage reads
  * passed on in a varying, as TSL does: the fragment stage reads the varying,
  * and the vertex stage writes it from the attribute. Nodes of one slot share
- * one varying. The stages the caller holds are left as they are.
+ * one varying. The stages the caller holds are left as they are. `carriers`
+ * holds each varying under the slot of the attribute it carries.
  */
-export function linkStages<V, F>(vertexRoot: V, fragmentRoot: F): { vertex: V; fragment: F } {
+export function linkStages<V, F>(
+  vertexRoot: V,
+  fragmentRoot: F,
+): { vertex: V; fragment: F; carriers: Map<string, any> } {
   // Reads of one slot become one varying, so a conflict between them has to show before they merge.
   assertOneDeclarationPerName(fragmentRoot);
   const replaced = new Map<any, any>();
@@ -907,7 +911,9 @@ export function linkStages<V, F>(vertexRoot: V, fragmentRoot: F): { vertex: V; f
   });
   const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
   // A vertex stage that makes no root is refused by the compile that follows.
-  if (replaced.size === 0 || !last || typeof last !== "object") return { vertex: vertexRoot, fragment: fragmentRoot };
+  if (replaced.size === 0 || !last || typeof last !== "object") {
+    return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
+  }
   const roots: any[] = Array.isArray(vertexRoot) ? [...vertexRoot] : [vertexRoot];
   roots[roots.length - 1] = node({
     _t: last._t,
@@ -915,7 +921,7 @@ export function linkStages<V, F>(vertexRoot: V, fragmentRoot: F): { vertex: V; f
     params: last.type === "seq" ? [...assignments, ...last.params] : [...assignments, last],
   });
   const vertex = Array.isArray(vertexRoot) ? roots : roots[0];
-  return { vertex: vertex as V, fragment: substituteNodes(fragmentRoot, replaced) };
+  return { vertex: vertex as V, fragment: substituteNodes(fragmentRoot, replaced), carriers: varyings };
 }
 
 /**

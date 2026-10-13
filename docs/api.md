@@ -579,6 +579,15 @@ GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS,
 | `uv()`                     | `Node<"vec2">`        | The fullscreen-quad UV: the normalized screen position, as TSL's `uv()`.                                                                                                                         |
 | `time()`                   | `Node<"float">`       | A shared per-frame clock (seconds), as a `float` uniform the host updates.                                                                                                                       |
 
+An attribute is an input of the vertex stage, and a fragment stage may read one
+too. When a program is built from both stages (`createGlsl`, `createWgsl`,
+`compileJS`, `compileWasm`, and the scene materials), the vertex stage passes
+the attribute on in a varying, and the fragment stage reads the interpolated
+value, as TSL does. A fragment stage compiled alone throws when it reads an
+attribute, because it has no vertex stage to pass the value on. A matrix
+attribute read in the fragment stage fails on WGSL, which allows no matrix
+between stages.
+
 A declared variable carries every method of its type (`.add()`, `.mul()`, `.x`,
 `.xyz`, ...) alongside `.name`:
 

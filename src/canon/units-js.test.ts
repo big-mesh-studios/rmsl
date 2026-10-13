@@ -2615,6 +2615,54 @@ describe("an attribute the fragment stage reads", () => {
   });
 
   /**
+   * The vertex stage is two roots, each built by an Fn of its own, so each has its own statements.
+   *
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.each(compiles)("links a vertex stage of several roots on %s", async (_name, compile) => {
+    const other = varying("vec3");
+    const roots = () => [Fn(() => other.assign(vec3(0, 0, 1)))(), Fn(() => builtinPosition().assign(vec4(pos, 1)))()];
+    const fragment = () => Fn(() => vec4(tint.add(other), 1))();
+    const routine = await compile(roots as any, fragment as any);
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, [tint.name]: Float64Array.of(0, 1, 0, 0, 1, 0, 0, 1, 0) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    expect(Array.from(pixels.slice(0, 4))).toEqual([0, 1, 1, 1]);
+  });
+
+  /**
+   * @canon spec-a-layout-fn-uses-no-input-or-output-of-its-stage
+   */
+  it.each(compiles)(
+    "still refuses a layout Fn that reads an attribute, linked to a vertex stage, on %s",
+    async (_name, compile) => {
+      const readsTint = Fn(() => tint.x).setLayout({ name: "readsTint", type: "float", inputs: [] });
+      const fragment = () => Fn(() => vec4(readsTint(), 0, 0, 1))();
+      await expect(Promise.resolve().then(() => compile(vertex as any, fragment as any))).rejects.toThrow(
+        /uses an attribute/,
+      );
+    },
+  );
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.each(compiles)(
+    "gives the fragment stage an integer attribute as the first vertex gave it on %s",
+    async (_name, compile) => {
+      const index = attributeRaw("index", "int");
+      const fragment = () => Fn(() => vec4(index.toFloat().div(4), 0, 0, 1))();
+      const routine = await compile(vertex as any, fragment as any);
+      const pixels = routine.draw(
+        { attributes: { [pos.name]: triangle, index: Int32Array.of(2, 2, 2) } },
+        { count: 3, width: 1, height: 1 },
+      );
+      expect(Array.from(pixels.slice(0, 4))).toEqual([0.5, 0, 0, 1]);
+    },
+  );
+
+  /**
    * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
    */
   it.each(compiles)("gives the fragment stage a matrix attribute on %s", async (_name, compile) => {

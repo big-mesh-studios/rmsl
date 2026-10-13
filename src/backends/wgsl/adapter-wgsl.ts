@@ -288,9 +288,8 @@ export function uniformBufferSize(end: number): number {
  * are reflected by walking the vertex/fragment graphs directly
  * (`reflectStage`) rather than read back off the compiled program.
  */
-export function createWgsl(givenOptions: CreateWgslAdapterOptions): WgslAdapter {
-  const linked = linkStages(givenOptions.vertex, givenOptions.fragment);
-  const options = { ...givenOptions, vertex: linked.vertex, fragment: linked.fragment };
+export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
+  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(options.vertex, options.fragment);
   let device: GPUDevice | null = null;
 
   let renderPipeline: GPURenderPipeline | null = null;
@@ -304,7 +303,7 @@ export function createWgsl(givenOptions: CreateWgslAdapterOptions): WgslAdapter 
   let vertexCount = 0;
   let countSlot: string | undefined;
   /** What a value or an array the host sets is checked against, and the storage buffers the stages read. */
-  const guard = hostInputGuard([options.vertex, options.fragment]);
+  const guard = hostInputGuard([vertexRoot, fragmentRoot]);
   /** The storage nodes the stages read, in the order the program created their buffers. */
   const storageNodes = [...guard.storages.values()];
   /** The storage attributes the stages read, by slot, and the buffers they bind. */
@@ -499,8 +498,8 @@ export function createWgsl(givenOptions: CreateWgslAdapterOptions): WgslAdapter 
       let format = navigator.gpu.getPreferredCanvasFormat();
       context.configure({ device, format, alphaMode: attachOptions?.alpha === false ? "opaque" : "premultiplied" });
 
-      let vertexReflection = reflectStage(options.vertex, "vertex");
-      let fragmentReflection = reflectStage(options.fragment, "fragment");
+      let vertexReflection = reflectStage(vertexRoot, "vertex");
+      let fragmentReflection = reflectStage(fragmentRoot, "fragment");
       vertexAttributes = vertexReflection.attributes;
 
       // Vertex and fragment share one uniform struct — same reasoning
@@ -526,8 +525,8 @@ export function createWgsl(givenOptions: CreateWgslAdapterOptions): WgslAdapter 
         ...(textureNodes.length > 0 ? { samplers: textureNodes } : {}),
       };
 
-      let vertexCode = compileWGSLWithStage(options.vertex as Node<ShaderType>, "vertex", stageOptions);
-      let fragmentCode = compileWGSLWithStage(options.fragment, "fragment", stageOptions);
+      let vertexCode = compileWGSLWithStage(vertexRoot as Node<ShaderType>, "vertex", stageOptions);
+      let fragmentCode = compileWGSLWithStage(fragmentRoot, "fragment", stageOptions);
       let vertexModule = device.createShaderModule({ code: vertexCode });
       let fragmentModule = device.createShaderModule({ code: fragmentCode });
 
