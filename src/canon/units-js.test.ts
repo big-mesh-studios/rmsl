@@ -2663,6 +2663,19 @@ describe("an attribute the fragment stage reads", () => {
   );
 
   /**
+   * @canon spec-a-fragment-attribute-with-no-vertex-root-is-refused
+   */
+  it.each(compiles)(
+    "refuses a vertex stage with no root when the fragment stage reads an attribute on %s",
+    async (_name, compile) => {
+      const fragment = () => Fn(() => vec4(tint, 1))();
+      await expect(Promise.resolve().then(() => compile((() => []) as any, fragment as any))).rejects.toThrow(
+        new RegExp(`reads the attribute "${tint.name}", but the vertex stage gives no root`),
+      );
+    },
+  );
+
+  /**
    * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
    */
   it.each(compiles)("gives the fragment stage a matrix attribute on %s", async (_name, compile) => {

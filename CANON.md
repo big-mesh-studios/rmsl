@@ -101,6 +101,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
       - [`@spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once`](#spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once) — Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
       - [`@spec a-fragment-stage-compiled-alone-refuses-an-attribute`](#spec-a-fragment-stage-compiled-alone-refuses-an-attribute) — `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
+      - [`@spec a-fragment-attribute-with-no-vertex-root-is-refused`](#spec-a-fragment-attribute-with-no-vertex-root-is-refused) — A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
       - [`@exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects`](#exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects) — A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
@@ -1538,6 +1539,12 @@ This follows because a TSL shader reads an attribute in its fragment stage witho
 > `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
 
 This follows because a stage compiled alone has no vertex stage to write the varying. A shader that declares an input nothing feeds does not compile.
+
+##### @spec a-fragment-attribute-with-no-vertex-root-is-refused
+
+> A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
+
+This follows because the vertex stage writes the varying that carries the attribute, and a stage with no root has nowhere to write it.
 
 ##### @exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
 

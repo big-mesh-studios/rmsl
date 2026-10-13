@@ -919,10 +919,13 @@ export function linkStages<V, F>(
     }
     replaced.set(n, carrier);
   }
+  if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
   const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
-  // A vertex stage that makes no root is refused by the compile that follows.
-  if (replaced.size === 0 || !last || typeof last !== "object") {
-    return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
+  if (!last || typeof last !== "object") {
+    throw new Error(
+      `[RMSL] the fragment stage reads the attribute "${reads[0].value.slot}", but the vertex stage gives no root to pass it on from. ` +
+        `A vertex stage returns its position.`,
+    );
   }
   const roots: any[] = Array.isArray(vertexRoot) ? [...vertexRoot] : [vertexRoot];
   roots[roots.length - 1] = node({

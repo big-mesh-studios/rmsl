@@ -22,7 +22,7 @@ import {
 } from "../adapter-cpu";
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileWasm, compileWasmRasterizer, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
-import { fragmentColour } from "../shared";
+import { fragmentColour, linkStages } from "../shared";
 import {
   compileWasmCompute,
   compileWasmGrid,
@@ -207,8 +207,7 @@ export function createWasm(
   fragmentFn: (...args: any[]) => any,
   options: CompileWasmOptions = {},
 ): WasmAdapter {
-  const vertexRoots = vertexFn();
-  const fragmentRoots = fragmentFn();
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn());
   const routine = compileWasmRasterizer(
     "createWasm",
     () => vertexRoots,

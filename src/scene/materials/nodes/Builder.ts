@@ -181,8 +181,8 @@ export class Builder {
     return existing.node as UniformNode<T>;
   }
 
-  /** The object-space values the fragment stage reads, which the vertex stage passes on as varyings. */
-  readonly fragmentReads = new Set<"position">();
+  /** Whether the fragment stage reads the object-space position, which the vertex stage passes on in a varying. */
+  fragmentReadsPosition = false;
 
   /** The vertex stage's position and normal, made once so that every read shares them. */
   private vertexPosition?: Node<"vec3">;
@@ -195,7 +195,7 @@ export class Builder {
    */
   get position(): Node<"vec3"> {
     if (this.stage === "fragment") {
-      this.fragmentReads.add("position");
+      this.fragmentReadsPosition = true;
       return this.varying("positionLocal", "vec3");
     }
     const geometry = this.attribute("position", "vec3");
