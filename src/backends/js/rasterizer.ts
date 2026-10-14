@@ -5,7 +5,7 @@ import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from 
 import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
-/** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
+/** The w above which every vertex of a triangle lets it skip the clip — see rasterizer.md's clip pass (`rasterizer.wat` uses the same 1e-5). */
 const W_CLIP_EPS = 1e-5;
 
 /**
@@ -112,51 +112,49 @@ function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
 }
 
 /**
- * Whether a clip position is kept by the near clip: in front of the plane
- * `w = W_CLIP_EPS`, or inside WebGPU's clip volume however small its `w`.
+ * How far a clip position lies inside plane `plane` of WebGPU's clip volume,
+ * negative outside it: `w + x`, `w - x`, `w + y`, `w - y`, `z` and `w - z`,
+ * in that order, as `rasterizer.wat`'s `$planeDistance` takes them.
  */
-function keeps(p: Float64Array): boolean {
+function planeDistance(p: Float64Array, plane: number): number {
   const w = p[3]!;
-  return w > W_CLIP_EPS || (-w <= p[0]! && p[0]! <= w && -w <= p[1]! && p[1]! <= w && 0 <= p[2]! && p[2]! <= w);
-}
-
-/** Whether a clip position is `vec4(0)`, which lies in the clip volume with `w` 0. */
-function atOrigin(p: Float64Array): boolean {
-  return p[3] === 0 && keeps(p);
-}
-
-/**
- * One edge (`a` -> `b`) of a triangle's single-plane Sutherland-Hodgman
- * clip against `w > W_CLIP_EPS`: keep `a` if it's kept, and whenever the
- * edge crosses the plane (`a`/`b` disagree), emit the cut point — same as
- * `rasterizer.wat`'s `$clipEdge`. A vertex kept behind the plane, inside the
- * clip volume, has no cut point towards one outside it.
- */
-function clipEdge(poly: ClipVertex[], a: ClipVertex, b: ClipVertex): void {
-  const aIn = keeps(a.position);
-  const bIn = keeps(b.position);
-  if (aIn) poly.push(a);
-  if (aIn !== bIn && Math.max(a.position[3]!, b.position[3]!) > W_CLIP_EPS) {
-    const t = (W_CLIP_EPS - a.position[3]!) / (b.position[3]! - a.position[3]!);
-    poly.push(lerpVertex(a, b, t));
+  switch (plane) {
+    case 0:
+      return w + p[0]!;
+    case 1:
+      return w - p[0]!;
+    case 2:
+      return w + p[1]!;
+    case 3:
+      return w - p[1]!;
+    case 4:
+      return p[2]!;
+    default:
+      return w - p[2]!;
   }
 }
 
 /**
- * Clips one triangle, appending 0, 1 (3 vertices), or 2 (a fan-
- * triangulated quad, 4 vertices) resulting triangles to `out` — the same
- * fan order `rasterizer.wat`'s `$rasterize` clip pass uses.
+ * Clips one triangle to WebGPU's clip volume, one plane after another
+ * (Sutherland-Hodgman), and appends the fan of triangles the clipped polygon
+ * makes to `out`, in the order `rasterizer.wat`'s `$rasterize` clip pass
+ * makes them.
  */
 function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipVertex[][]): void {
-  // Such a triangle meets the clip volume only along the edge from vec4(0) to the vertex in front.
-  const origin = atOrigin(v0.position) || atOrigin(v1.position) || atOrigin(v2.position);
-  if (origin && !(keeps(v0.position) && keeps(v1.position) && keeps(v2.position))) return;
-  const poly: ClipVertex[] = [];
-  clipEdge(poly, v0, v1);
-  clipEdge(poly, v1, v2);
-  clipEdge(poly, v2, v0);
-  if (poly.length >= 3) out.push([poly[0]!, poly[1]!, poly[2]!]);
-  if (poly.length === 4) out.push([poly[0]!, poly[2]!, poly[3]!]);
+  let poly: ClipVertex[] = [v0, v1, v2];
+  for (let plane = 0; plane < 6 && poly.length >= 3; plane++) {
+    const next: ClipVertex[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i]!;
+      const b = poly[(i + 1) % poly.length]!;
+      const da = planeDistance(a.position, plane);
+      const db = planeDistance(b.position, plane);
+      if (da >= 0) next.push(a);
+      if (da >= 0 !== db >= 0) next.push(lerpVertex(a, b, da / (da - db)));
+    }
+    poly = next;
+  }
+  for (let i = 1; i + 1 < poly.length; i++) out.push([poly[0]!, poly[i]!, poly[i + 1]!]);
 }
 
 // === Exported functions ===
@@ -288,8 +286,8 @@ export function compileJSRasterizer(
     const depth0 = ndc(v0.position[2]!, w0),
       depth1 = ndc(v1.position[2]!, w1),
       depth2 = ndc(v2.position[2]!, w2);
-    // A vertex at vec4(0) outweighs the others in perspective, so its varyings are every fragment's, as WebGPU gives them.
-    const atZero = w0 === 0 ? 0 : w1 === 0 ? 1 : w2 === 0 ? 2 : -1;
+    // A vertex whose 1/w is not finite outweighs the others in perspective, so its varyings are every fragment's.
+    const atZero = !Number.isFinite(invW0) ? 0 : !Number.isFinite(invW1) ? 1 : !Number.isFinite(invW2) ? 2 : -1;
     const slots = varyingSlots;
     const depths = depthBuffer!;
     // A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
@@ -464,7 +462,7 @@ export function compileJSRasterizer(
       const v0 = vertices[t]!,
         v1 = vertices[t + 1]!,
         v2 = vertices[t + 2]!;
-      // A triangle wholly in front of the near plane is rasterized as it is; only one that crosses it is clipped.
+      // A triangle wholly in front of the eye is rasterized as it is; only one with a vertex near or behind it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
         rasterize(v0, v1, v2, v0);
         continue;

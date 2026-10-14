@@ -36,18 +36,18 @@ shared varying blob, `varyingBytes` long) out to
 
 ### 2. Clip pass
 
-For each original (non-indexed) triangle, clips it against the homogeneous
-near plane `w > W_CLIP_EPS` (Sutherland-Hodgman, single plane): a triangle
-fully in front passes through unchanged, one fully behind is dropped, and
-one straddling the plane is cut into a quad and fan-triangulated into two.
-A vertex inside WebGPU's clip volume (`-w <= x, y <= w`, `0 <= z <= w`) is
-kept however small its `w`, and has no cut point towards a vertex outside
-it. A triangle with a vertex at `vec4(0)` and a vertex the clip does not
-keep is dropped, as only an edge of it lies in the clip volume.
+For each original (non-indexed) triangle: one whose vertices all have
+`w > 1e-5` passes through unchanged, as the triangle pass bounds it by the
+viewport and the depth range itself. Any other is clipped to WebGPU's clip
+volume (Sutherland-Hodgman, one plane after another: `w + x`, `w - x`,
+`w + y`, `w - y`, `z`, `w - z`, each kept where it is at least 0), and the
+polygon left, at most 9 vertices, is fan-triangulated from its first vertex.
 Cut vertices lerp both the clip-space position and the whole varying blob
-linearly (not perspective-corrected — correct for clip space, pre-divide).
-Results land in `clippedPositionsOutBase`/`clippedVaryingsOutBase`, using
-`clipScratchBase` as scratch for the up-to-4-vertex intermediate polygon.
+linearly (not perspective-corrected — correct for clip space, pre-divide),
+and copy each flat varying from the triangle's first vertex. The polygon
+lives in `clipScratchBase`, two halves of 9 vertex slots each that the
+planes take turns writing; results land in
+`clippedPositionsOutBase`/`clippedVaryingsOutBase`.
 
 ### 3. Triangle pass
 

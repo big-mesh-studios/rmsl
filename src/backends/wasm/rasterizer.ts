@@ -471,9 +471,9 @@ export function compileWasmRasterizer(
     const varyingDescBase = cursor;
     cursor = align8(cursor + varyingLayout.length * VARYING_DESC_BYTES);
     const clipScratchBase = cursor;
-    cursor = align8(cursor + 4 * (VEC4_BYTES + varyingBytes));
-    // near-plane clipping fans each triangle into at most a quad (2 triangles).
-    const maxClippedVertices = vertexCount * 2;
+    cursor = align8(cursor + 18 * (VEC4_BYTES + varyingBytes));
+    // Clipping to the six planes of the clip volume leaves a polygon of at most 9 vertices, a fan of 7 triangles.
+    const maxClippedVertices = vertexCount * 7;
     const clippedPositionsOutBase = cursor;
     cursor = align8(cursor + maxClippedVertices * VEC4_BYTES);
     const clippedVaryingsOutBase = cursor;

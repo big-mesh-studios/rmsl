@@ -747,9 +747,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A CPU rasterizer draws a vertex at or near `vec4(0)` as WebGPU draws it.
-        - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w. The near clip cuts only past such vertices.
-        - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings. The depth of a fragment runs linearly on the screen, to 0 at the centre.
-        - [`@exception a-cpu-rasterizer-draws-nothing-of-a-vertex-at-vec4-0-with-one-behind-the-eye`](#exception-a-cpu-rasterizer-draws-nothing-of-a-vertex-at-vec4-0-with-one-behind-the-eye) — On JS and WASM, a triangle with a vertex at `vec4(0)` and a vertex behind the eye draws nothing. Chromium's WebGPU draws a sliver along the edge from the centre to the vertex in front.
+        - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w. A triangle with a vertex whose w is 1e-5 or less is clipped to that volume, plane by plane.
+        - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, as a fragment does of any vertex whose 1/w is not finite. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+        - [`@exception a-cpu-rasterizer-clips-a-triangle-from-vec4-0-to-a-vertex-outside-the-clip-volume`](#exception-a-cpu-rasterizer-clips-a-triangle-from-vec4-0-to-a-vertex-outside-the-clip-volume) — On JS and WASM, a triangle with a vertex at `vec4(0)` and a vertex outside the clip volume draws the part of it inside that volume. Chromium's WebGPU draws other pixels along its edges, and a sliver where that part has no area.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
@@ -5516,23 +5516,23 @@ This follows because WebGPU clips only what lies outside its clip volume, and a 
 
 ###### @spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
 
-> Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w. The near clip cuts only past such vertices.
+> Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w. A triangle with a vertex whose w is 1e-5 or less is clipped to that volume, plane by plane.
 
-This follows because WebGPU clips only what lies outside its clip volume. A cut through a vertex inside it drops pixels that WebGPU draws.
+This follows because WebGPU clips only what lies outside its clip volume. A cut at a plane of constant w through a vertex inside the volume drops pixels that WebGPU draws.
 
 ###### @spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
 
-> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, as a fragment does of any vertex whose 1/w is not finite. The depth of a fragment runs linearly on the screen, to 0 at the centre.
 
 This follows because Chromium's WebGPU draws such a vertex there, with its varyings and that depth.
 
-###### @exception a-cpu-rasterizer-draws-nothing-of-a-vertex-at-vec4-0-with-one-behind-the-eye
+###### @exception a-cpu-rasterizer-clips-a-triangle-from-vec4-0-to-a-vertex-outside-the-clip-volume
 
-> On JS and WASM, a triangle with a vertex at `vec4(0)` and a vertex behind the eye draws nothing. Chromium's WebGPU draws a sliver along the edge from the centre to the vertex in front.
+> On JS and WASM, a triangle with a vertex at `vec4(0)` and a vertex outside the clip volume draws the part of it inside that volume. Chromium's WebGPU draws other pixels along its edges, and a sliver where that part has no area.
 
 Derives from: [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
 
-Only the edge from `vec4(0)` to the vertex in front of such a triangle lies in the clip volume. That edge has no area, so a CPU target draws nothing of it. WebGPU leaves the result of dividing `vec4(0)` by its w open, and the sliver it draws comes from that.
+A CPU target clips such a triangle as it clips any other. WebGPU leaves the result of dividing `vec4(0)` by its w open, and the pixels it draws otherwise come from that. A triangle from `vec4(0)` to a vertex in front and a vertex behind the eye keeps only an edge, which draws nothing on JS and WASM.
 
 ##### @spec a-rasterizer-keeps-the-closer-fragment
 
@@ -7214,9 +7214,9 @@ This is a fact of the WebGPU specification, section Fragment Processing.
 
 The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w (WebGPU, "Primitive Clipping"). `vec4(0)` lies on each bound.
 
-On a 16×16 target, Chromium's WebGPU on Metal draws a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)` as the triangle from `(-1, -1)` and `(1, -1)` to the centre. That is 64 pixels. The depth runs linearly on the screen from 0.5 at the base to 0 at the centre. Give each vertex a colour of its own as a varying, and every pixel takes the colour of the `vec4(0)` vertex. WebGPU draws a vertex with a w of `1e-6` inside the volume where its x, y and z over w place it.
+On a 16×16 target, Chromium's WebGPU on Metal draws a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)` as the triangle from `(-1, -1)` and `(1, -1)` to the centre. That is 64 pixels. The depth runs linearly on the screen from 0.5 at the base to 0 at the centre. Give each vertex a colour of its own as a varying, and every pixel takes the colour of the `vec4(0)` vertex. WebGPU draws a vertex with a w of `1e-6` inside the volume where its x, y and z over w place it. A triangle from `(-1, -1, 0.5, 1)` to `(1, -1, 0.5, -1)`, behind the eye, and `(0, 0, 0, 1e-6)` draws the 64 pixels of the triangle from `(-1, -1)` and `(1, -1)` to the centre, which its part inside the volume covers.
 
-A vertex at `(0.3, 0.2, 0, 0)` lies outside the volume and is clipped away. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and to `(1, -1, 0.5, -1)`, which lies behind the eye, lights 15 pixels. They lie one to three in a row along the edge from the centre to `(-1, -1)`, in the colour of the `vec4(0)` vertex. WebGL 2 lights the pixels WebGPU lights, and also those its own edge rule adds, as issue #300 records.
+A vertex at `(0.3, 0.2, 0, 0)` lies outside the volume and is clipped away. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(0.3, 0.2, 0, 0)` lights a band from `(-1, -1)` towards the top right, a few pixels wider than the part of it inside the volume. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and to `(1, -1, 0.5, -1)`, which lies behind the eye, lights 15 pixels. They lie one to three in a row along the edge from the centre to `(-1, -1)`, in the colour of the `vec4(0)` vertex. WebGL 2, drawing with one sample, lights the same 64 pixels for the first triangle.
 
 ## @fact webgpu-clips-a-triangle-outside-the-depth-range
 

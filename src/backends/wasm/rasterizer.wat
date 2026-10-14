@@ -91,46 +91,50 @@
         (local.set $d (i32.add (local.get $d) (i32.const 1)))
         (br $continue))))
 
-  ;; ---- clip pass (single-plane Sutherland-Hodgman against w > W_CLIP_EPS) ----
+  ;; ---- clip pass (Sutherland-Hodgman against WebGPU's clip volume, plane by plane) ----
+  ;; Copies original vertex $vertexIndex, position and varyings, into scratch slot $slot.
   (func $vertexToScratch
     (param $positionsOutBase i32) (param $varyingsOutBase i32) (param $varyingBytes i32)
-    (param $clipScratchBase i32) (param $vertexIndex i32) (param $outCount i32) (result i32)
+    (param $clipScratchBase i32) (param $vertexIndex i32) (param $slot i32)
     (call $byteCopy
-      (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $outCount))
+      (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $slot))
       (i32.add (local.get $positionsOutBase) (i32.mul (local.get $vertexIndex) (i32.const 32)))
       (i32.const 32))
     (call $byteCopy
-      (call $scratchVaryingAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $outCount))
+      (call $scratchVaryingAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $slot))
       (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $vertexIndex) (local.get $varyingBytes)))
-      (local.get $varyingBytes))
-    (i32.add (local.get $outCount) (i32.const 1)))
+      (local.get $varyingBytes)))
 
-  ;; Writes the vertex a fraction $t of the way from vertex $a to vertex $b into
-  ;; scratch slot $outCount. A flat varying is copied from vertex $first, the
-  ;; first vertex of the triangle being clipped, as no value lies between two.
-  (func $interpVertexToScratch
-    (param $positionsOutBase i32) (param $varyingsOutBase i32) (param $varyingBytes i32)
-    (param $clipScratchBase i32) (param $varyingDescBase i32) (param $varyingDescCount i32)
-    (param $a i32) (param $b i32) (param $first i32) (param $t f64) (param $outCount i32) (result i32)
-    (local $c i32) (local $vertexAddr i32) (local $varyingAddr i32)
-    (local $d i32) (local $entry i32) (local $recordOffset i32) (local $numComponents i32)
-    (local.set $vertexAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $outCount)))
+  ;; Copies scratch slot $from, position and varyings, into scratch slot $to.
+  (func $scratchToScratch (param $clipScratchBase i32) (param $varyingBytes i32) (param $from i32) (param $to i32)
+    (call $byteCopy
+      (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $to))
+      (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $from))
+      (i32.add (i32.const 32) (local.get $varyingBytes))))
+
+  ;; Writes the vertex a fraction $t of the way from scratch slot $a to slot $b
+  ;; into slot $to. A flat varying is copied from $firstVaryings, the varyings
+  ;; of the first vertex of the triangle being clipped, as no value lies between two.
+  (func $lerpToScratch
+    (param $clipScratchBase i32) (param $varyingBytes i32) (param $varyingDescBase i32) (param $varyingDescCount i32)
+    (param $a i32) (param $b i32) (param $t f64) (param $firstVaryings i32) (param $to i32)
+    (local $c i32) (local $aAddr i32) (local $bAddr i32) (local $toAddr i32)
+    (local $d i32) (local $entry i32) (local $recordOffset i32) (local $numComponents i32) (local $offset i32)
+    (local.set $aAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $a)))
+    (local.set $bAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $b)))
+    (local.set $toAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $to)))
     (local.set $c (i32.const 0))
     (block $posBreak
       (loop $posContinue
         (br_if $posBreak (i32.ge_s (local.get $c) (i32.const 4)))
-        (f64.store
-          (i32.add (local.get $vertexAddr) (i32.mul (local.get $c) (i32.const 8)))
-          (f64.add
-            (call $posComponentAt (local.get $positionsOutBase) (local.get $a) (local.get $c))
+        (local.set $offset (i32.mul (local.get $c) (i32.const 8)))
+        (f64.store (i32.add (local.get $toAddr) (local.get $offset))
+          (f64.add (f64.load (i32.add (local.get $aAddr) (local.get $offset)))
             (f64.mul
-              (f64.sub
-                (call $posComponentAt (local.get $positionsOutBase) (local.get $b) (local.get $c))
-                (call $posComponentAt (local.get $positionsOutBase) (local.get $a) (local.get $c)))
+              (f64.sub (f64.load (i32.add (local.get $bAddr) (local.get $offset))) (f64.load (i32.add (local.get $aAddr) (local.get $offset))))
               (local.get $t))))
         (local.set $c (i32.add (local.get $c) (i32.const 1)))
         (br $posContinue)))
-    (local.set $varyingAddr (call $scratchVaryingAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $outCount)))
     (local.set $d (i32.const 0))
     (block $varyingBreak
       (loop $varyingContinue
@@ -141,80 +145,70 @@
         (if (i32.load (i32.add (local.get $entry) (i32.const 16)))
           (then
             (call $byteCopy
-              (i32.add (local.get $varyingAddr) (local.get $recordOffset))
-              (i32.add
-                (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $first) (local.get $varyingBytes)))
-                (local.get $recordOffset))
+              (i32.add (i32.add (local.get $toAddr) (i32.const 32)) (local.get $recordOffset))
+              (i32.add (local.get $firstVaryings) (local.get $recordOffset))
               (i32.load (i32.add (local.get $entry) (i32.const 12))))
             (local.set $numComponents (i32.const 0))))
         (local.set $c (i32.const 0))
         (block $componentBreak
           (loop $componentContinue
             (br_if $componentBreak (i32.ge_s (local.get $c) (local.get $numComponents)))
-            (f64.store
-              (i32.add (i32.add (local.get $varyingAddr) (local.get $recordOffset)) (i32.mul (local.get $c) (i32.const 8)))
-              (f64.add
-                (call $varyingComponentAt (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $a) (local.get $recordOffset) (local.get $c))
+            (local.set $offset (i32.add (i32.add (i32.const 32) (local.get $recordOffset)) (i32.mul (local.get $c) (i32.const 8))))
+            (f64.store (i32.add (local.get $toAddr) (local.get $offset))
+              (f64.add (f64.load (i32.add (local.get $aAddr) (local.get $offset)))
                 (f64.mul
-                  (f64.sub
-                    (call $varyingComponentAt (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $b) (local.get $recordOffset) (local.get $c))
-                    (call $varyingComponentAt (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $a) (local.get $recordOffset) (local.get $c)))
+                  (f64.sub (f64.load (i32.add (local.get $bAddr) (local.get $offset))) (f64.load (i32.add (local.get $aAddr) (local.get $offset))))
                   (local.get $t))))
             (local.set $c (i32.add (local.get $c) (i32.const 1)))
             (br $componentContinue)))
         (local.set $d (i32.add (local.get $d) (i32.const 1)))
-        (br $varyingContinue)))
-    (i32.add (local.get $outCount) (i32.const 1)))
+        (br $varyingContinue))))
 
-  ;; Whether the near clip keeps vertex $v: in front of the plane w = 1e-5, or
-  ;; inside WebGPU's clip volume however small its w.
-  (func $keeps (param $base i32) (param $v i32) (result i32)
-    (local $x f64) (local $y f64) (local $z f64) (local $w f64)
-    (local.set $x (call $posComponentAt (local.get $base) (local.get $v) (i32.const 0)))
-    (local.set $y (call $posComponentAt (local.get $base) (local.get $v) (i32.const 1)))
-    (local.set $z (call $posComponentAt (local.get $base) (local.get $v) (i32.const 2)))
-    (local.set $w (call $posComponentAt (local.get $base) (local.get $v) (i32.const 3)))
-    (i32.or
-      (f64.gt (local.get $w) (f64.const 1e-5))
-      (i32.and
-        (i32.and
-          (i32.and (f64.le (f64.neg (local.get $w)) (local.get $x)) (f64.le (local.get $x) (local.get $w)))
-          (i32.and (f64.le (f64.neg (local.get $w)) (local.get $y)) (f64.le (local.get $y) (local.get $w))))
-        (i32.and (f64.le (f64.const 0) (local.get $z)) (f64.le (local.get $z) (local.get $w))))))
+  ;; How far the position at $addr lies inside plane $plane of the clip volume,
+  ;; negative outside it: w + x, w - x, w + y, w - y, z and w - z, in that order.
+  (func $planeDistance (param $addr i32) (param $plane i32) (result f64)
+    (local $w f64) (local $c f64)
+    (local.set $w (f64.load (i32.add (local.get $addr) (i32.const 24))))
+    (if (i32.eq (local.get $plane) (i32.const 4))
+      (then (return (f64.load (i32.add (local.get $addr) (i32.const 16))))))
+    ;; Planes 0 and 1 read x, 2 and 3 read y, 5 reads z; an odd plane subtracts it.
+    (local.set $c
+      (f64.load (i32.add (local.get $addr)
+        (select (i32.const 16) (i32.mul (i32.shr_u (local.get $plane) (i32.const 1)) (i32.const 8))
+          (i32.eq (local.get $plane) (i32.const 5))))))
+    (select
+      (f64.sub (local.get $w) (local.get $c))
+      (f64.add (local.get $w) (local.get $c))
+      (i32.and (local.get $plane) (i32.const 1))))
 
-  ;; Whether vertex $v is at vec4(0), which lies in the clip volume with w 0.
-  (func $atOrigin (param $base i32) (param $v i32) (result i32)
-    (i32.and
-      (f64.eq (call $posComponentAt (local.get $base) (local.get $v) (i32.const 3)) (f64.const 0))
-      (call $keeps (local.get $base) (local.get $v))))
-
-  ;; A vertex kept behind the plane, inside the clip volume, has no cut point
-  ;; towards one outside it.
-  (func $clipEdge
-    (param $positionsOutBase i32) (param $varyingsOutBase i32) (param $varyingBytes i32)
-    (param $clipScratchBase i32) (param $varyingDescBase i32) (param $varyingDescCount i32)
-    (param $a i32) (param $b i32) (param $first i32) (param $outCount i32) (result i32)
-    (local $wA f64) (local $wB f64) (local $aIn i32) (local $bIn i32)
-    (local.set $wA (call $posComponentAt (local.get $positionsOutBase) (local.get $a) (i32.const 3)))
-    (local.set $wB (call $posComponentAt (local.get $positionsOutBase) (local.get $b) (i32.const 3)))
-    (local.set $aIn (call $keeps (local.get $positionsOutBase) (local.get $a)))
-    (local.set $bIn (call $keeps (local.get $positionsOutBase) (local.get $b)))
-    (if (local.get $aIn)
-      (then
-        (local.set $outCount
-          (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
-            (local.get $clipScratchBase) (local.get $a) (local.get $outCount)))))
-    (if (i32.and (i32.ne (local.get $aIn) (local.get $bIn))
-          (f64.gt (f64.max (local.get $wA) (local.get $wB)) (f64.const 1e-5)))
-      (then
-        (local.set $outCount
-          (call $interpVertexToScratch
-            (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
-            (local.get $clipScratchBase) (local.get $varyingDescBase) (local.get $varyingDescCount)
-            (local.get $a) (local.get $b) (local.get $first)
-            (f64.div (f64.sub (f64.const 1e-5) (local.get $wA)) (f64.sub (local.get $wB) (local.get $wA)))
-            (local.get $outCount)))))
-    (local.get $outCount))
+  ;; Clips the polygon of $count vertices in scratch slots from $src against
+  ;; plane $plane into the slots from $dst, and returns how many it wrote.
+  (func $clipPolygon
+    (param $clipScratchBase i32) (param $varyingBytes i32) (param $varyingDescBase i32) (param $varyingDescCount i32)
+    (param $src i32) (param $count i32) (param $dst i32) (param $plane i32) (param $firstVaryings i32) (result i32)
+    (local $i i32) (local $a i32) (local $b i32) (local $da f64) (local $db f64) (local $out i32)
+    (local.set $i (i32.const 0))
+    (block $break
+      (loop $continue
+        (br_if $break (i32.ge_s (local.get $i) (local.get $count)))
+        (local.set $a (i32.add (local.get $src) (local.get $i)))
+        (local.set $b (i32.add (local.get $src) (i32.rem_s (i32.add (local.get $i) (i32.const 1)) (local.get $count))))
+        (local.set $da (call $planeDistance (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $a)) (local.get $plane)))
+        (local.set $db (call $planeDistance (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $b)) (local.get $plane)))
+        (if (f64.ge (local.get $da) (f64.const 0))
+          (then
+            (call $scratchToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $a) (i32.add (local.get $dst) (local.get $out)))
+            (local.set $out (i32.add (local.get $out) (i32.const 1)))))
+        (if (i32.ne (f64.ge (local.get $da) (f64.const 0)) (f64.ge (local.get $db) (f64.const 0)))
+          (then
+            (call $lerpToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
+              (local.get $a) (local.get $b)
+              (f64.div (local.get $da) (f64.sub (local.get $da) (local.get $db)))
+              (local.get $firstVaryings) (i32.add (local.get $dst) (local.get $out)))
+            (local.set $out (i32.add (local.get $out) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $continue)))
+    (local.get $out))
 
   (func $emitTriangleFromScratch
     (param $clipScratchBase i32) (param $varyingBytes i32)
@@ -370,7 +364,8 @@
     (local $pixelDepth f64) (local $depthAddr i32) (local $fragDepth f64)
     (local $wind f64) (local $owns0 i32) (local $owns1 i32) (local $owns2 i32)
     (local $nearest f64) (local $farthest f64) (local $crossesDepthRange i32)
-    (local $atZero i32)
+    (local $atZero i32) (local $src i32) (local $plane i32)
+    (local $vb0 f64) (local $vb1 f64) (local $vb2 f64) (local $vw0 f64) (local $vw1 f64) (local $vw2 f64) (local $vw f64)
 
     (local.set $widthF (f64.convert_i32_s (local.get $width)))
     (local.set $heightF (f64.convert_i32_s (local.get $height)))
@@ -391,6 +386,9 @@
         (br $vertexContinue)))
 
     ;; ---- clip pass ----
+    ;; A triangle wholly in front of the eye passes as it is. One with a vertex near
+    ;; or behind it is clipped to the clip volume, two halves of the scratch, nine
+    ;; slots each, taking turns, and fanned out of the polygon left.
     (local.set $clippedVertexCount (i32.const 0))
     (local.set $t (i32.const 0))
     (block $clipBreak
@@ -398,40 +396,39 @@
         (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
         (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
         (br_if $clipBreak (i32.ge_s (local.get $t2) (local.get $vertexCount)))
-        (local.set $outCount (i32.const 0))
-        ;; Such a triangle meets the clip volume only along the edge from vec4(0) to the vertex in front.
-        (block $clipped
-          (br_if $clipped
-            (i32.and
-              (i32.or (i32.or (call $atOrigin (local.get $positionsOutBase) (local.get $t)) (call $atOrigin (local.get $positionsOutBase) (local.get $t1)))
-                (call $atOrigin (local.get $positionsOutBase) (local.get $t2)))
-              (i32.eqz
-                (i32.and (i32.and (call $keeps (local.get $positionsOutBase) (local.get $t)) (call $keeps (local.get $positionsOutBase) (local.get $t1)))
-                  (call $keeps (local.get $positionsOutBase) (local.get $t2))))))
-        (local.set $outCount
-          (call $clipEdge (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
-            (local.get $clipScratchBase) (local.get $varyingDescBase) (local.get $varyingDescCount)
-            (local.get $t) (local.get $t1) (local.get $t) (local.get $outCount)))
-        (local.set $outCount
-          (call $clipEdge (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
-            (local.get $clipScratchBase) (local.get $varyingDescBase) (local.get $varyingDescCount)
-            (local.get $t1) (local.get $t2) (local.get $t) (local.get $outCount)))
-        (local.set $outCount
-          (call $clipEdge (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
-            (local.get $clipScratchBase) (local.get $varyingDescBase) (local.get $varyingDescCount)
-            (local.get $t2) (local.get $t) (local.get $t) (local.get $outCount)))
-        (if (i32.ge_s (local.get $outCount) (i32.const 3))
+        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $t) (i32.const 0))
+        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $t1) (i32.const 1))
+        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $t2) (i32.const 2))
+        (local.set $outCount (i32.const 3))
+        (local.set $src (i32.const 0))
+        (if (i32.eqz
+              (i32.and
+                (i32.and
+                  (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $t) (i32.const 3)) (f64.const 1e-5))
+                  (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $t1) (i32.const 3)) (f64.const 1e-5)))
+                (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $t2) (i32.const 3)) (f64.const 1e-5))))
           (then
+            (local.set $plane (i32.const 0))
+            (block $planeBreak
+              (loop $planeContinue
+                (br_if $planeBreak (i32.or (i32.ge_s (local.get $plane) (i32.const 6)) (i32.lt_s (local.get $outCount) (i32.const 3))))
+                (local.set $outCount
+                  (call $clipPolygon (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
+                    (local.get $src) (local.get $outCount) (i32.sub (i32.const 9) (local.get $src)) (local.get $plane)
+                    (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t) (local.get $varyingBytes)))))
+                (local.set $src (i32.sub (i32.const 9) (local.get $src)))
+                (local.set $plane (i32.add (local.get $plane) (i32.const 1)))
+                (br $planeContinue)))))
+        (local.set $i (i32.const 1))
+        (block $fanBreak
+          (loop $fanContinue
+            (br_if $fanBreak (i32.ge_s (i32.add (local.get $i) (i32.const 1)) (local.get $outCount)))
             (local.set $clippedVertexCount
               (call $emitTriangleFromScratch (local.get $clipScratchBase) (local.get $varyingBytes)
                 (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
-                (local.get $clippedVertexCount) (i32.const 0) (i32.const 1) (i32.const 2)))))
-        (if (i32.eq (local.get $outCount) (i32.const 4))
-          (then
-            (local.set $clippedVertexCount
-              (call $emitTriangleFromScratch (local.get $clipScratchBase) (local.get $varyingBytes)
-                (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
-                (local.get $clippedVertexCount) (i32.const 0) (i32.const 2) (i32.const 3))))))
+                (local.get $clippedVertexCount) (local.get $src) (i32.add (local.get $src) (local.get $i)) (i32.add (local.get $src) (i32.add (local.get $i) (i32.const 1)))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $fanContinue)))
         (local.set $t (i32.add (local.get $t) (i32.const 3)))
         (br $clipContinue)))
 
@@ -459,11 +456,13 @@
           (local.set $depth0 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
           (local.set $depth1 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
           (local.set $depth2 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
-          ;; A vertex at vec4(0) outweighs the others in perspective, so its varyings are every fragment's.
+          ;; A vertex whose 1/w is not finite outweighs the others in perspective, so its varyings are every fragment's.
           (local.set $atZero
             (select (i32.const 0)
-              (select (i32.const 1) (select (i32.const 2) (i32.const -1) (f64.eq (local.get $w2) (f64.const 0))) (f64.eq (local.get $w1) (f64.const 0)))
-              (f64.eq (local.get $w0) (f64.const 0))))
+              (select (i32.const 1)
+                (select (i32.const 2) (i32.const -1) (f64.eq (f64.abs (local.get $invW2)) (f64.const inf)))
+                (f64.eq (f64.abs (local.get $invW1)) (f64.const inf)))
+              (f64.eq (f64.abs (local.get $invW0)) (f64.const inf))))
           (local.set $area
             (f64.sub
               (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
@@ -537,22 +536,18 @@
                         (br_if $skipPixel
                           (i32.and (i32.eqz (local.get $writesDepth))
                             (f64.gt (local.get $pixelDepth) (f64.load (local.get $depthAddr)))))
-                        (if (i32.lt_s (local.get $atZero) (i32.const 0))
-                          (then
-                            (call $interpolateVaryings
-                              (local.get $varyingDescBase) (local.get $varyingDescCount)
-                              (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
-                              (local.get $t) (local.get $t1) (local.get $t2)
-                              (local.get $b0) (local.get $invW0) (local.get $b1) (local.get $invW1) (local.get $b2) (local.get $invW2) (local.get $invW)))
-                          (else
-                            (call $interpolateVaryings
-                              (local.get $varyingDescBase) (local.get $varyingDescCount)
-                              (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
-                              (local.get $t) (local.get $t1) (local.get $t2)
-                              (f64.convert_i32_u (i32.eqz (local.get $atZero))) (f64.const 1)
-                              (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 1))) (f64.const 1)
-                              (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 2))) (f64.const 1)
-                              (f64.const 1))))
+                        (local.set $vb0 (select (local.get $b0) (f64.convert_i32_u (i32.eqz (local.get $atZero))) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (local.set $vb1 (select (local.get $b1) (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 1))) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (local.set $vb2 (select (local.get $b2) (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 2))) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (local.set $vw0 (select (local.get $invW0) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (local.set $vw1 (select (local.get $invW1) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (local.set $vw2 (select (local.get $invW2) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (local.set $vw (select (local.get $invW) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
+                        (call $interpolateVaryings
+                          (local.get $varyingDescBase) (local.get $varyingDescCount)
+                          (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
+                          (local.get $t) (local.get $t1) (local.get $t2)
+                          (local.get $vb0) (local.get $vw0) (local.get $vb1) (local.get $vw1) (local.get $vb2) (local.get $vw2) (local.get $vw))
                         (if (local.get $readsFragCoord)
                           (then
                             (f64.store (local.get $fragCoordAddress) (local.get $px))

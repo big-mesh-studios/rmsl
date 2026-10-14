@@ -1789,6 +1789,7 @@ describe("the fragments a CPU rasterizer draws", () => {
   it.each(rasterizers)("%s: draws a vertex at vec4(0) at the centre, with its varyings", (_, compileRaster) => {
     expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 0]))).toEqual(TO_THE_CENTRE);
     expect(pattern(drawColoured(compileRaster, [...FRONT, -0, -0, -0, -0]))).toEqual(TO_THE_CENTRE);
+    expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 1e-310]))).toEqual(TO_THE_CENTRE);
     expect(pattern(drawColoured(compileRaster, [-0.5, -0.5, 0, 1, 0.5, -0.25, 0, 1, 0, 0, 0, 0]))).toEqual([
       ...Array(8).fill("................"),
       ".......BB.......",
@@ -1829,38 +1830,52 @@ describe("the fragments a CPU rasterizer draws", () => {
    *
    * @canon spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
    */
-  it.each(rasterizers)("%s: keeps a vertex in the clip volume however small its w", (_, compileRaster) => {
-    expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 1e-6]))).toEqual(TO_THE_CENTRE);
-    expect(pattern(drawColoured(compileRaster, [...FRONT, 5e-7, 2.5e-7, 0, 1e-6]))).toEqual([
-      "................",
-      "................",
-      "................",
-      "................",
-      "................",
-      "................",
-      "...........B....",
-      "..........BBB...",
-      ".........BBBB...",
-      "........BBBBB...",
-      ".......BBBBBBB..",
-      ".....BBBBBBBBB..",
-      "....BBBBBBBBBBB.",
-      "...BBBBBBBBBBBB.",
-      "..BBBBBBBBBBBBB.",
-      ".BBBBBBBBBBBBBBB",
-    ]);
-  });
-
-  /**
-   * @canon exception-a-cpu-rasterizer-draws-nothing-of-a-vertex-at-vec4-0-with-one-behind-the-eye
-   */
   it.each(rasterizers)(
-    "%s: draws nothing of a triangle with a vertex at vec4(0) and one behind the eye",
+    "%s: keeps a vertex in the clip volume however small its w, and clips the rest to it",
     (_, compileRaster) => {
-      const image = drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1]);
-      expect(Array.from(image).some((value) => value !== 0)).toBe(false);
+      expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 1e-6]))).toEqual(TO_THE_CENTRE);
+      expect(pattern(drawColoured(compileRaster, [-1, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 0, 0, 1e-6]))).toEqual(
+        TO_THE_CENTRE,
+      );
+      expect(pattern(drawColoured(compileRaster, [...FRONT, 5e-7, 2.5e-7, 0, 1e-6]))).toEqual([
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "...........B....",
+        "..........BBB...",
+        ".........BBBB...",
+        "........BBBBB...",
+        ".......BBBBBBB..",
+        ".....BBBBBBBBB..",
+        "....BBBBBBBBBBB.",
+        "...BBBBBBBBBBBB.",
+        "..BBBBBBBBBBBBB.",
+        ".BBBBBBBBBBBBBBB",
+      ]);
     },
   );
+
+  /**
+   * @canon exception-a-cpu-rasterizer-clips-a-triangle-from-vec4-0-to-a-vertex-outside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: clips a triangle from vec4(0) to a vertex outside the clip volume", (_, compileRaster) => {
+    const behind = drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1]);
+    expect(Array.from(behind).some((value) => value !== 0)).toBe(false);
+    expect(pattern(drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, 0, 0, 1e-6]))).toEqual([
+      ...Array(8).fill("................"),
+      ".......RR.......",
+      "......RRRR......",
+      ".....RRRRRR.....",
+      "....RRRRRRRR....",
+      "...RRRRRRRRRR...",
+      "..RRRRRRRRRRRR..",
+      ".RRRRRRRRRRRRRR.",
+      "RRRRRRRRRRRRRRRR",
+    ]);
+  });
 
   /**
    * The host passes the integer attribute first, which holds one triangle, and
