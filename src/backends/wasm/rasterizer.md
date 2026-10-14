@@ -36,7 +36,9 @@ shared varying blob, `varyingBytes` long) out to
 
 ### 2. Clip pass
 
-For each original (non-indexed) triangle: one whose vertices all have
+The clip and triangle passes run one original (non-indexed) triangle at
+a time: each is clipped, and the triangles it leaves are rasterized before
+the next is clipped. A triangle whose vertices all have
 `w > 1e-5` passes through unchanged, as the triangle pass bounds it by the
 viewport and the depth range itself. Any other is clipped to WebGPU's clip
 volume (Sutherland-Hodgman, one plane after another: `w + x`, `w - x`,
@@ -46,14 +48,16 @@ Cut vertices lerp both the clip-space position and the whole varying blob
 linearly (not perspective-corrected — correct for clip space, pre-divide),
 and copy each flat varying from the triangle's first vertex. The polygon
 lives in `clipScratchBase`, two halves of 9 vertex slots each that the
-planes take turns writing; results land in
-`clippedPositionsOutBase`/`clippedVaryingsOutBase`.
+planes take turns writing. A plane keeps 9 vertices at most, as rounding
+can make a cut polygon slightly concave. The fan lands in
+`clippedPositionsOutBase`/`clippedVaryingsOutBase`, room for 7 triangles,
+whatever the draw's vertex count.
 
 ### 3. Triangle pass
 
 For each clipped triangle: perspective divide and screen-space mapping
-(a vertex at `vec4(0)` lands at the centre, at depth 0, and its varyings
-are every fragment's, as WebGPU draws it), a
+(a vertex at `vec4(0)` lands at the centre, at depth 0, as WebGPU draws
+it), a
 degenerate-area skip, a clamped bounding box, and per pixel in that box an
 edge-function coverage test. A pixel centre that lies on an edge belongs to
 the triangle whose edge, wound so its inside is positive, runs up the
@@ -69,7 +73,9 @@ depth 0 and 1 drops. A pixel then:
 1. fails early when its depth is farther than the stored one, unless the
    fragment function writes its own depth;
 2. has the varying blob interpolated, perspective-correct, into the
-   fragment function's varying-input address, its centre written to the
+   fragment function's varying-input address (vertex `i` weighed by its
+   barycentric times the other two vertices' `w`, over the sum of the
+   weights, so a vertex at `w = 0` takes all the weight), its centre written to the
    `fragCoord` address, the discard flag cleared, and the interpolated depth
    written to the fragment depth address;
 3. runs the fragment function;
@@ -107,5 +113,7 @@ in the clip pass and per pixel alike.
 - No index buffer, no antialiasing.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
-- Geometric clipping is near-plane (`w`) only; depth 0 to 1 is held per
-  pixel, and the per-pixel bbox clamp handles screen bounds.
+- A triangle wholly in front of the eye is not clipped: depth 0 to 1 is
+  held per pixel, and the per-pixel bbox clamp handles screen bounds. Only
+  a triangle with a vertex at `w <= 1e-5` is clipped, to the whole clip
+  volume.

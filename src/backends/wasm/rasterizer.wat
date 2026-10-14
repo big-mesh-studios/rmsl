@@ -43,7 +43,7 @@
           (local.get $recordOffset))
         (i32.mul (local.get $comp) (i32.const 8)))))
 
-  ;; ---- clip scratch (up to 4 vertices: the intermediate clipped polygon) ----
+  ;; ---- clip scratch (18 vertex slots: two halves of 9 for the polygon being clipped) ----
   (func $scratchVertexAddr (param $clipScratchBase i32) (param $varyingBytes i32) (param $slot i32) (result i32)
     (i32.add
       (local.get $clipScratchBase)
@@ -195,11 +195,12 @@
         (local.set $b (i32.add (local.get $src) (i32.rem_s (i32.add (local.get $i) (i32.const 1)) (local.get $count))))
         (local.set $da (call $planeDistance (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $a)) (local.get $plane)))
         (local.set $db (call $planeDistance (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $b)) (local.get $plane)))
-        (if (f64.ge (local.get $da) (f64.const 0))
+        ;; Rounding can make a cut polygon slightly concave; it keeps 9 vertices at most, the slots of a half.
+        (if (i32.and (f64.ge (local.get $da) (f64.const 0)) (i32.lt_s (local.get $out) (i32.const 9)))
           (then
             (call $scratchToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $a) (i32.add (local.get $dst) (local.get $out)))
             (local.set $out (i32.add (local.get $out) (i32.const 1)))))
-        (if (i32.ne (f64.ge (local.get $da) (f64.const 0)) (f64.ge (local.get $db) (f64.const 0)))
+        (if (i32.and (i32.ne (f64.ge (local.get $da) (f64.const 0)) (f64.ge (local.get $db) (f64.const 0))) (i32.lt_s (local.get $out) (i32.const 9)))
           (then
             (call $lerpToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
               (local.get $a) (local.get $b)
@@ -291,7 +292,7 @@
     (param $varyingDescBase i32) (param $varyingDescCount i32)
     (param $clippedVaryingsOutBase i32) (param $varyingBytes i32)
     (param $t0 i32) (param $t1 i32) (param $t2 i32)
-    (param $b0 f64) (param $invW0 f64) (param $b1 f64) (param $invW1 f64) (param $b2 f64) (param $invW2 f64) (param $invW f64)
+    (param $b0 f64) (param $ww0 f64) (param $b1 f64) (param $ww1 f64) (param $b2 f64) (param $ww2 f64) (param $weights f64)
     (local $d i32) (local $entry i32) (local $recordOffset i32) (local $fragmentDestAddress i32)
     (local $numComponents i32) (local $c i32)
     (local.set $d (i32.const 0))
@@ -321,19 +322,19 @@
               (f64.div
                 (f64.add
                   (f64.add
-                    (f64.mul (f64.mul (local.get $b0) (local.get $invW0))
+                    (f64.mul (f64.mul (local.get $b0) (local.get $ww0))
                       (call $varyingComponentAt (local.get $clippedVaryingsOutBase) (local.get $varyingBytes) (local.get $t0) (local.get $recordOffset) (local.get $c)))
-                    (f64.mul (f64.mul (local.get $b1) (local.get $invW1))
+                    (f64.mul (f64.mul (local.get $b1) (local.get $ww1))
                       (call $varyingComponentAt (local.get $clippedVaryingsOutBase) (local.get $varyingBytes) (local.get $t1) (local.get $recordOffset) (local.get $c))))
-                  (f64.mul (f64.mul (local.get $b2) (local.get $invW2))
+                  (f64.mul (f64.mul (local.get $b2) (local.get $ww2))
                     (call $varyingComponentAt (local.get $clippedVaryingsOutBase) (local.get $varyingBytes) (local.get $t2) (local.get $recordOffset) (local.get $c))))
-                (local.get $invW)))
+                (local.get $weights)))
             (local.set $c (i32.add (local.get $c) (i32.const 1)))
             (br $innerContinue)))
         (local.set $d (i32.add (local.get $d) (i32.const 1)))
         (br $continue))))
 
-  ;; ---- rasterize: vertex pass, clip pass, triangle pass, in order ----
+  ;; ---- rasterize: vertex pass, then the clip and triangle passes, one triangle at a time ----
   (func $rasterize
     (param $vertexCount i32) (param $attrSrcBase i32) (param $attrStrideBytes i32)
     (param $attrDescBase i32) (param $attrDescCount i32) (param $vertexPositionAddress i32)
@@ -354,18 +355,17 @@
     (local $outCount i32) (local $clippedVertexCount i32)
     (local $s0x f64) (local $s0y f64) (local $s1x f64) (local $s1y f64) (local $s2x f64) (local $s2y f64)
     (local $w0 f64) (local $w1 f64) (local $w2 f64)
-    (local $invW0 f64) (local $invW1 f64) (local $invW2 f64)
+    (local $ww0 f64) (local $ww1 f64) (local $ww2 f64)
     (local $depth0 f64) (local $depth1 f64) (local $depth2 f64)
     (local $area f64)
     (local $minX i32) (local $maxX i32) (local $minY i32) (local $maxY i32)
     (local $x i32) (local $y i32) (local $px f64) (local $py f64) (local $pixelIndex i32)
     (local $e0 f64) (local $e1 f64) (local $e2 f64)
-    (local $b0 f64) (local $b1 f64) (local $b2 f64) (local $invW f64)
+    (local $b0 f64) (local $b1 f64) (local $b2 f64) (local $weights f64)
     (local $pixelDepth f64) (local $depthAddr i32) (local $fragDepth f64)
     (local $wind f64) (local $owns0 i32) (local $owns1 i32) (local $owns2 i32)
     (local $nearest f64) (local $farthest f64) (local $crossesDepthRange i32)
-    (local $atZero i32) (local $src i32) (local $plane i32)
-    (local $vb0 f64) (local $vb1 f64) (local $vb2 f64) (local $vw0 f64) (local $vw1 f64) (local $vw2 f64) (local $vw f64)
+    (local $src i32) (local $plane i32) (local $tri i32) (local $tri1 i32) (local $tri2 i32)
 
     (local.set $widthF (f64.convert_i32_s (local.get $width)))
     (local.set $heightF (f64.convert_i32_s (local.get $height)))
@@ -385,28 +385,29 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $vertexContinue)))
 
-    ;; ---- clip pass ----
+    ;; ---- clip and triangle pass, one triangle at a time ----
     ;; A triangle wholly in front of the eye passes as it is. One with a vertex near
     ;; or behind it is clipped to the clip volume, two halves of the scratch, nine
-    ;; slots each, taking turns, and fanned out of the polygon left.
-    (local.set $clippedVertexCount (i32.const 0))
-    (local.set $t (i32.const 0))
+    ;; slots each, taking turns, and fanned out of the polygon left; the fan is
+    ;; rasterized before the next triangle is clipped.
+    (local.set $tri (i32.const 0))
     (block $clipBreak
       (loop $clipContinue
-        (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
-        (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
-        (br_if $clipBreak (i32.ge_s (local.get $t2) (local.get $vertexCount)))
-        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $t) (i32.const 0))
-        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $t1) (i32.const 1))
-        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $t2) (i32.const 2))
+        (local.set $tri1 (i32.add (local.get $tri) (i32.const 1)))
+        (local.set $tri2 (i32.add (local.get $tri) (i32.const 2)))
+        (br_if $clipBreak (i32.ge_s (local.get $tri2) (local.get $vertexCount)))
+        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $tri) (i32.const 0))
+        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $tri1) (i32.const 1))
+        (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes) (local.get $clipScratchBase) (local.get $tri2) (i32.const 2))
+        (local.set $clippedVertexCount (i32.const 0))
         (local.set $outCount (i32.const 3))
         (local.set $src (i32.const 0))
         (if (i32.eqz
               (i32.and
                 (i32.and
-                  (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $t) (i32.const 3)) (f64.const 1e-5))
-                  (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $t1) (i32.const 3)) (f64.const 1e-5)))
-                (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $t2) (i32.const 3)) (f64.const 1e-5))))
+                  (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $tri) (i32.const 3)) (f64.const 1e-5))
+                  (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $tri1) (i32.const 3)) (f64.const 1e-5)))
+                (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $tri2) (i32.const 3)) (f64.const 1e-5))))
           (then
             (local.set $plane (i32.const 0))
             (block $planeBreak
@@ -415,7 +416,7 @@
                 (local.set $outCount
                   (call $clipPolygon (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
                     (local.get $src) (local.get $outCount) (i32.sub (i32.const 9) (local.get $src)) (local.get $plane)
-                    (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t) (local.get $varyingBytes)))))
+                    (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $tri) (local.get $varyingBytes)))))
                 (local.set $src (i32.sub (i32.const 9) (local.get $src)))
                 (local.set $plane (i32.add (local.get $plane) (i32.const 1)))
                 (br $planeContinue)))))
@@ -429,158 +430,145 @@
                 (local.get $clippedVertexCount) (local.get $src) (i32.add (local.get $src) (local.get $i)) (i32.add (local.get $src) (i32.add (local.get $i) (i32.const 1)))))
             (local.set $i (i32.add (local.get $i) (i32.const 1)))
             (br $fanContinue)))
-        (local.set $t (i32.add (local.get $t) (i32.const 3)))
-        (br $clipContinue)))
+        ;; ---- triangle pass ----
+        (local.set $t (i32.const 0))
+        (block $triBreak
+          (loop $triContinue
+            (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
+            (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
+            (br_if $triBreak (i32.ge_s (local.get $t2) (local.get $clippedVertexCount)))
 
-    ;; ---- triangle pass ----
-    (local.set $t (i32.const 0))
-    (block $triBreak
-      (loop $triContinue
-        (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
-        (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
-        (br_if $triBreak (i32.ge_s (local.get $t2) (local.get $clippedVertexCount)))
+            (block $skipDegenerate
+              (local.set $s0x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t)))
+              (local.set $s0y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t)))
+              (local.set $s1x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t1)))
+              (local.set $s1y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t1)))
+              (local.set $s2x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t2)))
+              (local.set $s2y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t2)))
+              (local.set $w0 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 3)))
+              (local.set $w1 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 3)))
+              (local.set $w2 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 3)))
+              ;; Perspective weighs vertex i by its barycentric over its w; times the product of the
+              ;; three w that is its barycentric by the other two, which stays finite as a w reaches 0.
+              (local.set $ww0 (f64.mul (local.get $w1) (local.get $w2)))
+              (local.set $ww1 (f64.mul (local.get $w0) (local.get $w2)))
+              (local.set $ww2 (f64.mul (local.get $w0) (local.get $w1)))
+              (local.set $depth0 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
+              (local.set $depth1 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
+              (local.set $depth2 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
+              (local.set $area
+                (f64.sub
+                  (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
+                  (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (f64.sub (local.get $s2x) (local.get $s0x)))))
+              (br_if $skipDegenerate (f64.eq (local.get $area) (f64.const 0)))
+              ;; A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
+              ;; pixel outside it, which is what clipping there drops, as depth over w is affine in
+              ;; screen space; one inside it draws every pixel, whatever the rounding of its depth.
+              (local.set $nearest (f64.min (f64.min (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
+              (local.set $farthest (f64.max (f64.max (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
+              (br_if $skipDegenerate
+                (i32.or (f64.lt (local.get $farthest) (f64.const 0)) (f64.gt (local.get $nearest) (f64.const 1))))
+              (local.set $crossesDepthRange
+                (i32.or (f64.lt (local.get $nearest) (f64.const 0)) (f64.gt (local.get $farthest) (f64.const 1))))
+              ;; Each edge function, times $wind, is positive inside whichever way the triangle winds.
+              (local.set $wind (select (f64.const 1) (f64.const -1) (f64.gt (local.get $area) (f64.const 0))))
+              (local.set $owns0 (call $ownsEdge
+                (f64.mul (f64.sub (local.get $s2x) (local.get $s1x)) (local.get $wind))
+                (f64.mul (f64.sub (local.get $s2y) (local.get $s1y)) (local.get $wind))))
+              (local.set $owns1 (call $ownsEdge
+                (f64.mul (f64.sub (local.get $s0x) (local.get $s2x)) (local.get $wind))
+                (f64.mul (f64.sub (local.get $s0y) (local.get $s2y)) (local.get $wind))))
+              (local.set $owns2 (call $ownsEdge
+                (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (local.get $wind))
+                (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (local.get $wind))))
 
-        (block $skipDegenerate
-          (local.set $s0x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t)))
-          (local.set $s0y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t)))
-          (local.set $s1x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t1)))
-          (local.set $s1y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t1)))
-          (local.set $s2x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t2)))
-          (local.set $s2y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t2)))
-          (local.set $w0 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 3)))
-          (local.set $w1 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 3)))
-          (local.set $w2 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 3)))
-          (local.set $invW0 (f64.div (f64.const 1) (local.get $w0)))
-          (local.set $invW1 (f64.div (f64.const 1) (local.get $w1)))
-          (local.set $invW2 (f64.div (f64.const 1) (local.get $w2)))
-          (local.set $depth0 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
-          (local.set $depth1 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
-          (local.set $depth2 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
-          ;; A vertex whose 1/w is not finite outweighs the others in perspective, so its varyings are every fragment's.
-          (local.set $atZero
-            (select (i32.const 0)
-              (select (i32.const 1)
-                (select (i32.const 2) (i32.const -1) (f64.eq (f64.abs (local.get $invW2)) (f64.const inf)))
-                (f64.eq (f64.abs (local.get $invW1)) (f64.const inf)))
-              (f64.eq (f64.abs (local.get $invW0)) (f64.const inf))))
-          (local.set $area
-            (f64.sub
-              (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
-              (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (f64.sub (local.get $s2x) (local.get $s0x)))))
-          (br_if $skipDegenerate (f64.eq (local.get $area) (f64.const 0)))
-          ;; A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
-          ;; pixel outside it, which is what clipping there drops, as depth over w is affine in
-          ;; screen space; one inside it draws every pixel, whatever the rounding of its depth.
-          (local.set $nearest (f64.min (f64.min (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
-          (local.set $farthest (f64.max (f64.max (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
-          (br_if $skipDegenerate
-            (i32.or (f64.lt (local.get $farthest) (f64.const 0)) (f64.gt (local.get $nearest) (f64.const 1))))
-          (local.set $crossesDepthRange
-            (i32.or (f64.lt (local.get $nearest) (f64.const 0)) (f64.gt (local.get $farthest) (f64.const 1))))
-          ;; Each edge function, times $wind, is positive inside whichever way the triangle winds.
-          (local.set $wind (select (f64.const 1) (f64.const -1) (f64.gt (local.get $area) (f64.const 0))))
-          (local.set $owns0 (call $ownsEdge
-            (f64.mul (f64.sub (local.get $s2x) (local.get $s1x)) (local.get $wind))
-            (f64.mul (f64.sub (local.get $s2y) (local.get $s1y)) (local.get $wind))))
-          (local.set $owns1 (call $ownsEdge
-            (f64.mul (f64.sub (local.get $s0x) (local.get $s2x)) (local.get $wind))
-            (f64.mul (f64.sub (local.get $s0y) (local.get $s2y)) (local.get $wind))))
-          (local.set $owns2 (call $ownsEdge
-            (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (local.get $wind))
-            (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (local.get $wind))))
+              (local.set $minX (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.const 0))))
+              (local.set $maxX (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.sub (local.get $widthF) (f64.const 1)))))
+              (local.set $minY (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.const 0))))
+              (local.set $maxY (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.sub (local.get $heightF) (f64.const 1)))))
 
-          (local.set $minX (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.const 0))))
-          (local.set $maxX (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.sub (local.get $widthF) (f64.const 1)))))
-          (local.set $minY (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.const 0))))
-          (local.set $maxY (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.sub (local.get $heightF) (f64.const 1)))))
+              (local.set $y (local.get $minY))
+              (block $yBreak
+                (loop $yContinue
+                  (br_if $yBreak (i32.gt_s (local.get $y) (local.get $maxY)))
+                  (local.set $x (local.get $minX))
+                  (block $xBreak
+                    (loop $xContinue
+                      (br_if $xBreak (i32.gt_s (local.get $x) (local.get $maxX)))
+                      (local.set $px (f64.add (f64.convert_i32_s (local.get $x)) (f64.const 0.5)))
+                      (local.set $py (f64.add (f64.convert_i32_s (local.get $y)) (f64.const 0.5)))
+                      (local.set $pixelIndex (i32.add (i32.mul (local.get $y) (local.get $width)) (local.get $x)))
+                      (local.set $e0 (call $edgeFn (local.get $s1x) (local.get $s1y) (local.get $s2x) (local.get $s2y) (local.get $px) (local.get $py)))
+                      (local.set $e1 (call $edgeFn (local.get $s2x) (local.get $s2y) (local.get $s0x) (local.get $s0y) (local.get $px) (local.get $py)))
+                      (local.set $e2 (call $edgeFn (local.get $s0x) (local.get $s0y) (local.get $s1x) (local.get $s1y) (local.get $px) (local.get $py)))
+                      ;; covered when the pixel centre is inside all three edges
+                      (if
+                        (i32.and
+                          (i32.and
+                            (call $insideEdge (f64.mul (local.get $e0) (local.get $wind)) (local.get $owns0))
+                            (call $insideEdge (f64.mul (local.get $e1) (local.get $wind)) (local.get $owns1)))
+                          (call $insideEdge (f64.mul (local.get $e2) (local.get $wind)) (local.get $owns2)))
+                        (then
+                          (local.set $b0 (f64.div (local.get $e0) (local.get $area)))
+                          (local.set $b1 (f64.div (local.get $e1) (local.get $area)))
+                          (local.set $b2 (f64.div (local.get $e2) (local.get $area)))
+                          (local.set $weights
+                            (f64.add
+                              (f64.add (f64.mul (local.get $b0) (local.get $ww0)) (f64.mul (local.get $b1) (local.get $ww1)))
+                              (f64.mul (local.get $b2) (local.get $ww2))))
+                          (local.set $pixelDepth
+                            (f64.add
+                              (f64.add (f64.mul (local.get $b0) (local.get $depth0)) (f64.mul (local.get $b1) (local.get $depth1)))
+                              (f64.mul (local.get $b2) (local.get $depth2))))
+                          (local.set $depthAddr (i32.add (local.get $depthBufferBase) (i32.mul (local.get $pixelIndex) (i32.const 8))))
+                          (block $skipPixel
+                            (br_if $skipPixel
+                              (i32.and (local.get $crossesDepthRange)
+                                (i32.or (f64.lt (local.get $pixelDepth) (f64.const 0)) (f64.gt (local.get $pixelDepth) (f64.const 1)))))
+                            ;; LEQUAL depth test; a stage that writes its depth is tested once it has run.
+                            (br_if $skipPixel
+                              (i32.and (i32.eqz (local.get $writesDepth))
+                                (f64.gt (local.get $pixelDepth) (f64.load (local.get $depthAddr)))))
+                            (call $interpolateVaryings
+                              (local.get $varyingDescBase) (local.get $varyingDescCount)
+                              (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
+                              (local.get $t) (local.get $t1) (local.get $t2)
+                              (local.get $b0) (local.get $ww0) (local.get $b1) (local.get $ww1) (local.get $b2) (local.get $ww2) (local.get $weights))
+                            (if (local.get $readsFragCoord)
+                              (then
+                                (f64.store (local.get $fragCoordAddress) (local.get $px))
+                                (f64.store (i32.add (local.get $fragCoordAddress) (i32.const 8)) (local.get $py))))
+                            (if (local.get $mayDiscard) (then (i32.store (local.get $discardAddress) (i32.const 0))))
+                            ;; A stage that leaves its depth unwritten keeps the interpolated one.
+                            (if (local.get $usesDepth) (then (f64.store (local.get $fragDepthAddress) (local.get $pixelDepth))))
+                            (call $fragmentMain)
+                            ;; A fragment that discards leaves the pixel and its depth as they were.
+                            (if (local.get $mayDiscard) (then (br_if $skipPixel (i32.load (local.get $discardAddress)))))
+                            ;; A written depth is clamped to the depth range, as WebGPU clamps it.
+                            (local.set $fragDepth
+                              (select
+                                (f64.min (f64.max (f64.load (local.get $fragDepthAddress)) (f64.const 0)) (f64.const 1))
+                                (local.get $pixelDepth)
+                                (local.get $writesDepth)))
+                            (br_if $skipPixel
+                              (i32.and (local.get $writesDepth)
+                                (f64.gt (local.get $fragDepth) (f64.load (local.get $depthAddr)))))
+                            (f64.store (local.get $depthAddr) (local.get $fragDepth))
+                            ;; A fragment stage that writes no colour leaves the pixel as it is.
+                            (if (local.get $writesColour)
+                              (then
+                                (call $byteCopy
+                                  (i32.add (local.get $outputBase) (i32.mul (local.get $pixelIndex) (i32.const 32)))
+                                  (local.get $fragmentValueAddress)
+                                  (i32.const 32)))))))
+                      (local.set $x (i32.add (local.get $x) (i32.const 1)))
+                      (br $xContinue)))
+                  (local.set $y (i32.add (local.get $y) (i32.const 1)))
+                  (br $yContinue))))
 
-          (local.set $y (local.get $minY))
-          (block $yBreak
-            (loop $yContinue
-              (br_if $yBreak (i32.gt_s (local.get $y) (local.get $maxY)))
-              (local.set $x (local.get $minX))
-              (block $xBreak
-                (loop $xContinue
-                  (br_if $xBreak (i32.gt_s (local.get $x) (local.get $maxX)))
-                  (local.set $px (f64.add (f64.convert_i32_s (local.get $x)) (f64.const 0.5)))
-                  (local.set $py (f64.add (f64.convert_i32_s (local.get $y)) (f64.const 0.5)))
-                  (local.set $pixelIndex (i32.add (i32.mul (local.get $y) (local.get $width)) (local.get $x)))
-                  (local.set $e0 (call $edgeFn (local.get $s1x) (local.get $s1y) (local.get $s2x) (local.get $s2y) (local.get $px) (local.get $py)))
-                  (local.set $e1 (call $edgeFn (local.get $s2x) (local.get $s2y) (local.get $s0x) (local.get $s0y) (local.get $px) (local.get $py)))
-                  (local.set $e2 (call $edgeFn (local.get $s0x) (local.get $s0y) (local.get $s1x) (local.get $s1y) (local.get $px) (local.get $py)))
-                  ;; covered when the pixel centre is inside all three edges
-                  (if
-                    (i32.and
-                      (i32.and
-                        (call $insideEdge (f64.mul (local.get $e0) (local.get $wind)) (local.get $owns0))
-                        (call $insideEdge (f64.mul (local.get $e1) (local.get $wind)) (local.get $owns1)))
-                      (call $insideEdge (f64.mul (local.get $e2) (local.get $wind)) (local.get $owns2)))
-                    (then
-                      (local.set $b0 (f64.div (local.get $e0) (local.get $area)))
-                      (local.set $b1 (f64.div (local.get $e1) (local.get $area)))
-                      (local.set $b2 (f64.div (local.get $e2) (local.get $area)))
-                      (local.set $invW
-                        (f64.add
-                          (f64.add (f64.mul (local.get $b0) (local.get $invW0)) (f64.mul (local.get $b1) (local.get $invW1)))
-                          (f64.mul (local.get $b2) (local.get $invW2))))
-                      (local.set $pixelDepth
-                        (f64.add
-                          (f64.add (f64.mul (local.get $b0) (local.get $depth0)) (f64.mul (local.get $b1) (local.get $depth1)))
-                          (f64.mul (local.get $b2) (local.get $depth2))))
-                      (local.set $depthAddr (i32.add (local.get $depthBufferBase) (i32.mul (local.get $pixelIndex) (i32.const 8))))
-                      (block $skipPixel
-                        (br_if $skipPixel
-                          (i32.and (local.get $crossesDepthRange)
-                            (i32.or (f64.lt (local.get $pixelDepth) (f64.const 0)) (f64.gt (local.get $pixelDepth) (f64.const 1)))))
-                        ;; LEQUAL depth test; a stage that writes its depth is tested once it has run.
-                        (br_if $skipPixel
-                          (i32.and (i32.eqz (local.get $writesDepth))
-                            (f64.gt (local.get $pixelDepth) (f64.load (local.get $depthAddr)))))
-                        (local.set $vb0 (select (local.get $b0) (f64.convert_i32_u (i32.eqz (local.get $atZero))) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (local.set $vb1 (select (local.get $b1) (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 1))) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (local.set $vb2 (select (local.get $b2) (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 2))) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (local.set $vw0 (select (local.get $invW0) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (local.set $vw1 (select (local.get $invW1) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (local.set $vw2 (select (local.get $invW2) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (local.set $vw (select (local.get $invW) (f64.const 1) (i32.lt_s (local.get $atZero) (i32.const 0))))
-                        (call $interpolateVaryings
-                          (local.get $varyingDescBase) (local.get $varyingDescCount)
-                          (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
-                          (local.get $t) (local.get $t1) (local.get $t2)
-                          (local.get $vb0) (local.get $vw0) (local.get $vb1) (local.get $vw1) (local.get $vb2) (local.get $vw2) (local.get $vw))
-                        (if (local.get $readsFragCoord)
-                          (then
-                            (f64.store (local.get $fragCoordAddress) (local.get $px))
-                            (f64.store (i32.add (local.get $fragCoordAddress) (i32.const 8)) (local.get $py))))
-                        (if (local.get $mayDiscard) (then (i32.store (local.get $discardAddress) (i32.const 0))))
-                        ;; A stage that leaves its depth unwritten keeps the interpolated one.
-                        (if (local.get $usesDepth) (then (f64.store (local.get $fragDepthAddress) (local.get $pixelDepth))))
-                        (call $fragmentMain)
-                        ;; A fragment that discards leaves the pixel and its depth as they were.
-                        (if (local.get $mayDiscard) (then (br_if $skipPixel (i32.load (local.get $discardAddress)))))
-                        ;; A written depth is clamped to the depth range, as WebGPU clamps it.
-                        (local.set $fragDepth
-                          (select
-                            (f64.min (f64.max (f64.load (local.get $fragDepthAddress)) (f64.const 0)) (f64.const 1))
-                            (local.get $pixelDepth)
-                            (local.get $writesDepth)))
-                        (br_if $skipPixel
-                          (i32.and (local.get $writesDepth)
-                            (f64.gt (local.get $fragDepth) (f64.load (local.get $depthAddr)))))
-                        (f64.store (local.get $depthAddr) (local.get $fragDepth))
-                        ;; A fragment stage that writes no colour leaves the pixel as it is.
-                        (if (local.get $writesColour)
-                          (then
-                            (call $byteCopy
-                              (i32.add (local.get $outputBase) (i32.mul (local.get $pixelIndex) (i32.const 32)))
-                              (local.get $fragmentValueAddress)
-                              (i32.const 32)))))))
-                  (local.set $x (i32.add (local.get $x) (i32.const 1)))
-                  (br $xContinue)))
-              (local.set $y (i32.add (local.get $y) (i32.const 1)))
-              (br $yContinue))))
-
-        (local.set $t (i32.add (local.get $t) (i32.const 3)))
-        (br $triContinue))))
+            (local.set $t (i32.add (local.get $t) (i32.const 3)))
+            (br $triContinue)))
+        (local.set $tri (i32.add (local.get $tri) (i32.const 3)))
+        (br $clipContinue))))
 
   (export "rasterize" (func $rasterize)))

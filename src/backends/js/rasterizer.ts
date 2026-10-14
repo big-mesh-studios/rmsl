@@ -46,7 +46,7 @@ export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions 
 
 /**
  * The JS-side counterpart to `WasmRasterRoutine` — same shape, same
- * semantics (near-plane clipping, a persistent LEQUAL depth buffer, both
+ * semantics (clipping to the clip volume, a persistent LEQUAL depth buffer, both
  * clears declared per `draw()` call via {@link JsRasterDrawOptions}), a
  * plain-JS implementation of the same algorithm `rasterizer.wat` compiles
  * to WASM bytecode. Always produces `vec4` output, matching
@@ -149,8 +149,9 @@ function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipV
       const b = poly[(i + 1) % poly.length]!;
       const da = planeDistance(a.position, plane);
       const db = planeDistance(b.position, plane);
-      if (da >= 0) next.push(a);
-      if (da >= 0 !== db >= 0) next.push(lerpVertex(a, b, da / (da - db)));
+      // Rounding can make a cut polygon slightly concave; it keeps 9 vertices at most, as the WASM scratch does.
+      if (da >= 0 && next.length < 9) next.push(a);
+      if (da >= 0 !== db >= 0 && next.length < 9) next.push(lerpVertex(a, b, da / (da - db)));
     }
     poly = next;
   }
@@ -246,7 +247,7 @@ export function compileJSRasterizer(
   let targetHeight = 0;
 
   /**
-   * Rasterizes one triangle, already clipped to the near plane, into `target`.
+   * Rasterizes one triangle, already clipped to the clip volume when it needed it, into `target`.
    * `first` is the first vertex of the triangle it was clipped from, which gives the flat varyings.
    */
   function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, first: ClipVertex): void {
@@ -278,16 +279,16 @@ export function compileJSRasterizer(
     const minY = Math.max(0, Math.floor(Math.min(s0y, s1y, s2y)));
     const maxY = Math.min(height - 1, Math.ceil(Math.max(s0y, s1y, s2y)));
 
-    const invW0 = 1 / w0,
-      invW1 = 1 / w1,
-      invW2 = 1 / w2;
+    // Perspective weighs vertex i by its barycentric over its w; times the product of the
+    // three w that is its barycentric by the other two, which stays finite as a w reaches 0.
+    const ww0 = w1 * w2,
+      ww1 = w0 * w2,
+      ww2 = w0 * w1;
     // NDC depth (z/w) is affine in screen space, like x/w and y/w above,
     // so it interpolates with plain barycentric weights — no invW needed.
     const depth0 = ndc(v0.position[2]!, w0),
       depth1 = ndc(v1.position[2]!, w1),
       depth2 = ndc(v2.position[2]!, w2);
-    // A vertex whose 1/w is not finite outweighs the others in perspective, so its varyings are every fragment's.
-    const atZero = !Number.isFinite(invW0) ? 0 : !Number.isFinite(invW1) ? 1 : !Number.isFinite(invW2) ? 2 : -1;
     const slots = varyingSlots;
     const depths = depthBuffer!;
     // A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
@@ -314,7 +315,6 @@ export function compileJSRasterizer(
         const b0 = e0 / area,
           b1 = e1 / area,
           b2 = e2 / area;
-        const invW = b0 * invW0 + b1 * invW1 + b2 * invW2;
         const pixelDepth = b0 * depth0 + b1 * depth1 + b2 * depth2;
 
         if (crossesDepthRange && (pixelDepth < 0 || pixelDepth > 1)) continue;
@@ -322,11 +322,11 @@ export function compileJSRasterizer(
         // LEQUAL depth test: closer-or-equal wins. A stage that writes its depth is tested once it has run.
         if (!writesDepth && pixelDepth > depths[pixelIndex]!) continue;
 
-        // Perspective-correct: each vertex's varying weighted by its barycentric over w, the sum over w again.
-        const p0 = atZero < 0 ? b0 * invW0 : atZero === 0 ? 1 : 0,
-          p1 = atZero < 0 ? b1 * invW1 : atZero === 1 ? 1 : 0,
-          p2 = atZero < 0 ? b2 * invW2 : atZero === 2 ? 1 : 0,
-          perspective = atZero < 0 ? 1 / invW : 1;
+        // Perspective-correct: each vertex's varying by its weight, over the sum of the weights.
+        const p0 = b0 * ww0,
+          p1 = b1 * ww1,
+          p2 = b2 * ww2,
+          perspective = 1 / (p0 + p1 + p2);
         for (let k = 0; k < slots.length; k++) {
           const a = v0.varyings[k]!,
             b = v1.varyings[k]!,
