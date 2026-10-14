@@ -4371,7 +4371,9 @@ This follows because JavaScript code tells one error from another by `instanceof
 
 > A node that is wrong whatever program it ends up in is refused with a `NodeError`. That holds as the program builds the node, and as a target compiles a graph `deserialize` rebuilt with it.
 
-This follows because such a node can be judged from itself and its inputs alone. Examples are an operation on operands it does not take, a literal outside its type, and an assignment to a uniform. An `ElseIf` that does not follow its `If` is one too. Nothing about the program around it can make it right, so the user fixes the line that made it. A refusal of a rebuilt graph is the same refusal, so it has the same class and code.
+This follows because such a node can be judged from itself and its inputs alone. Examples are an operation on operands it does not take, a literal outside its type, and an assignment to a uniform. An `ElseIf` that does not follow its `If` is one too. Nothing about the program around it can make it right, so the user fixes the line that made it.
+
+The builder refuses the node as it makes it, so the error's stack points at that line. A refusal at a compile call would point at the call, and only the message would say which node. The refusal does not wait for the node to reach a program, since no program could hold it. A refusal of a rebuilt graph is the same refusal, so it has the same class and code.
 
 Many such nodes are type errors too, since a type is judged from a node and its inputs. Some are not: no type expresses the range of a number, or the place of a statement.
 
