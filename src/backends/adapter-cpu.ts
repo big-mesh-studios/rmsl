@@ -1,4 +1,5 @@
-import { RoutineParam, RoutineParams, ShaderType, UniformNode } from "../core";
+import { PlatformError, UsageError, type Origin, type BackendOrigin } from "../errors";
+import { RoutineParam, RoutineParams, ShaderType, UniformNode, componentCountOf } from "../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -15,7 +16,6 @@ import { assertHostArray } from "./vertex-format";
 import { assertHostShape } from "./host-shape";
 import {
   CpuDrawBuffer,
-  componentCountOf,
   ComputeStage,
   CpuGrid,
   CpuRoutine,
@@ -52,6 +52,8 @@ export interface CpuAdapterPrograms {
   guard: HostInputGuard;
   /** The width the stages compute floats in, and so the width of a float storage buffer the host never sets. */
   float?: FloatWidth;
+  /** Where the adapter's calls run, which its errors name. */
+  origin: BackendOrigin;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -85,6 +87,7 @@ export function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: 
 }
 
 export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
+  const { origin } = programs;
   // Named for what each actually is, not restated from `programs` — the
   // call site below is `perPixel.draw(...)`, not `programs.draw.draw(...)`.
   const computeStep = programs.compute;
@@ -161,7 +164,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       if (!perPixel) return;
       canvas = givenCanvas ?? document.createElement("canvas");
       const context = canvas.getContext("2d");
-      if (!context) throw new Error("[RMSL] 2D canvas context unavailable");
+      if (!context) throw new PlatformError("canvas-context-unavailable", "2D canvas context unavailable", origin);
       ctx2d = context;
     },
 
@@ -173,17 +176,18 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     },
 
     compute(out, count) {
-      if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
+      if (!computeStep) throw new UsageError("no-compute-program", "this adapter has no `compute` program", origin);
       startUnsetStorages();
       // An out array is checked before the dispatch, so a refusal leaves the storages as they were.
       if (out) {
-        for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
+        for (const slot in out)
+          if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(origin, out, storageSlots);
         for (let i = 0; i < storageSlots.length; i++) {
           const slot = storageSlots[i]!;
           if (!Object.hasOwn(out, slot)) continue;
           const slotType = storageTypes[slot];
-          if (slotType !== undefined) assertHostArray("storage buffer", slot, slotType, out[slot]!, true);
-          assertReadbackFits(slot, out[slot]!, storages[slot]!.length);
+          if (slotType !== undefined) assertHostArray(origin, "storage buffer", slot, slotType, out[slot]!, true);
+          assertReadbackFits(origin, slot, out[slot]!, storages[slot]!.length);
         }
       }
       computeStep(stepContext, count ?? elementCount());
@@ -200,12 +204,18 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     draw() {
       if (!perPixel || !canvas || !ctx2d) {
-        throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
+        throw new UsageError(
+          "not-attached",
+          "this adapter has no `draw` program, or attach() was never called",
+          origin,
+        );
       }
       const buffer = perPixel({ uniforms, textures } as any, canvas.width, canvas.height);
       if (buffer.length !== canvas.width * canvas.height * 4) {
-        throw new Error(
-          "[RMSL] the program of a draw adapter has to return a colour: a vec4, or a value that converts to one.",
+        throw new UsageError(
+          "result-is-not-a-colour",
+          "the program of a draw adapter has to return a colour: a vec4, or a value that converts to one.",
+          origin,
         );
       }
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
@@ -242,7 +252,7 @@ export function createCpuRoutineAdapter<
   A extends ShaderType,
   W extends FloatWidth = "f64",
   P extends readonly RoutineParam[] = readonly RoutineParam[],
->(routine: CpuRoutine<A, W>, params: P, guard: HostInputGuard): CpuRoutineAdapter<A, W, P> {
+>(origin: Origin, routine: CpuRoutine<A, W>, params: P, guard: HostInputGuard): CpuRoutineAdapter<A, W, P> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
@@ -259,7 +269,7 @@ export function createCpuRoutineAdapter<
     run(given) {
       for (let i = 0; i < params.length; i++) {
         const param = params[i]!;
-        assertHostShape("parameter", param.name, param.type, (given as Record<string, unknown>)?.[param.name]);
+        assertHostShape(origin, "parameter", param.name, param.type, (given as Record<string, unknown>)?.[param.name]);
       }
       return routine({ params: given, uniforms, textures });
     },

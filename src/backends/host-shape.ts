@@ -1,5 +1,6 @@
+import { componentCountOf } from "../core";
+import { UsageError, type Origin } from "../errors";
 import { withArticle } from "../article";
-import { componentCountOf } from "./cpu";
 
 /**
  * Refuses `value`, given for the input `name` of `type`, unless it has the
@@ -10,7 +11,14 @@ import { componentCountOf } from "./cpu";
  * `null`, reads zero and passes, and so does any value of a sampler. A value
  * of the right shape costs one comparison and allocates nothing.
  */
-export function assertHostShape(what: string, name: string, type: string, value: unknown, length?: number): void {
+export function assertHostShape(
+  origin: Origin,
+  what: string,
+  name: string,
+  type: string,
+  value: unknown,
+  length?: number,
+): void {
   if (value === undefined || value === null || type.includes("sampler")) return;
   const count = componentCountOf(type);
   let wrong: any = value;
@@ -44,7 +52,9 @@ export function assertHostShape(what: string, name: string, type: string, value:
       : typeof wrong === "string"
         ? JSON.stringify(wrong)
         : String(wrong);
-  throw new Error(
-    `[RMSL] the ${type} ${what}${length === undefined ? "" : " array"} "${name}" takes ${takes}, not ${given}`,
+  throw new UsageError(
+    "host-value-of-another-shape",
+    `the ${type} ${what}${length === undefined ? "" : " array"} "${name}" takes ${takes}, not ${given}`,
+    origin,
   );
 }

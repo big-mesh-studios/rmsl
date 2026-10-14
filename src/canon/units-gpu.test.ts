@@ -1,3 +1,4 @@
+import { NodeError, ProgramError, TargetError, UsageError } from "../errors";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   attribute,
@@ -306,7 +307,9 @@ describe("where WGSL declares a uniform or a buffer", () => {
   it("refuses a uniform the stage reads that the given uniforms leave out on WGSL", () => {
     const read = uniform("float");
     const other = uniform("float");
-    expect(() => compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [other] })).toThrow(
+    expect(() => compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [other] })).toThrowRmsl(
+      ProgramError,
+      "missing-from-list",
       new RegExp(`"${read.name}" is read by this stage but missing`),
     );
   });
@@ -398,7 +401,7 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const missing = instancedArray(2, "float");
     expect(() =>
       compileWgslStage.fragment(vec4(listed.element(int(0)), missing.element(int(0)), 0, 1), { storages: [listed] }),
-    ).toThrow(new RegExp(`"${missing.name}" is read by this stage but missing`));
+    ).toThrowRmsl(ProgramError, "missing-from-list", new RegExp(`"${missing.name}" is read by this stage but missing`));
   });
 
   /**
@@ -502,10 +505,14 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const gain = uniform("float");
     const fragment = Fn(() => texture(image, vec2(0, 0)))();
     // @ts-expect-error: the samplers list takes only texture uniforms
-    expect(() => compileWgslStage.fragment(fragment, { samplers: [image, gain] })).toThrow(
+    expect(() => compileWgslStage.fragment(fragment, { samplers: [image, gain] })).toThrowRmsl(
+      ProgramError,
+      "not-a-texture",
       `"${gain.name}" is a float uniform, not a texture`,
     );
-    expect(() => compileWgslStage.fragment(fragment, { samplers: [image, image] })).toThrow(
+    expect(() => compileWgslStage.fragment(fragment, { samplers: [image, image] })).toThrowRmsl(
+      ProgramError,
+      "listed-twice",
       `the samplers passed to the compiler list the texture "${image.name}" twice`,
     );
   });
@@ -517,7 +524,11 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const values = instancedArray(2, "float");
     expect(() =>
       compileWgslStage.fragment(vec4(values.element(int(0)), 0, 0, 1), { storages: [values, values] }),
-    ).toThrow(`the storages passed to the compiler list the storage buffer "${values.name}" twice`);
+    ).toThrowRmsl(
+      ProgramError,
+      "listed-twice",
+      `the storages passed to the compiler list the storage buffer "${values.name}" twice`,
+    );
   });
 
   /**
@@ -527,7 +538,9 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const listed = uniform("sampler2D");
     const missing = uniform("sampler2D");
     const fragment = Fn(() => texture(listed, vec2(0, 0)).add(texture(missing, vec2(0, 0))))();
-    expect(() => compileWgslStage.fragment(fragment, { samplers: [listed] })).toThrow(
+    expect(() => compileWgslStage.fragment(fragment, { samplers: [listed] })).toThrowRmsl(
+      ProgramError,
+      "missing-from-list",
       `the texture "${missing.name}" is read by this stage but missing from the samplers passed to the compiler`,
     );
   });
@@ -647,8 +660,9 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const vertex = Fn(() => {
       builtinPosition().assign(vec4(0, 0, 0, 1));
     })();
-    expect(() => compileWgslStage.vertex(vertex, { samplers: [uniformRaw("map", "sampler9D" as any)] })).toThrow(
-      /sampler9D/,
+    expect(() => compileWgslStage.vertex(vertex, { samplers: [uniformRaw("map", "sampler9D" as any)] })).toThrowRmsl(
+      ProgramError,
+      "not-a-texture",
     );
   });
 });
@@ -713,8 +727,12 @@ describe("setUniform on a sampler slot of createGlsl before attach", () => {
       Fn(() => builtinPosition().assign(position))() as any,
       Fn(() => vec4(colours.element(int(0)), texture(image, vec2(0, 0)).x, 0, 1))() as any,
     );
-    expect(() => adapter.setUniform(colours.name, 1)).toThrow(/storage buffer.*setAttribute/);
-    expect(() => adapter.setUniform(image.name, 1)).toThrow(/texture.*setTexture/);
+    expect(() => adapter.setUniform(colours.name, 1)).toThrowRmsl(
+      UsageError,
+      "wrong-setter",
+      /storage buffer.*setAttribute/,
+    );
+    expect(() => adapter.setUniform(image.name, 1)).toThrowRmsl(UsageError, "wrong-setter", /texture.*setTexture/);
   });
 });
 
@@ -779,15 +797,28 @@ describe("the array a GPU adapter takes for an attribute", () => {
       Fn(() => vec4(0, 1, 0, 1))() as any,
     );
     // Before attach, the adapter checks a slot against the program it was given, and holds only what it takes.
-    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
+    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
     adapter.setAttribute(flags.name, Uint32Array.of(1));
     adapter.attach({ getContext: () => gl } as any);
-    expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
-      /\bivec2\b.*Int32Array.*Float32Array/,
+    expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
-    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
-    expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrow(/Uint32Array.*Int32Array/);
-    expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrow(/Float32Array.*Float64Array/);
+    expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
     expect(() => adapter.setAttribute(ids, Int32Array.of(1, 2))).not.toThrow();
   });
 
@@ -807,14 +838,24 @@ describe("the array a GPU adapter takes for an attribute", () => {
       const vertex = Fn(() => builtinPosition().assign(vec4(position.x.add(ids.x.toFloat()), flags.toFloat(), 0, 1)))();
       const adapter = createWgsl({ context: { device } as any, vertex, fragment: Fn(() => vec4(0, 1, 0, 1))() });
       // Before attach, the adapter checks a slot against the program it was given, and holds only what it takes.
-      expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrow(/Int32Array.*Float32Array/);
+      expect(() => adapter.setAttribute(ids.name, Float32Array.of(1, 2))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
       adapter.setAttribute(flags.name, Uint32Array.of(1));
       await adapter.attach(canvas);
-      expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrow(
-        /\bivec2\b.*Int32Array.*Float32Array/,
+      expect(() => adapter.setAttribute(ids, Float32Array.of(1, 2) as any)).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
       );
-      expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrow(/Uint32Array.*Int32Array/);
-      expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrow(/Float32Array.*Float64Array/);
+      expect(() => adapter.setAttribute(flags.name, Int32Array.of(1))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
+      expect(() => adapter.setAttribute(position.name, Float64Array.of(1, 2, 3))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
       expect(() => adapter.setAttribute(ids, Int32Array.of(1, 2))).not.toThrow();
     } finally {
       vi.unstubAllGlobals();
@@ -844,10 +885,14 @@ describe("the array a GPU adapter takes for a storage buffer", () => {
       Fn(() => vec4(counts.element(int(0)).toFloat(), 0, 0, 1))() as any,
     );
     adapter.attach({ getContext: () => gl } as any);
-    expect(() => adapter.setAttribute(counts, new Float32Array(4) as any)).toThrow(
-      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    expect(() => adapter.setAttribute(counts, new Float32Array(4) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
-    expect(() => adapter.setAttribute(counts.name, new Uint32Array(4))).toThrow(/Int32Array.*Uint32Array/);
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(4))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
     expect(() => adapter.setAttribute(counts, new Int32Array(4))).not.toThrow();
   });
 
@@ -875,12 +920,19 @@ describe("the array a GPU adapter takes for a storage buffer", () => {
         vertex,
         fragment,
       });
-      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrow(/Uint32Array.*Int32Array/);
-      await adapter.attach(canvas);
-      expect(() => adapter.setAttribute(flags, new Float32Array(4) as any)).toThrow(
-        /\buvec2\b storage buffer.*Uint32Array.*Float32Array/,
+      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
       );
-      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrow(/Uint32Array.*Int32Array/);
+      await adapter.attach(canvas);
+      expect(() => adapter.setAttribute(flags, new Float32Array(4) as any)).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
+      expect(() => adapter.setAttribute(flags.name, new Int32Array(4))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
       expect(() => adapter.setAttribute(flags, new Uint32Array(4))).not.toThrow();
     } finally {
       vi.unstubAllGlobals();
@@ -903,29 +955,19 @@ const uniformShapes = () => {
     .add(pairs.element(int(1)).y);
   const fragment = Fn(() => vec4(value, 0, 0, 1))();
   const refuses = (setUniform: (uniform: any, value: unknown) => void) => {
-    expect(() => setUniform(count, [2])).toThrow(
-      `[RMSL] the int uniform "${count.name}" takes one value, not an array of 1`,
-    );
-    expect(() => setUniform(tint, [1, 2])).toThrow(
-      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
-    );
-    expect(() => setUniform(tint.name, 1)).toThrow(`[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not 1`);
+    expect(() => setUniform(count, [2])).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => setUniform(tint, [1, 2])).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => setUniform(tint.name, 1)).toThrowRmsl(UsageError, "host-value-of-another-shape");
     expect(() =>
       setUniform(turn.name, [
         [1, 0],
         [0, 1],
       ]),
-    ).toThrow(`[RMSL] the mat2 uniform "${turn.name}" takes 4 components, not an array of 2`);
-    expect(() => setUniform(offsets.name, [1])).toThrow(
-      `[RMSL] the int uniform array "${offsets.name}" takes 2 elements, not an array of 1`,
-    );
-    expect(() => setUniform(pairs, [[1, 2], [3]])).toThrow(
-      `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
-    );
+    ).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => setUniform(offsets.name, [1])).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => setUniform(pairs, [[1, 2], [3]])).toThrowRmsl(UsageError, "host-value-of-another-shape");
     for (const nothing of [undefined, null])
-      expect(() => setUniform(pairs, [[1, 2], nothing])).toThrow(
-        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
-      );
+      expect(() => setUniform(pairs, [[1, 2], nothing])).toThrowRmsl(UsageError, "host-value-of-another-shape");
     expect(() => setUniform(offsets, [1, undefined])).not.toThrow();
     expect(() => setUniform(offsets.name, [null, 2])).not.toThrow();
     expect(() => setUniform(count, 2.7)).not.toThrow();
@@ -1033,11 +1075,9 @@ describe("the shape of a value a GPU adapter takes for a uniform", () => {
     const count = uniform("int");
     const tint = uniform("vec3");
     const items = uniformArray("float", 2);
-    expect(() => context.setUniform(count, [3] as any)).toThrow(/takes one value, not an array of 1/);
-    expect(() => context.setUniform(tint, [1, 2] as any)).toThrow(
-      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
-    );
-    expect(() => context.setUniform(items, [1] as any)).toThrow(/takes 2 elements, not an array of 1/);
+    expect(() => context.setUniform(count, [3] as any)).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => context.setUniform(tint, [1, 2] as any)).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => context.setUniform(items, [1] as any)).toThrowRmsl(UsageError, "host-value-of-another-shape");
     expect(() => context.setUniform(count, 3)).not.toThrow();
   });
 });
@@ -1669,9 +1709,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
       const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.cpuAttributeWithoutData("${target}");`;
       expect(await runInGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual({
         error: expect.stringMatching(
-          new RegExp(
-            `^\\[RMSL\\] ${target === "JS" ? "createJs" : "createWasm"}: draw\\(\\) is missing attribute "_rmsl_a\\d+"`,
-          ),
+          new RegExp(`^${target === "JS" ? "createJs" : "createWasm"}: draw\\(\\) is missing attribute "_rmsl_a\\d+"`),
         ),
       });
     },
@@ -2311,8 +2349,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     );
     await adapter.attach();
     adapter.setAttribute(counts, Int32Array.of(1, 2));
-    await expect(adapter.compute({ [counts.name]: new Float32Array(2) })).rejects.toThrow(
-      `[RMSL] the int storage buffer "${counts.name}" takes an Int32Array, not a Float32Array`,
+    await expect(adapter.compute({ [counts.name]: new Float32Array(2) })).rejects.toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
     const out = { [counts.name]: new Int32Array(2) };
     await adapter.compute(out);
@@ -2335,8 +2374,10 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     );
     await adapter.attach();
     adapter.setAttribute(counts, Int32Array.of(1, 2, 3));
-    await expect(adapter.compute({ [counts.name]: new Int32Array(2) })).rejects.toThrow(
-      `[RMSL] out["${counts.name}"] holds 2 values, and the slot has 3`,
+    await expect(adapter.compute({ [counts.name]: new Int32Array(2) })).rejects.toThrowRmsl(
+      UsageError,
+      "readback-array-too-short",
+      `out["${counts.name}"] holds 2 values, and the slot has 3`,
     );
     const out = { [counts.name]: new Int32Array(4) };
     await adapter.compute(out);
@@ -2359,7 +2400,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     );
     await adapter.attach();
     adapter.setAttribute(counts, Int32Array.of(1, 2));
-    await expect(adapter.compute({ other: new Int32Array(2) })).rejects.toThrow(/"other".*no storage slot/);
+    await expect(adapter.compute({ other: new Int32Array(2) })).rejects.toThrowRmsl(UsageError, "unknown-storage-slot");
     const out = { [counts.name]: new Int32Array(2) };
     await adapter.compute(out);
     expect(Array.from(out[counts.name]!)).toEqual([2, 3]);
@@ -2527,7 +2568,10 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
     const adapter = createWgslCompute(program);
     await adapter.attach();
     adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4));
-    await expect(adapter.compute({ [points.name]: new Float32Array(2) })).rejects.toThrow(RangeError);
+    await expect(adapter.compute({ [points.name]: new Float32Array(2) })).rejects.toThrowRmsl(
+      UsageError,
+      "readback-array-too-short",
+    );
     const out = { [points.name]: new Float32Array(6) };
     // The dispatch covers the whole elements of the array, here one, so the half element is not computed.
     await adapter.compute(out);
@@ -2580,12 +2624,19 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
         counts.element(invocationIndex()).assign(counts.element(invocationIndex()).add(1));
       })(),
     );
-    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
-    await adapter.attach();
-    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
-      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
-    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
+    await adapter.attach();
+    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
     expect(() => adapter.setAttribute(counts, new Int32Array(2))).not.toThrow();
     adapter.destroy();
   }, 60_000);
@@ -2598,7 +2649,10 @@ describe("what WGSL writes for a name or a loop header", () => {
    * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("refuses a uniform with an empty name on WGSL", () => {
-    expect(() => compileWgslStage.fragment(Fn(() => vec4(uniformRaw("", "float"), 0, 0, 1))())).toThrow();
+    expect(() => compileWgslStage.fragment(Fn(() => vec4(uniformRaw("", "float"), 0, 0, 1))())).toThrowRmsl(
+      NodeError,
+      "empty-name",
+    );
   });
 
   /**
@@ -2607,7 +2661,10 @@ describe("what WGSL writes for a name or a loop header", () => {
    * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("refuses a varying with an empty name on WGSL", () => {
-    expect(() => compileWgslStage.fragment(Fn(() => vec4(varyingRaw("", "float"), 0, 0, 1))())).toThrow();
+    expect(() => compileWgslStage.fragment(Fn(() => vec4(varyingRaw("", "float"), 0, 0, 1))())).toThrowRmsl(
+      NodeError,
+      "empty-name",
+    );
   });
 
   /**
@@ -3018,7 +3075,11 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
    */
   it("refuses a layout Fn that reads the attribute with createWgsl", async () => {
     const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
-    await expect(wgslSources(() => Fn(() => vec4(0, readsTint(), 0, 1))())).rejects.toThrow(/uses an attribute/);
+    await expect(wgslSources(() => Fn(() => vec4(0, readsTint(), 0, 1))())).rejects.toThrowRmsl(
+      TargetError,
+      "layout-fn-reaches-stage-value",
+      /uses an attribute/,
+    );
   });
 
   /**
@@ -3026,8 +3087,8 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
    */
   it("refuses the attribute in a fragment stage compiled alone on GLSL and WGSL", () => {
     const named = new RegExp(`fragment stage reads the attribute "${tint.name}"`);
-    expect(() => compileGlsl.fragment(fragment() as any)).toThrow(named);
-    expect(() => compileWgsl.fragment(fragment() as any)).toThrow(named);
+    expect(() => compileGlsl.fragment(fragment() as any)).toThrowRmsl(ProgramError, "fragment-reads-attribute", named);
+    expect(() => compileWgsl.fragment(fragment() as any)).toThrowRmsl(ProgramError, "fragment-reads-attribute", named);
   });
 });
 

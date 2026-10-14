@@ -1,8 +1,9 @@
-import { Node, ShaderType } from "../../core";
-import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
+import { ProgramError, TargetError, type BackendOrigin } from "../../errors";
+import { Node, ShaderType, componentCountOf, componentKindOf } from "../../core";
+import { CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import {
-  compileWasmFn,
+  compileWasmModule,
   componentSizeOf,
   createWasmInputMarshaller,
   VERTEX_INDEX_SLOT,
@@ -230,6 +231,8 @@ function align8(n: number): number {
   return Math.ceil(n / 8) * 8;
 }
 
+const COMPILE_WASM: BackendOrigin = { target: "wasm", caller: "compileWasm" };
+
 /**
  * Compiles a vertex/fragment `Fn` pair and links them against the shared
  * rasterizer module (see rasterizer.md) into one {@link WasmRasterRoutine}.
@@ -246,26 +249,26 @@ export function compileWasm(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmOptions = {},
 ): WasmRasterRoutine {
-  return compileWasmRasterizer("compileWasm", vertexFn, fragmentFn, options);
+  return compileWasmRasterizer(COMPILE_WASM, vertexFn, fragmentFn, options);
 }
 
-/** {@link compileWasm} for `caller`, the call the errors of a draw name: `compileWasm` itself, or an adapter that wraps it. */
+/** {@link compileWasm} for `origin`, whose caller the errors of a draw name: `compileWasm` itself, or an adapter that wraps it. */
 export function compileWasmRasterizer(
-  caller: string,
+  origin: BackendOrigin,
   vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmOptions,
 ): WasmRasterRoutine {
   // Each stage is built once, so the declarations below come from the graph that was compiled.
-  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn(), true);
-  const vertexCompiled = compileWasmFn(() => vertexRoots, {
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(origin, vertexFn(), fragmentFn(), true);
+  const vertexCompiled = compileWasmModule(origin, () => vertexRoots, {
     ...options,
     name: "main",
     params: [],
     stage: "vertex",
     scalarsInMemory: true,
   });
-  const fragmentCompiled = compileWasmFn(() => fragmentRoots, {
+  const fragmentCompiled = compileWasmModule(origin, () => fragmentRoots, {
     ...options,
     name: "main",
     params: [],
@@ -287,16 +290,28 @@ export function compileWasmRasterizer(
     (p): p is Extract<WasmParam, { kind: "positionMemory" }> => p.kind === "positionMemory",
   );
   if (!positionParam) {
-    throw new Error("[RMSL] compileWasm: vertexFn must produce a position (builtinPosition() or a bare vec4 return)");
+    throw new ProgramError(
+      "vertex-without-position",
+      "compileWasm: vertexFn must produce a position (builtinPosition() or a bare vec4 return)",
+      origin,
+    );
   }
   const fragmentValueParam = fragmentCompiled.params.find(
     (p): p is Extract<WasmParam, { kind: "valueMemory" }> => p.kind === "valueMemory",
   );
   if (fragmentValueParam !== undefined && fragmentValueParam.shaderType !== "vec4") {
-    throw new Error("[RMSL] compileWasm: fragmentFn must return a vec4 color, or nothing");
+    throw new ProgramError(
+      "fragment-result-not-a-colour",
+      "compileWasm: fragmentFn must return a vec4 color, or nothing",
+      origin,
+    );
   }
   if (fragmentValueParam === undefined && fragmentCompiled.params.some((p) => p.kind === "outputMemory")) {
-    throw new Error("[RMSL] compileWasm: the rasterizer draws a vec4 colour, so fragmentFn cannot declare outputs");
+    throw new TargetError(
+      "rasterizer-has-one-output",
+      "compileWasm: the rasterizer draws a vec4 colour, so fragmentFn cannot declare outputs",
+      { target: "wasm" },
+    );
   }
   const positionAddress = positionParam.address;
   /** The address of what the fragment stage writes or reads, and 1 when it does, 0 when it does not. */
@@ -312,8 +327,10 @@ export function compileWasmRasterizer(
 
   const missingInFragment = vertexVaryingParams.filter((v) => !fragmentVaryingParams.some((f) => f.slot === v.slot));
   if (missingInFragment.length > 0) {
-    throw new Error(
-      `[RMSL] compileWasm: varying(s) ${missingInFragment.map((v) => v.slot).join(", ")} written by vertexFn but never read by fragmentFn`,
+    throw new ProgramError(
+      "varying-never-read",
+      `compileWasm: varying(s) ${missingInFragment.map((v) => v.slot).join(", ")} written by vertexFn but never read by fragmentFn`,
+      origin,
     );
   }
 
@@ -356,8 +373,10 @@ export function compileWasmRasterizer(
     );
   const memoryIsShared = typeof SharedArrayBuffer !== "undefined" && memory.buffer instanceof SharedArrayBuffer;
   if (memoryIsShared !== vertexCompiled.sharedMemory) {
-    throw new Error(
-      `[RMSL] compileWasm: the memory is ${memoryIsShared ? "shared" : "not shared"}, but the stages were compiled with sharedMemory ${vertexCompiled.sharedMemory}`,
+    throw new ProgramError(
+      "shared-memory-mismatch",
+      `compileWasm: the memory is ${memoryIsShared ? "shared" : "not shared"}, but the stages were compiled with sharedMemory ${vertexCompiled.sharedMemory}`,
+      origin,
     );
   }
 
@@ -507,7 +526,7 @@ export function compileWasmRasterizer(
         continue;
       }
       const src = ctx.attributes[a.slot];
-      if (!src) throw missingAttributeError(caller, a.slot);
+      if (!src) throw missingAttributeError(origin, a.slot);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;

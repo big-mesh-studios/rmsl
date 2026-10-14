@@ -1,3 +1,4 @@
+import { ProgramError, UsageError, type BackendOrigin, type Origin, NodeError, TargetError } from "../errors";
 import { safeName } from "./reserved-names";
 import { withArticle } from "../article";
 import {
@@ -8,14 +9,11 @@ import {
   type FnDefinition,
   BaseNode,
   LOOP_JUMP_STATEMENTS,
-  MATRIX_DIMENSIONS,
   Node,
-  NodeImpl,
   ShaderType,
   StorageAccess,
   StorageNode,
   StorageBufferAttribute,
-  TYPE_WIDTH,
   node,
   operandRefusal,
   someNode,
@@ -23,8 +21,14 @@ import {
   var_,
   varying,
   vec4,
+  refuseWholeStorageRead,
+  assertNoRepeatedSwizzle,
+  assertConstantIndexInRange,
+  assignmentRoot,
+  assertAssignableNode,
+  assertNode,
+  assertFnBodyNode,
 } from "../core";
-import { componentCountOf, componentKindOf } from "./cpu";
 import { isInlineFn } from "./share";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
@@ -87,7 +91,7 @@ export function wrapExpr(childPrec: number | undefined, parentPrec: number, expr
   return (childPrec ?? PREC_ATOM) <= parentPrec ? `(${expr})` : expr;
 }
 
-export interface CompileCtx {
+export interface CompileCtx extends BackendOrigin {
   nextId: number;
   shaderStage: "vertex" | "fragment" | "compute";
   /**
@@ -231,367 +235,6 @@ export interface UserFns {
   declarations: string[];
 }
 
-// === Constant folding ===
-export function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
-  return (n.type === "float" || n.type === "int" || n.type === "uint" || n.type === "bool") && !n.params;
-}
-
-/**
- * An integer operation on literal operands, computed the way every backend
- * computes it at run time: wrapped to 32 bits, with WGSL's results for
- * division and remainder by zero and for `INT_MIN / -1`, shift amounts taken
- * modulo 32, and `clamp` as `min(max(e, low), high)`. `undefined` for an
- * operation this doesn't fold.
- */
-function foldInteger(op: string, t: "int" | "uint", [a = 0, b = 0, c = 0]: number[]): number | undefined {
-  let wrap = t === "int" ? (x: number) => x | 0 : (x: number) => x >>> 0;
-  switch (op) {
-    case "add":
-      return wrap(a + b);
-    case "sub":
-      return wrap(a - b);
-    case "mul":
-      return wrap(Math.imul(a, b));
-    case "div":
-      return b === 0 || (t === "int" && a === -2147483648 && b === -1) ? a : wrap(Math.trunc(a / b));
-    case "mod":
-      return b === 0 ? 0 : wrap(a % b);
-    case "negate":
-      return wrap(-a);
-    case "abs":
-      return wrap(Math.abs(a));
-    case "bitAnd":
-      return wrap(a & b);
-    case "bitOr":
-      return wrap(a | b);
-    case "bitXor":
-      return wrap(a ^ b);
-    case "bitNot":
-      return wrap(~a);
-    case "shiftLeft":
-      return wrap(a << b);
-    case "shiftRight":
-      return t === "int" ? a >> b : a >>> b;
-    case "min":
-      return Math.min(a, b);
-    case "max":
-      return Math.max(a, b);
-    case "clamp":
-      return Math.min(Math.max(a, b), c);
-  }
-  return undefined;
-}
-
-const INTEGER_COMPARISONS: Record<string, (a: number, b: number) => boolean> = {
-  lessThan: (a, b) => a < b,
-  greaterThan: (a, b) => a > b,
-  lessThanEqual: (a, b) => a <= b,
-  greaterThanEqual: (a, b) => a >= b,
-  equal: (a, b) => a === b,
-  notEqual: (a, b) => a !== b,
-};
-
-/** A component of a literal that may be a splat: one value stands for every component. */
-function componentAt(components: number[], i: number): number {
-  return components[components.length > 1 ? i : 0]!;
-}
-
-/** Whether `t` is `int`, `uint`, or a vector of either. */
-export function isIntegerType(t: string): boolean {
-  let kind = componentKindOf(t);
-  return kind === "int" || kind === "uint";
-}
-
-function isUnsignedType(t: string): boolean {
-  return componentKindOf(t) === "uint";
-}
-
-/**
- * The components of an integer literal — a scalar, a vector literal, or a
- * vector constructor whose parts are all constant — or `null` when `n` isn't
- * one. A part may be a constant expression, and may have the other
- * signedness: its bits are kept, as the conversion does at run time. One
- * scalar part fills every component.
- */
-function integerLiteralComponents(n: BaseNode<ShaderType>): number[] | null {
-  let t = n._t as string;
-  if (!isIntegerType(t)) return null;
-  if (isLeafLiteral(n)) return [n.value as number];
-  if (n.type === t && Array.isArray(n.value)) return n.value as number[];
-  let width = TYPE_WIDTH[t] ?? 1;
-  if (width === 1 || n.type !== "construct" || !n.params?.length) return null;
-  let parts: number[] = [];
-  for (let param of n.params) {
-    let constant = integerConstant(param);
-    let components = constant && integerLiteralComponents(constant);
-    if (!components) return null;
-    parts.push(...components);
-  }
-  if (n.params.length === 1 && parts.length === 1) parts = Array(width).fill(parts[0]);
-  if (parts.length !== width) return null;
-  let wrap = isUnsignedType(t) ? (x: number) => x >>> 0 : (x: number) => x | 0;
-  return parts.map(wrap);
-}
-
-const integerConstants = new WeakMap<object, BaseNode<ShaderType> | null>();
-
-/**
- * `n` as an integer literal when it is a constant integer expression, or
- * `null`. Folding happens from the leaves up, so `a.div(int(2).sub(int(2)))`
- * sees its divisor as the literal `0` rather than as an unfolded subtraction.
- * Cached per node: a node is asked for by each of its parents.
- */
-function integerConstant(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  if (!n || typeof n !== "object" || !isIntegerType(n._t as string)) return null;
-  if (integerLiteralComponents(n)) return n;
-  let cached = integerConstants.get(n);
-  if (cached !== undefined) return cached;
-  integerConstants.set(n, null);
-  let folded = tryFold(n);
-  let result = folded && folded !== n ? integerConstant(folded) : null;
-  integerConstants.set(n, result);
-  return result;
-}
-
-function integerLiteral(t: string, components: number[]): BaseNode<ShaderType> {
-  return mkNode({ _t: t, type: t, value: (TYPE_WIDTH[t] ?? 1) > 1 ? components : components[0] });
-}
-
-/**
- * The result of a comparison between integer constants, one boolean per
- * component, or `null` when `n` isn't one.
- */
-function integerComparison(n: BaseNode<ShaderType>): boolean[] | null {
-  let compare = INTEGER_COMPARISONS[n.type];
-  let [lhs, rhs] = n.params ?? [];
-  if (!compare || !lhs || !rhs) return null;
-  let a = integerConstant(lhs);
-  let b = integerConstant(rhs);
-  let ca = a && integerLiteralComponents(a);
-  let cb = b && integerLiteralComponents(b);
-  if (!ca || !cb) return null;
-  return Array.from({ length: Math.max(ca.length, cb.length) }, (_, i) =>
-    compare(componentAt(ca, i), componentAt(cb, i)),
-  );
-}
-
-/**
- * A select whose condition is a constant: the chosen branch, or — for a
- * condition that differs between components — the components of two
- * constant branches picked one by one. WGSL evaluates a constant condition
- * itself, so a branch it picks is as constant as a literal would be.
- */
-function foldSelect(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  let [cond, ifTrue, ifFalse] = n.params ?? [];
-  if (!cond || !ifTrue || !ifFalse) return null;
-  let picks = isLeafLiteral(cond) ? [Boolean(cond.value)] : integerComparison(cond);
-  if (!picks) return null;
-  if (picks.every((p) => p === picks![0])) return picks[0] ? ifTrue : ifFalse;
-  let a = integerLiteralComponents(ifTrue);
-  let b = integerLiteralComponents(ifFalse);
-  if (!a || !b) return null;
-  return integerLiteral(
-    n._t as string,
-    picks.map((p, i) => (p ? componentAt(a!, i) : componentAt(b!, i))),
-  );
-}
-
-/**
- * Integer operations on literals, folded component by component, and a
- * literal divisor or shift amount rewritten to the value the run-time rules
- * already use: a zero divisor becomes 1 (`x / 1` is `x`, `x % 1` is `0`) and a
- * shift amount keeps its low 5 bits. WGSL rejects the unrewritten constants at
- * shader creation, even when the other operand is a run-time value.
- */
-function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  let t = n._t as string;
-  let [lhs, rhs] = n.params ?? [];
-  if (!isIntegerType(t) || !lhs) return null;
-  let kind: "int" | "uint" = isUnsignedType(t) ? "uint" : "int";
-  let operands = n.params!.map(integerLiteralComponents);
-  if (operands.every((c) => c !== null)) {
-    let folded = Array.from({ length: TYPE_WIDTH[t] ?? 1 }, (_, i) =>
-      foldInteger(
-        n.type,
-        kind,
-        operands.map((c) => componentAt(c!, i)),
-      ),
-    );
-    if (folded.every((v) => v !== undefined)) return integerLiteral(t, folded as number[]);
-  }
-  let b = rhs ? integerLiteralComponents(rhs) : null;
-  if (!rhs || !b) return null;
-  let rewrite =
-    n.type === "div" || n.type === "mod"
-      ? (v: number) => (v === 0 ? 1 : v)
-      : n.type === "shiftLeft" || n.type === "shiftRight"
-        ? (v: number) => v & 31
-        : null;
-  if (!rewrite || b.every((v) => rewrite!(v) === v)) return null;
-  return mkNode({ _t: t, type: n.type, params: [lhs, integerLiteral(rhs._t as string, b.map(rewrite))] });
-}
-
-/**
- * `n` folded to the literal it computes, or null. With `float32`, a float
- * literal operand and a float result are rounded to 32 bits, as a CPU target at
- * `float: "f32"` computes them at run time.
- */
-export function tryFold(n: BaseNode<ShaderType>, float32 = false): BaseNode<ShaderType> | null {
-  let folded = float32 ? foldNode32(n) : foldNode(n);
-  if (
-    folded &&
-    folded._t === "float" &&
-    folded.type === "float" &&
-    n.type !== "float" &&
-    n.type !== "select" &&
-    !Number.isFinite(Math.fround(folded.value as number))
-  ) {
-    throw new Error(
-      `[RMSL] ${n.type}() of literal operands is ${folded.value}, which a 32-bit float cannot hold and no target can write as a constant. ` +
-        `Compute it from a value that is not a literal, such as a uniform.`,
-    );
-  }
-  return folded;
-}
-
-function foldNode32(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  let params = n.params?.map((p) => (p && isLeafLiteral(p) ? roundLiteral32(p) : p));
-  let rounded = params?.some((p, i) => p !== n.params![i])
-    ? mkNode({ _t: n._t as string, type: n.type, params, value: n.value })
-    : n;
-  let folded = foldNode(rounded);
-  return folded && isLeafLiteral(folded) ? roundLiteral32(folded) : folded;
-}
-
-/** A float literal, scalar, vector or matrix, with each value rounded to 32 bits; any other node as it is. */
-function roundLiteral32(n: BaseNode<ShaderType>): BaseNode<ShaderType> {
-  let t = n._t as string;
-  if (t !== "float" && !/^(vec|mat)/.test(t)) return n;
-  let value = Array.isArray(n.value) ? (n.value as number[]).map(Math.fround) : Math.fround(n.value as number);
-  return mkNode({ _t: t, type: n.type, value });
-}
-
-function foldNode(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  // Integer operands are folded first, so a constant subexpression counts as
-  // the literal it is when this node is folded or its divisor is rewritten.
-  let operands = n.params?.map((p) => integerConstant(p) ?? p);
-  if (operands?.some((p, i) => p !== n.params![i])) {
-    n = mkNode({ _t: n._t as string, type: n.type, params: operands, value: n.value });
-  }
-  // A select with a constant condition collapses to the chosen branch,
-  // whatever the branches are — the guard below only admits scalar literals,
-  // so this is checked before it.
-  if (n.type === "select") return foldSelect(n);
-  let integerOperands = foldIntegerOperands(n);
-  if (integerOperands) return integerOperands;
-  let params = n.params ?? [];
-  if (!params.every(isLeafLiteral)) return null;
-  let p0 = params[0]?.value;
-  let p1 = params[1]?.value;
-  let t = n._t;
-  if (t === "float" || t === "int" || t === "uint") {
-    let a = p0 as number;
-    let b = p1 as number;
-    switch (n.type) {
-      case "add":
-        return mkNode({ _t: t, type: t, value: a + b });
-      case "sub":
-        return mkNode({ _t: t, type: t, value: a - b });
-      case "mul":
-        return mkNode({ _t: t, type: t, value: a * b });
-      case "div":
-        return mkNode({ _t: t, type: t, value: a / b });
-      case "negate":
-        return mkNode({ _t: t, type: t, value: -a });
-      // JavaScript's % truncates toward zero. The float operation is floored,
-      // following GLSL's mod(), so folding it with % would give a literal that
-      // disagrees with what the same expression computes when its operands are
-      // not constants.
-      case "mod":
-        return mkNode({ _t: t, type: t, value: a - b * Math.floor(a / b) });
-      case "sin":
-        return mkNode({ _t: t, type: t, value: Math.sin(a) });
-      case "cos":
-        return mkNode({ _t: t, type: t, value: Math.cos(a) });
-      case "tan":
-        return mkNode({ _t: t, type: t, value: Math.tan(a) });
-      case "asin":
-        return mkNode({ _t: t, type: t, value: Math.asin(a) });
-      case "acos":
-        return mkNode({ _t: t, type: t, value: Math.acos(a) });
-      case "atan":
-        return mkNode({ _t: t, type: t, value: Math.atan(a) });
-      case "sinh":
-        return mkNode({ _t: t, type: t, value: Math.sinh(a) });
-      case "cosh":
-        return mkNode({ _t: t, type: t, value: Math.cosh(a) });
-      case "tanh":
-        return mkNode({ _t: t, type: t, value: Math.tanh(a) });
-      case "asinh":
-        return mkNode({ _t: t, type: t, value: Math.asinh(a) });
-      case "acosh":
-        return mkNode({ _t: t, type: t, value: Math.acosh(a) });
-      case "atanh":
-        return mkNode({ _t: t, type: t, value: Math.atanh(a) });
-      case "abs":
-        return mkNode({ _t: t, type: t, value: Math.abs(a) });
-      case "sign":
-        return mkNode({ _t: t, type: t, value: Math.sign(a) });
-      case "floor":
-        return mkNode({ _t: t, type: t, value: Math.floor(a) });
-      case "ceil":
-        return mkNode({ _t: t, type: t, value: Math.ceil(a) });
-      case "round":
-        return mkNode({ _t: t, type: t, value: roundHalfToEven(a) });
-      case "trunc":
-        return mkNode({ _t: t, type: t, value: Math.trunc(a) });
-      case "radians":
-        return mkNode({ _t: t, type: t, value: a * RADIANS_PER_DEGREE });
-      case "degrees":
-        return mkNode({ _t: t, type: t, value: a * DEGREES_PER_RADIAN });
-      case "fract":
-        return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
-      case "sqrt":
-        return mkNode({ _t: t, type: t, value: Math.sqrt(a) });
-      case "inverseSqrt":
-        return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
-      case "atan2":
-        return mkNode({ _t: t, type: t, value: Math.atan2(a, b) });
-      case "exp":
-        return mkNode({ _t: t, type: t, value: Math.exp(a) });
-      case "log":
-        return mkNode({ _t: t, type: t, value: Math.log(a) });
-      case "exp2":
-        return mkNode({ _t: t, type: t, value: Math.pow(2, a) });
-      case "log2":
-        return mkNode({ _t: t, type: t, value: Math.log2(a) });
-      case "pow":
-        return mkNode({ _t: t, type: t, value: Math.pow(a, b) });
-      case "min":
-        return mkNode({ _t: t, type: t, value: Math.min(a, b) });
-      case "max":
-        return mkNode({ _t: t, type: t, value: Math.max(a, b) });
-      case "dot":
-        return mkNode({ _t: t, type: t, value: a * b });
-    }
-  }
-  return null;
-}
-
-export function mkNode(config: {
-  _t?: string;
-  type: string;
-  params?: BaseNode<ShaderType>[];
-  value?: unknown;
-}): BaseNode<ShaderType> {
-  return new NodeImpl({
-    _t: config._t ?? config.type,
-    type: config.type,
-    params: config.params,
-    value: config.value,
-  }) as BaseNode<ShaderType>;
-}
-
 /** Drop a trailing semicolon, for the slots that take an expression. */
 export function withoutSemicolon(statement: string): string {
   return statement.endsWith(";") ? statement.slice(0, -1) : statement;
@@ -627,13 +270,14 @@ export function loopTest(cond: CompiledNode): { header: string; guard: string[] 
  * type with no conversion to one is refused here.
  */
 export function assertStageResult(
+  origin: Origin,
   shaderStage: "vertex" | "fragment" | "compute",
   lastType: string | undefined,
   positionWritten: boolean,
   declaresOutput = false,
 ): void {
   if (shaderStage === "fragment") {
-    assertFragmentResult(lastType, declaresOutput);
+    assertFragmentResult(origin, lastType, declaresOutput);
     return;
   }
   if (shaderStage !== "vertex") return;
@@ -645,21 +289,25 @@ export function assertStageResult(
   // Whether a stage produced a value is a question about its type, not the text
   // it compiled to. A vertex shader returning zero or returning nothing both
   // fail the same check.
-  throw new Error(
-    `[RMSL] A vertex shader has to produce a position. This one ` +
+  throw new ProgramError(
+    "vertex-without-position",
+    `A vertex shader has to produce a position. This one ` +
       (lastType === undefined || lastType === "void"
         ? `returns nothing and never assigns builtinPosition(). Return a vec4, or ` +
           `assign builtinPosition() yourself.`
         : `returns ${lastType}, which cannot become one. Wrap it — for example ` + `vec4(value, 1.0).`),
+    origin,
   );
 }
 
-function assertFragmentResult(lastType: string | undefined, declaresOutput: boolean): void {
+function assertFragmentResult(origin: Origin, lastType: string | undefined, declaresOutput: boolean): void {
   if (declaresOutput) return;
   if (lastType === undefined || lastType === "void" || lastType === "vec4") return;
-  throw new Error(
-    `[RMSL] A fragment shader that declares no output writes its result as the colour. ` +
+  throw new ProgramError(
+    "fragment-result-not-a-colour",
+    `A fragment shader that declares no output writes its result as the colour. ` +
       `This one returns ${lastType}, which has no colour to become. Return a vec4, or declare an output.`,
+    origin,
   );
 }
 
@@ -668,7 +316,7 @@ function assertFragmentResult(lastType: string | undefined, declaresOutput: bool
  * member `i` becomes an assignment to an output at location `i`, in slot
  * `_rmsl_out<i>`. Only the last value of a stage can be one.
  */
-function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]): T[] {
+function lowerOutputStruct<T extends BaseNode<ShaderType>>(origin: Origin, roots: readonly T[]): T[] {
   const nothing = () => node({ _t: "void", type: "void" }) as BaseNode<ShaderType>;
   /** The assignments of the members, which end in nothing: the stage returns no value. */
   const written = (struct: BaseNode<ShaderType>): BaseNode<ShaderType>[] => [
@@ -699,8 +347,10 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
   };
   const lowered = roots.map((root, i) => (i === roots.length - 1 ? (lower(root) as T) : root));
   if (someNode(lowered, (n) => n.type === "outputStruct")) {
-    throw new Error(
-      "[RMSL] outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
+    throw new NodeError(
+      "output-struct-misplaced",
+      "outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
+      origin,
     );
   }
   return lowered;
@@ -708,8 +358,8 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
 
 /** Why a `Break()` or a `Continue()` with no loop around it is refused, for each jump. */
 export const LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE: Record<"break" | "continue", string> = {
-  break: '[RMSL] "Break" outside a loop: no loop is around it for it to leave. Call it inside a loop body.',
-  continue: '[RMSL] "Continue" outside a loop: no loop is around it to start again. Call it inside a loop body.',
+  break: '"Break" outside a loop: no loop is around it for it to leave. Call it inside a loop body.',
+  continue: '"Continue" outside a loop: no loop is around it to start again. Call it inside a loop body.',
 };
 
 /**
@@ -720,11 +370,6 @@ export const LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE: Record<"break" | "continue", stri
  */
 const isBlockSlot = (statement: any, i: number) =>
   statement.type === "seq" || (statement.type === "if" && i > 0) || (statement.type === "for" && i === 0);
-
-/** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
-function refuseWholeStorageRead(storage: any): never {
-  throw new Error(`[RMSL] storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`);
-}
 
 /**
  * Checks every node of `roots`, in one walk, for the refusals every compiler
@@ -740,6 +385,7 @@ function refuseWholeStorageRead(storage: any): never {
  * {@link swizzleWritePlace}, and whether the program holds an `outputStruct`.
  */
 function checkRoots(
+  origin: Origin,
   roots: readonly unknown[],
   stageInputsInFns: boolean,
 ): {
@@ -755,7 +401,8 @@ function checkRoots(
     if (checkedFns.has(definition.body)) return;
     checkedFns.add(definition.body);
     assertFnIsClosed(definition);
-    assertFnBody(definition, stageInputsInFns);
+    assertFnBodyNode(origin, definition);
+    if (!stageInputsInFns) assertFnReachesNoStageValue(definition);
     // A function may call `Return()`: it ends the function, not the stage.
     const stageHeldReturn = holdsReturn;
     visit(definition.body, false, true);
@@ -765,7 +412,7 @@ function checkRoots(
   let holdsReturn = false;
   let holdsStageWrite = false;
   let holdsVarying = false;
-  for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(root);
+  for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(origin, root);
   // A node is visited once in each place: in a loop update, elsewhere in a
   // loop or an inline Fn, and among the statements of the program outside every loop.
   const visited = [new Set<unknown>(), new Set<unknown>(), new Set<unknown>()];
@@ -777,9 +424,12 @@ function checkRoots(
     if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate, outsideLoops));
     if (inUpdate) assertForUpdateNode(node);
     if (outsideLoops && LOOP_JUMP_STATEMENTS.has(node.type))
-      throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[node.type as "break" | "continue"]);
-    const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
-    if (refusal) throw new Error(`[RMSL] ${refusal}`);
+      throw new ProgramError(
+        "jump-outside-a-loop",
+        LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[node.type as "break" | "continue"],
+        origin,
+      );
+    assertNode(origin, node);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     assertNodeNames(node);
     if (node.type === "call") {
@@ -791,8 +441,8 @@ function checkRoots(
     if (node.type === "varying") holdsVarying = true;
     if (node.type === "assign" && isSwizzleWrite(node.params[0])) {
       const target = node.params[0];
-      assertNoRepeatedSwizzle(target);
-      assertConstantIndexInRange(target.params[0], target.params[1]);
+      assertNoRepeatedSwizzle(origin, target);
+      assertConstantIndexInRange(origin, target.params[0], target.params[1]);
       swizzleWrites.set(
         node,
         Object.assign(Object.create(Object.getPrototypeOf(node)), node, {
@@ -801,8 +451,6 @@ function checkRoots(
       );
     }
     node.params?.forEach((param: any, i: number) => {
-      const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
-      if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(param);
       const outside =
         outsideLoops &&
         !(node.type === "while" || (node.type === "for" && i > 0)) &&
@@ -840,12 +488,14 @@ export type FoundInRoots = {
  * varyings as globals, where a function with a layout may reach them.
  */
 export function prepareRoots<T extends Node<ShaderType>>(
+  origin: Origin,
   stage: string | undefined,
   roots: readonly T[],
   found?: FoundInRoots,
   stageInputsInFns = false,
 ): T[] {
   const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(
+    origin,
     roots,
     stageInputsInFns,
   );
@@ -854,22 +504,26 @@ export function prepareRoots<T extends Node<ShaderType>>(
     found.writesStageResult = holdsStageWrite || (stage === "vertex" && holdsVarying);
   }
   if ((stage === "vertex" || stage === "fragment") && holdsReturn) {
-    throw new Error(
-      `[RMSL] Return() would end the ${stage} stage, leaving the outputs it writes after it unwritten on every target. ` +
+    throw new ProgramError(
+      "return-ends-the-stage",
+      `Return() would end the ${stage} stage, leaving the outputs it writes after it unwritten on every target. ` +
         `Write the rest of the stage in an If or Else instead` +
         (stage === "fragment" ? ", or drop the fragment with Discard()." : "."),
+      origin,
     );
   }
   roots = substituteNodes(roots, swizzleWrites);
   if (stage === "fragment") {
-    assertReadsNoAttribute(roots);
-    return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
+    assertReadsNoAttribute(origin, roots);
+    return fragmentColour(lowerOutputStruct(origin, roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
   }
   if (holdsOutputStruct) {
-    throw new Error(
-      `[RMSL] outputStruct is the value a fragment stage returns, and this program is compiled ` +
+    throw new ProgramError(
+      "output-struct-outside-fragment",
+      `outputStruct is the value a fragment stage returns, and this program is compiled ` +
         (stage === undefined ? "with no stage" : `as a ${stage} stage`) +
         `. Compile it as a fragment stage.`,
+      origin,
     );
   }
   return [...roots];
@@ -880,13 +534,15 @@ export function prepareRoots<T extends Node<ShaderType>>(
  * vertex stage is given. {@link linkStages} turns the read into a varying
  * first, for a call that takes both stages.
  */
-function assertReadsNoAttribute(roots: unknown): void {
+function assertReadsNoAttribute(origin: Origin, roots: unknown): void {
   let read: any;
   someNode(roots, (n) => (n.type === "attribute" ? ((read = n), true) : false));
   if (read) {
-    throw new Error(
-      `[RMSL] the fragment stage reads the attribute "${read.value.slot}", which only a vertex stage is given. ` +
+    throw new ProgramError(
+      "fragment-reads-attribute",
+      `the fragment stage reads the attribute "${read.value.slot}", which only a vertex stage is given. ` +
         `Compile it together with its vertex stage, in createGlsl, createWgsl, compileJS or compileWasm, or pass the value on in a varying.`,
+      origin,
     );
   }
 }
@@ -899,6 +555,7 @@ function assertReadsNoAttribute(roots: unknown): void {
  * holds each varying under the slot of the attribute it carries.
  */
 export function linkStages<V, F>(
+  origin: Origin,
   vertexRoot: V,
   fragmentRoot: F,
   stageInputsInFns = false,
@@ -916,7 +573,7 @@ export function linkStages<V, F>(
   };
   find(fragmentRoot);
   // Reads of one slot become one varying, so a conflict between them has to show before they merge.
-  if (reads.length > 0) assertOneDeclarationPerName(fragmentRoot);
+  if (reads.length > 0) assertOneDeclarationPerName(origin, fragmentRoot);
   const replaced = new Map<any, any>();
   const varyings = new Map<string, any>();
   const assignments: BaseNode<ShaderType>[] = [];
@@ -935,9 +592,11 @@ export function linkStages<V, F>(
   if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
   const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
   if (!last || typeof last !== "object") {
-    throw new Error(
-      `[RMSL] the fragment stage reads the attribute "${reads[0].value.slot}", but the vertex stage gives no root to pass it on from. ` +
+    throw new ProgramError(
+      "fragment-attribute-without-vertex-root",
+      `the fragment stage reads the attribute "${reads[0].value.slot}", but the vertex stage gives no root to pass it on from. ` +
         `A vertex stage returns its position.`,
+      origin,
     );
   }
   const roots: any[] = Array.isArray(vertexRoot) ? [...vertexRoot] : [vertexRoot];
@@ -1032,69 +691,20 @@ export function resolveSwizzleTarget(target: any): { base: BaseNode<ShaderType>;
 }
 
 /**
- * A constant index outside the components of a vector, the columns of a
- * matrix or the elements of a uniform array is refused by every target, so the
- * same program is not refused on one and compiled to a read of nothing on
- * another. A constant index is a literal, or an operation of literals that
- * folds to one. Asked wherever an element is compiled, which also reaches a
- * graph that `deserialize` rebuilt. Returns the index when it is inside, and
- * `undefined` when it is not constant.
- */
-export function assertConstantIndexInRange(
-  target: { _t?: string; type?: string; value?: unknown },
-  index: BaseNode<ShaderType>,
-): number | undefined {
-  const constant = isLeafLiteral(index) ? index : tryFold(index);
-  if (!constant || !isLeafLiteral(constant)) return undefined;
-  const type = target._t as string;
-  const array = target.type === "uniformArray" ? (target.value as { length: number }).length : undefined;
-  const shape = MATRIX_DIMENSIONS[type];
-  const count = array ?? (shape ? shape[0] : componentCountOf(type));
-  const what = array !== undefined ? `${type}[${array}]` : type;
-  const items = array !== undefined ? "elements" : shape ? "columns" : "components";
-  const k = Math.trunc(Number(constant.value));
-  if (!(k >= 0 && k < count)) {
-    throw new Error(`[RMSL] index ${k} is outside ${withArticle(what)}'s ${items} 0 to ${count - 1}`);
-  }
-  return k;
-}
-
-/** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */
-export function roundHalfToEven(x: number): number {
-  const r = Math.round(x);
-  return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
-}
-
-/** The factors `radians` and `degrees` multiply by, on every target that computes them itself. */
-export const RADIANS_PER_DEGREE = Math.PI / 180;
-export const DEGREES_PER_RADIAN = 180 / Math.PI;
-
-/**
- * Only a square matrix has an inverse, and neither language offers an overload
- * for the rest. Asked in both backends, so the two cannot come to different
- * answers about the same program — one emitting a call no driver accepts while
- * the other refuses it.
- *
- * Returns the matrix's size, which the WGSL side needs to pick its helper.
- */
-export function assertSquareMatrix(operandType: string | undefined): number {
-  let shape = MATRIX_DIMENSIONS[operandType as string];
-  if (shape === undefined || shape[0] !== shape[1]) {
-    throw new Error(`[RMSL] inverse() needs a square matrix, but this one is ` + `${operandType ?? "untyped"}.`);
-  }
-  return shape[0];
-}
-
-/**
  * A compute dispatch has no vertex or fragment stage, so what those stages
  * pass in and out has nothing to attach to. Throws when `stage` is compute.
  */
 export function assertNotInAComputeStage(
+  origin: Origin,
   stage: "vertex" | "fragment" | "compute",
   refused: { action: string; because: string; instead: string },
 ): void {
   if (stage !== "compute") return;
-  throw new Error(`[RMSL] A compute program cannot ${refused.action}, because ${refused.because}. ${refused.instead}`);
+  throw new ProgramError(
+    "compute-cannot-use-stage-io",
+    `A compute program cannot ${refused.action}, because ${refused.because}. ${refused.instead}`,
+    origin,
+  );
 }
 
 /** The refusals of a compute program, one for each stage input or output it cannot use. */
@@ -1118,10 +728,12 @@ export const COMPUTE_REFUSES = {
  */
 export function assertPositionIsReadable(ctx: CompileCtx): void {
   if (ctx.shaderStage === "vertex") return;
-  throw new Error(
-    "[RMSL] builtinPosition() is the vertex stage's output position, and a " +
+  throw new ProgramError(
+    "position-read-in-fragment",
+    "builtinPosition() is the vertex stage's output position, and a " +
       "fragment stage cannot read it. Pass the value you need through a " +
       "varying() instead.",
+    ctx,
   );
 }
 
@@ -1174,13 +786,15 @@ const STAGE_INPUTS: Record<string, { what: string; stage: string }> = {
 const GRID_INPUTS = new Set(["fragCoord", "discard"]);
 
 /** Throws when a program with no stage, a routine or a grid, reads an input that only a stage has. */
-export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"): void {
+export function assertReadsNoStageInput(origin: Origin, roots: unknown, kind: "routine" | "grid"): void {
   someNode(roots, (node) => {
     const input = STAGE_INPUTS[node.type];
     if (!input || (kind === "grid" && GRID_INPUTS.has(node.type))) return false;
-    throw new Error(
-      `[RMSL] ${input.what} is an input of a ${input.stage}, and a ${kind} has no stage to give it. ` +
+    throw new ProgramError(
+      "stage-input-without-stage",
+      `${input.what} is an input of a ${input.stage}, and a ${kind} has no stage to give it. ` +
         `Compile the program as a ${input.stage} instead.`,
+      origin,
     );
   });
 }
@@ -1228,7 +842,7 @@ function describeNamed(node: any): string | undefined {
  * share a name but not what they declare. One name is one declaration on
  * every backend, so nodes made separately with one name read the same value.
  */
-export function assertOneDeclarationPerName(roots: unknown): void {
+export function assertOneDeclarationPerName(origin: Origin, roots: unknown): void {
   const declared = new Map<string, string>();
   someNode(roots, (node) => {
     const what = describeNamed(node);
@@ -1237,8 +851,10 @@ export function assertOneDeclarationPerName(roots: unknown): void {
     const earlier = declared.get(name);
     if (earlier === undefined) declared.set(name, what);
     else if (earlier !== what) {
-      throw new Error(
-        `[RMSL] "${name}" names ${earlier} and ${what}: one name is one declaration. Give them different names`,
+      throw new ProgramError(
+        "name-declared-twice",
+        `"${name}" names ${earlier} and ${what}: one name is one declaration. Give them different names`,
+        origin,
       );
     }
   });
@@ -1294,24 +910,6 @@ export function numberClashingVariables<T>(roots: T): T {
   return substituteNodes(roots, renamed);
 }
 
-/** The node types an assignment can write, through any swizzle, component or column of them. */
-const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
-
-/** The node types an assignment passes through on the way to the node it writes. */
-const ASSIGNMENT_PATH = new Set(["swizzle", "vectorElement", "matrixElement"]);
-
-/** What to call a node that can't be assigned, by its type, in the error refusing it. */
-const READ_ONLY_NAMES: Record<string, string> = {
-  uniform: "a uniform",
-  uniformArray: "a uniform",
-  uniformArrayElement: "a uniform",
-  attribute: "an attribute",
-  fragCoord: "a built-in input",
-  invocationIndex: "a built-in input",
-  vertexIndex: "a built-in input",
-  instanceIndex: "a built-in input",
-};
-
 /** The stage outputs only one stage writes, which stage, and what to call them in an error. */
 const WRITTEN_BY_ONE_STAGE: Record<string, { stage: string; name: string }> = {
   varying: { stage: "vertex", name: "a varying" },
@@ -1344,32 +942,28 @@ const STAGE_BOUND: Record<string, string> = {
 };
 
 /**
- * Throws if the body of a function with a layout holds a `Return` although the
- * function gives a value, or reads or writes something that belongs to a stage.
- * A call inside it is checked with its own body.
+ * Throws a `TargetError` when the body of a function with a layout reads an
+ * input of its stage or a varying, which WGSL passes only to its entry point.
+ * The other targets reach these as globals.
  */
-function assertFnBody(definition: FnDefinition, stageInputsInFns: boolean): void {
+function assertFnReachesNoStageValue(definition: FnDefinition): void {
   const seen = new Set<unknown>();
+  const named = definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`;
   const walk = (n: any): void => {
     if (!n || typeof n !== "object" || seen.has(n)) return;
     seen.add(n);
     if (Array.isArray(n)) return n.forEach(walk);
-    if (n.type === "return" && definition.type !== "void") {
-      throw new Error(
-        `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} gives a ${definition.type}, and its body calls Return(), which gives no value. ` +
-          `Return a value at the end, or give the layout the type "void".`,
-      );
-    }
-    const stage =
-      stageInputsInFns && FN_REACHABLE_STAGE_VALUES.has(n.type)
-        ? undefined
-        : n.type === "varying" && n.value.carries !== undefined
-          ? `the attribute "${n.value.carries}"`
-          : STAGE_BOUND[n.type];
-    if (stage !== undefined) {
-      throw new Error(
-        `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +
-          `Pass its value in as an input.`,
+    const value =
+      n.type === "varying" && n.value.carries !== undefined
+        ? `the attribute "${n.value.carries}"`
+        : FN_REACHABLE_STAGE_VALUES.has(n.type)
+          ? STAGE_BOUND[n.type]
+          : undefined;
+    if (value !== undefined) {
+      throw new TargetError(
+        "layout-fn-reaches-stage-value",
+        `${named} uses ${value}, which belongs to the stage and not to a function. Pass its value in as an input.`,
+        { target: "wgsl" },
       );
     }
     n.params?.forEach(walk);
@@ -1522,23 +1116,6 @@ export function parameterNode(name: string, type: string): any {
   return node;
 }
 
-/** The node an assignment to `target` writes, below any swizzle, component or column. */
-function assignmentRoot(target: any): any {
-  while (ASSIGNMENT_PATH.has(target?.type)) target = target.params[0];
-  return target;
-}
-
-/** Throws when a swizzle an assignment to `target` writes through names a component more than once. */
-function assertNoRepeatedSwizzle(target: any): void {
-  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
-    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
-      throw new Error(
-        `[RMSL] can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
-      );
-    }
-  }
-}
-
 /** Whether an assignment to `target` writes by index through a swizzle. */
 function isSwizzleWrite(target: any): boolean {
   return target?.type === "vectorElement" && target.params[0]?.type === "swizzle";
@@ -1591,37 +1168,27 @@ function substituteNodes<T>(roots: T, replaced: Map<any, any>, intoCalls = false
  * element is written only from a compute stage.
  */
 export function assertAssignable(
+  origin: Origin,
   target: any,
   stage: "vertex" | "fragment" | "compute",
   storageWritesNeedCompute = false,
 ): void {
-  assertNoRepeatedSwizzle(target);
+  assertAssignableNode(origin, target);
   const root = assignmentRoot(target);
-  if (root?.type === "storage") {
-    throw new Error("[RMSL] can't assign to a whole storage buffer; assign to one of its elements with .element(i)");
-  }
-  if (!ASSIGNABLE.has(root?.type)) {
-    const what = READ_ONLY_NAMES[root?.type] ?? "a computed value";
-    throw new Error(
-      `[RMSL] can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
-    );
-  }
-  if (root.type === "var" && root.value.parameter) {
-    throw new Error(
-      `[RMSL] can't assign to "${root.value.varName}", a parameter of the compiled function, whose value belongs to the caller; copy it into a variable with toVar() first`,
-    );
-  }
   const writer = WRITTEN_BY_ONE_STAGE[root.type];
   if (writer !== undefined && writer.stage !== stage) {
-    throw new Error(
-      `[RMSL] can't assign to ${writer.name} in a ${stage} stage; only a ${writer.stage} stage writes it`,
+    throw new ProgramError(
+      "assign-in-wrong-stage",
+      `can't assign to ${writer.name} in a ${stage} stage; only a ${writer.stage} stage writes it`,
+      origin,
     );
   }
-  if (root.type === "storageElement" && root.params[0].value.access === "read") {
-    throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
-  }
   if (storageWritesNeedCompute && root.type === "storageElement" && stage !== "compute") {
-    throw new Error(`[RMSL] storage buffers are read-only in a ${stage} shader; write them from a compute program`);
+    throw new ProgramError(
+      "storage-written-outside-compute",
+      `storage buffers are read-only in a ${stage} shader; write them from a compute program`,
+      origin,
+    );
   }
 }
 
@@ -1635,11 +1202,18 @@ export function assignedStorageElement(target: any): any {
  * Throws unless `length` values from element `offset` on fit in the
  * attribute's buffer, so a context's `write()` fails the same way on every backend.
  */
-export function assertWriteFits(attribute: StorageBufferAttribute, length: number, offset: number): void {
+export function assertWriteFits(
+  origin: Origin,
+  attribute: StorageBufferAttribute,
+  length: number,
+  offset: number,
+): void {
   const capacity = attribute.count * attribute.itemSize;
   if (offset * attribute.itemSize + length > capacity) {
-    throw new Error(
-      `[RMSL] writing ${length} values from element ${offset} runs past the end of an attribute of ${capacity} values`,
+    throw new UsageError(
+      "write-past-attribute",
+      `writing ${length} values from element ${offset} runs past the end of an attribute of ${capacity} values`,
+      origin,
     );
   }
 }

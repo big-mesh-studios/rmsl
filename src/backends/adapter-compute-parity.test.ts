@@ -1,3 +1,4 @@
+import { UsageError } from "../errors";
 import { describe, expect, it } from "vitest";
 import {
   Fn,
@@ -399,7 +400,7 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
       const adapter = create(program(), { name: "step" });
       adapter.setAttribute(a.name, new Float32Array([1, 2]));
       adapter.setAttribute(b.name, new Float32Array([10, 20]));
-      expect(() => adapter.compute({ c: new Float32Array(2) })).toThrow(/"c".*no storage slot/);
+      expect(() => adapter.compute({ c: new Float32Array(2) })).toThrowRmsl(UsageError, "unknown-storage-slot");
     });
   }
 });

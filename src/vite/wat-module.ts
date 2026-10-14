@@ -1,3 +1,4 @@
+import { ProgramError } from "../errors";
 import type wabtInit from "wabt";
 
 type Wabt = Awaited<ReturnType<typeof wabtInit>>;
@@ -25,8 +26,9 @@ export function watModuleSource(wabt: Wabt, path: string, source: string): strin
   const memory = MEMORY_IMPORT.exec(source);
   const importsMemory = WebAssembly.Module.imports(new WebAssembly.Module(plain)).some((i) => i.kind === "memory");
   if (importsMemory && !memory) {
-    throw new Error(
-      `[RMSL] ${path} imports a memory in a form other than (import "env" "memory" (memory ...)), which cannot be rewritten to import it shared`,
+    throw new ProgramError(
+      "memory-import-not-rewritable",
+      `${path} imports a memory in a form other than (import "env" "memory" (memory ...)), which cannot be rewritten to import it shared`,
     );
   }
   const sharedImport = memory && `(import "env" "memory" (memory ${memory[1] ?? ""} ${memory[2]} ${MAX_PAGES} shared))`;

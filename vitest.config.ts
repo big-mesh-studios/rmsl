@@ -9,6 +9,8 @@ export default defineConfig({
     // some tests import the library through its package path, which resolves there.
     globalSetup: ["./scripts/ensure-build.mjs"],
     include: ["src/**/*.test.ts"],
+    // Adds toThrowRmsl, which checks the class and the code of an error rmsl throws.
+    setupFiles: ["./src/testing/matchers.ts"],
     typecheck: {
       // Type-level tests catch mismatches between signature return types and
       // actual node types.

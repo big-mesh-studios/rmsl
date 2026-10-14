@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { ProgramError } from "../errors";
 import { describe, it, expect } from "vitest";
 import { precompileShaders, precompileJS, precompileWasm } from "./vite";
 import shadersSource from "./fixtures/shaders.ts?raw";
@@ -92,7 +93,10 @@ describe("precompileShaders", () => {
   it("throws when the module has no default export", async () => {
     const plugin = asPlugin(precompileShaders({ include: "no-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}no-default.ts`;
-    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must have a default export/);
+    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "module-has-no-default-export",
+    );
   });
   /**
    * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
@@ -100,7 +104,10 @@ describe("precompileShaders", () => {
   it("throws when the default export is not JSON-serializable", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fn-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}fn-default.ts`;
-    await expect(plugin.transform("export default () => 1;\n", id)).rejects.toThrow(/not JSON-serializable/);
+    await expect(plugin.transform("export default () => 1;\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "export-not-serializable",
+    );
   });
 });
 
@@ -156,7 +163,10 @@ describe("precompileJS", () => {
   it("throws when the module has no code export", async () => {
     const plugin = asPlugin(precompileJS({ include: "no-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}no-code.ts`;
-    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must export __RMSL_JS_CODE/);
+    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "compiled-map-malformed",
+    );
   });
   /**
    * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
@@ -164,8 +174,9 @@ describe("precompileJS", () => {
   it("throws when the code export is not a map of strings", async () => {
     const plugin = asPlugin(precompileJS({ include: "bad-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}bad-code.ts`;
-    await expect(plugin.transform("export const __RMSL_JS_CODE = { f: 1 };\n", id)).rejects.toThrow(
-      /map value for f must be a string/,
+    await expect(plugin.transform("export const __RMSL_JS_CODE = { f: 1 };\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "compiled-map-malformed",
     );
   });
 
@@ -266,8 +277,9 @@ describe("precompileWasm", () => {
     const plugin = asPlugin(precompileWasm({ include: "no-code.ts" }));
     const { context } = mockPluginContext();
     const id = `${WASM_FNS_PATH.replace("wasm-fns.ts", "")}no-code.ts`;
-    await expect(plugin.transform.call(context, "export const x = 1;\n", id)).rejects.toThrow(
-      /must export __RMSL_WASM_CODE/,
+    await expect(plugin.transform.call(context, "export const x = 1;\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "compiled-map-malformed",
     );
   });
   /**
@@ -279,7 +291,7 @@ describe("precompileWasm", () => {
     const id = `${WASM_FNS_PATH.replace("wasm-fns.ts", "")}bad-code.ts`;
     await expect(
       plugin.transform.call(context, "export const __RMSL_WASM_CODE = { f: { notBytes: true } };\n", id),
-    ).rejects.toThrow(/must be compileWasmFn\(\) output/);
+    ).rejects.toThrowRmsl(ProgramError, "compiled-map-malformed");
   });
 
   /**

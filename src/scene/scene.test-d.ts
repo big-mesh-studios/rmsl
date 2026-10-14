@@ -83,7 +83,7 @@ describe("scene graph classes", () => {
 
 describe("math classes", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("transforms compose with the documented return types", () => {
     const m = new Matrix4().compose(new Vector3(), new Quaternion(), new Vector3(1, 1, 1));

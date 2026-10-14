@@ -1,3 +1,4 @@
+import { NodeError, ProgramError, TargetError } from "../../errors";
 import { describe, it, expect } from "vitest";
 import {
   compileWasmRoutine,
@@ -758,7 +759,7 @@ describe("WASM backend: loops", () => {
           })(),
         { name: "main", params: [] },
       ),
-    ).toThrow(/"Break" outside a loop/);
+    ).toThrowRmsl(ProgramError, "jump-outside-a-loop");
     expect(() =>
       compileWasmRoutine(
         () =>
@@ -768,7 +769,7 @@ describe("WASM backend: loops", () => {
           })(),
         { name: "main", params: [] },
       ),
-    ).toThrow(/"Continue" outside a loop/);
+    ).toThrowRmsl(ProgramError, "jump-outside-a-loop");
   });
 });
 
@@ -1058,7 +1059,7 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
         name: "main",
         params: [],
       }),
-    ).toThrow(/cross\(\) needs a vec3/);
+    ).toThrowRmsl(NodeError, "cross-needs-vec3");
   });
   /**
    * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
@@ -1141,8 +1142,9 @@ describe("WASM backend: derivatives option", () => {
    * @canon exception-a-cpu-target-has-no-derivatives
    */
   it("throws by default, matching compileJSRoutine's own message shape", () => {
-    expect(() => compileWasmRoutine(() => dFdx(float(1)), { name: "main", params: [] })).toThrow(
-      /dFdx\(\) has no meaning on the CPU target/,
+    expect(() => compileWasmRoutine(() => dFdx(float(1)), { name: "main", params: [] })).toThrowRmsl(
+      TargetError,
+      "no-derivatives",
     );
   });
 
@@ -1203,8 +1205,9 @@ describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
    * @canon spec-frag-coord-is-read-only-in-a-fragment-stage
    */
   it("throws for fragCoord() in a vertex stage", () => {
-    expect(() => compileWasmVertex(() => fragCoord().x as any, { name: "main", params: [] })).toThrow(
-      /fragCoord\(\) can only be used in fragment shaders/,
+    expect(() => compileWasmVertex(() => fragCoord().x as any, { name: "main", params: [] })).toThrowRmsl(
+      ProgramError,
+      "builtin-outside-its-stage",
     );
   });
 });
@@ -1288,8 +1291,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
    */
   it("throws when a vertex stage's result is neither vec4 nor paired with a written position", () => {
     const build = () => Fn(() => float(0))();
-    expect(() => compileWasmVertex(build as any, { name: "main", params: [] })).toThrow(
-      /vertex shader has to produce a position/,
+    expect(() => compileWasmVertex(build as any, { name: "main", params: [] })).toThrowRmsl(
+      ProgramError,
+      "vertex-without-position",
     );
   });
   /**
@@ -1315,8 +1319,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinFragDepth().assign(float(0));
         return float(0);
       })();
-    expect(() => compileWasmVertex(build as any, { name: "main", params: [] })).toThrow(
-      /can't assign to the fragment depth in a vertex stage/,
+    expect(() => compileWasmVertex(build as any, { name: "main", params: [] })).toThrowRmsl(
+      ProgramError,
+      "assign-in-wrong-stage",
     );
   });
   /**
@@ -1327,7 +1332,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
       Fn(() => {
         return builtinPosition().x;
       })();
-    expect(() => compileWasmProgram(build as any, { name: "main", params: [] })).toThrow(
+    expect(() => compileWasmProgram(build as any, { name: "main", params: [] })).toThrowRmsl(
+      ProgramError,
+      "position-read-in-fragment",
       /fragment stage cannot read it/,
     );
   });
@@ -1543,7 +1550,10 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   it("throws for a samplerCube uniform", () => {
     const tex = uniform("samplerCube") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0) as any).x)();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/sampler2D\/sampler3D/);
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
+      NodeError,
+      "cube-map-texel-fetch",
+    );
   });
 });
 
@@ -1807,7 +1817,10 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("isamplerCube");
         return texture(tex, ivec3(0, 0, 0)).x;
       })();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/isamplerCube.*cube map/);
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
+      NodeError,
+      "integer-cube-sampler",
+    );
   });
 });
 
@@ -1904,7 +1917,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
         outputStruct(float(1));
       })();
     const grid = compileWasmGrid(build as any, { name: "main", params: [] });
-    expect(() => grid({}, 1, 1)).toThrow(/produces no value to render/);
+    expect(() => grid({}, 1, 1)).toThrowRmsl(ProgramError, "grid-without-result");
   });
   /**
    * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
@@ -2189,7 +2202,10 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         const a = instancedArray(1, "float").toReadOnly();
         return (a as any).add(1);
       })();
-    expect(() => compileWasmRoutine(build as any, { name: "step", params: [] })).toThrow(/read one element/);
+    expect(() => compileWasmRoutine(build as any, { name: "step", params: [] })).toThrowRmsl(
+      NodeError,
+      "storage-read-as-a-whole",
+    );
   });
 });
 

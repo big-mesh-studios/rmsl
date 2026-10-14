@@ -1,3 +1,4 @@
+import { type BackendOrigin, TargetError } from "../../errors";
 import { describe, it, expect, afterAll, afterEach } from "vitest";
 import {
   evaluateRecording,
@@ -78,6 +79,8 @@ import {
   type Node,
   texture,
 } from "../../rmsl";
+
+const TEST_ORIGIN: BackendOrigin = { target: "js", caller: "compileJSProgram" };
 
 const approx = (actual: number, want: number) => expect(actual).toBeCloseTo(want, 9);
 
@@ -777,6 +780,7 @@ describe("JS backend: shader I/O", () => {
     const shade = varying("float");
     const write = uniform("int");
     const raw = compileJSProgram(
+      TEST_ORIGIN,
       () =>
         Fn(() => {
           If(write.equal(int(1)), () => {
@@ -794,6 +798,7 @@ describe("JS backend: shader I/O", () => {
     expect(second.varyings[shade.name]).toBe(0);
 
     const depth = compileJSProgram(
+      TEST_ORIGIN,
       () =>
         Fn(() => {
           If(fragCoord().x.greaterThan(1), () => {
@@ -835,7 +840,7 @@ describe("JS backend: shader I/O", () => {
       a = attribute("float");
       return v.x.add(a);
     })();
-    const fn = compileJSProgram(() => prog, { name: "main", params: [] });
+    const fn = compileJSProgram(TEST_ORIGIN, () => prog, { name: "main", params: [] });
     expect(fn.run({ varyings: { [v.name]: [3, 4, 5] }, attributes: { [a.name]: 1 } })).toBe(4);
   });
   /**
@@ -908,7 +913,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       If(float(1).greaterThan(0), () => Discard());
       return float(5);
     })();
-    const fn = compileJSProgram(() => prog, { name: "main", params: [] });
+    const fn = compileJSProgram(TEST_ORIGIN, () => prog, { name: "main", params: [] });
     expect(fn.run({})).toBeNull();
   });
   /**
@@ -969,7 +974,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       const x = vec2(1, 2).toVar();
       return x.fwidth();
     })();
-    expect(() => compileJSRoutine(() => prog, { name: "main", params: [] })).toThrow(/CPU target/);
+    expect(() => compileJSRoutine(() => prog, { name: "main", params: [] })).toThrowRmsl(TargetError, "no-derivatives");
   });
   /**
    * @canon spec-a-cpu-target-filters-as-the-texture-asks
@@ -1267,7 +1272,7 @@ describe("JS backend: screen-picking workflow", () => {
       d.assign(t);
       return hit;
     })();
-    const fn = compileJSProgram(() => prog, { name: "pick", params: [] });
+    const fn = compileJSProgram(TEST_ORIGIN, () => prog, { name: "pick", params: [] });
     const r = fn.run({}) as any;
     // Ray hits y = 0 at t = 2, so the world point is (0, 0, 0).
     expect(r.value).toEqual(new Float64Array([0, 0, 0]));
@@ -1434,6 +1439,7 @@ describe("JS backend: TSL loop and return", () => {
    */
   it("Discard() returns null", () => {
     const fn = compileJSProgram(
+      TEST_ORIGIN,
       () =>
         Fn(() => {
           const out = float(1).toVar();
@@ -1587,7 +1593,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
   it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileJSProgram(build as any, { name: "main", params: [] });
+    const fn = compileJSProgram(TEST_ORIGIN, build as any, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
@@ -1618,7 +1624,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
         tex = uniform("float");
         return fragCoord().x.mul(tex);
       })();
-    const fn = compileJSProgram(build as any, { name: "main", params: [] });
+    const fn = compileJSProgram(TEST_ORIGIN, build as any, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [tex.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [tex.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
@@ -1638,7 +1644,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
         const i = invocationIndex();
         posNode.element(i).addAssign(velNode.element(i).mul(dt));
       })();
-    const fn = compileJSProgram(build as any, { name: "step", params: [] });
+    const fn = compileJSProgram(TEST_ORIGIN, build as any, { name: "step", params: [] });
 
     const pos = new Float32Array([0, 10, 20]);
     const vel = new Float32Array([1, 2, 3]);

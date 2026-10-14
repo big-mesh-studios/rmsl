@@ -1,3 +1,4 @@
+import { TargetError, type BackendOrigin } from "../../errors";
 import {
   type ComputeNode,
   type StorageBufferAttribute,
@@ -9,7 +10,7 @@ import { assertUniformShape, type SetUniformByNode, slotOf } from "../adapter";
 import { assertWriteKind } from "../vertex-format";
 import { assertWriteFits, storageNodesOf } from "../shared";
 import type { CpuProgram } from "../cpu";
-import { compileWasmFn, instantiateWasmProgram } from "./wasm";
+import { compileWasmModule, instantiateWasmProgram } from "./wasm";
 
 /**
  * Several compute programs in one `WebAssembly.Memory`, sharing their storage
@@ -51,6 +52,8 @@ function componentSize(attribute: StorageBufferAttribute): number {
   return attribute.arrayClass === Float32Array ? 8 : 4;
 }
 
+const CREATE_WASM_CONTEXT: BackendOrigin = { target: "wasm", caller: "createWasmContext" };
+
 /** Creates a {@link WasmContext} with a new, growable memory. */
 export function createWasmContext(): WasmContext {
   const memory = new WebAssembly.Memory({ initial: 1 });
@@ -89,9 +92,17 @@ export function createWasmContext(): WasmContext {
     if (existing) return existing;
 
     const attributes = new Map(storageNodesOf(node.computeNode).map((n) => [n.name, n.attribute]));
-    const compiled = compileWasmFn(() => node.computeNode, { name: "main", params: [], memoryBase: cursor });
+    const compiled = compileWasmModule(CREATE_WASM_CONTEXT, () => node.computeNode, {
+      name: "main",
+      params: [],
+      memoryBase: cursor,
+    });
     if (compiled.params.some((p) => p.kind === "textureMemory")) {
-      throw new Error("[RMSL] createWasmContext: programs that sample textures aren't supported yet.");
+      throw new TargetError(
+        "texture-sampling-unsupported",
+        "createWasmContext: programs that sample textures aren't supported yet.",
+        CREATE_WASM_CONTEXT,
+      );
     }
     allocate(compiled.textureHeapBase - cursor);
 
@@ -121,14 +132,14 @@ export function createWasmContext(): WasmContext {
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
-      assertUniformShape(uniform, value);
+      assertUniformShape(CREATE_WASM_CONTEXT, uniform, value);
       // Copied, as the WGSL context does, so changing the array afterwards doesn't reach a program.
       uniformValues[slotOf(uniform)] = structuredClone(value) as number | number[];
     },
 
     write(attribute, data, offset = 0) {
-      assertWriteKind(attribute, data, true);
-      assertWriteFits(attribute, data.length, offset);
+      assertWriteKind(CREATE_WASM_CONTEXT, attribute, data, true);
+      assertWriteFits(CREATE_WASM_CONTEXT, attribute, data.length, offset);
       region(attribute).set(data as ArrayLike<number>, offset * attribute.itemSize);
     },
 

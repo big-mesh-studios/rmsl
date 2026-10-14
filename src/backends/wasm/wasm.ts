@@ -1,8 +1,21 @@
+import { InternalError, ProgramError, TargetError, UsageError, type BackendOrigin, NodeError } from "../../errors";
 import { withArticle } from "../../article";
-import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
+import {
+  MATRIX_DIMENSIONS,
+  Node,
+  RESERVED_VAR_PREFIX,
+  ShaderType,
+  StorageAccess,
+  componentCountOf,
+  type ScalarKind,
+  DEGREES_PER_RADIAN,
+  RADIANS_PER_DEGREE,
+  isLeafLiteral,
+  assertSquareMatrix,
+  assertConstantIndexInRange,
+} from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
-  componentCountOf,
   CpuDrawBuffer,
   CpuRoutine,
   CpuGrid,
@@ -22,11 +35,9 @@ import {
   CpuTextureWrap,
   elementKindOf,
   isAggregate,
-  ScalarKind,
   scalarKindOf,
 } from "../cpu";
 import {
-  assertSquareMatrix,
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
   assertStageResult,
@@ -35,14 +46,10 @@ import {
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
-  assertConstantIndexInRange,
-  DEGREES_PER_RADIAN,
-  RADIANS_PER_DEGREE,
   assignedStorageElement,
   parameterNode,
   CompileFnOptions,
   COMPONENT_INDEX,
-  isLeafLiteral,
   resolveSwizzleTarget,
   inlineCalls,
   LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE,
@@ -338,21 +345,17 @@ function isIntegerSamplerType(t: string): boolean {
   return t.startsWith("isampler") || t.startsWith("usampler");
 }
 
-/** `textureLoad()`/integer-sampler fetch only supports 2D/3D — reject 1D/cube/texture-arrays early. */
+/** Throws unless `t` is a 2D or 3D sampler, the samplers a texel fetch reads; every target refuses a fetch of a cube map before this. */
 function assertSampled2Dor3D(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D")) {
-    throw new Error(
-      "[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D (and their integer variants) only.",
-    );
+    throw new InternalError("unexpected-sampler-kind", `compileWasmFn: no texel fetch of ${t}`, { target: "wasm" });
   }
 }
 
-/** `texture()`/`textureLod()` additionally supports samplerCube (float only) — reject 1D/texture-arrays early. */
+/** Throws unless `t` is a sampler `texture()` and `textureLod()` read: 2D, 3D or a cube map. */
 function assertSampledTextureType(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D") && !t.endsWith("Cube")) {
-    throw new Error(
-      "[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D/samplerCube (2D/3D integer variants too) only.",
-    );
+    throw new InternalError("unexpected-sampler-kind", `compileWasmFn: no texture read of ${t}`, { target: "wasm" });
   }
 }
 
@@ -812,10 +815,21 @@ function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
  * runs and silently miscompiles.
  */
 /** Throws for a program name in the prefix the module's own exports, `_rmsl_draw` and `_rmsl_compute`, carry. */
-function assertProgramName(caller: string, name: string): void {
+const COMPILE_WASM_FN: BackendOrigin = { target: "wasm", caller: "compileWasmFn" };
+const COMPILE_WASM_PROGRAM: BackendOrigin = { target: "wasm", caller: "compileWasmProgram" };
+const COMPILE_WASM_ROUTINE: BackendOrigin = { target: "wasm", caller: "compileWasmRoutine" };
+const COMPILE_WASM_VERTEX: BackendOrigin = { target: "wasm", caller: "compileWasmVertex" };
+const COMPILE_WASM_FRAGMENT: BackendOrigin = { target: "wasm", caller: "compileWasmFragment" };
+const COMPILE_WASM_COMPUTE: BackendOrigin = { target: "wasm", caller: "compileWasmCompute" };
+const COMPILE_WASM_GRID: BackendOrigin = { target: "wasm", caller: "compileWasmGrid" };
+const INSTANTIATE_WASM: BackendOrigin = { target: "wasm", caller: "instantiateWasmProgram" };
+
+function assertProgramName(origin: BackendOrigin, name: string): void {
   if (name.startsWith(RESERVED_VAR_PREFIX)) {
-    throw new Error(
-      `[RMSL] ${caller}: the name "${name}" starts with "${RESERVED_VAR_PREFIX}", which the compiler reserves for the module's own exports. Give the program another name`,
+    throw new ProgramError(
+      "reserved-program-name",
+      `${origin.caller}: the name "${name}" starts with "${RESERVED_VAR_PREFIX}", which the compiler reserves for the module's own exports. Give the program another name`,
+      origin,
     );
   }
 }
@@ -824,11 +838,22 @@ export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
-  assertProgramName("compileWasmFn", options.name);
+  return compileWasmModule(COMPILE_WASM_FN, fn, options);
+}
+
+/** {@link compileWasmFn} for `origin`, the public call its errors name. */
+export function compileWasmModule(
+  origin: BackendOrigin,
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmFnOptions,
+): CompiledWasm {
+  assertProgramName(origin, options.name);
   if (options.gpuUniformLayout && options.float !== "f32") {
-    throw new Error(
-      `[RMSL] compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
+    throw new ProgramError(
+      "gpu-uniform-layout-needs-f32",
+      `compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
         `but this compile computes in 64 bits. Pass float: "f32" to share the buffer, or drop gpuUniformLayout to keep 64-bit precision.`,
+      origin,
     );
   }
   /** Whether every float value is rounded to 32 bits, as `float: "f32"` asks. */
@@ -845,11 +870,11 @@ export function compileWasmFn(
   // single result slot, matching compileGlsl/compileWgsl's "last array
   // entry wins" convention.
   const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
-  if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
+  if (options.kind) assertReadsNoStageInput(origin, rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const resultNodes = numberClashingVariables(
-    shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, undefined, true))),
+    shareNodes(origin, inlineCalls(prepareRoots(origin, options.stage, rawNodes, undefined, true))),
   );
   const root = resultNodes[resultNodes.length - 1];
 
@@ -918,7 +943,7 @@ export function compileWasmFn(
   // imported math names — before any bytecode is emitted. `collect` gates
   // every allocation behind a `.has()` check, so revisiting nodes shared
   // between roots (the array-return-sugar case) is idempotent.
-  assertOneDeclarationPerName(resultNodes);
+  assertOneDeclarationPerName(origin, resultNodes);
   for (const n of resultNodes) collect(n);
   for (const p of memoryParams) {
     if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
@@ -930,6 +955,7 @@ export function compileWasmFn(
 
   if (options.stage !== undefined) {
     assertStageResult(
+      origin,
       effectiveStage,
       root._t === "void" ? undefined : (root._t as string),
       positionWritten,
@@ -953,7 +979,11 @@ export function compileWasmFn(
     }
   } else {
     if (root._t !== "float" && root._t !== "int" && root._t !== "uint" && root._t !== "bool") {
-      throw new Error(`[RMSL] compileWasmFn only supports a scalar result so far, got "${root._t}".`);
+      throw new TargetError(
+        "non-scalar-result",
+        `compileWasmFn only supports a scalar result so far, got "${root._t}".`,
+        { target: "wasm" },
+      );
     }
     resultKind = scalarKindOf(root._t);
   }
@@ -1496,8 +1526,10 @@ export function compileWasmFn(
         if (gpuOffset !== undefined) {
           const gpuStride = options.gpuUniformLayout?.strides?.[node.value.slot];
           if (gpuStride === undefined) {
-            throw new Error(
-              `[RMSL] compileWasmFn: gpuUniformLayout for uniform array "${node.value.slot}" needs a matching strides value`,
+            throw new ProgramError(
+              "uniform-array-without-strides",
+              `compileWasmFn: gpuUniformLayout for uniform array "${node.value.slot}" needs a matching strides value`,
+              origin,
             );
           }
           uniformArrayInfo.set(node.value.slot, { base: gpuOffset, elementStride: gpuStride, narrow: true });
@@ -1529,12 +1561,16 @@ export function compileWasmFn(
       case "instanceIndex":
       case "attribute": {
         if (node.type !== "attribute" && effectiveStage !== "vertex") {
-          throw new Error(`[RMSL] compileWasmFn: ${node.type}() can only be used in vertex shaders`);
+          throw new ProgramError(
+            "builtin-outside-its-stage",
+            `compileWasmFn: ${node.type}() can only be used in vertex shaders`,
+            origin,
+          );
         }
         // A CPU rasterizer draws one instance, instance 0, which needs no input.
         if (node.type === "instanceIndex") break;
         const v = node.type === "vertexIndex" ? { slot: VERTEX_INDEX_SLOT, shaderType: "uint" as const } : node.value;
-        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.attribute);
+        assertNotInAComputeStage(origin, effectiveStage, COMPUTE_REFUSES.attribute);
         if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
@@ -1587,7 +1623,7 @@ export function compileWasmFn(
 
       case "varying": {
         const v = node.value;
-        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.varying);
+        assertNotInAComputeStage(origin, effectiveStage, COMPUTE_REFUSES.varying);
         if (effectiveStage === "fragment") {
           // fragment: varyings are per-call inputs, written by the host
           if (isAggregate(v.shaderType) || options.scalarsInMemory) {
@@ -1614,7 +1650,11 @@ export function compileWasmFn(
       case "fragCoord": {
         // fragment-only shared per-pixel input slot
         if (effectiveStage !== "fragment") {
-          throw new Error("[RMSL] compileWasmFn: fragCoord() can only be used in fragment shaders");
+          throw new ProgramError(
+            "builtin-outside-its-stage",
+            "compileWasmFn: fragCoord() can only be used in fragment shaders",
+            origin,
+          );
         }
         if (fragCoordAddress === undefined) {
           fragCoordAddress = allocateFor("vec2");
@@ -1658,7 +1698,11 @@ export function compileWasmFn(
       case "builtinFragDepth": {
         // fragment output (gl_FragDepth)
         if (effectiveStage !== "fragment") {
-          throw new Error("[RMSL] compileWasmFn: builtinFragDepth() can only be used in fragment shaders");
+          throw new ProgramError(
+            "builtin-outside-its-stage",
+            "compileWasmFn: builtinFragDepth() can only be used in fragment shaders",
+            origin,
+          );
         }
         needsResult = true;
         if (fragDepthAddress === undefined) {
@@ -1673,7 +1717,7 @@ export function compileWasmFn(
         if (node.params[0].type === "builtinPosition") positionWritten = true;
         if (node.params[0].type === "builtinFragDepth") fragDepthWritten = true;
         // and which storage buffers are written
-        assertAssignable(node.params[0], effectiveStage);
+        assertAssignable(origin, node.params[0], effectiveStage);
         const element = assignedStorageElement(node.params[0]);
         if (element) writtenStorage.add(element.params[0].value.slot);
         break;
@@ -1701,17 +1745,17 @@ export function compileWasmFn(
         break;
 
       case "vectorElement":
-        assertConstantIndexInRange(node.params[0], node.params[1]);
+        assertConstantIndexInRange(origin, node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         break;
 
       case "uniformArrayElement":
-        assertConstantIndexInRange(node.params[0], node.params[1]);
+        assertConstantIndexInRange(origin, node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         break;
 
       case "matrixElement":
-        assertConstantIndexInRange(node.params[0], node.params[1]);
+        assertConstantIndexInRange(origin, node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         addLocal("$column_address", "int");
         break;
@@ -1722,7 +1766,7 @@ export function compileWasmFn(
 
       case "inverse":
       case "determinant":
-        assertSquareMatrix(node.params[0]._t);
+        assertSquareMatrix(origin, node.params[0]._t);
         for (const statement of MATRIX_HELPER_FORMULAS[matrixHelper(node)]) {
           if (statement.target !== "locals") continue;
           for (const [name] of statement.locals) addLocal(`$${matrixHelper(node)}_${name}`, "float");
@@ -1775,7 +1819,8 @@ export function compileWasmFn(
    */
   function localSlotIndex(varName: string): number {
     const i = localIndex.get(varName);
-    if (i === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared var "${varName}"`);
+    if (i === undefined)
+      throw new InternalError("undeclared-variable", `compileWasmFn: read of undeclared var "${varName}"`, origin);
     return params.length + i;
   }
 
@@ -1785,7 +1830,8 @@ export function compileWasmFn(
    */
   function paramSlotIndex(key: string): number {
     const i = paramIndex.get(key);
-    if (i === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unindexed slot "${key}"`);
+    if (i === undefined)
+      throw new InternalError("unindexed-slot", `compileWasmFn: internal error, unindexed slot "${key}"`, origin);
     return i;
   }
 
@@ -1855,14 +1901,23 @@ export function compileWasmFn(
       case "var": {
         const name = node.value.varName;
         const addr = fnParamNames.has(name) ? paramAddress.get(name) : varAddress.get(name);
-        if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared aggregate var "${name}"`);
+        if (addr === undefined)
+          throw new InternalError(
+            "undeclared-variable",
+            `compileWasmFn: read of undeclared aggregate var "${name}"`,
+            origin,
+          );
         return addr;
       }
 
       case "uniform": {
         const addr = uniformAddress.get(node.value.slot);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`);
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`,
+            origin,
+          );
         return addr;
       }
 
@@ -1871,7 +1926,11 @@ export function compileWasmFn(
         const slot = node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot;
         const addr = attributeAddress.get(slot);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${slot}"`);
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed attribute "${slot}"`,
+            origin,
+          );
         return addr;
       }
 
@@ -1879,44 +1938,66 @@ export function compileWasmFn(
         if (effectiveStage === "fragment") {
           const addr = varyingAddress.get(node.value.slot);
           if (addr === undefined)
-            throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+            throw new InternalError(
+              "unaddressed-slot",
+              `compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`,
+              origin,
+            );
           return addr;
         }
         const addr = varyingOutputAddress.get(node.value.slot);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`,
+            origin,
+          );
         return addr;
       }
 
       case "fragCoord": {
         if (fragCoordAddress === undefined)
-          throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
+          throw new InternalError("unaddressed-slot", "compileWasmFn: internal error, unaddressed fragCoord", origin);
         return fragCoordAddress;
       }
 
       case "output": {
         const addr = outputAddress.get(node.value.slot);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed output "${node.value.slot}"`);
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed output "${node.value.slot}"`,
+            origin,
+          );
         return addr;
       }
 
       case "builtinPosition": {
         if (effectiveStage !== "vertex") {
-          throw new Error(
-            "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a " +
+          throw new ProgramError(
+            "position-read-in-fragment",
+            "compileWasmFn: builtinPosition() is the vertex stage's output position, and a " +
               "fragment stage cannot read it. Pass the value you need through a " +
               "varying() instead.",
+            origin,
           );
         }
         if (positionAddress === undefined)
-          throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinPosition");
+          throw new InternalError(
+            "unaddressed-slot",
+            "compileWasmFn: internal error, unaddressed builtinPosition",
+            origin,
+          );
         return positionAddress;
       }
 
       case "builtinFragDepth": {
         if (fragDepthAddress === undefined)
-          throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinFragDepth");
+          throw new InternalError(
+            "unaddressed-slot",
+            "compileWasmFn: internal error, unaddressed builtinFragDepth",
+            origin,
+          );
         return fragDepthAddress;
       }
 
@@ -1928,7 +2009,11 @@ export function compileWasmFn(
       default: {
         const addr = scratchAddress.get(node);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed node "${node.type}"`);
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed node "${node.type}"`,
+            origin,
+          );
         return addr;
       }
     }
@@ -1945,7 +2030,11 @@ export function compileWasmFn(
     const storageNode = node.params[0];
     const metaAddr = storageMetadataAddress.get(storageNode.value.slot);
     if (metaAddr === undefined) {
-      throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed storage "${storageNode.value.slot}"`);
+      throw new InternalError(
+        "unaddressed-slot",
+        `compileWasmFn: internal error, unaddressed storage "${storageNode.value.slot}"`,
+        origin,
+      );
     }
     const type = node._t as string;
     const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
@@ -2000,7 +2089,7 @@ export function compileWasmFn(
    * WGSL and GLSL compile it.
    */
   function constantIndex(target: any, index: any): number {
-    return assertConstantIndexInRange(target, index)!;
+    return assertConstantIndexInRange(origin, target, index)!;
   }
 
   /**
@@ -2248,8 +2337,10 @@ export function compileWasmFn(
       case "uniformArrayElement": {
         const info = uniformArrayInfo.get(node.params[0].value.slot);
         if (info === undefined) {
-          throw new Error(
-            `[RMSL] compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
+            origin,
           );
         }
         const kind = elementKindOf(node._t as string);
@@ -2293,7 +2384,11 @@ export function compileWasmFn(
         return emitConstructStores(node, nodeAddress(node));
       case "swizzle":
         if ((node.value as string).length <= 1) {
-          throw new Error("[RMSL] compileWasmFn: internal error, materializing a scalar swizzle");
+          throw new InternalError(
+            "scalar-swizzle-materialized",
+            "compileWasmFn: internal error, materializing a scalar swizzle",
+            origin,
+          );
         }
         return emitSwizzleStores(node, nodeAddress(node));
       case "add":
@@ -2377,7 +2472,11 @@ export function compileWasmFn(
           return emitLiteralStores(node, nodeAddress(node));
         }
         if (COMPONENT_MATH_TYPES.has(node.type)) return emitMathStores(node, nodeAddress(node));
-        throw new Error(`[RMSL] compileWasmFn: unsupported node type in vector position: "${node.type}"`);
+        throw new InternalError(
+          "unsupported-node-kind",
+          `compileWasmFn: unsupported node type in vector position: "${node.type}"`,
+          origin,
+        );
     }
   }
 
@@ -2475,9 +2574,11 @@ export function compileWasmFn(
   /** CPU has no derivative opcodes: throw, or emit zeros under { derivatives: "zero" }. */
   function assertDerivativesAllowed(node: any): void {
     if (options.derivatives === "zero") return;
-    throw new Error(
-      `[RMSL] compileWasmFn: ${node.type}() has no meaning on the CPU target. ` +
+    throw new TargetError(
+      "no-derivatives",
+      `compileWasmFn: ${node.type}() has no meaning on the CPU target. ` +
         `Compile with { derivatives: "zero" } to evaluate it as 0.`,
+      { target: "wasm" },
     );
   }
 
@@ -2504,7 +2605,11 @@ export function compileWasmFn(
   function emitTextureSizeStores(node: any, addr: number): number[] {
     const metaAddr = textureMetadataAddress.get(node.params[0].value.slot);
     if (metaAddr === undefined) {
-      throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${node.params[0].value.slot}"`);
+      throw new InternalError(
+        "unaddressed-slot",
+        `compileWasmFn: internal error, unaddressed texture "${node.params[0].value.slot}"`,
+        origin,
+      );
     }
     const width = componentCountOf(node._t as string);
     const out: number[] = [];
@@ -2533,7 +2638,11 @@ export function compileWasmFn(
       // IIFE: keeps a definitely-narrowed const usable inside the nested function declarations below
       const a = textureMetadataAddress.get(samplerNode.value.slot);
       if (a === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
+        throw new InternalError(
+          "unaddressed-slot",
+          `compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`,
+          origin,
+        );
       return a;
     })();
     const materialize = materializeIfNeeded(coordsNode);
@@ -2651,9 +2760,10 @@ export function compileWasmFn(
     assertSampledTextureType(samplerType);
     const isCube = samplerType.endsWith("Cube");
     if (isCube && isIntegerSamplerType(samplerType)) {
-      throw new Error(
-        "[RMSL] compileWasmFn: samplerCube supports texture()/textureLod() as a float sampler only " +
-          "(isamplerCube/usamplerCube aren't supported yet).",
+      throw new InternalError(
+        "unexpected-sampler-kind",
+        "compileWasmFn: an integer cube map reached the compiler, past the refusal of every target",
+        { target: "wasm" },
       );
     }
     if (isIntegerSamplerType(samplerType)) return emitTexelFetchStores(node, addr);
@@ -2663,7 +2773,11 @@ export function compileWasmFn(
       // IIFE: keeps a definitely-narrowed const usable inside the nested function declarations below
       const a = textureMetadataAddress.get(samplerNode.value.slot);
       if (a === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
+        throw new InternalError(
+          "unaddressed-slot",
+          `compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`,
+          origin,
+        );
       return a;
     })();
     const materialize = materializeIfNeeded(coordsNode);
@@ -3331,7 +3445,11 @@ export function compileWasmFn(
     // Core already rejects a mismatched product when the node is built, so
     // this is defense-in-depth against a hand-built node, not a coverage gap.
     if (cL !== rR) {
-      throw new Error(`[RMSL] compileWasmFn: internal error, mismatched matrix product ("${aType}" x "${bType}")`);
+      throw new InternalError(
+        "mismatched-matrix-product",
+        `compileWasmFn: internal error, mismatched matrix product ("${aType}" x "${bType}")`,
+        origin,
+      );
     }
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
     const aAddr = nodeAddress(a),
@@ -3386,7 +3504,7 @@ export function compileWasmFn(
     const [a, b] = node.params;
     const width = componentCountOf(node._t as string);
     if (width !== 3) {
-      throw new Error(`[RMSL] compileWasmFn: cross() needs a vec3, got width ${width}`);
+      throw new InternalError("unexpected-cross-width", `compileWasmFn: no cross() of width ${width}`, origin);
     }
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
     const aAddr = nodeAddress(a),
@@ -3876,8 +3994,10 @@ export function compileWasmFn(
         // single-component swizzle evaluates as a scalar component load
         const pattern = node.value as string;
         if (pattern.length !== 1) {
-          throw new Error(
-            '[RMSL] compileWasmFn: unsupported node type in expression position: "swizzle" (multi-component)',
+          throw new InternalError(
+            "unsupported-node-kind",
+            'compileWasmFn: unsupported node type in expression position: "swizzle" (multi-component)',
+            origin,
           );
         }
         return readComponent(node.params[0], COMPONENT_INDEX[pattern]);
@@ -3963,8 +4083,10 @@ export function compileWasmFn(
       case "uniformArrayElement": {
         const info = uniformArrayInfo.get(node.params[0].value.slot);
         if (info === undefined) {
-          throw new Error(
-            `[RMSL] compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
+          throw new InternalError(
+            "unaddressed-slot",
+            `compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
+            origin,
           );
         }
         const type = node._t as string;
@@ -4000,7 +4122,11 @@ export function compileWasmFn(
       }
 
       default:
-        throw new Error(`[RMSL] compileWasmFn: unsupported node type in expression position: "${node.type}"`);
+        throw new InternalError(
+          "unsupported-node-kind",
+          `compileWasmFn: unsupported node type in expression position: "${node.type}"`,
+          origin,
+        );
     }
   }
 
@@ -4071,7 +4197,11 @@ export function compileWasmFn(
       case "seq": {
         const list = node.params ?? [];
         if (node._t !== "void") {
-          throw new Error("[RMSL] compileWasmFn: a value-producing seq belongs at the root, not in statement position");
+          throw new InternalError(
+            "seq-in-statement-position",
+            "compileWasmFn: a value-producing seq belongs at the root, not in statement position",
+            origin,
+          );
         }
         return list.flatMap((s: any) => walkStmt(s, depth));
       }
@@ -4175,12 +4305,12 @@ export function compileWasmFn(
       }
       case "break": {
         const top = loopStack[loopStack.length - 1];
-        if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.break);
+        if (!top) throw new ProgramError("jump-outside-a-loop", LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.break, origin);
         return [WASM_OP.br, ...wasmUleb128(depth - top.breakDepth)];
       }
       case "continue": {
         const top = loopStack[loopStack.length - 1];
-        if (!top) throw new Error(LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.continue);
+        if (!top) throw new ProgramError("jump-outside-a-loop", LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE.continue, origin);
         return [WASM_OP.br, ...wasmUleb128(depth - top.continueDepth)];
       }
       case "scope": {
@@ -4205,7 +4335,11 @@ export function compileWasmFn(
         return [...raise, ...zeroResult, ...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
-        throw new Error(`[RMSL] compileWasmFn: unsupported node type in statement position: "${node.type}"`);
+        throw new InternalError(
+          "unsupported-node-kind",
+          `compileWasmFn: unsupported node type in statement position: "${node.type}"`,
+          origin,
+        );
     }
   }
 
@@ -4599,7 +4733,7 @@ export function instantiateWasmProgram(
   externalMemory?: WebAssembly.Memory,
   needs?: { caller: string; loop: "draw" | "compute" },
 ): CpuProgram {
-  assertProgramName("instantiateWasmProgram", name);
+  assertProgramName(INSTANTIATE_WASM, name);
   const {
     bytes,
     params,
@@ -4634,8 +4768,10 @@ export function instantiateWasmProgram(
   // A grid whose program returns nothing has no draw loop either, and is refused when it fills, as on JS.
   const needed = needs && (needs.loop === "compute" || drawOutput);
   if (needed && !instance.exports[`${RESERVED_VAR_PREFIX}${needs.loop}`]) {
-    throw new Error(
-      `[RMSL] ${needs.caller}: this module exports no "${RESERVED_VAR_PREFIX}${needs.loop}" loop, as a module compiled as a vertex or fragment stage does not`,
+    throw new UsageError(
+      "module-has-no-loop",
+      `${needs.caller}: this module exports no "${RESERVED_VAR_PREFIX}${needs.loop}" loop, as a module compiled as a vertex or fragment stage does not`,
+      INSTANTIATE_WASM,
     );
   }
 
@@ -4723,8 +4859,10 @@ export function instantiateWasmProgram(
    */
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!drawOutput || !wasmDraw) {
-      throw new Error(
-        '[RMSL] compileWasmGrid: this function produces no value to render — the grid needs a non-"void" result.',
+      throw new ProgramError(
+        "grid-without-result",
+        'compileWasmGrid: this function produces no value to render — the grid needs a non-"void" result.',
+        INSTANTIATE_WASM,
       );
     }
     const { args, heapEnd } = marshalInputs(ctx);
@@ -4736,8 +4874,10 @@ export function instantiateWasmProgram(
     // `out` is a view pinning where in it this call should land.
     if (out && out.buffer === memory.buffer) {
       if (!(out instanceof DrawArray)) {
-        throw new Error(
-          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not ${withArticle(out.constructor.name)}.`,
+        throw new UsageError(
+          "out-of-another-kind",
+          `compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not ${withArticle(out.constructor.name)}.`,
+          INSTANTIATE_WASM,
         );
       }
       const n = copyArgs(drawArgs, args);
@@ -4778,8 +4918,10 @@ export function instantiateWasmProgram(
    */
   function compute(ctx: CpuShaderContext, count: number): void {
     if (!wasmCompute) {
-      throw new Error(
-        `[RMSL] this module exports no "${RESERVED_VAR_PREFIX}compute" loop: it was compiled as a vertex or fragment stage`,
+      throw new UsageError(
+        "module-has-no-loop",
+        `this module exports no "${RESERVED_VAR_PREFIX}compute" loop: it was compiled as a vertex or fragment stage`,
+        INSTANTIATE_WASM,
       );
     }
     const { args } = marshalInputs(ctx);
@@ -4818,7 +4960,7 @@ export function instantiateWasmVertex(
   externalMemory?: WebAssembly.Memory,
 ): VertexStage {
   const program = instantiateWasmProgram(compiled, name, externalMemory);
-  return (ctx) => toVertexResult(program.run(ctx));
+  return (ctx) => toVertexResult(INSTANTIATE_WASM, program.run(ctx));
 }
 
 /** {@link instantiateWasmRoutine} for a program compiled with `stage: "fragment"`: a fragment stage. */
@@ -4866,7 +5008,7 @@ type WasmRoots = (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType
 
 /** Compiles an `Fn` to WASM and instantiates it in one step, for the stages and the grid to take what they give from. */
 export function compileWasmProgram(fn: WasmRoots, options: CompileWasmFnOptions): CpuProgram {
-  return instantiateWasmProgram(compileWasmFn(fn, options), options.name, options.memory);
+  return instantiateWasmProgram(compileWasmModule(COMPILE_WASM_PROGRAM, fn, options), options.name, options.memory);
 }
 
 /**
@@ -4885,7 +5027,11 @@ export function compileWasmRoutine<W extends FloatWidth = "f64">(
   options: CompileWasmStageOptions & { float?: W },
 ): CpuRoutine<ShaderType, W>;
 export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine {
-  return instantiateWasmRoutine(compileWasmFn(fn, { ...options, kind: "routine" }), options.name, options.memory);
+  return instantiateWasmRoutine(
+    compileWasmModule(COMPILE_WASM_ROUTINE, fn, { ...options, kind: "routine" }),
+    options.name,
+    options.memory,
+  );
 }
 
 /** Compiles an `Fn` as a vertex stage: a function that returns the position and the varyings the program writes. */
@@ -4894,7 +5040,7 @@ export function compileWasmVertex<W extends FloatWidth = "f64">(
   options: CompileWasmStageOptions & { float?: W },
 ): VertexStage<W> {
   return instantiateWasmVertex(
-    compileWasmFn(fn, { ...options, stage: "vertex" }),
+    compileWasmModule(COMPILE_WASM_VERTEX, fn, { ...options, stage: "vertex" }),
     options.name,
     options.memory,
   ) as unknown as VertexStage<W>;
@@ -4914,7 +5060,11 @@ export function compileWasmFragment<W extends FloatWidth = "f64">(
   options: CompileWasmStageOptions & { float?: W },
 ): FragmentStage<unknown, W>;
 export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage {
-  return instantiateWasmFragment(compileWasmFn(fn, { ...options, stage: "fragment" }), options.name, options.memory);
+  return instantiateWasmFragment(
+    compileWasmModule(COMPILE_WASM_FRAGMENT, fn, { ...options, stage: "fragment" }),
+    options.name,
+    options.memory,
+  );
 }
 
 /**
@@ -4923,7 +5073,11 @@ export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOpti
  * writes `storage()`, and its `storageTypes` name the buffers it reads.
  */
 export function compileWasmCompute(fn: WasmRoots, options: CompileWasmStageOptions): ComputeStage {
-  return instantiateWasmCompute(compileWasmFn(fn, { ...options, stage: "compute" }), options.name, options.memory);
+  return instantiateWasmCompute(
+    compileWasmModule(COMPILE_WASM_COMPUTE, fn, { ...options, stage: "compute" }),
+    options.name,
+    options.memory,
+  );
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
@@ -4932,7 +5086,7 @@ export function compileWasmGrid<A extends ShaderType, W extends FloatWidth = "f6
   options: CompileWasmStageOptions & { float?: W },
 ): CpuGrid<A, W> {
   return instantiateWasmGrid<A>(
-    compileWasmFn(fn, { ...options, kind: "grid" }),
+    compileWasmModule(COMPILE_WASM_GRID, fn, { ...options, kind: "grid" }),
     options.name,
     options.memory,
   ) as unknown as CpuGrid<A, W>;

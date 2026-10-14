@@ -1,3 +1,4 @@
+import { ProgramError } from "../errors";
 import { withArticle } from "../article";
 import { build } from "esbuild";
 import { readFile } from "fs/promises";
@@ -61,11 +62,15 @@ export function precompileShaders(options: PrecompileShadersOptions = {}): Plugi
       const mod = await loadModule(this, cache, code, filePath);
       const shaders = mod.default;
       if (shaders === undefined) {
-        throw new Error(`${id} must have a default export of the compiled shaders`);
+        throw new ProgramError(
+          "module-has-no-default-export",
+          `${id} must have a default export of the compiled shaders`,
+        );
       }
       const lost = notJsonData(shaders, "default");
       if (lost !== undefined) {
-        throw new Error(
+        throw new ProgramError(
+          "export-not-serializable",
           `${id}'s default export is not JSON-serializable: it holds ${lost}. Export plain data such as ` +
             "compiled shader strings and slot names",
         );
@@ -103,17 +108,26 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
       const mod = await loadModule(this, cache, code, filePath);
       const codeMap = mod[codeExport];
       if (codeMap === undefined) {
-        throw new Error(`${id} must export ${codeExport} as a { name: code } map of compileJSFn() output`);
+        throw new ProgramError(
+          "compiled-map-malformed",
+          `${id} must export ${codeExport} as a { name: code } map of compileJSFn() output`,
+        );
       }
       if (typeof codeMap !== "object" || codeMap === null) {
-        throw new Error(`${id}'s ${codeExport} export must be a { name: code } map of compileJSFn() output`);
+        throw new ProgramError(
+          "compiled-map-malformed",
+          `${id}'s ${codeExport} export must be a { name: code } map of compileJSFn() output`,
+        );
       }
 
       const exports: string[] = [];
       for (const [name, jsCode] of Object.entries(codeMap)) {
         assertIdentifier(id, codeExport, name);
         if (typeof jsCode !== "string") {
-          throw new Error(`${id}'s ${codeExport} map value for ${name} must be a string of compileJSFn() output`);
+          throw new ProgramError(
+            "compiled-map-malformed",
+            `${id}'s ${codeExport} map value for ${name} must be a string of compileJSFn() output`,
+          );
         }
         exports.push(`export const ${name} = (() => {`, jsCode, "})();", "");
       }
@@ -156,25 +170,40 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
       const mod = await loadModule(this, cache, code, filePath);
       const codeMap = mod[codeExport];
       if (codeMap === undefined) {
-        throw new Error(`${id} must export ${codeExport} as a { name: compiled } map of compileWasmFn() output`);
+        throw new ProgramError(
+          "compiled-map-malformed",
+          `${id} must export ${codeExport} as a { name: compiled } map of compileWasmFn() output`,
+        );
       }
       if (typeof codeMap !== "object" || codeMap === null) {
-        throw new Error(`${id}'s ${codeExport} export must be a { name: compiled } map of compileWasmFn() output`);
+        throw new ProgramError(
+          "compiled-map-malformed",
+          `${id}'s ${codeExport} export must be a { name: compiled } map of compileWasmFn() output`,
+        );
       }
 
       const exports: string[] = [`import { instantiateWasmRoutine } from "@random-mesh/rmsl/wasm";`, ""];
       for (const [name, compiled] of Object.entries(codeMap)) {
         assertIdentifier(id, codeExport, name);
         if (typeof compiled !== "object" || compiled === null || !("bytes" in compiled)) {
-          throw new Error(`${id}'s ${codeExport} map value for ${name} must be compileWasmFn() output`);
+          throw new ProgramError(
+            "compiled-map-malformed",
+            `${id}'s ${codeExport} map value for ${name} must be compileWasmFn() output`,
+          );
         }
         const { bytes, ...rest } = compiled as { bytes: unknown };
         if (!(bytes instanceof Uint8Array)) {
-          throw new Error(`${id}'s ${codeExport} map value for ${name}'s bytes must be a Uint8Array`);
+          throw new ProgramError(
+            "compiled-map-malformed",
+            `${id}'s ${codeExport} map value for ${name}'s bytes must be a Uint8Array`,
+          );
         }
         const restJson = JSON.stringify(rest);
         if (restJson === undefined) {
-          throw new Error(`${id}'s ${codeExport} map value for ${name} is not JSON-serializable outside its bytes`);
+          throw new ProgramError(
+            "export-not-serializable",
+            `${id}'s ${codeExport} map value for ${name} is not JSON-serializable outside its bytes`,
+          );
         }
         const refId = this.emitFile({ type: "asset", name: `${name}.wasm`, source: bytes });
         exports.push(
@@ -297,7 +326,10 @@ const RESERVED_WORDS = new Set(
 /** Refuses a key of a code map that is not a JavaScript identifier, which would give a module that does not parse. */
 function assertIdentifier(id: string, codeExport: string, name: string): void {
   if (!IDENTIFIER.test(name) || RESERVED_WORDS.has(name)) {
-    throw new Error(`${id}'s ${codeExport} map names a program "${name}", which is not a JavaScript identifier`);
+    throw new ProgramError(
+      "program-name-not-identifier",
+      `${id}'s ${codeExport} map names a program "${name}", which is not a JavaScript identifier`,
+    );
   }
 }
 

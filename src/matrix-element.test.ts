@@ -1,3 +1,4 @@
+import { NodeError } from "./errors";
 import { describe, it, expect, afterAll, afterEach } from "vitest";
 import { float, Fn, int, mat2x3, mat3, vec2, vec3, type Node } from "./rmsl";
 import {
@@ -163,14 +164,12 @@ describe("a matrix's column by index", () => {
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
   it("rejects a constant index outside the matrix on WASM, as WGSL and GLSL do", () => {
-    expect(() => evaluateWASM(() => m().element(int(3)))).toThrow(
-      /\[RMSL\] index 3 is outside a mat3's columns 0 to 2/,
-    );
+    expect(() => evaluateWASM(() => m().element(int(3)))).toThrowRmsl(NodeError, "index-out-of-range");
     const write = Fn(() => {
       const v = m().toVar();
       v.element(int(-1)).assign(vec3(0, 0, 0));
       return v.element(0);
     });
-    expect(() => evaluateWASM(() => write())).toThrow(/index -1 is outside a mat3's columns 0 to 2/);
+    expect(() => evaluateWASM(() => write())).toThrowRmsl(NodeError, "index-out-of-range");
   });
 });

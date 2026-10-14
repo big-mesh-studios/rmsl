@@ -1,3 +1,4 @@
+import { InternalError, NodeError, type Origin } from "./errors";
 import { isReservedName, safeName } from "./backends/reserved-names";
 
 import { withArticle } from "./article";
@@ -1066,7 +1067,8 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   value?: unknown;
 
   constructor(config: { _t: string; type: string; params?: BaseNode<ShaderType>[]; value?: unknown }) {
-    if (!NODE_TYPES.has(config.type)) throw new Error(`[RMSL] "${config.type}" is not a kind of node rmsl has`);
+    if (!NODE_TYPES.has(config.type))
+      throw new InternalError("node-of-no-kind", `"${config.type}" is not a kind of node rmsl has`);
     this._t = config._t;
     this.type = config.type;
     this.params = config.params;
@@ -1104,8 +1106,9 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
           params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>],
         });
       }
-      throw new Error(
-        `[RMSL] A ${this._t} cannot multiply ${withArticle(otherType)}: the vector must have ` +
+      throw new NodeError(
+        "matrix-product-shape",
+        `A ${this._t} cannot multiply ${withArticle(otherType)}: the vector must have ` +
           `the matrix's column width or one fewer component (a position with its ` +
           `homogeneous coordinate implied).`,
       );
@@ -1115,8 +1118,9 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       let [c1, r1] = shape;
       let [c2, r2] = otherShape;
       if (c1 !== r2) {
-        throw new Error(
-          `[RMSL] A ${this._t} cannot multiply ${withArticle(otherType)}: the left has ${c1} ` +
+        throw new NodeError(
+          "matrix-product-shape",
+          `A ${this._t} cannot multiply ${withArticle(otherType)}: the left has ${c1} ` +
             `column(s) but the right has ${r2} row(s), and a matrix product needs ` +
             `the left's columns to equal the right's rows.`,
         );
@@ -1400,19 +1404,22 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === Uniform precision ===
   setPrecision(precision: UniformPrecision): any {
     if (this.type !== "uniform" && this.type !== "uniformArray") {
-      throw new Error(
-        `[RMSL] setPrecision: only a uniform has a precision of its own, not ${withArticle(this.type)} node`,
+      throw new NodeError(
+        "precision-on-non-uniform",
+        `setPrecision: only a uniform has a precision of its own, not ${withArticle(this.type)} node`,
       );
     }
     if (precision !== "low" && precision !== "medium" && precision !== "high") {
-      throw new Error(
-        `[RMSL] setPrecision: a precision is "low", "medium" or "high", not ${JSON.stringify(precision)}`,
+      throw new NodeError(
+        "unknown-precision",
+        `setPrecision: a precision is "low", "medium" or "high", not ${JSON.stringify(precision)}`,
       );
     }
     const shaderType = (this.value as { shaderType: string }).shaderType;
     if (shaderType === "bool" || shaderType.startsWith("bvec")) {
-      throw new Error(
-        `[RMSL] setPrecision: ${withArticle(shaderType)} uniform takes no precision, which GLSL gives only to numbers`,
+      throw new NodeError(
+        "precision-on-non-number",
+        `setPrecision: ${withArticle(shaderType)} uniform takes no precision, which GLSL gives only to numbers`,
       );
     }
     (this.value as { precision?: UniformPrecision }).precision = precision;
@@ -1444,13 +1451,13 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === NodeMethods ===
   assign(value: BaseNode<A>): void {
     assertBlockScope("assign", (blockScope) => {
-      blockScope.push(
-        new NodeImpl({
-          _t: "void",
-          type: "assign",
-          params: [this as BaseNode<ShaderType>, typedOperand(value, this._t, "assign") as BaseNode<ShaderType>],
-        }),
-      );
+      const made = new NodeImpl({
+        _t: "void",
+        type: "assign",
+        params: [this as BaseNode<ShaderType>, typedOperand(value, this._t, "assign") as BaseNode<ShaderType>],
+      });
+      assertNode(undefined, made);
+      blockScope.push(made);
     });
   }
 
@@ -1694,14 +1701,16 @@ export function wrapValue<V>(x: V, operation?: string): Node<ExtractType<V>> {
     const type = ARRAY_TYPES[x.length];
     const givenTo = operation === undefined ? "" : ` given to ${operation}()`;
     if (type === undefined) {
-      throw new Error(
-        `[RMSL] A JavaScript array of length ${x.length}${givenTo} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
+      throw new NodeError(
+        "array-is-no-vector",
+        `A JavaScript array of length ${x.length}${givenTo} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
       );
     }
     const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
     if (at >= 0) {
-      throw new Error(
-        `[RMSL] A JavaScript array${givenTo} as ${withArticle(type)} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
+      throw new NodeError(
+        "array-holds-non-number",
+        `A JavaScript array${givenTo} as ${withArticle(type)} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
       );
     }
     if (x.every((element) => typeof element === "number")) return node({ _t: type, type, value: x }) as any;
@@ -1831,14 +1840,16 @@ export function typedOperand(value: any, operandType: string, operation?: string
     return wrapValue(value, operation) as BaseNode<ShaderType>;
   }
   if (!Number.isInteger(value)) {
-    throw new Error(
-      `[RMSL] ${value} is not a whole number, but the operand beside it is an ` +
+    throw new NodeError(
+      "literal-not-whole",
+      `${value} is not a whole number, but the operand beside it is an ` +
         `${operandType}. Convert the operand to a float, or use a whole number.`,
     );
   }
   if (scalarType === "uint" && value < 0) {
-    throw new Error(
-      `[RMSL] ${value} is negative, but the operand beside it is unsigned. ` +
+    throw new NodeError(
+      "literal-negative-for-unsigned",
+      `${value} is negative, but the operand beside it is unsigned. ` +
         `Use a signed operand, or a literal that is not negative.`,
     );
   }
@@ -1974,7 +1985,10 @@ function conversionTo(type: string, kind: ComponentKind): string | undefined {
  * defined only for signed values an unsigned or boolean one. Operands of two
  * kinds are refused, as are vectors of two widths.
  */
-export function operandRefusal(type: string, operandTypes: readonly (string | undefined)[]): string | undefined {
+export function operandRefusal(
+  type: string,
+  operandTypes: readonly (string | undefined)[],
+): { code: string; message: string } | undefined {
   let name = OPERATION_NAMES[type] ?? type;
   let types = (type === "select" ? operandTypes.slice(1) : operandTypes).filter((t): t is string => t !== undefined);
   if (FLOAT_ONLY_OPS.has(type)) {
@@ -1983,10 +1997,13 @@ export function operandRefusal(type: string, operandTypes: readonly (string | un
       let fix = MATRIX_DIMENSIONS[wrong]
         ? "Take it a column at a time, with element(i)."
         : `Convert it with ${conversionTo(wrong, "float")} first.`;
-      return `${name}() takes a float or a float vector, not ${wrong}. ${fix}`;
+      return { code: "float-only-operand", message: `${name}() takes a float or a float vector, not ${wrong}. ${fix}` };
     }
     if (ONE_TYPE_OPS.has(type) && types[0] !== types[1] && types.includes("float")) {
-      return `${name}() takes two arguments of one type, not ${types[0]} and ${types[1]}.`;
+      return {
+        code: "operands-of-different-types",
+        message: `${name}() takes two arguments of one type, not ${types[0]} and ${types[1]}.`,
+      };
     }
   }
   if (INTEGER_ONLY_OPS.has(type)) {
@@ -1995,13 +2012,19 @@ export function operandRefusal(type: string, operandTypes: readonly (string | un
     if (wrong !== undefined) {
       let beside = types.find(isInteger);
       let fix = conversionTo(wrong, beside ? componentKind(beside)! : "int");
-      return `${name}() takes an integer or an integer vector, not ${wrong}.${fix ? ` Convert it with ${fix} first.` : ""}`;
+      return {
+        code: "integer-only-operand",
+        message: `${name}() takes an integer or an integer vector, not ${wrong}.${fix ? ` Convert it with ${fix} first.` : ""}`,
+      };
     }
   }
   if (SIGNED_OPS.has(type)) {
     let wrong = types.find((t) => componentKind(t) !== "int" && componentKind(t) !== "float");
     if (wrong !== undefined) {
-      return `${name}() takes a float or a signed integer, scalar or vector, not ${wrong}. Convert it with ${conversionTo(wrong, "int")} first.`;
+      return {
+        code: "signed-only-operand",
+        message: `${name}() takes a float or a signed integer, scalar or vector, not ${wrong}. Convert it with ${conversionTo(wrong, "int")} first.`,
+      };
     }
   }
   if (SAME_KIND_OPS.has(type)) {
@@ -2016,14 +2039,19 @@ export function operandRefusal(type: string, operandTypes: readonly (string | un
         [first.t, conversionTo(first.t, other.kind)],
         [other.t, conversionTo(other.t, first.kind)],
       ].filter(([, fix]) => fix !== undefined);
-      return (
-        `${name}() takes operands of one kind, not ${first.t} and ${other.t}. ` +
-        `Convert ${fixes.map(([t, fix]) => `the ${t} with ${fix}`).join(" or ")} first.`
-      );
+      return {
+        code: "operands-of-different-kinds",
+        message:
+          `${name}() takes operands of one kind, not ${first.t} and ${other.t}. ` +
+          `Convert ${fixes.map(([t, fix]) => `the ${t} with ${fix}`).join(" or ")} first.`,
+      };
     }
   }
   if (ONE_WIDTH_OPS.has(type) && new Set(types.map((t) => TYPE_WIDTH[t] ?? 1).filter((w) => w > 1)).size > 1) {
-    return `${name}() takes vectors of one width, not ${types.join(" and ")}. Swizzle one of them to the width of the other.`;
+    return {
+      code: "vectors-of-different-widths",
+      message: `${name}() takes vectors of one width, not ${types.join(" and ")}. Swizzle one of them to the width of the other.`,
+    };
   }
   return undefined;
 }
@@ -2034,14 +2062,13 @@ function assertOperands(type: string, params: readonly BaseNode<ShaderType>[]): 
     type,
     params.map((p) => (p as any)?._t),
   );
-  if (refusal) throw new Error(`[RMSL] ${refusal}`);
+  if (refusal) throw new NodeError(refusal.code, refusal.message);
 }
 
 export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0], type) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT, type))];
-  assertOperands(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
   // vector keeps the vector type (`1 - vec3` is still vec3).
   let valueIndex = VALUE_OPERAND[type] ?? 0;
@@ -2061,14 +2088,17 @@ export function op(type: string, ...args: any[]): Node<ShaderType> {
     );
   }
 
-  return node({ _t: resultType(type, valueT), type, params });
+  const made = node({ _t: resultType(type, valueT), type, params });
+  assertNode(undefined, made);
+  return made;
 }
 
 export function op1(type: string, a: any): Node<ShaderType> {
   let wrapped = wrapValue(a, type) as BaseNode<ShaderType>;
-  assertOperands(type, [wrapped]);
   let t = (wrapped as any)?._t || "float";
-  return node({ _t: resultType(type, t), type, params: [wrapped] });
+  const made = node({ _t: resultType(type, t), type, params: [wrapped] });
+  assertNode(undefined, made);
+  return made;
 }
 
 /**
@@ -2165,15 +2195,17 @@ export function assertNodeNames(n: any, where = ""): void {
   const slot = n?.value?.slot;
   for (const name of [n?.type === "var" ? n.value?.varName : undefined, slot]) {
     if (name !== undefined && !(typeof name === "string" && IDENTIFIER.test(name))) {
-      throw new Error(
-        `[RMSL] ${where}a ${n.type} node is named ${JSON.stringify(name)}, which is no identifier ` +
+      throw new NodeError(
+        "invalid-name",
+        `${where}a ${n.type} node is named ${JSON.stringify(name)}, which is no identifier ` +
           `(letters, digits and underscore, not starting with a digit).`,
       );
     }
   }
   if (typeof slot === "string" && isReservedName(slot) && !slot.startsWith(RESERVED_VAR_PREFIX)) {
-    throw new Error(
-      `[RMSL] ${where}a ${n.type} node is named "${slot}", which is a keyword or a built-in of GLSL or WGSL, ` +
+    throw new NodeError(
+      "reserved-name",
+      `${where}a ${n.type} node is named "${slot}", which is a keyword or a built-in of GLSL or WGSL, ` +
         `or starts with "gl_" or holds two underscores in a row, and a name given as it stands cannot be changed.`,
     );
   }
@@ -2183,12 +2215,14 @@ export function assertNodeNames(n: any, where = ""): void {
 export function claimVarName(name: string | undefined): string {
   if (name !== undefined) {
     if (!IDENTIFIER.test(name)) {
-      throw new Error(
+      throw new NodeError(
+        "invalid-name",
         `toVar("${name}") must be a valid identifier (letters, digits and ` + `underscore, not starting with a digit).`,
       );
     }
     if (name.startsWith(RESERVED_VAR_PREFIX)) {
-      throw new Error(
+      throw new NodeError(
+        "reserved-name",
         `toVar("${name}") uses the reserved "${RESERVED_VAR_PREFIX}" prefix, ` +
           `which the compiler keeps for its own names.`,
       );
@@ -2227,8 +2261,9 @@ function assertElseIfVariablesInChain(roots: unknown) {
       [chain],
     );
     if (usedOutside) {
-      throw new Error(
-        "[RMSL] A variable made in an ElseIf condition is used after its If chain: it belongs to that ElseIf. Make it before the If to use it after the chain",
+      throw new NodeError(
+        "variable-used-outside-its-branch",
+        "A variable made in an ElseIf condition is used after its If chain: it belongs to that ElseIf. Make it before the If to use it after the chain",
       );
     }
   }
@@ -2236,7 +2271,7 @@ function assertElseIfVariablesInChain(roots: unknown) {
 
 export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<ShaderType>[]) => void) {
   if (blockScope === undefined) {
-    throw new Error(`${fnName} must be called inside an Fn(() => { ... }) scope.`);
+    throw new NodeError("outside-fn-scope", `${fnName} must be called inside an Fn(() => { ... }) scope.`);
   }
   fn(blockScope);
 }
@@ -2308,10 +2343,10 @@ function describeFn(name: string | undefined): string {
  */
 function assertLayout(layout: unknown, strict = false): asserts layout is FnLayout {
   const fail = (why: string): never => {
-    throw new Error(`[RMSL] The layout of ${describeFn((layout as FnLayout)?.name)} ${why}.`);
+    throw new NodeError("invalid-layout", `The layout of ${describeFn((layout as FnLayout)?.name)} ${why}.`);
   };
   if (layout === null || typeof layout !== "object") {
-    throw new Error("[RMSL] A layout is an object, { name, type, inputs }.");
+    throw new NodeError("invalid-layout", "A layout is an object, { name, type, inputs }.");
   }
   const { name, type, inputs } = layout as FnLayout;
   const validName = (n: unknown) => typeof n === "string" && IDENTIFIER.test(n) && !n.startsWith(RESERVED_VAR_PREFIX);
@@ -2363,8 +2398,9 @@ export function assertFnIsClosed(definition: FnDefinition): void {
   walk(definition.body);
   const outside = read.find((n) => !declared.has(n.value.varName));
   if (outside) {
-    throw new Error(
-      `[RMSL] ${describeFn(definition.name)} uses the variable "${outside.value.varName}", which is declared outside it. ` +
+    throw new NodeError(
+      "layout-fn-uses-outer-variable",
+      `${describeFn(definition.name)} uses the variable "${outside.value.varName}", which is declared outside it. ` +
         `A function sees its inputs, its own variables and the uniforms, textures and storage buffers of the program. ` +
         `Pass the variable in as an input, and return the new value if the function changes it.`,
     );
@@ -2391,8 +2427,9 @@ export function assertCallFits(call: BaseNode<ShaderType>): void {
     (definition.body as any)._t === definition.type &&
     definition.type === call._t;
   if (!fits) {
-    throw new Error(
-      "[RMSL] A call of an Fn with a layout does not fit its layout: its body, its inputs or its arguments disagree.",
+    throw new NodeError(
+      "call-does-not-fit-layout",
+      "A call of an Fn with a layout does not fit its layout: its body, its inputs or its arguments disagree.",
     );
   }
 }
@@ -2406,8 +2443,9 @@ function fitArgument(
   const value = wrapValue(x as any) as BaseNode<ShaderType>;
   if (!isNode(value) || value._t !== input.type) {
     const got = isNode(value) && value._t !== "void" ? `a ${value._t}` : "nothing";
-    throw new Error(
-      `[RMSL] The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
+    throw new NodeError(
+      "argument-of-another-type",
+      `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
         `Convert it to a ${input.type}${typeof x === "number" ? `, as ${input.type}(${x}) does: a plain number is a float` : ""}.`,
     );
   }
@@ -2422,13 +2460,14 @@ function callArguments(layout: FnLayout, args: unknown[]): unknown[] {
     const named = args[0] as Record<string, unknown>;
     const unknown_ = Object.keys(named).find((key) => !layout.inputs.some((input) => input.name === key));
     if (unknown_ !== undefined) {
-      throw new Error(`[RMSL] ${describeFn(layout.name)} has no input "${unknown_}".`);
+      throw new NodeError("unknown-input", `${describeFn(layout.name)} has no input "${unknown_}".`);
     }
     return layout.inputs.map((input) => named[input.name]);
   }
   if (args.length !== layout.inputs.length) {
-    throw new Error(
-      `[RMSL] ${describeFn(layout.name)} takes ${layout.inputs.length} input${layout.inputs.length === 1 ? "" : "s"}, and the call passes ${args.length}.`,
+    throw new NodeError(
+      "argument-count",
+      `${describeFn(layout.name)} takes ${layout.inputs.length} input${layout.inputs.length === 1 ? "" : "s"}, and the call passes ${args.length}.`,
     );
   }
   return args;
@@ -2472,12 +2511,16 @@ function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): F
     for (const name of names) usedVarNames.add(name);
     const returned = fn(inputs);
     if (Array.isArray(returned)) {
-      throw new Error(`[RMSL] ${describeFn(layout.name)} returns a list, and a function returns one value.`);
+      throw new NodeError(
+        "layout-fn-returns-list",
+        `${describeFn(layout.name)} returns a list, and a function returns one value.`,
+      );
     }
     const value = wrapValue(returned as any) as BaseNode<ShaderType>;
     if (value._t !== layout.type) {
-      throw new Error(
-        `[RMSL] ${describeFn(layout.name)} has the type ${layout.type}, and its body returns ${value._t === "void" ? "nothing" : `a ${value._t}`}.`,
+      throw new NodeError(
+        "result-of-another-type",
+        `${describeFn(layout.name)} has the type ${layout.type}, and its body returns ${value._t === "void" ? "nothing" : `a ${value._t}`}.`,
       );
     }
     const definition: FnDefinition = {
@@ -2487,6 +2530,7 @@ function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): F
       body: node({ _t: layout.type, type: "seq", params: [...scope, value] }) as BaseNode<ShaderType>,
     };
     assertFnIsClosed(definition);
+    assertFnBodyNode(undefined, definition);
     return definition;
   } finally {
     blockScope = oldBlockScope;
@@ -2789,7 +2833,10 @@ function integerLiteral(type: "int" | "uint", v: number): number {
   let [low, high] = type === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
   let truncated = Math.trunc(v);
   if (!(truncated >= low && truncated <= high)) {
-    throw new Error(`[RMSL] ${v} is outside the range of ${type}, ${low} to ${high}. Use a number inside it.`);
+    throw new NodeError(
+      "literal-out-of-range",
+      `${v} is outside the range of ${type}, ${low} to ${high}. Use a number inside it.`,
+    );
   }
   return truncated;
 }
@@ -2805,7 +2852,10 @@ export function uint(v: number | Node<"float"> | Node<"int"> | Node<"bool">): No
     return node({ _t: "uint", type: "construct", params: [v] }) as Node<"uint">;
   }
   if (v < 0) {
-    throw new Error(`[RMSL] uint(${v}) is negative. An unsigned literal cannot be negative.`);
+    throw new NodeError(
+      "literal-negative-for-unsigned",
+      `uint(${v}) is negative. An unsigned literal cannot be negative.`,
+    );
   }
   return node({ _t: "uint", type: "uint", value: integerLiteral("uint", v) }) as Node<"uint">;
 }
@@ -2826,8 +2876,9 @@ export function makeIntVecConstructor<T extends ShaderType>(
     if (scalarType === "uint") {
       for (let a of args) {
         if (typeof a === "number" && a < 0) {
-          throw new Error(
-            `[RMSL] ${a} is negative, but ${t} components are unsigned. ` +
+          throw new NodeError(
+            "literal-negative-for-unsigned",
+            `${a} is negative, but ${t} components are unsigned. ` +
               `Use a signed vector, or values that are not negative.`,
           );
         }
@@ -2883,7 +2934,10 @@ function matrixOfValues(t: ShaderType, values: any[]): any {
   if (!values.some(isNode)) return node({ _t: t, type: t, value: values });
   let [columns, rows] = MATRIX_DIMENSIONS[t];
   if (values.length !== columns * rows) {
-    throw new Error(`[RMSL] ${t}() takes ${columns * rows} values, or ${columns} columns, not ${values.length}.`);
+    throw new NodeError(
+      "constructor-arity",
+      `${t}() takes ${columns * rows} values, or ${columns} columns, not ${values.length}.`,
+    );
   }
   let vector = rows === 2 ? vec2 : rows === 3 ? vec3 : vec4;
   let params = Array.from({ length: columns }, (_, c) => (vector as any)(...values.slice(c * rows, (c + 1) * rows)));
@@ -2905,8 +2959,9 @@ function asFloatVector(vector: BaseNode<ShaderType>): BaseNode<ShaderType> {
 function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<ShaderType>[] {
   const [columns, rows] = MATRIX_DIMENSIONS[t];
   if (TYPE_WIDTH[vector._t] !== columns * rows) {
-    throw new Error(
-      `[RMSL] ${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
+    throw new NodeError(
+      "constructor-arity",
+      `${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
         `${columns * rows} components, not ${withArticle(vector._t)}.`,
     );
   }
@@ -2940,8 +2995,9 @@ export function makeMatConstructor<T extends ShaderType>(
     if (args.length === columns && args.every((a: any) => isNode(a))) {
       for (const column of args as BaseNode<ShaderType>[]) {
         if (!/^[iub]?vec[234]$/.test(column._t) || TYPE_WIDTH[column._t] !== rows) {
-          throw new Error(
-            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not ${withArticle(column._t)}.`,
+          throw new NodeError(
+            "constructor-arity",
+            `${t}() takes ${columns} columns, each a vector of ${rows} components, not ${withArticle(column._t)}.`,
           );
         }
       }
@@ -3371,21 +3427,52 @@ export function unpremultiplyAlpha(color: MathLike): any {
   return c.a.equal(0).select(vec4(0), vec4(c.rgb.div(c.a), c.a));
 }
 
+/** The name a user calls a texture read by, from the type of its node. */
+const TEXTURE_READ_NAMES: Record<string, string> = {
+  texture: "texture",
+  textureLod: "textureLevel",
+  textureLoad: "textureLoad",
+};
+
 /**
- * Throws unless `value` is a sampler that `texture` and `textureLevel` can read:
- * an integer cube map has no texel fetch on GLSL or WGSL.
+ * Why a texture read of the node type `type` cannot read a sampler of
+ * `samplerType`, or `undefined` when it can. A cube map has no texel fetch on
+ * GLSL or WGSL, so `textureLoad` reads no cube map, and an integer cube map,
+ * which only a texel fetch could read, is read by nothing. The builders ask it
+ * as they make a node, and every compiler asks it again of each node, so a
+ * graph `deserialize` rebuilt is refused alike.
  */
-function assertSampledTexture(fn: string, value: BaseNode<ShaderType>): void {
-  const type = (value as { _t?: string } | undefined)?._t;
-  if (type === undefined || !isSamplerType(type)) {
-    const what = type === undefined ? "not a node" : withArticle(type);
-    throw new Error(`[RMSL] ${fn}: its first argument is ${what}, not a sampler`);
+export function textureRefusal(
+  type: string,
+  samplerType: string | undefined,
+): { code: string; message: string } | undefined {
+  const name = TEXTURE_READ_NAMES[type];
+  if (name === undefined || samplerType === undefined || !samplerType.endsWith("Cube")) return undefined;
+  if (type === "textureLoad") {
+    return {
+      code: "cube-map-texel-fetch",
+      message: `textureLoad: ${withArticle(samplerType)} is a cube map, which neither GLSL nor WGSL can fetch a texel of. Sample it with texture() and a direction instead`,
+    };
   }
-  if (type === "isamplerCube" || type === "usamplerCube") {
-    throw new Error(
-      `[RMSL] ${fn}: ${withArticle(type)} is an integer cube map, which neither GLSL nor WGSL can read a texel of`,
-    );
+  if (samplerType === "isamplerCube" || samplerType === "usamplerCube") {
+    return {
+      code: "integer-cube-sampler",
+      message: `${name}: ${withArticle(samplerType)} is an integer cube map, which neither GLSL nor WGSL can read a texel of`,
+    };
   }
+  return undefined;
+}
+
+/** Throws unless `value` is a sampler that the texture read of node type `type` can read. */
+function assertSampledTexture(type: string, value: BaseNode<ShaderType>): void {
+  const fn = TEXTURE_READ_NAMES[type]!;
+  const samplerType = (value as { _t?: string } | undefined)?._t;
+  if (samplerType === undefined || !isSamplerType(samplerType)) {
+    const what = samplerType === undefined ? "not a node" : withArticle(samplerType);
+    throw new NodeError("not-a-sampler", `${fn}: its first argument is ${what}, not a sampler`);
+  }
+  const refusal = textureRefusal(type, samplerType);
+  if (refusal) throw new NodeError(refusal.code, refusal.message);
 }
 
 /**
@@ -3421,7 +3508,7 @@ export function textureLevel(value: ISampler3DLike, uv: IVec3Like, level: IntLik
 export function textureLevel(value: USampler2DLike, uv: UVec2Like, level: IntLike): Node<"uvec4">;
 export function textureLevel(value: USampler3DLike, uv: UVec3Like, level: IntLike): Node<"uvec4">;
 export function textureLevel(value: BaseNode<ShaderType>, uv: unknown, level: unknown): any {
-  assertSampledTexture("textureLevel", value);
+  assertSampledTexture("textureLod", value);
   return node({
     _t: textureResultType(value._t),
     type: "textureLod",
@@ -3530,11 +3617,12 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
  */
 export function uniformArray<T extends ShaderType>(shaderType: T, length: number): UniformArrayNode<T> {
   if (!Number.isInteger(length) || length < 1) {
-    throw new Error(`[RMSL] uniformArray length must be a positive integer, got ${length}`);
+    throw new NodeError("uniform-array-length", `uniformArray length must be a positive integer, got ${length}`);
   }
   if (isSamplerType(shaderType)) {
-    throw new Error(
-      `[RMSL] uniformArray cannot hold a texture. WGSL has no array of separate` +
+    throw new NodeError(
+      "texture-in-uniform-array",
+      `uniformArray cannot hold a texture. WGSL has no array of separate` +
         ` texture bindings without an extension, so there is no spelling both` +
         ` backends share — Three.js does not offer one either. Declare each` +
         ` texture on its own, or use a layered array texture, which both` +
@@ -3629,8 +3717,9 @@ export class StorageBufferAttribute {
       this.array = new arrayClass(countOrArray * itemSize);
     } else {
       if (countOrArray.length % itemSize !== 0) {
-        throw new Error(
-          `[RMSL] a typed array of ${countOrArray.length} values isn't a whole number of elements of itemSize ${itemSize}`,
+        throw new NodeError(
+          "typed-array-not-whole-elements",
+          `a typed array of ${countOrArray.length} values isn't a whole number of elements of itemSize ${itemSize}`,
         );
       }
       this.count = countOrArray.length / itemSize;
@@ -3655,8 +3744,9 @@ export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
 export function storage<T extends ShaderType>(attribute: StorageBufferAttribute, shaderType: T): StorageNode<T> {
   assertStorageLayout(attribute, shaderType);
   if (attribute.elementType !== null && attribute.elementType !== shaderType) {
-    throw new Error(
-      `[RMSL] an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be ${withArticle(shaderType)}`,
+    throw new NodeError(
+      "storage-of-another-element-type",
+      `an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be ${withArticle(shaderType)}`,
     );
   }
   attribute.elementType = shaderType;
@@ -3696,20 +3786,23 @@ function componentsOf(shaderType: ShaderType): number {
  */
 function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: ShaderType): void {
   if (shaderType === "bool" || shaderType.startsWith("bvec")) {
-    throw new Error(
-      `[RMSL] a storage buffer can't hold ${shaderType} elements, as WGSL's can't; store them as uint (or uvec) instead`,
+    throw new NodeError(
+      "storage-of-bool",
+      `a storage buffer can't hold ${shaderType} elements, as WGSL's can't; store them as uint (or uvec) instead`,
     );
   }
   const components = componentsOf(shaderType);
   if (attribute.itemSize !== components) {
-    throw new Error(
-      `[RMSL] ${withArticle(shaderType)} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
+    throw new NodeError(
+      "storage-item-size",
+      `${withArticle(shaderType)} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
     );
   }
   const arrayClass = storageArrayClass(shaderType);
   if (attribute.arrayClass !== arrayClass) {
-    throw new Error(
-      `[RMSL] ${withArticle(shaderType)} storage node needs ${withArticle(arrayClass.name)} attribute, but its attribute holds ${withArticle(attribute.arrayClass.name)}`,
+    throw new NodeError(
+      "storage-array-kind",
+      `${withArticle(shaderType)} storage node needs ${withArticle(arrayClass.name)} attribute, but its attribute holds ${withArticle(attribute.arrayClass.name)}`,
     );
   }
 }
@@ -3782,7 +3875,7 @@ export function invocationIndex(): Node<"uint"> {
 
 /** Refuses an empty name, which declares an input that no target can read by name. */
 function assertRawName(name: string, fn: string): void {
-  if (name === "") throw new Error(`[RMSL] ${fn}: the name is empty`);
+  if (name === "") throw new NodeError("empty-name", `${fn}: the name is empty`);
 }
 
 export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): UniformNode<T> {
@@ -4033,11 +4126,15 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let deepestIf = ifNode;
   const assertFollows = (link: string) => {
     if (blockScope !== outer) {
-      throw new Error(`[RMSL] ${link} has to follow its If directly: it was called from inside another block`);
+      throw new NodeError(
+        "else-not-after-if",
+        `${link} has to follow its If directly: it was called from inside another block`,
+      );
     }
     if (outer.length !== end) {
-      throw new Error(
-        `[RMSL] ${link} has to follow its If directly: nothing can be written between them, a variable included. Make a value the chain reads before the If`,
+      throw new NodeError(
+        "else-not-after-if",
+        `${link} has to follow its If directly: nothing can be written between them, a variable included. Make a value the chain reads before the If`,
       );
     }
   };
@@ -4087,11 +4184,11 @@ function loopCondition(cond: () => BooleanLike) {
 
 /** Why a `For` whose update holds a block is refused. */
 export const FOR_UPDATE_BLOCK_MESSAGE =
-  "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
+  "A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
 
 /** Why a `For` whose update leaves the loop or the function is refused. */
 export const FOR_UPDATE_JUMP_MESSAGE =
-  "[RMSL] A for-loop's update cannot contain a break, continue, discard or return. Move it into the loop body.";
+  "A for-loop's update cannot contain a break, continue, discard or return. Move it into the loop body.";
 
 /** The statements that run a body of their own again on every iteration. */
 export const LOOP_STATEMENTS: ReadonlySet<string> = new Set(["for", "while"]);
@@ -4111,8 +4208,8 @@ const JUMP_STATEMENTS = new Set([...LOOP_JUMP_STATEMENTS, "discard", "return"]);
  * update slot of a `for` takes.
  */
 export function assertForUpdateNode(node: { type?: string }): void {
-  if (BLOCK_STATEMENTS.has(node.type!)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
-  if (JUMP_STATEMENTS.has(node.type!)) throw new Error(FOR_UPDATE_JUMP_MESSAGE);
+  if (BLOCK_STATEMENTS.has(node.type!)) throw new NodeError("block-in-for-update", FOR_UPDATE_BLOCK_MESSAGE);
+  if (JUMP_STATEMENTS.has(node.type!)) throw new NodeError("jump-in-for-update", FOR_UPDATE_JUMP_MESSAGE);
 }
 
 /**
@@ -4201,8 +4298,9 @@ export function Loop(...params: any[]): void {
   const named = names.filter((name) => name !== undefined);
   const repeated = named.find((name, i) => named.indexOf(name) !== i);
   if (repeated !== undefined) {
-    throw new Error(
-      `[RMSL] Loop: two ranges name their index "${repeated}", so the inner one hides the outer from the body`,
+    throw new NodeError(
+      "loop-index-hidden",
+      `Loop: two ranges name their index "${repeated}", so the inner one hides the outer from the body`,
     );
   }
   const nest = (depth: number): void => {
@@ -4261,10 +4359,13 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   }
   const type = range.type ?? "int";
   if (type !== "int" && type !== "uint" && type !== "float") {
-    throw new Error(`[RMSL] Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
+    throw new NodeError("loop-index-type", `Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
   }
   if (range.start === undefined && range.end === undefined) {
-    throw new Error('[RMSL] Loop: a range names neither "start" nor "end", so it has nothing to count from or to');
+    throw new NodeError(
+      "loop-range-empty",
+      'Loop: a range names neither "start" nor "end", so it has nothing to count from or to',
+    );
   }
   // Each bound is built as the index's type, as TSL builds it.
   const of = (value: number | Node<ShaderType>): Node<any> => {
@@ -4287,18 +4388,23 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   const [first, last] = [constantOf(start!), constantOf(end!)];
   condition ??= first !== undefined && last !== undefined && first > last ? ">=" : "<";
   if (!["<", "<=", ">", ">="].includes(condition)) {
-    throw new Error(`[RMSL] Loop: a condition is "<", "<=", ">" or ">=", not ${JSON.stringify(condition)}`);
+    throw new NodeError(
+      "loop-condition",
+      `Loop: a condition is "<", "<=", ">" or ">=", not ${JSON.stringify(condition)}`,
+    );
   }
   const update = range.update;
   if (typeof update === "string") {
-    throw new Error(
-      "[RMSL] Loop: an update is a number, a node or a function, not a string: TSL writes a string into the shader it emits, which the JS and WASM targets have none of",
+    throw new NodeError(
+      "loop-update-string",
+      "Loop: an update is a number, a node or a function, not a string: TSL writes a string into the shader it emits, which the JS and WASM targets have none of",
     );
   }
   const step = typeof update === "function" ? update : of(update ?? 1);
   if (type === "uint" && condition === ">=" && constantOf(end!) === 0) {
-    throw new Error(
-      '[RMSL] Loop: a uint range that tests ">=" against an end of 0 never ends, since every uint is at least 0. Give the index the type "int"',
+    throw new NodeError(
+      "loop-never-ends",
+      'Loop: a uint range that tests ">=" against an end of 0 never ends, since every uint is at least 0. Give the index the type "int"',
     );
   }
   return { start: of(start!), end: of(end ?? 0), condition, step };
@@ -4307,8 +4413,9 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
 /** Throws for a number with a fraction given as a bound of an integer `Loop` index, which TSL would round. */
 function assertWholeBound(value: number, type: string): void {
   if (!Number.isInteger(value)) {
-    throw new Error(
-      `[RMSL] Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
+    throw new NodeError(
+      "loop-bound-not-whole",
+      `Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
     );
   }
 }
@@ -4372,15 +4479,18 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
   let closed = false;
   /** Checks that a `Case` or `Default` is added where it can still reach the program. */
   const check = (name: string) => {
-    if (closed) throw new Error(`[RMSL] ${name}() after Default(): a Switch takes no case after its Default.`);
+    if (closed)
+      throw new NodeError("case-after-default", `${name}() after Default(): a Switch takes no case after its Default.`);
     if (blockScope !== block) {
-      throw new Error(
-        `[RMSL] ${name}() must be called from the block that holds its Switch(), as Switch(x).Case(...).Default(...).`,
+      throw new NodeError(
+        "case-outside-switch",
+        `${name}() must be called from the block that holds its Switch(), as Switch(x).Case(...).Default(...).`,
       );
     }
     if (after !== undefined && block.length !== after) {
-      throw new Error(
-        `[RMSL] ${name}() after a statement that follows the case before it: the chain would run before that statement.`,
+      throw new NodeError(
+        "case-after-statement",
+        `${name}() after a statement that follows the case before it: the chain would run before that statement.`,
       );
     }
   };
@@ -4397,7 +4507,10 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
       const caseBody = params[params.length - 1] as () => void;
       const values = params.slice(0, -1) as IntLike[];
       if (values.length === 0) {
-        throw new Error("[RMSL] Case() needs at least one value: a case with no values can never match.");
+        throw new NodeError(
+          "case-without-values",
+          "Case() needs at least one value: a case with no values can never match.",
+        );
       }
       let cond: BaseNode<ShaderType> | undefined;
       for (const value of values) {
@@ -4478,4 +4591,628 @@ export function isSamplerType(type: string): boolean {
 /** Whether a sampler type reads integers, which no filtering sampler goes with. */
 export function isIntegerSamplerType(type: string): boolean {
   return type.startsWith("isampler") || type.startsWith("usampler");
+}
+
+export function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
+  return (n.type === "float" || n.type === "int" || n.type === "uint" || n.type === "bool") && !n.params;
+}
+
+/**
+ * An integer operation on literal operands, computed the way every backend
+ * computes it at run time: wrapped to 32 bits, with WGSL's results for
+ * division and remainder by zero and for `INT_MIN / -1`, shift amounts taken
+ * modulo 32, and `clamp` as `min(max(e, low), high)`. `undefined` for an
+ * operation this doesn't fold.
+ */
+function foldInteger(op: string, t: "int" | "uint", [a = 0, b = 0, c = 0]: number[]): number | undefined {
+  let wrap = t === "int" ? (x: number) => x | 0 : (x: number) => x >>> 0;
+  switch (op) {
+    case "add":
+      return wrap(a + b);
+    case "sub":
+      return wrap(a - b);
+    case "mul":
+      return wrap(Math.imul(a, b));
+    case "div":
+      return b === 0 || (t === "int" && a === -2147483648 && b === -1) ? a : wrap(Math.trunc(a / b));
+    case "mod":
+      return b === 0 ? 0 : wrap(a % b);
+    case "negate":
+      return wrap(-a);
+    case "abs":
+      return wrap(Math.abs(a));
+    case "bitAnd":
+      return wrap(a & b);
+    case "bitOr":
+      return wrap(a | b);
+    case "bitXor":
+      return wrap(a ^ b);
+    case "bitNot":
+      return wrap(~a);
+    case "shiftLeft":
+      return wrap(a << b);
+    case "shiftRight":
+      return t === "int" ? a >> b : a >>> b;
+    case "min":
+      return Math.min(a, b);
+    case "max":
+      return Math.max(a, b);
+    case "clamp":
+      return Math.min(Math.max(a, b), c);
+  }
+  return undefined;
+}
+
+const INTEGER_COMPARISONS: Record<string, (a: number, b: number) => boolean> = {
+  lessThan: (a, b) => a < b,
+  greaterThan: (a, b) => a > b,
+  lessThanEqual: (a, b) => a <= b,
+  greaterThanEqual: (a, b) => a >= b,
+  equal: (a, b) => a === b,
+  notEqual: (a, b) => a !== b,
+};
+
+/** A component of a literal that may be a splat: one value stands for every component. */
+function componentAt(components: number[], i: number): number {
+  return components[components.length > 1 ? i : 0]!;
+}
+
+/** Whether `t` is `int`, `uint`, or a vector of either. */
+export function isIntegerType(t: string): boolean {
+  let kind = componentKindOf(t);
+  return kind === "int" || kind === "uint";
+}
+
+function isUnsignedType(t: string): boolean {
+  return componentKindOf(t) === "uint";
+}
+
+/**
+ * The components of an integer literal — a scalar, a vector literal, or a
+ * vector constructor whose parts are all constant — or `null` when `n` isn't
+ * one. A part may be a constant expression, and may have the other
+ * signedness: its bits are kept, as the conversion does at run time. One
+ * scalar part fills every component.
+ */
+function integerLiteralComponents(origin: Origin | undefined, n: BaseNode<ShaderType>): number[] | null {
+  let t = n._t as string;
+  if (!isIntegerType(t)) return null;
+  if (isLeafLiteral(n)) return [n.value as number];
+  if (n.type === t && Array.isArray(n.value)) return n.value as number[];
+  let width = TYPE_WIDTH[t] ?? 1;
+  if (width === 1 || n.type !== "construct" || !n.params?.length) return null;
+  let parts: number[] = [];
+  for (let param of n.params) {
+    let constant = integerConstant(origin, param);
+    let components = constant && integerLiteralComponents(origin, constant);
+    if (!components) return null;
+    parts.push(...components);
+  }
+  if (n.params.length === 1 && parts.length === 1) parts = Array(width).fill(parts[0]);
+  if (parts.length !== width) return null;
+  let wrap = isUnsignedType(t) ? (x: number) => x >>> 0 : (x: number) => x | 0;
+  return parts.map(wrap);
+}
+
+const integerConstants = new WeakMap<object, BaseNode<ShaderType> | null>();
+
+/**
+ * `n` as an integer literal when it is a constant integer expression, or
+ * `null`. Folding happens from the leaves up, so `a.div(int(2).sub(int(2)))`
+ * sees its divisor as the literal `0` rather than as an unfolded subtraction.
+ * Cached per node: a node is asked for by each of its parents.
+ */
+function integerConstant(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  if (!n || typeof n !== "object" || !isIntegerType(n._t as string)) return null;
+  if (integerLiteralComponents(origin, n)) return n;
+  let cached = integerConstants.get(n);
+  if (cached !== undefined) return cached;
+  integerConstants.set(n, null);
+  let folded = tryFold(origin, n);
+  let result = folded && folded !== n ? integerConstant(origin, folded) : null;
+  integerConstants.set(n, result);
+  return result;
+}
+
+function integerLiteralNode(t: string, components: number[]): BaseNode<ShaderType> {
+  return mkNode({ _t: t, type: t, value: (TYPE_WIDTH[t] ?? 1) > 1 ? components : components[0] });
+}
+
+/**
+ * The result of a comparison between integer constants, one boolean per
+ * component, or `null` when `n` isn't one.
+ */
+function integerComparison(origin: Origin | undefined, n: BaseNode<ShaderType>): boolean[] | null {
+  let compare = INTEGER_COMPARISONS[n.type];
+  let [lhs, rhs] = n.params ?? [];
+  if (!compare || !lhs || !rhs) return null;
+  let a = integerConstant(origin, lhs);
+  let b = integerConstant(origin, rhs);
+  let ca = a && integerLiteralComponents(origin, a);
+  let cb = b && integerLiteralComponents(origin, b);
+  if (!ca || !cb) return null;
+  return Array.from({ length: Math.max(ca.length, cb.length) }, (_, i) =>
+    compare(componentAt(ca, i), componentAt(cb, i)),
+  );
+}
+
+/**
+ * A select whose condition is a constant: the chosen branch, or — for a
+ * condition that differs between components — the components of two
+ * constant branches picked one by one. WGSL evaluates a constant condition
+ * itself, so a branch it picks is as constant as a literal would be.
+ */
+function foldSelect(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let [cond, ifTrue, ifFalse] = n.params ?? [];
+  if (!cond || !ifTrue || !ifFalse) return null;
+  let picks = isLeafLiteral(cond) ? [Boolean(cond.value)] : integerComparison(origin, cond);
+  if (!picks) return null;
+  if (picks.every((p) => p === picks![0])) return picks[0] ? ifTrue : ifFalse;
+  let a = integerLiteralComponents(origin, ifTrue);
+  let b = integerLiteralComponents(origin, ifFalse);
+  if (!a || !b) return null;
+  return integerLiteralNode(
+    n._t as string,
+    picks.map((p, i) => (p ? componentAt(a!, i) : componentAt(b!, i))),
+  );
+}
+
+/**
+ * Integer operations on literals, folded component by component, and a
+ * literal divisor or shift amount rewritten to the value the run-time rules
+ * already use: a zero divisor becomes 1 (`x / 1` is `x`, `x % 1` is `0`) and a
+ * shift amount keeps its low 5 bits. WGSL rejects the unrewritten constants at
+ * shader creation, even when the other operand is a run-time value.
+ */
+function foldIntegerOperands(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let t = n._t as string;
+  let [lhs, rhs] = n.params ?? [];
+  if (!isIntegerType(t) || !lhs) return null;
+  let kind: "int" | "uint" = isUnsignedType(t) ? "uint" : "int";
+  let operands = n.params!.map((param) => integerLiteralComponents(origin, param));
+  if (operands.every((c) => c !== null)) {
+    let folded = Array.from({ length: TYPE_WIDTH[t] ?? 1 }, (_, i) =>
+      foldInteger(
+        n.type,
+        kind,
+        operands.map((c) => componentAt(c!, i)),
+      ),
+    );
+    if (folded.every((v) => v !== undefined)) return integerLiteralNode(t, folded as number[]);
+  }
+  let b = rhs ? integerLiteralComponents(origin, rhs) : null;
+  if (!rhs || !b) return null;
+  let rewrite =
+    n.type === "div" || n.type === "mod"
+      ? (v: number) => (v === 0 ? 1 : v)
+      : n.type === "shiftLeft" || n.type === "shiftRight"
+        ? (v: number) => v & 31
+        : null;
+  if (!rewrite || b.every((v) => rewrite!(v) === v)) return null;
+  return mkNode({ _t: t, type: n.type, params: [lhs, integerLiteralNode(rhs._t as string, b.map(rewrite))] });
+}
+
+/**
+ * `n` folded to the literal it computes, or null. With `float32`, a float
+ * literal operand and a float result are rounded to 32 bits, as a CPU target at
+ * `float: "f32"` computes them at run time.
+ */
+export function tryFold(
+  origin: Origin | undefined,
+  n: BaseNode<ShaderType>,
+  float32 = false,
+): BaseNode<ShaderType> | null {
+  let folded = float32 ? foldNode32(origin, n) : foldNode(origin, n);
+  if (
+    folded &&
+    folded._t === "float" &&
+    folded.type === "float" &&
+    n.type !== "float" &&
+    n.type !== "select" &&
+    !Number.isFinite(Math.fround(folded.value as number))
+  ) {
+    throw new NodeError(
+      "constant-not-finite",
+      `${n.type}() of literal operands is ${folded.value}, which a 32-bit float cannot hold and no target can write as a constant. ` +
+        `Compute it from a value that is not a literal, such as a uniform.`,
+      origin,
+    );
+  }
+  return folded;
+}
+
+function foldNode32(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let params = n.params?.map((p) => (p && isLeafLiteral(p) ? roundLiteral32(p) : p));
+  let rounded = params?.some((p, i) => p !== n.params![i])
+    ? mkNode({ _t: n._t as string, type: n.type, params, value: n.value })
+    : n;
+  let folded = foldNode(origin, rounded);
+  return folded && isLeafLiteral(folded) ? roundLiteral32(folded) : folded;
+}
+
+/** A float literal, scalar, vector or matrix, with each value rounded to 32 bits; any other node as it is. */
+function roundLiteral32(n: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  let t = n._t as string;
+  if (t !== "float" && !/^(vec|mat)/.test(t)) return n;
+  let value = Array.isArray(n.value) ? (n.value as number[]).map(Math.fround) : Math.fround(n.value as number);
+  return mkNode({ _t: t, type: n.type, value });
+}
+
+function foldNode(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  // Integer operands are folded first, so a constant subexpression counts as
+  // the literal it is when this node is folded or its divisor is rewritten.
+  let operands = n.params?.map((p) => integerConstant(origin, p) ?? p);
+  if (operands?.some((p, i) => p !== n.params![i])) {
+    n = mkNode({ _t: n._t as string, type: n.type, params: operands, value: n.value });
+  }
+  // A select with a constant condition collapses to the chosen branch,
+  // whatever the branches are — the guard below only admits scalar literals,
+  // so this is checked before it.
+  if (n.type === "select") return foldSelect(origin, n);
+  let integerOperands = foldIntegerOperands(origin, n);
+  if (integerOperands) return integerOperands;
+  let params = n.params ?? [];
+  if (!params.every(isLeafLiteral)) return null;
+  let p0 = params[0]?.value;
+  let p1 = params[1]?.value;
+  let t = n._t;
+  if (t === "float" || t === "int" || t === "uint") {
+    let a = p0 as number;
+    let b = p1 as number;
+    switch (n.type) {
+      case "add":
+        return mkNode({ _t: t, type: t, value: a + b });
+      case "sub":
+        return mkNode({ _t: t, type: t, value: a - b });
+      case "mul":
+        return mkNode({ _t: t, type: t, value: a * b });
+      case "div":
+        return mkNode({ _t: t, type: t, value: a / b });
+      case "negate":
+        return mkNode({ _t: t, type: t, value: -a });
+      // JavaScript's % truncates toward zero. The float operation is floored,
+      // following GLSL's mod(), so folding it with % would give a literal that
+      // disagrees with what the same expression computes when its operands are
+      // not constants.
+      case "mod":
+        return mkNode({ _t: t, type: t, value: a - b * Math.floor(a / b) });
+      case "sin":
+        return mkNode({ _t: t, type: t, value: Math.sin(a) });
+      case "cos":
+        return mkNode({ _t: t, type: t, value: Math.cos(a) });
+      case "tan":
+        return mkNode({ _t: t, type: t, value: Math.tan(a) });
+      case "asin":
+        return mkNode({ _t: t, type: t, value: Math.asin(a) });
+      case "acos":
+        return mkNode({ _t: t, type: t, value: Math.acos(a) });
+      case "atan":
+        return mkNode({ _t: t, type: t, value: Math.atan(a) });
+      case "sinh":
+        return mkNode({ _t: t, type: t, value: Math.sinh(a) });
+      case "cosh":
+        return mkNode({ _t: t, type: t, value: Math.cosh(a) });
+      case "tanh":
+        return mkNode({ _t: t, type: t, value: Math.tanh(a) });
+      case "asinh":
+        return mkNode({ _t: t, type: t, value: Math.asinh(a) });
+      case "acosh":
+        return mkNode({ _t: t, type: t, value: Math.acosh(a) });
+      case "atanh":
+        return mkNode({ _t: t, type: t, value: Math.atanh(a) });
+      case "abs":
+        return mkNode({ _t: t, type: t, value: Math.abs(a) });
+      case "sign":
+        return mkNode({ _t: t, type: t, value: Math.sign(a) });
+      case "floor":
+        return mkNode({ _t: t, type: t, value: Math.floor(a) });
+      case "ceil":
+        return mkNode({ _t: t, type: t, value: Math.ceil(a) });
+      case "round":
+        return mkNode({ _t: t, type: t, value: roundHalfToEven(a) });
+      case "trunc":
+        return mkNode({ _t: t, type: t, value: Math.trunc(a) });
+      case "radians":
+        return mkNode({ _t: t, type: t, value: a * RADIANS_PER_DEGREE });
+      case "degrees":
+        return mkNode({ _t: t, type: t, value: a * DEGREES_PER_RADIAN });
+      case "fract":
+        return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
+      case "sqrt":
+        return mkNode({ _t: t, type: t, value: Math.sqrt(a) });
+      case "inverseSqrt":
+        return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
+      case "atan2":
+        return mkNode({ _t: t, type: t, value: Math.atan2(a, b) });
+      case "exp":
+        return mkNode({ _t: t, type: t, value: Math.exp(a) });
+      case "log":
+        return mkNode({ _t: t, type: t, value: Math.log(a) });
+      case "exp2":
+        return mkNode({ _t: t, type: t, value: Math.pow(2, a) });
+      case "log2":
+        return mkNode({ _t: t, type: t, value: Math.log2(a) });
+      case "pow":
+        return mkNode({ _t: t, type: t, value: Math.pow(a, b) });
+      case "min":
+        return mkNode({ _t: t, type: t, value: Math.min(a, b) });
+      case "max":
+        return mkNode({ _t: t, type: t, value: Math.max(a, b) });
+      case "dot":
+        return mkNode({ _t: t, type: t, value: a * b });
+    }
+  }
+  return null;
+}
+
+export function mkNode(config: {
+  _t?: string;
+  type: string;
+  params?: BaseNode<ShaderType>[];
+  value?: unknown;
+}): BaseNode<ShaderType> {
+  return new NodeImpl({
+    _t: config._t ?? config.type,
+    type: config.type,
+    params: config.params,
+    value: config.value,
+  }) as BaseNode<ShaderType>;
+}
+
+/** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */
+export function roundHalfToEven(x: number): number {
+  const r = Math.round(x);
+  return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
+/** The factors `radians` and `degrees` multiply by, on every target that computes them itself. */
+export const RADIANS_PER_DEGREE = Math.PI / 180;
+export const DEGREES_PER_RADIAN = 180 / Math.PI;
+
+/** A compiled function's scalar element kind, at the WASM/typed-array level. */
+export type ScalarKind = "float" | "int" | "uint" | "bool";
+
+/**
+ * The kind of value a type's components hold, scalar and vector types alike:
+ * `int` and `ivec3` are both "int". Every backend asks this of a type name,
+ * so it is answered here once.
+ */
+export function componentKindOf(t: string | undefined): ScalarKind {
+  if (t === undefined) return "float";
+  if (t === "bool" || t.startsWith("bvec")) return "bool";
+  if (t === "int" || t.startsWith("ivec")) return "int";
+  if (t === "uint" || t.startsWith("uvec")) return "uint";
+  return "float";
+}
+
+/** Component count: 1 for scalars, TYPE_WIDTH for vectors, rows*cols for matrices. */
+export function componentCountOf(t: string): number {
+  const width = TYPE_WIDTH[t];
+  if (width !== undefined) return width;
+  const shape = MATRIX_DIMENSIONS[t];
+  if (shape !== undefined) return shape[0] * shape[1];
+  return 1;
+}
+
+/** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
+export function refuseWholeStorageRead(origin: Origin | undefined, storage: any): never {
+  throw new NodeError(
+    "storage-read-as-a-whole",
+    `storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`,
+    origin,
+  );
+}
+
+/**
+ * A constant index outside the components of a vector, the columns of a
+ * matrix or the elements of a uniform array is refused by every target, so the
+ * same program is not refused on one and compiled to a read of nothing on
+ * another. A constant index is a literal, or an operation of literals that
+ * folds to one. Asked wherever an element is compiled, which also reaches a
+ * graph that `deserialize` rebuilt. Returns the index when it is inside, and
+ * `undefined` when it is not constant.
+ */
+export function assertConstantIndexInRange(
+  origin: Origin | undefined,
+  target: { _t?: string; type?: string; value?: unknown },
+  index: BaseNode<ShaderType>,
+): number | undefined {
+  const constant = isLeafLiteral(index) ? index : tryFold(origin, index);
+  if (!constant || !isLeafLiteral(constant)) return undefined;
+  const type = target._t as string;
+  const array = target.type === "uniformArray" ? (target.value as { length: number }).length : undefined;
+  const shape = MATRIX_DIMENSIONS[type];
+  const count = array ?? (shape ? shape[0] : componentCountOf(type));
+  const what = array !== undefined ? `${type}[${array}]` : type;
+  const items = array !== undefined ? "elements" : shape ? "columns" : "components";
+  const k = Math.trunc(Number(constant.value));
+  if (!(k >= 0 && k < count)) {
+    throw new NodeError(
+      "index-out-of-range",
+      `index ${k} is outside ${withArticle(what)}'s ${items} 0 to ${count - 1}`,
+      origin,
+    );
+  }
+  return k;
+}
+
+/**
+ * Only a square matrix has an inverse, and neither language offers an overload
+ * for the rest. Asked in both backends, so the two cannot come to different
+ * answers about the same program — one emitting a call no driver accepts while
+ * the other refuses it.
+ *
+ * Returns the matrix's size, which the WGSL side needs to pick its helper.
+ */
+export function assertSquareMatrix(origin: Origin | undefined, operandType: string | undefined): number {
+  let shape = MATRIX_DIMENSIONS[operandType as string];
+  if (shape === undefined || shape[0] !== shape[1]) {
+    throw new NodeError(
+      "inverse-of-non-square",
+      `inverse() needs a square matrix, but this one is ` + `${operandType ?? "untyped"}.`,
+      origin,
+    );
+  }
+  return shape[0];
+}
+
+/** The node types an assignment can write, through any swizzle, component or column of them. */
+const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
+
+/** The node types an assignment passes through on the way to the node it writes. */
+const ASSIGNMENT_PATH = new Set(["swizzle", "vectorElement", "matrixElement"]);
+
+/** What to call a node that can't be assigned, by its type, in the error refusing it. */
+const READ_ONLY_NAMES: Record<string, string> = {
+  uniform: "a uniform",
+  uniformArray: "a uniform",
+  uniformArrayElement: "a uniform",
+  attribute: "an attribute",
+  fragCoord: "a built-in input",
+  invocationIndex: "a built-in input",
+  vertexIndex: "a built-in input",
+  instanceIndex: "a built-in input",
+};
+
+/** The node an assignment to `target` writes, below any swizzle, component or column, and inside the result of an inline Fn. */
+export function assignmentRoot(target: any): any {
+  for (;;) {
+    if (ASSIGNMENT_PATH.has(target?.type)) target = target.params[0];
+    // An inline Fn's result is a statement list whose value is its last item, which the compiler inlines.
+    else if (target?.type === "seq") target = target.params.at(-1);
+    else return target;
+  }
+}
+
+/** Throws when a swizzle an assignment to `target` writes through names a component more than once. */
+export function assertNoRepeatedSwizzle(origin: Origin | undefined, target: any): void {
+  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
+    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
+      throw new NodeError(
+        "swizzle-repeats-component",
+        `can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
+        origin,
+      );
+    }
+  }
+}
+
+/**
+ * Throws when an assignment to `target` is wrong whatever program holds it: a
+ * swizzle that names a component twice, a whole storage buffer, a value no
+ * program can write, a parameter of the compiled function, or an element of a
+ * read-only storage node.
+ */
+export function assertAssignableNode(origin: Origin | undefined, target: any): void {
+  assertNoRepeatedSwizzle(origin, target);
+  const root = assignmentRoot(target);
+  if (root?.type === "storage") {
+    throw new NodeError(
+      "assign-to-whole-storage",
+      "can't assign to a whole storage buffer; assign to one of its elements with .element(i)",
+      origin,
+    );
+  }
+  if (!ASSIGNABLE.has(root?.type)) {
+    const what = READ_ONLY_NAMES[root?.type] ?? "a computed value";
+    throw new NodeError(
+      "assign-to-read-only",
+      `can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
+      origin,
+    );
+  }
+  if (root.type === "var" && root.value.parameter) {
+    throw new NodeError(
+      "assign-to-parameter",
+      `can't assign to "${root.value.varName}", a parameter of the compiled function, whose value belongs to the caller; copy it into a variable with toVar() first`,
+      origin,
+    );
+  }
+  if (root.type === "storageElement" && root.params[0].value.access === "read") {
+    throw new NodeError(
+      "assign-to-read-only-storage",
+      "can't assign to an element of a storage node made read-only with toReadOnly()",
+      origin,
+    );
+  }
+}
+
+/**
+ * Throws a `NodeError` when `node` is wrong whatever program holds it: an
+ * operation on operands it does not take, a read of a texture it cannot read,
+ * a whole storage buffer or an `outputStruct` used as a value, a constant index
+ * outside what it indexes, an assignment no program can make, or a fold of
+ * literals that no target can write. The builders ask it as they make each
+ * node, with no origin, and every compiler asks it of each node it compiles,
+ * so a graph `deserialize` rebuilt is refused alike.
+ */
+export function assertNode(origin: Origin | undefined, node: any): void {
+  const textureRefused = textureRefusal(node.type, node.params?.[0]?._t);
+  if (textureRefused) throw new NodeError(textureRefused.code, textureRefused.message, origin);
+  const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
+  if (refusal) throw new NodeError(refusal.code, refusal.message, origin);
+  node.params?.forEach((param: any, i: number) => {
+    const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
+    if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(origin, param);
+    // A statement list holds the outputStruct a stage ends with; an operation never takes one.
+    if (param?.type === "outputStruct" && node.type !== "seq") {
+      throw new NodeError(
+        "output-struct-misplaced",
+        "outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
+        origin,
+      );
+    }
+  });
+  if (node.type === "vectorElement" || node.type === "matrixElement") {
+    assertConstantIndexInRange(origin, node.params[0], node.params[1]);
+  }
+  if (node.type === "inverse") assertSquareMatrix(origin, node.params?.[0]?._t);
+  if (node.type === "cross" && node.params?.some((param: any) => param?._t !== "vec3")) {
+    const other = node.params.find((param: any) => param?._t !== "vec3")._t;
+    throw new NodeError("cross-needs-vec3", `cross() takes two vec3, not ${withArticle(other)}`, origin);
+  }
+  if (node.type === "assign") assertAssignableNode(origin, node.params[0]);
+  if (node._t === "float" && node.params?.length && node.params.every(isLeafLiteral)) tryFold(origin, node);
+}
+
+/** The node types of a stage's outputs, which a function with a layout writes on no target. */
+const STAGE_OUTPUTS: Record<string, string> = {
+  output: "an output",
+  outputStruct: "an output",
+  builtinPosition: "the position",
+  builtinFragDepth: "the fragment depth",
+};
+
+/**
+ * Throws a `NodeError` when the body of a function with a layout calls
+ * `Return()` although the function gives a value, or uses an output of its
+ * stage. Neither can be right in any program, so the call refuses it as it is
+ * built, and every compiler refuses it again.
+ */
+export function assertFnBodyNode(origin: Origin | undefined, definition: FnDefinition): void {
+  const seen = new Set<unknown>();
+  const named = definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`;
+  const walk = (n: any): void => {
+    if (!n || typeof n !== "object" || seen.has(n)) return;
+    seen.add(n);
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (n.type === "return" && definition.type !== "void") {
+      throw new NodeError(
+        "return-without-value",
+        `${named} gives a ${definition.type}, and its body calls Return(), which gives no value. ` +
+          `Return a value at the end, or give the layout the type "void".`,
+        origin,
+      );
+    }
+    const output = STAGE_OUTPUTS[n.type];
+    if (output !== undefined) {
+      throw new NodeError(
+        "layout-fn-uses-stage-value",
+        `${named} uses ${output}, which belongs to the stage and not to a function. Pass its value in as an input.`,
+        origin,
+      );
+    }
+    n.params?.forEach(walk);
+  };
+  walk(definition.body);
 }

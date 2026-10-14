@@ -1,4 +1,19 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
+import { InternalError, ProgramError, TargetError, type BackendOrigin, NodeError } from "../../errors";
+import {
+  BaseNode,
+  MATRIX_DIMENSIONS,
+  Node,
+  ShaderType,
+  TYPE_WIDTH,
+  componentCountOf,
+  componentKindOf,
+  DEGREES_PER_RADIAN,
+  RADIANS_PER_DEGREE,
+  roundHalfToEven,
+  tryFold,
+  assertSquareMatrix,
+  assertConstantIndexInRange,
+} from "../../core";
 import {
   CpuDrawBuffer,
   CpuRoutine,
@@ -19,8 +34,6 @@ import {
   toVertexResult,
   typedValue,
   typedArrayOfKind,
-  componentCountOf,
-  componentKindOf,
   elementKindOf,
   isAggregate,
   scalarKindOf,
@@ -34,11 +47,7 @@ import {
   PREC_UNARY,
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
-  DEGREES_PER_RADIAN,
-  RADIANS_PER_DEGREE,
   assertPositionIsReadable,
-  assertSquareMatrix,
-  assertConstantIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -49,8 +58,6 @@ import {
   numberClashingVariables,
   loopTest,
   resolveSwizzleTarget,
-  roundHalfToEven,
-  tryFold,
   withoutSemicolon,
   wrapExpr,
   inlineCalls,
@@ -321,7 +328,9 @@ export function jsHelperSource(name: string): string {
     }
     if (op === "cross") {
       if (width !== 3) {
-        throw new Error(`[RMSL] cross() needs a vec3 on the JS target, got width ${width}.`);
+        throw new InternalError("unexpected-cross-width", `the JS compiler has no cross() of width ${width}`, {
+          target: "js",
+        });
       }
       return (
         `function _v3cross(a, b, out) {\n` +
@@ -334,7 +343,7 @@ export function jsHelperSource(name: string): string {
         `  return out;\n}`
       );
     }
-    throw new Error(`[RMSL] Unknown JS vector helper: ${name}`);
+    throw new InternalError("unknown-helper", `Unknown JS vector helper: ${name}`, { target: "js" });
   }
 
   let bm = /^b(\d+)(and|or|not|eq|neq)$/.exec(name);
@@ -665,12 +674,16 @@ function _texCube(tex, dir, out) {
     // The function constant folding uses, so folded and run-time rounding cannot differ.
     const source = roundHalfToEven.toString().replace(/^function[^(]*/, "function _rmsl_roundEven");
     if (!source.startsWith("function _rmsl_roundEven(")) {
-      throw new Error("[RMSL] roundHalfToEven must be a function declaration to become the JS rounding helper");
+      throw new InternalError(
+        "helper-not-a-declaration",
+        "roundHalfToEven must be a function declaration to become the JS rounding helper",
+        { target: "js" },
+      );
     }
     return source;
   }
 
-  throw new Error(`[RMSL] Unknown JS helper: ${name}`);
+  throw new InternalError("unknown-helper", `Unknown JS helper: ${name}`, { target: "js" });
 }
 
 export function jsRequireHelper(ctx: CompileCtx, name: string): void {
@@ -793,7 +806,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     let target = jsCompileTarget(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
-  assertConstantIndexInRange(node.params![0], node.params![1]);
+  assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
   let mat = jsAssignable(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
@@ -1031,7 +1044,7 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
       break;
     }
     default:
-      throw new Error(`[RMSL] Unknown JS scalar op: ${op}`);
+      throw new InternalError("unknown-scalar-op", `Unknown JS scalar op: ${op}`, ctx);
   }
   return { decls, body, expr, prec: PRECEDENCE[node.type] };
 }
@@ -1157,7 +1170,7 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
   if (width <= 1) {
     let a = compileJSStage(node.params![0], ctx);
     let e = JS_ELEM[suffix];
-    if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
+    if (!e) throw new InternalError("unknown-unary-op", `Unknown JS unary op: ${suffix}`, ctx);
     if (e.helper) jsRequireHelper(ctx, e.helper);
     // `fract` writes its operand out twice.
     if (suffix === "fract") a = jsReadable(a, node.params![0]?._t, ctx);
@@ -1567,7 +1580,7 @@ export function compileJSNode(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
   ctx: CompileCtx,
 ): CompiledNode {
-  let folded = tryFold(node, ctx.jsFloat32);
+  let folded = tryFold(ctx, node, ctx.jsFloat32);
   if (folded) node = folded;
 
   switch (node.type) {
@@ -1733,7 +1746,11 @@ export function compileJSNode(
         }
         return { decls, body, expr: `[${pieces.join(", ")}]` };
       }
-      throw new Error(`[RMSL] Unsupported construct target in JS compiler: "${targetType}"`);
+      throw new InternalError(
+        "unsupported-construct",
+        `Unsupported construct target in JS compiler: "${targetType}"`,
+        ctx,
+      );
     }
 
     case "var": {
@@ -1752,7 +1769,7 @@ export function compileJSNode(
     }
 
     case "uniformArrayElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let arr = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let body = [...arr.body, ...idx.body];
@@ -1818,14 +1835,15 @@ export function compileJSNode(
 
     case "vertexIndex":
     case "instanceIndex": {
-      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      if (ctx.shaderStage !== "vertex")
+        throw new ProgramError("builtin-outside-its-stage", `${node.type}() can only be used in vertex shaders`, ctx);
       // A CPU rasterizer draws one instance, instance 0.
       return { decls: [], body: [], expr: node.type === "vertexIndex" ? "(ctx.vertexIndex ?? 0)" : "0" };
     }
 
     case "attribute": {
       let v = node.value as any;
-      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
+      assertNotInAComputeStage(ctx, ctx.shaderStage, COMPUTE_REFUSES.attribute);
       ctx.attributes.set(v.slot, {
         id: v.id,
         type: v.shaderType ?? node._t,
@@ -1837,7 +1855,7 @@ export function compileJSNode(
 
     case "varying": {
       let v = node.value as any;
-      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.varying);
+      assertNotInAComputeStage(ctx, ctx.shaderStage, COMPUTE_REFUSES.varying);
       let slot = v?.slot;
       // In a vertex stage a varying is an output, collected in the result so
       // the host can read it back; in a fragment stage it is an input.
@@ -1861,7 +1879,11 @@ export function compileJSNode(
 
     case "builtinFragDepth": {
       if (ctx.shaderStage !== "fragment") {
-        throw new Error("builtinFragDepth() can only be used in fragment shaders");
+        throw new ProgramError(
+          "builtin-outside-its-stage",
+          "builtinFragDepth() can only be used in fragment shaders",
+          ctx,
+        );
       }
       ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "res.fragDepth" };
@@ -1869,7 +1891,7 @@ export function compileJSNode(
 
     case "fragCoord": {
       if (ctx.shaderStage !== "fragment") {
-        throw new Error("fragCoord() can only be used in fragment shaders");
+        throw new ProgramError("builtin-outside-its-stage", "fragCoord() can only be used in fragment shaders", ctx);
       }
       // The CPU target has no framebuffer; the caller passes the pixel being
       // evaluated as ctx.fragCoord, defaulting to the origin.
@@ -2175,7 +2197,7 @@ export function compileJSNode(
     case "transpose":
       return jsMatrixUnary(node, ctx, "T");
     case "inverse":
-      assertSquareMatrix(node.params![0]?._t);
+      assertSquareMatrix(ctx, node.params![0]?._t);
       return jsMatrixUnary(node, ctx, "inv");
     case "determinant": {
       let brand = node.params![0]?._t;
@@ -2200,14 +2222,15 @@ export function compileJSNode(
         }
         return { decls: [], body: [], expr: "0" };
       }
-      throw new Error(
-        `[RMSL] ${node.type} has no meaning on the CPU target. Compile with ` +
-          `{ derivatives: "zero" } to evaluate it as 0.`,
+      throw new TargetError(
+        "no-derivatives",
+        `${node.type} has no meaning on the CPU target. Compile with ` + `{ derivatives: "zero" } to evaluate it as 0.`,
+        { target: "js" },
       );
     }
 
     case "matrixElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let mat = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
@@ -2227,7 +2250,7 @@ export function compileJSNode(
     }
 
     case "vectorElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       // A run-time index below zero or past the end reaches the last component.
@@ -2247,10 +2270,16 @@ export function compileJSNode(
       let is3D = samplerType.endsWith("3D");
       let isCube = samplerType.endsWith("Cube");
       if (isCube && isInteger) {
-        throw new Error("[RMSL] The JS target supports samplerCube, not isamplerCube/usamplerCube, yet.");
+        throw new InternalError(
+          "unexpected-sampler-kind",
+          `an integer cube map reached the JS compiler, past the refusal of every target`,
+          { target: "js" },
+        );
       }
       if (!samplerType.endsWith("2D") && !is3D && !isCube) {
-        throw new Error("[RMSL] The JS target supports sampler2D/sampler3D/samplerCube textures only.");
+        throw new InternalError("unexpected-sampler-kind", `the JS compiler has no texture read of ${samplerType}`, {
+          target: "js",
+        });
       }
       let texRef = `ctx.textures[${JSON.stringify(slot)}]`;
       let coords = jsCompileOperand(node.params![1], ctx);
@@ -2287,7 +2316,9 @@ export function compileJSNode(
       let samplerType = samplerNode?._t || "sampler2D";
       let slot = (samplerNode.value as any)?.slot;
       if (!samplerType.endsWith("2D") && !samplerType.endsWith("3D")) {
-        throw new Error("[RMSL] The JS target supports sampler2D/sampler3D textures only.");
+        throw new InternalError("unexpected-sampler-kind", `the JS compiler has no texel fetch of ${samplerType}`, {
+          target: "js",
+        });
       }
       let is3D = samplerType.endsWith("3D");
       // A texel fetch through a float sampler still reads a normalized texture,
@@ -2341,7 +2372,7 @@ export function compileJSNode(
       let targetNode = node.params![0];
       if (targetNode?.type === "builtinPosition") ctx.positionWritten = true;
       if (targetNode?.type === "builtinFragDepth") ctx.fragDepthWritten = true;
-      assertAssignable(targetNode, ctx.shaderStage);
+      assertAssignable(ctx, targetNode, ctx.shaderStage);
       let rhsNode = node.params![1];
 
       // A swizzle, a column, or a component of a column by index: single
@@ -2370,7 +2401,7 @@ export function compileJSNode(
         let base = jsAssignable(parts.base, ctx);
         let components = parts.components ?? [];
         if (parts.index) {
-          assertConstantIndexInRange(parts.base, parts.index);
+          assertConstantIndexInRange(ctx, parts.base, parts.index);
           let idx = compileJSStage(parts.index, ctx);
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, parts.index._t, TYPE_WIDTH[parts.base._t])];
@@ -2552,7 +2583,11 @@ export function compileJSNode(
 
     case "return": {
       const label = ctx.jsScopes?.at(-1);
-      return { decls: [], body: [label === undefined ? (ctx.returnStatement ?? "return;") : `break ${label};`], expr: "0" };
+      return {
+        decls: [],
+        body: [label === undefined ? (ctx.returnStatement ?? "return;") : `break ${label};`],
+        expr: "0",
+      };
     }
 
     case "scope": {
@@ -2564,7 +2599,7 @@ export function compileJSNode(
     }
 
     default:
-      throw new Error(`[RMSL] Unsupported node type in JS compiler: "${node.type}"`);
+      throw new InternalError("unsupported-node-kind", `Unsupported node type in JS compiler: "${node.type}"`, ctx);
   }
 }
 
@@ -2595,6 +2630,7 @@ export type CompileJSOptions = CompileFnOptions & {
  * pointing at a second, different uniform than the one actually compiled in.
  */
 function compileJSFnDetailed(
+  origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): {
@@ -2610,13 +2646,16 @@ function compileJSFnDetailed(
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes);
   const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
-  if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
+  if (options.kind) assertReadsNoStageInput(origin, rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const found: FoundInRoots = {};
-  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, found, true))));
+  const resultNodes = numberClashingVariables(
+    shareNodes(origin, inlineCalls(prepareRoots(origin, options.stage, rawNodes, found, true))),
+  );
 
   const ctx: CompileCtx = {
+    ...origin,
     nextId: 0,
     shaderStage: stage,
     uniforms: new Map(),
@@ -2642,7 +2681,7 @@ function compileJSFnDetailed(
     jsFloat32: options.float === "f32",
   };
 
-  assertOneDeclarationPerName(resultNodes);
+  assertOneDeclarationPerName(origin, resultNodes);
   const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
   // The program returns a result object when it writes what only one holds, which the shared walk found.
   const needsRes = found.writesStageResult === true;
@@ -2663,7 +2702,7 @@ function compileJSFnDetailed(
     return compiled;
   });
   const lastCompiled = compiledList[compiledList.length - 1];
-  if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
+  if (options.stage !== undefined) assertStageResult(ctx, stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
   const scalarResult = slotResult
@@ -2748,11 +2787,18 @@ function compileJSFnDetailed(
   };
 }
 
+const COMPILE_JS_FN: BackendOrigin = { target: "js", caller: "compileJSFn" };
+const COMPILE_JS_VERTEX: BackendOrigin = { target: "js", caller: "compileJSVertex" };
+const COMPILE_JS_FRAGMENT: BackendOrigin = { target: "js", caller: "compileJSFragment" };
+const COMPILE_JS_COMPUTE: BackendOrigin = { target: "js", caller: "compileJSCompute" };
+const COMPILE_JS_GRID: BackendOrigin = { target: "js", caller: "compileJSGrid" };
+const COMPILE_JS_ROUTINE: BackendOrigin = { target: "js", caller: "compileJSRoutine" };
+
 export function compileJSFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): string {
-  return compileJSFnDetailed(fn, options).source;
+  return compileJSFnDetailed(COMPILE_JS_FN, fn, options).source;
 }
 
 /** A JS program: what the stages and the grid take what they give from, and the call that skips the copy of `run`. */
@@ -2892,10 +2938,11 @@ function ownedCopy(value: unknown, type: string | undefined, float32: boolean): 
  * buffer, and `compute()`, one call per invocation.
  */
 export function compileJSProgram(
+  origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(origin, fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
@@ -2910,7 +2957,11 @@ export function compileJSProgram(
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined || resultType === "void") {
-      throw new Error("[RMSL] compileJSGrid: this function produces no value to render — the grid needs a result.");
+      throw new ProgramError(
+        "grid-without-result",
+        "compileJSGrid: this function produces no value to render — the grid needs a result.",
+        origin,
+      );
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
@@ -3000,8 +3051,8 @@ export function compileJSVertex<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions & { float?: W },
 ): VertexStage<W> {
-  const program = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(program.run(ctx)) as VertexResult<W>;
+  const program = compileJSProgram(COMPILE_JS_VERTEX, fn, { ...options, stage: "vertex" });
+  return (ctx) => toVertexResult(COMPILE_JS_VERTEX, program.run(ctx)) as VertexResult<W>;
 }
 
 /**
@@ -3021,7 +3072,7 @@ export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): FragmentStage {
-  const program = compileJSProgram(fn, { ...options, stage: "fragment" });
+  const program = compileJSProgram(COMPILE_JS_FRAGMENT, fn, { ...options, stage: "fragment" });
   return (ctx) => toFragmentResult(program.run(ctx));
 }
 
@@ -3034,7 +3085,7 @@ export function compileJSCompute(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): ComputeStage {
-  const program = compileJSProgram(fn, { ...options, stage: "compute" });
+  const program = compileJSProgram(COMPILE_JS_COMPUTE, fn, { ...options, stage: "compute" });
   return Object.assign((ctx: CpuShaderContext, count: number) => program.compute(ctx, count), {
     storageTypes: program.storageTypes ?? {},
   });
@@ -3045,7 +3096,7 @@ export function compileJSGrid<A extends ShaderType, W extends FloatWidth = "f64"
   fn: (...args: any[]) => Node<A>,
   options: CompileJSStageOptions & { float?: W },
 ): CpuGrid<A, W> {
-  const program = compileJSProgram(fn, { ...options, kind: "grid" });
+  const program = compileJSProgram(COMPILE_JS_GRID, fn, { ...options, kind: "grid" });
   return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A, W>;
 }
 
@@ -3067,6 +3118,6 @@ export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): CpuRoutine {
-  const program = compileJSProgram(fn, { ...options, kind: "routine" });
+  const program = compileJSProgram(COMPILE_JS_ROUTINE, fn, { ...options, kind: "routine" });
   return (ctx) => program.run(ctx) as never;
 }

@@ -1,3 +1,4 @@
+import { PlatformError, UsageError, type BackendOrigin } from "../../errors";
 import { Node, RoutineParam, ShaderType } from "../../core";
 import {
   Adapter,
@@ -44,6 +45,11 @@ export type CreateWasmGridOptions = WasmFloatWidth & {
   maxMemoryPages?: CompileWasmFnOptions["maxMemoryPages"];
 };
 
+const CREATE_WASM_GRID: BackendOrigin = { target: "wasm", caller: "createWasmGrid" };
+const CREATE_WASM_ROUTINE: BackendOrigin = { target: "wasm", caller: "createWasmRoutine" };
+const CREATE_WASM_COMPUTE: BackendOrigin = { target: "wasm", caller: "createWasmCompute" };
+const CREATE_WASM: BackendOrigin = { target: "wasm", caller: "createWasm" };
+
 /**
  * Compiles a `fragCoord()` program with {@link compileWasmGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
@@ -66,7 +72,11 @@ export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
     ...floatWidthOf(options),
   });
 
-  return createCpuAdapter({ draw, guard: hostInputGuard(options.draw, true) });
+  return createCpuAdapter({
+    origin: CREATE_WASM_GRID,
+    draw,
+    guard: hostInputGuard(CREATE_WASM_GRID, options.draw, true),
+  });
 }
 
 export type CreateWasmRoutineOptions = WasmFloatWidth & {
@@ -92,6 +102,7 @@ export function createWasmRoutine<
   const P extends readonly RoutineParam[] = readonly [],
 >(fn: Node<A>, options: CreateWasmRoutineOptions & { float?: W; params?: P } = {}): CpuRoutineAdapter<A, W, P> {
   return createCpuRoutineAdapter<A, W, P>(
+    CREATE_WASM_ROUTINE,
     compileWasmRoutine(() => fn, {
       name: options.name ?? "routine",
       params: [...(options.params ?? [])],
@@ -103,7 +114,7 @@ export function createWasmRoutine<
       ...floatWidthOf(options),
     }),
     options.params ?? ([] as readonly RoutineParam[] as P),
-    hostInputGuard(fn, true),
+    hostInputGuard(CREATE_WASM_ROUTINE, fn, true),
   );
 }
 
@@ -167,9 +178,10 @@ export function createWasmCompute(
 
   // The module reads each uniform once per dispatch, by its slot.
   return createCpuAdapter({
+    origin: CREATE_WASM_COMPUTE,
     compute: computeRoutine,
     boxedUniforms: true,
-    guard: hostInputGuard(compute, true),
+    guard: hostInputGuard(CREATE_WASM_COMPUTE, compute, true),
     float: options.float,
   });
 }
@@ -207,14 +219,14 @@ export function createWasm(
   fragmentFn: (...args: any[]) => any,
   options: CompileWasmOptions = {},
 ): WasmAdapter {
-  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn(), true);
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(CREATE_WASM, vertexFn(), fragmentFn(), true);
   const routine = compileWasmRasterizer(
-    "createWasm",
+    CREATE_WASM,
     () => vertexRoots,
     () => fragmentRoots,
     options,
   );
-  const guard = hostInputGuard([vertexRoots, fragmentRoots], true);
+  const guard = hostInputGuard(CREATE_WASM, [vertexRoots, fragmentRoots], true);
 
   const uniforms: Record<string, number | number[]> = {};
   const attributes: Record<string, TypedArray> = {};
@@ -238,7 +250,8 @@ export function createWasm(
     attach(givenCanvas) {
       canvas = givenCanvas ?? document.createElement("canvas");
       const context = canvas.getContext("2d");
-      if (!context) throw new Error("[RMSL] 2D canvas context unavailable");
+      if (!context)
+        throw new PlatformError("canvas-context-unavailable", "2D canvas context unavailable", { target: "wasm" });
       ctx2d = context;
     },
 
@@ -250,7 +263,7 @@ export function createWasm(
     },
 
     draw(drawOptions) {
-      if (!canvas || !ctx2d) throw new Error("[RMSL] createWasm: attach() was never called");
+      if (!canvas || !ctx2d) throw new UsageError("not-attached", "createWasm: attach() was never called", CREATE_WASM);
       const ctx: WasmRasterContext = { attributes, uniforms, textures };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,

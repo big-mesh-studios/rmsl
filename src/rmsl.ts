@@ -203,6 +203,19 @@ export type {
 } from "./core";
 export type { NonFiniteNumber, SerializedBuffer, SerializedGraph, SerializedNode } from "./serialize";
 export { deserialize, serialize } from "./serialize";
+export {
+  DataError,
+  DriverError,
+  InternalError,
+  LimitError,
+  NodeError,
+  PlatformError,
+  ProgramError,
+  RmslError,
+  TargetError,
+  UsageError,
+} from "./errors";
+export type { RmslErrorOptions, Target } from "./errors";
 
 // `export type` vs `export`: Rollup (pnpm build) errors re-exporting a name
 // with no runtime binding, which every interface/type here is.

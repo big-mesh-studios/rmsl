@@ -1,3 +1,4 @@
+import { NodeError, ProgramError } from "./errors";
 import { describe, it, expect } from "vitest";
 import {
   attribute,
@@ -18,8 +19,6 @@ import {
   vec4,
   type Node,
   type ShaderType,
-  serialize,
-  deserialize,
 } from "./rmsl";
 import { compileGlsl, compileGlslFn } from "./glsl";
 import { compileWgsl, compileWgslFn } from "./wgsl";
@@ -28,33 +27,31 @@ import { compileWasmFn, compileWasmCompute, compileWasmFragment, compileWasmVert
 
 const compilers = { compileGlslFn, compileWgslFn, compileJSFn, compileWasmFn };
 
-/** Expects compiling `write` to throw `message` on every backend, and compiling the graph `deserialize` rebuilds from it too. */
-function expectRefusedEverywhere(write: () => void, message: RegExp) {
-  const root = Fn(() => {
-    write();
-    return float(0);
-  })();
-  const restored = deserialize(serialize(root)) as Node<ShaderType>;
-  for (const [name, compile] of Object.entries(compilers)) {
-    expect(() => compile(() => root as Node<ShaderType>, { name: "main", params: [] }), name).toThrow(message);
-    expect(() => compile(() => restored, { name: "main", params: [] }), `${name} after JSON`).toThrow(message);
-  }
+/** Expects building `write` to throw a `NodeError` of `code`, with a message that matches `message` where one is given. */
+function expectRefusedAsBuilt(write: () => void, code: string, message?: RegExp) {
+  const build = () =>
+    Fn(() => {
+      write();
+      return float(0);
+    })();
+  expect(build).toThrowRmsl(NodeError, code, message);
 }
 
-/** Expects compiling `write` as a `stage` stage to throw `message` on every backend. */
-function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void, message: RegExp) {
+/** Expects compiling `write` as a `stage` stage to throw a `NodeError` of `assign-in-wrong-stage` on every backend. */
+function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void) {
   const build = () =>
     Fn(() => {
       write();
       return stage === "vertex" ? vec4(0, 0, 0, 1) : vec4(1, 1, 1, 1);
     })();
-  expect(() => compileGlsl[stage](build()), "GLSL").toThrow(message);
-  expect(() => compileWgsl[stage](build()), "WGSL").toThrow(message);
+  const code = "assign-in-wrong-stage";
+  expect(() => compileGlsl[stage](build()), "GLSL").toThrowRmsl(ProgramError, code);
+  expect(() => compileWgsl[stage](build()), "WGSL").toThrowRmsl(ProgramError, code);
   const none = { name: "main", params: [] };
   const [js, wasm]: ((fn: any, options: typeof none) => unknown)[] =
     stage === "vertex" ? [compileJSVertex, compileWasmVertex] : [compileJSFragment, compileWasmFragment];
-  expect(() => js(build as any, none), "JS").toThrow(message);
-  expect(() => wasm(build as any, none), "WASM").toThrow(message);
+  expect(() => js(build as any, none), "JS").toThrowRmsl(ProgramError, code);
+  expect(() => wasm(build as any, none), "WASM").toThrowRmsl(ProgramError, code);
 }
 
 describe("an assignment's target", () => {
@@ -63,21 +60,9 @@ describe("an assignment's target", () => {
    */
   it("refuses a stage output in the other render stage, on every backend", () => {
     const color = varying("vec3");
-    expectRefusedInStage(
-      "fragment",
-      () => color.x.assign(float(1)),
-      /\[RMSL\] can't assign to a varying in a fragment stage; only a vertex stage writes it/,
-    );
-    expectRefusedInStage(
-      "fragment",
-      () => builtinPosition().assign(vec4(0, 0, 0, 1)),
-      /\[RMSL\] can't assign to the position in a fragment stage; only a vertex stage writes it/,
-    );
-    expectRefusedInStage(
-      "vertex",
-      () => builtinFragDepth().assign(float(0.5)),
-      /\[RMSL\] can't assign to the fragment depth in a vertex stage; only a fragment stage writes it/,
-    );
+    expectRefusedInStage("fragment", () => color.x.assign(float(1)));
+    expectRefusedInStage("fragment", () => builtinPosition().assign(vec4(0, 0, 0, 1)));
+    expectRefusedInStage("vertex", () => builtinFragDepth().assign(float(0.5)));
   });
 
   /**
@@ -100,13 +85,14 @@ describe("an assignment's target", () => {
       (build: () => Node<any>) => compileWasmCompute(build as any, { name: "main", params: [] }),
     ];
     const refused = [
-      [() => varying("vec3").x.assign(float(1)), /can't assign to a varying in a compute stage/],
-      [() => builtinPosition().assign(vec4(0, 0, 0, 1)), /can't assign to the position in a compute stage/],
-      [() => builtinFragDepth().assign(float(0.5)), /can't assign to the fragment depth in a compute stage/],
-    ] as const;
+      () => varying("vec3").x.assign(float(1)),
+      () => builtinPosition().assign(vec4(0, 0, 0, 1)),
+      () => builtinFragDepth().assign(float(0.5)),
+    ];
     for (const compile of compilers) {
       expect(() => compile(program(() => {}))).not.toThrow();
-      for (const [write, message] of refused) expect(() => compile(program(write))).toThrow(message);
+      for (const write of refused)
+        expect(() => compile(program(write))).toThrowRmsl(ProgramError, "assign-in-wrong-stage");
     }
   });
 
@@ -126,103 +112,99 @@ describe("an assignment's target", () => {
             { name: "main", params: [{ name: "x", type: "float" }] },
           ),
         name,
-      ).toThrow(
-        /\[RMSL\] can't assign to "x", a parameter of the compiled function, whose value belongs to the caller/,
-      );
+      ).toThrowRmsl(NodeError, "assign-to-parameter");
     }
   });
 
   /**
    * @canon spec-a-uniform-cannot-be-assigned
    */
-  it("refuses a uniform, whole or in part, on every backend", () => {
+  it("refuses a uniform, whole or in part, as the graph is built", () => {
     const v = uniform("vec3");
     const m = uniform("mat3");
-    const refused =
-      /\[RMSL\] can't assign to a uniform: only a variable, a storage element or a stage output can be assigned/;
+    const refused = "assign-to-read-only";
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => v.assign(vec3(1, 2, 3)), refused);
+    expectRefusedAsBuilt(() => v.assign(vec3(1, 2, 3)), refused);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => v.y.assign(float(9)), refused);
+    expectRefusedAsBuilt(() => v.y.assign(float(9)), refused);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => v.element(int(1)).assign(float(9)), refused);
+    expectRefusedAsBuilt(() => v.element(int(1)).assign(float(9)), refused);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => m.element(int(0)).assign(vec3(9, 9, 9)), refused);
+    expectRefusedAsBuilt(() => m.element(int(0)).assign(vec3(9, 9, 9)), refused);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => m.element(int(0)).y.assign(float(9)), refused);
+    expectRefusedAsBuilt(() => m.element(int(0)).y.assign(float(9)), refused);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => m.assign(mat3(1, 0, 0, 0, 1, 0, 0, 0, 1)), refused);
+    expectRefusedAsBuilt(() => m.assign(mat3(1, 0, 0, 0, 1, 0, 0, 0, 1)), refused);
     const vs = uniformArray("vec3", 4);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => vs.element(int(1)).x.assign(float(9)), refused);
+    expectRefusedAsBuilt(() => vs.element(int(1)).x.assign(float(9)), refused);
   });
 
   /**
    * @canon spec-a-uniform-cannot-be-assigned
    * @canon spec-a-built-in-input-cannot-be-assigned
    */
-  it("names a whole uniform array a uniform, and a built-in input as one, on every backend", () => {
+  it("names a whole uniform array a uniform, and a built-in input as one, as the graph is built", () => {
     const vs = uniformArray("vec3", 4);
-    expectRefusedEverywhere(() => (vs as any).assign(vec3(1, 2, 3)), /\[RMSL\] can't assign to a uniform: /);
+    expectRefusedAsBuilt(() => (vs as any).assign(vec3(1, 2, 3)), "assign-to-read-only");
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => invocationIndex().assign(uint(0)), /\[RMSL\] can't assign to a built-in input: /);
+    expectRefusedAsBuilt(() => invocationIndex().assign(uint(0)), "assign-to-read-only");
   });
 
   /**
    * @canon spec-an-attribute-cannot-be-assigned
    */
-  it("refuses an attribute, whole or in part, on every backend", () => {
+  it("refuses an attribute, whole or in part, as the graph is built", () => {
     const position = attribute("vec3");
-    const refused = /\[RMSL\] can't assign to an attribute: /;
+    const refused = "assign-to-read-only";
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => position.assign(vec3(1, 2, 3)), refused);
+    expectRefusedAsBuilt(() => position.assign(vec3(1, 2, 3)), refused);
     // @ts-expect-error: refused at run time, and by its type
-    expectRefusedEverywhere(() => position.x.assign(float(9)), refused);
+    expectRefusedAsBuilt(() => position.x.assign(float(9)), refused);
   });
 
   /**
    * @canon spec-a-whole-storage-buffer-cannot-be-assigned
    */
-  it("refuses a whole storage buffer, rather than one of its elements, on every backend", () => {
+  it("refuses a whole storage buffer, rather than one of its elements, as the graph is built", () => {
     const values = instancedArray(4, "vec3");
-    expectRefusedEverywhere(
+    expectRefusedAsBuilt(
       // @ts-expect-error: refused at run time, and by its type
       () => values.assign(vec3(1, 2, 3)),
-      /\[RMSL\] can't assign to a whole storage buffer; assign to one of its elements with \.element\(i\)/,
+      "assign-to-whole-storage",
+      /can't assign to a whole storage buffer; assign to one of its elements with \.element\(i\)/,
     );
   });
 
   /**
    * @canon spec-a-swizzle-that-repeats-a-component-cannot-be-assigned
    */
-  it("refuses a swizzle that names a component more than once, on every backend", () => {
-    const refused = (pattern: string) =>
-      new RegExp(`\\[RMSL\\] can't assign through the swizzle \\.${pattern}, which names a component more than once`);
-    expectRefusedEverywhere(() => {
+  it("refuses a swizzle that names a component more than once, as the graph is built", () => {
+    expectRefusedAsBuilt(() => {
       const v = vec3(1, 2, 3).toVar();
       // @ts-expect-error: refused at run time, and by its type
       v.xx.assign(vec2(1, 2));
-    }, refused("xx"));
-    expectRefusedEverywhere(() => {
+    }, "swizzle-repeats-component");
+    expectRefusedAsBuilt(() => {
       const v = vec3(1, 2, 3).toVar();
       // @ts-expect-error: refused at run time, and by its type
       v.xy.xx.assign(vec2(1, 2));
-    }, refused("xx"));
-    expectRefusedEverywhere(() => {
+    }, "swizzle-repeats-component");
+    expectRefusedAsBuilt(() => {
       const v = vec3(1, 2, 3).toVar();
       // @ts-expect-error: refused at run time, and by its type
       v.xxy.z.assign(float(1));
-    }, refused("xxy"));
-    expectRefusedEverywhere(() => {
+    }, "swizzle-repeats-component");
+    expectRefusedAsBuilt(() => {
       const v = vec3(1, 2, 3).toVar();
       // @ts-expect-error: refused at run time, and by its type
       v.xx.element(int(1)).assign(float(1));
-    }, refused("xx"));
-    expectRefusedEverywhere(() => {
+    }, "swizzle-repeats-component");
+    expectRefusedAsBuilt(() => {
       const v = vec3(1, 2, 3).toVar();
       // @ts-expect-error: refused at run time, and by its type
       v.xxy.element(int(uniform("float"))).assign(float(1));
-    }, refused("xxy"));
+    }, "swizzle-repeats-component");
   });
 
   /**
@@ -243,29 +225,45 @@ describe("an assignment's target", () => {
   /**
    * @canon spec-a-computed-value-cannot-be-assigned
    */
-  it("refuses a computed value, whole or in part, on every backend", () => {
-    const refused = /\[RMSL\] can't assign to a computed value: .* copy the value into a variable with toVar\(\) first/;
-    expectRefusedEverywhere(() => {
-      const w = vec3(1, 2, 3).toVar();
-      // @ts-expect-error: refused at run time, and by its type
-      w.add(1).y.assign(float(9));
-    }, refused);
-    expectRefusedEverywhere(() => {
-      const w = vec3(1, 2, 3).toVar();
-      // @ts-expect-error: refused at run time, and by its type
-      w.mul(2).element(int(0)).assign(float(9));
-    }, refused);
-    expectRefusedEverywhere(() => {
-      const n = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
-      n.mul(n)
-        .element(int(0))
+  it("refuses a computed value, whole or in part, as the graph is built", () => {
+    const refused = /can't assign to a computed value: .* copy the value into a variable with toVar\(\) first/;
+    expectRefusedAsBuilt(
+      () => {
+        const w = vec3(1, 2, 3).toVar();
         // @ts-expect-error: refused at run time, and by its type
-        .assign(vec3(0, 0, 0));
-    }, refused);
-    expectRefusedEverywhere(() => {
-      const n = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
-      // @ts-expect-error: refused at run time, and by its type
-      n.mul(n).element(int(0)).y.assign(float(0));
-    }, refused);
+        w.add(1).y.assign(float(9));
+      },
+      "assign-to-read-only",
+      refused,
+    );
+    expectRefusedAsBuilt(
+      () => {
+        const w = vec3(1, 2, 3).toVar();
+        // @ts-expect-error: refused at run time, and by its type
+        w.mul(2).element(int(0)).assign(float(9));
+      },
+      "assign-to-read-only",
+      refused,
+    );
+    expectRefusedAsBuilt(
+      () => {
+        const n = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        n.mul(n)
+          .element(int(0))
+          // @ts-expect-error: refused at run time, and by its type
+          .assign(vec3(0, 0, 0));
+      },
+      "assign-to-read-only",
+      refused,
+    );
+    expectRefusedAsBuilt(
+      () => {
+        const n = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        // @ts-expect-error: refused at run time, and by its type
+        n.mul(n).element(int(0)).y.assign(float(0));
+      },
+      "assign-to-read-only",
+      refused,
+    );
   });
 });

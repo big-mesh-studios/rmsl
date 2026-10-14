@@ -1,3 +1,4 @@
+import { UsageError } from "../../errors";
 import { Matrix3 } from "./Matrix3";
 import { Matrix4 } from "./Matrix4";
 import { Quaternion } from "./Quaternion";
@@ -42,7 +43,7 @@ export class Vector3 {
         this.z = value;
         break;
       default:
-        throw new Error(`index is out of range: ${index}`);
+        throw new UsageError("component-out-of-range", `index is out of range: ${index}`);
     }
     return this;
   }
@@ -56,7 +57,7 @@ export class Vector3 {
       case 2:
         return this.z;
       default:
-        throw new Error(`index is out of range: ${index}`);
+        throw new UsageError("component-out-of-range", `index is out of range: ${index}`);
     }
   }
 

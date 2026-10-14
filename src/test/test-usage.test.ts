@@ -1,3 +1,4 @@
+import { TargetError, UsageError } from "../errors";
 import { describe, it, expect } from "vitest";
 import {
   Fn,
@@ -175,7 +176,7 @@ describe("evaluate", () => {
   it("reads derivatives as zero, and says so on request", () => {
     const graph = float(3).fwidth();
     expect(evaluate(() => graph).value).toBe(0);
-    expect(() => evaluate(() => graph, { derivatives: "throw" })).toThrow(/CPU target/);
+    expect(() => evaluate(() => graph, { derivatives: "throw" })).toThrowRmsl(TargetError, "no-derivatives");
   });
 });
 
@@ -290,7 +291,9 @@ describe("render", () => {
     const fade = varying("float");
     // No program, so there is no name but the generated slot — which is still
     // better than the NaN this used to shade with.
-    expect(() => evaluate(() => vec4(vec3(1), fade))).toThrow(
+    expect(() => evaluate(() => vec4(vec3(1), fade))).toThrowRmsl(
+      UsageError,
+      "stage-reads-unlisted",
       /fragment stage reads a varying nothing bound.*\[node, value\]/s,
     );
   });
@@ -354,9 +357,9 @@ describe("render", () => {
    */
   it("refuses a coordinate outside the image, and an empty one", () => {
     const image = render(() => float(1), { width: 2, height: 2 });
-    expect(() => image.at(2, 0)).toThrow(/outside the 2x2 image/);
-    expect(() => image.at(0, -1)).toThrow(/outside the 2x2 image/);
-    expect(() => render(() => float(1), { width: 0, height: 4 })).toThrow(/at least 1/);
+    expect(() => image.at(2, 0)).toThrowRmsl(UsageError, "pixel-outside-image");
+    expect(() => image.at(0, -1)).toThrowRmsl(UsageError, "pixel-outside-image");
+    expect(() => render(() => float(1), { width: 0, height: 4 })).toThrowRmsl(UsageError, "render-size");
   });
 });
 
@@ -434,10 +437,11 @@ describe("comparing values", () => {
    * @canon spec-a-float-comparison-allows-for-the-last-bits
    */
   it("names the component that differs when it throws", () => {
-    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1], { message: "tint" })).toThrow(
-      /tint: component 2: expected 1, got 0/,
+    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1], { message: "tint" })).toThrowRmsl(
+      UsageError,
+      "expectation-failed",
     );
-    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1])).toThrow(/expected: \[1, 0, 1, 1\]/);
+    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1])).toThrowRmsl(UsageError, "expectation-failed");
     expect(() => assertClose(1, 1)).not.toThrow();
   });
 });

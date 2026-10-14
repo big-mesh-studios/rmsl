@@ -1,3 +1,4 @@
+import { UsageError } from "../../errors";
 /** A tuple of the three channels of a `Color`, `[r, g, b]`. */
 export type ColorTuple = [r: number, g: number, b: number];
 
@@ -64,7 +65,7 @@ export class Color {
       const m = /^rgb\(?\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(style)!;
       return this.setRGB(+m[1] / 255, +m[2] / 255, +m[3] / 255);
     }
-    throw new Error(`unsupported color style: ${style}`);
+    throw new UsageError("unknown-colour-style", `unsupported color style: ${style}`);
   }
 
   multiplyScalar(scalar: number): this {

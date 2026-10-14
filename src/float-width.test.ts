@@ -1,3 +1,4 @@
+import { UsageError } from "./errors";
 import { describe, expect, it } from "vitest";
 import {
   attribute,
@@ -235,7 +236,7 @@ describe("a CPU grid at float: f32", () => {
     const build = () => Fn(() => vec4(fragCoord().x, 0.5, 0.25, 1))() as any;
     const grid = compileWasmGrid(build, { name: "main", params: [], memory, sharedMemory: true, float: "f32" });
     const out = new Float64Array(memory.buffer, 65536, 8);
-    expect(() => grid({}, 2, 1, out as any)).toThrow(/Float32Array/);
+    expect(() => grid({}, 2, 1, out as any)).toThrowRmsl(UsageError, "out-of-another-kind");
   });
 });
 

@@ -1,3 +1,4 @@
+import { DriverError, PlatformError, type BackendOrigin } from "../../errors";
 import type { ShaderType, UniformValue } from "../../rmsl";
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
 import { assertHostShape } from "../../backends/host-shape";
@@ -66,6 +67,8 @@ interface GeometryBuffers {
   attributes: Map<string, WebGLBuffer>;
   index: WebGLBuffer | null;
 }
+
+const WEBGL_RENDERER: BackendOrigin = { target: "glsl", caller: "WebGLRenderer" };
 
 /**
  * A WebGL2 renderer for `@random-mesh/rmsl/scene`: compiles a material's node
@@ -150,7 +153,7 @@ export class WebGLRenderer {
       depth: options.depth ?? true,
     });
     if (!gl) {
-      throw new Error("[RMSL/scene] WebGL2 is not available on this canvas");
+      throw new PlatformError("webgl2-unavailable", "WebGL2 is not available on this canvas", { target: "glsl" });
     }
     this.gl = gl;
     // A float texture filters linearly only with this extension, as in three.js.
@@ -366,7 +369,9 @@ export class WebGLRenderer {
         gl.deleteSync(sync);
         if (status === gl.WAIT_FAILED) {
           gl.deleteBuffer(pbo);
-          reject(new Error("[RMSL/scene] readPixelsAsync: GPU sync wait failed"));
+          reject(
+            new DriverError("gpu-sync-failed", "readPixelsAsync: GPU sync wait failed", { target: "glsl", log: "" }),
+          );
           return;
         }
         this.state?.begin(GlState.pixelPackBuffer);
@@ -472,7 +477,7 @@ export class WebGLRenderer {
       } else {
         value = binding.value?.({ camera, mesh });
         // Only a material's value comes from the user; the renderer computes the others in their shape.
-        assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
+        assertHostShape(WEBGL_RENDERER, "uniform", binding.node.name, binding.node._t as string, value);
       }
       // A name the renderer has no value for leaves the uniform as it was, zero until set.
       if (value === undefined) continue;
@@ -756,7 +761,10 @@ export class WebGLRenderer {
     gl.attachShader(glProgram, fragmentShader);
     gl.linkProgram(glProgram);
     if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS)) {
-      throw new Error(`[RMSL/scene] program link failed:\n${gl.getProgramInfoLog(glProgram)}`);
+      throw new DriverError("program-link", `program link failed:\n${gl.getProgramInfoLog(glProgram)}`, {
+        target: "glsl",
+        log: gl.getProgramInfoLog(glProgram) ?? "",
+      });
     }
 
     const uniformLocations = new Map<string, WebGLUniformLocation | null>();
@@ -787,7 +795,11 @@ export class WebGLRenderer {
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error(`[RMSL/scene] shader compile failed:\n${gl.getShaderInfoLog(shader)}\n---\n${source}`);
+      throw new DriverError(
+        "shader-compile",
+        `shader compile failed:\n${gl.getShaderInfoLog(shader)}\n---\n${source}`,
+        { target: "glsl", log: gl.getShaderInfoLog(shader) ?? "" },
+      );
     }
     return shader;
   }
@@ -826,7 +838,7 @@ export class WebGLRenderer {
       // not its data changed this frame.
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 
-      const format = VERTEX_FORMATS[vertexFormatOf(attr, attribute.node._t)];
+      const format = VERTEX_FORMATS[vertexFormatOf(WEBGL_RENDERER, attr, attribute.node._t)];
       // One buffer per attribute, so the stride is the whole record.
       const stride = attr.itemSize * format.bytes;
       for (let i = 0; i < columns; i++) {

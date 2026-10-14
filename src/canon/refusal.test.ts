@@ -1,3 +1,4 @@
+import { NodeError, ProgramError } from "../errors";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -34,6 +35,9 @@ import {
   type Var,
   serialize,
   deserialize,
+  texture,
+  textureLoad,
+  ivec2,
 } from "../rmsl";
 import { compileJSCompute, compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
 import {
@@ -84,10 +88,13 @@ describe("a mistake is refused before the program runs", () => {
     const allowed = Fn(() => uniform("mat2x3").mul(uniform("mat3x2")).inverse().element(int(0)).toVar());
     expect(compileGlsl(allowed())).toContain("inverse(");
     expect(compileWgsl(allowed())).toContain("_rmsl_inverse3");
-    expect(() => (mat2x3(1, 0, 0, 1, 0, 0) as any).mul(mat2x4(1, 0, 0, 1, 0, 0, 0, 0))).toThrow();
+    expect(() => (mat2x3(1, 0, 0, 1, 0, 0) as any).mul(mat2x4(1, 0, 0, 1, 0, 0, 0, 0))).toThrowRmsl(
+      NodeError,
+      "matrix-product-shape",
+    );
     const notSquare = () => Fn(() => (uniform("mat2x3") as any).inverse().element(int(0)).toVar())();
-    expect(() => compileGlsl(notSquare())).toThrow(/square/i);
-    expect(() => compileWgsl(notSquare())).toThrow(/square/i);
+    expect(() => compileGlsl(notSquare())).toThrowRmsl(NodeError, "inverse-of-non-square");
+    expect(() => compileWgsl(notSquare())).toThrowRmsl(NodeError, "inverse-of-non-square");
   });
 
   /**
@@ -109,9 +116,9 @@ describe("a mistake is refused before the program runs", () => {
     expect(wgsl).toContain("3u");
     expect(wgsl).toContain("4f");
     expect(compileGlsl(prog())).not.toMatch(/float\(2\)|float\(3\)/);
-    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrow(/whole number|integer/i);
-    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrow(/negative|unsigned/i);
-    expect(() => uint(-1)).toThrow(/unsigned/);
+    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(NodeError, "literal-not-whole");
+    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
+    expect(() => uint(-1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });
 
   /**
@@ -138,8 +145,12 @@ describe("a mistake is refused before the program runs", () => {
     for (const compile of [compileGlsl, compileWgsl]) {
       expect(compile.vertex(vertex())).toContain(tint.name);
       expect(compile.fragment(fragment())).toContain(tint.name);
-      expect(() => compile.vertex(fragment() as any)).toThrow();
-      expect(() => compile.fragment(Fn(() => vec4(builtinPosition().x, 0, 0, 1).toVar())())).toThrow(/fragment/i);
+      expect(() => compile.vertex(fragment() as any)).toThrowRmsl(ProgramError, "assign-in-wrong-stage");
+      expect(() => compile.fragment(Fn(() => vec4(builtinPosition().x, 0, 0, 1).toVar())())).toThrowRmsl(
+        ProgramError,
+        "position-read-in-fragment",
+        /fragment/i,
+      );
     }
   });
 
@@ -171,15 +182,19 @@ describe("a mistake is refused before the program runs", () => {
             return float(1);
           })(),
         ),
-      ).toThrow();
-      expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrow();
-      expect(() => compile(() => Fn(() => (values as any).add(1).toVar())())).toThrow(
-        /read as a whole; read one element/,
+      ).toThrowRmsl(ProgramError, "jump-outside-a-loop");
+      expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrowRmsl(
+        NodeError,
+        "cross-needs-vec3",
+      );
+      expect(() => compile(() => Fn(() => (values as any).add(1).toVar())())).toThrowRmsl(
+        NodeError,
+        "storage-read-as-a-whole",
       );
     }
     const wholeRead = () => Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())();
-    expect(() => compileWgsl.fragment(wholeRead())).toThrow(/read as a whole; read one element/);
-    expect(() => compileGlsl.fragment(wholeRead())).toThrow(/read as a whole; read one element/);
+    expect(() => compileWgsl.fragment(wholeRead())).toThrowRmsl(NodeError, "storage-read-as-a-whole");
+    expect(() => compileGlsl.fragment(wholeRead())).toThrowRmsl(NodeError, "storage-read-as-a-whole");
   });
 
   /**
@@ -202,7 +217,6 @@ describe("a mistake is refused before the program runs", () => {
         return sum;
       })();
     const plain = loop((i) => i.addAssign(1));
-    const refusal = /update cannot contain a block/;
     expect(() => compileGlsl(plain())).not.toThrow();
     expect(() => compileWgsl(plain())).not.toThrow();
     for (const compile of cpuCompilers) expect(() => compile(plain)).not.toThrow();
@@ -218,10 +232,10 @@ describe("a mistake is refused before the program runs", () => {
     ];
     for (const block of blocks) {
       // Refused as the program is built, before any target compiles it.
-      expect(block).toThrow(refusal);
-      expect(() => compileGlsl(block())).toThrow(refusal);
-      expect(() => compileWgsl(block())).toThrow(refusal);
-      for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);
+      expect(block).toThrowRmsl(NodeError, "block-in-for-update");
+      expect(() => compileGlsl(block())).toThrowRmsl(NodeError, "block-in-for-update");
+      expect(() => compileWgsl(block())).toThrowRmsl(NodeError, "block-in-for-update");
+      for (const compile of cpuCompilers) expect(() => compile(block)).toThrowRmsl(NodeError, "block-in-for-update");
     }
   });
 
@@ -248,11 +262,10 @@ describe("a mistake is refused before the program runs", () => {
     const graph = serialize(build());
     const loop = graph.nodes.find((n) => n.type === "for")!;
     loop.params![2] = graph.nodes.findIndex((n) => n.type === "if");
-    const refusal = /update cannot contain a block/;
-    expect(() => compileGlsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
-    expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
+    expect(() => compileGlsl(deserialize(graph) as Node<"float">)).toThrowRmsl(NodeError, "block-in-for-update");
+    expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrowRmsl(NodeError, "block-in-for-update");
     for (const compile of cpuCompilers)
-      expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrow(refusal);
+      expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrowRmsl(NodeError, "block-in-for-update");
   });
 
   /**
@@ -266,12 +279,20 @@ describe("a mistake is refused before the program runs", () => {
     node.params![node.params!.length - 1] = graph.nodes.findIndex((n) => n.type === "uniform" && n._t === from);
     return graph;
   };
-  const refusedOnEveryTarget = (graph: ReturnType<typeof serialize>, refusal: RegExp) => {
+  const refusedOnEveryTarget = (graph: ReturnType<typeof serialize>, code: string, refusal: RegExp) => {
     const none = { name: "main", params: [] };
-    expect(() => compileGlsl.fragment(deserialize(graph) as Node<"vec4">)).toThrow(refusal);
-    expect(() => compileWgsl.fragment(deserialize(graph) as Node<"vec4">)).toThrow(refusal);
-    expect(() => compileJSFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrow(refusal);
-    expect(() => compileWasmFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrow(refusal);
+    expect(() => compileGlsl.fragment(deserialize(graph) as Node<"vec4">)).toThrowRmsl(NodeError, code, refusal);
+    expect(() => compileWgsl.fragment(deserialize(graph) as Node<"vec4">)).toThrowRmsl(NodeError, code, refusal);
+    expect(() => compileJSFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrowRmsl(
+      NodeError,
+      code,
+      refusal,
+    );
+    expect(() => compileWasmFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrowRmsl(
+      NodeError,
+      code,
+      refusal,
+    );
   };
 
   /**
@@ -281,7 +302,11 @@ describe("a mistake is refused before the program runs", () => {
     const count = uniform("int");
     const mask = uniform("uint");
     const build = () => Fn(() => vec4(count.add(count).toFloat(), mask.toFloat(), 0, 1))();
-    refusedOnEveryTarget(rewired(build, "add", "uint"), /add\(\) takes operands of one kind, not int and uint/);
+    refusedOnEveryTarget(
+      rewired(build, "add", "uint"),
+      "operands-of-different-kinds",
+      /add\(\) takes operands of one kind, not int and uint/,
+    );
   });
 
   /**
@@ -291,7 +316,11 @@ describe("a mistake is refused before the program runs", () => {
     const count = uniform("int");
     const scale = uniform("float");
     const build = () => Fn(() => vec4(count.min(count).toFloat(), scale, 0, 1))();
-    refusedOnEveryTarget(rewired(build, "min", "float"), /min\(\) takes operands of one kind, not int and float/);
+    refusedOnEveryTarget(
+      rewired(build, "min", "float"),
+      "operands-of-different-kinds",
+      /min\(\) takes operands of one kind, not int and float/,
+    );
   });
 
   /**
@@ -301,7 +330,7 @@ describe("a mistake is refused before the program runs", () => {
     const short = uniform("vec2");
     const long = uniform("vec3");
     const build = () => Fn(() => vec4(short.add(short).x, long.x, 0, 1))();
-    refusedOnEveryTarget(rewired(build, "add", "vec3"), /one width/);
+    refusedOnEveryTarget(rewired(build, "add", "vec3"), "vectors-of-different-widths", /one width/);
   });
 
   /**
@@ -313,7 +342,7 @@ describe("a mistake is refused before the program runs", () => {
     const build = () => Fn(() => vec4(scale.pow(scale), count.toFloat(), 0, 1))();
     const graph = rewired(build, "pow", "int");
     graph.nodes.find((n) => n.type === "pow")!.params![0] = graph.nodes.findIndex((n) => n._t === "int");
-    refusedOnEveryTarget(graph, /pow\(\) takes a float or a float vector, not int/);
+    refusedOnEveryTarget(graph, "float-only-operand", /pow\(\) takes a float or a float vector, not int/);
   });
 
   /**
@@ -325,7 +354,7 @@ describe("a mistake is refused before the program runs", () => {
     const build = () => Fn(() => vec4(count.bitAnd(count).toFloat(), scale, 0, 1))();
     const graph = rewired(build, "bitAnd", "float");
     graph.nodes.find((n) => n.type === "bitAnd")!.params![0] = graph.nodes.findIndex((n) => n._t === "float");
-    refusedOnEveryTarget(graph, /bitAnd\(\) takes an integer or an integer vector, not float/);
+    refusedOnEveryTarget(graph, "integer-only-operand", /bitAnd\(\) takes an integer or an integer vector, not float/);
   });
 
   /**
@@ -337,6 +366,7 @@ describe("a mistake is refused before the program runs", () => {
     const build = () => Fn(() => vec4(count.abs().toFloat(), mask.toFloat(), 0, 1))();
     refusedOnEveryTarget(
       rewired(build, "abs", "uint"),
+      "signed-only-operand",
       /abs\(\) takes a float or a signed integer, scalar or vector, not uint/,
     );
   });
@@ -355,7 +385,6 @@ describe("a mistake is refused before the program runs", () => {
     ["Discard", Discard],
     ["Return", Return],
   ] as const)("refuses a For whose update holds a %s on every target", (_, jump) => {
-    const refusal = /update cannot contain a break, continue, discard or return/;
     const none = { name: "main", params: [] };
     const compilers: [string, (build: () => Node<any>) => unknown][] = [
       ["GLSL", (build) => compileGlsl.fragment(build())],
@@ -384,12 +413,15 @@ describe("a mistake is refused before the program runs", () => {
         i.addAssign(1);
         jump();
       }),
-    ).toThrow(refusal);
+    ).toThrowRmsl(NodeError, "jump-in-for-update");
     const graph = serialize(loop((i) => i.addAssign(1))());
     const update = graph.nodes[graph.nodes.find((n) => n.type === "for")!.params![2]!]!;
     update.params!.push(graph.nodes.findIndex((n) => n.type === jump.name.toLowerCase()));
     for (const [name, compile] of compilers) {
-      expect(() => compile(() => deserialize(graph) as Node<"vec4">), name).toThrow(refusal);
+      expect(() => compile(() => deserialize(graph) as Node<"vec4">), name).toThrowRmsl(
+        NodeError,
+        "jump-in-for-update",
+      );
     }
   });
 
@@ -444,7 +476,7 @@ describe("a mistake is refused before the program runs", () => {
       ["mat2x3(vec2, vec2)", () => mat2x3(v("vec2"), v("vec2"))],
       ["mat2(float, float)", () => mat2(uniform("float"), uniform("float"))],
     ];
-    for (const [name, build] of refused) expect(build, name).toThrow(/\[RMSL\] mat\w+\(\) takes/);
+    for (const [name, build] of refused) expect(build, name).toThrowRmsl(NodeError, "constructor-arity");
     expect(() => mat2(v("vec4"))).not.toThrow();
     expect(() => mat2x3(v("vec3"), v("vec3"))).not.toThrow();
   });
@@ -464,7 +496,7 @@ describe("a mistake is refused before the program runs", () => {
         });
         return vec4(v);
       })();
-    expect(program).toThrow(/Case\(\) needs at least one value/);
+    expect(program).toThrowRmsl(NodeError, "case-without-values", /Case\(\) needs at least one value/);
   });
 
   /**
@@ -501,9 +533,17 @@ describe("a mistake is refused before the program runs", () => {
       })();
       kept!.Case(0, () => {});
     };
-    expect(fromAnotherBlock).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
-    expect(afterDefault).toThrow(/Case\(\) after Default\(\)/);
-    expect(afterTheFunction).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
+    expect(fromAnotherBlock).toThrowRmsl(
+      NodeError,
+      "case-outside-switch",
+      /Case\(\) must be called from the block that holds its Switch\(\)/,
+    );
+    expect(afterDefault).toThrowRmsl(NodeError, "case-after-default", /Case\(\) after Default\(\)/);
+    expect(afterTheFunction).toThrowRmsl(
+      NodeError,
+      "case-outside-switch",
+      /Case\(\) must be called from the block that holds its Switch\(\)/,
+    );
     const afterAStatement = (add: (s: ReturnType<typeof Switch>, w: Var<"float">, v: Var<"float">) => void) => () =>
       Fn(() => {
         const v = float(0).toVar();
@@ -512,10 +552,14 @@ describe("a mistake is refused before the program runs", () => {
         add(s, w, v);
         return vec4(v);
       })();
-    expect(afterAStatement((s, w, v) => s.Case(1, () => v.assign(w)))).toThrow(
+    expect(afterAStatement((s, w, v) => s.Case(1, () => v.assign(w)))).toThrowRmsl(
+      NodeError,
+      "case-after-statement",
       /Case\(\) after a statement that follows the case before it/,
     );
-    expect(afterAStatement((s, w, v) => s.Default(() => v.assign(w)))).toThrow(
+    expect(afterAStatement((s, w, v) => s.Default(() => v.assign(w)))).toThrowRmsl(
+      NodeError,
+      "case-after-statement",
       /Default\(\) after a statement that follows the case before it/,
     );
   });
@@ -559,7 +603,9 @@ describe("a mistake is refused before the program runs", () => {
       )();
     expect(() => build(4)()).not.toThrow();
     for (const length of [0, 1, 5, 7]) {
-      expect(build(length), `length ${length}`).toThrow(
+      expect(build(length), `length ${length}`).toThrowRmsl(
+        NodeError,
+        "array-is-no-vector",
         new RegExp(`array of length ${length} given to add\\(\\) is no vector`),
       );
     }
@@ -583,14 +629,11 @@ describe("a mistake is refused before the program runs", () => {
     ];
     for (const [name, compile] of compilers) {
       expect(() => compile(read(() => int(2))), `${name} read 2`).not.toThrow();
-      expect(() => compile(read(() => int(3))), `${name} read 3`).toThrow(
-        /index 3 is outside a float\[3\]'s elements 0 to 2/,
-      );
-      expect(() => compile(read(() => int(-1))), `${name} read -1`).toThrow(
-        /index -1 is outside a float\[3\]'s elements 0 to 2/,
-      );
-      expect(() => compile(read(() => int(1).add(int(4)))), `${name} read 1 + 4`).toThrow(
-        /index 5 is outside a float\[3\]'s elements 0 to 2/,
+      expect(() => compile(read(() => int(3))), `${name} read 3`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(read(() => int(-1))), `${name} read -1`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(read(() => int(1).add(int(4)))), `${name} read 1 + 4`).toThrowRmsl(
+        NodeError,
+        "index-out-of-range",
       );
     }
   });
@@ -637,23 +680,24 @@ describe("a mistake is refused before the program runs", () => {
       })();
     for (const [name, compile] of compilers) {
       expect(() => compile(writeColumn(2)), `${name} write column 2`).not.toThrow();
-      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrow(
-        /index 3 is outside a mat3's columns 0 to 2/,
-      );
+      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrowRmsl(NodeError, "index-out-of-range");
       expect(() => compile(writeComponent(1, 2)), `${name} write component 2`).not.toThrow();
-      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrow(
-        /index 3 is outside a mat3's columns/,
+      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrowRmsl(
+        NodeError,
+        "index-out-of-range",
       );
-      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(
-        /index 3 is outside a vec3's components 0 to 2/,
+      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrowRmsl(
+        NodeError,
+        "index-out-of-range",
       );
     }
     const folded = (index: () => any) => () =>
       Fn(() => vec4(vec3(1, 2, 3).toVar().element(index()), 0, 0, 1).toVar())();
     for (const [name, compile] of compilers) {
       expect(() => compile(folded(() => int(1).add(int(1)))), `${name} read 1 + 1`).not.toThrow();
-      expect(() => compile(folded(() => int(1).add(int(3)))), `${name} read 1 + 3`).toThrow(
-        /index 4 is outside a vec3's components 0 to 2/,
+      expect(() => compile(folded(() => int(1).add(int(3)))), `${name} read 1 + 3`).toThrowRmsl(
+        NodeError,
+        "index-out-of-range",
       );
       const foldedColumn = () =>
         Fn(() =>
@@ -662,9 +706,7 @@ describe("a mistake is refused before the program runs", () => {
             .element(int(2).mul(int(2)))
             .toVar(),
         )();
-      expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrow(
-        /index 4 is outside a mat3's columns 0 to 2/,
-      );
+      expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrowRmsl(NodeError, "index-out-of-range");
     }
     const throughSwizzle = (index: () => any) => () =>
       Fn(() => {
@@ -679,27 +721,25 @@ describe("a mistake is refused before the program runs", () => {
         [() => int(-1), -1],
         [() => int(1).add(int(1)), 2],
       ] as const) {
-        expect(() => compile(throughSwizzle(index)), `${name} write .zy ${k}`).toThrow(
-          new RegExp(`index ${k} is outside a vec2's components 0 to 1`),
+        expect(() => compile(throughSwizzle(index)), `${name} write .zy ${k}`).toThrowRmsl(
+          NodeError,
+          "index-out-of-range",
         );
       }
       const restored = () => deserialize(serialize(throughSwizzle(() => int(5))())) as Node<"vec3">;
-      expect(() => compile(restored), `${name} write .zy 5 after JSON`).toThrow(
-        /index 5 is outside a vec2's components 0 to 1/,
-      );
+      expect(() => compile(restored), `${name} write .zy 5 after JSON`).toThrowRmsl(NodeError, "index-out-of-range");
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
-      expect(() => compile(read(3)), `${name} read 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
-      expect(() => compile(read(-1)), `${name} read -1`).toThrow(/index -1 is outside a vec3's components 0 to 2/);
-      expect(() => compile(write(3)), `${name} write 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
-      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrow(
-        /index 3 is outside a mat3's columns 0 to 2/,
-      );
+      expect(() => compile(read(3)), `${name} read 3`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(read(-1)), `${name} read -1`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(write(3)), `${name} write 3`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrowRmsl(NodeError, "index-out-of-range");
       // A mat2x3 has two columns of three rows: the count is the columns.
       expect(() => compile(column(1, twoColumns)), `${name} mat2x3 column 1`).not.toThrow();
-      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrow(
-        /index 2 is outside a mat2x3's columns 0 to 1/,
+      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrowRmsl(
+        NodeError,
+        "index-out-of-range",
       );
     }
   });
@@ -718,10 +758,10 @@ describe("a mistake is refused before the program runs", () => {
     const viaAttribute = () => Fn(() => attribute("float").add(1).toVar())();
 
     expect(computeWgsl(viaStorage())).toContain("@compute");
-    expect(() => computeWgsl(viaAttribute())).toThrow(/cannot read an attribute/);
+    expect(() => computeWgsl(viaAttribute())).toThrowRmsl(ProgramError, "compute-cannot-use-stage-io");
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaStorage)).not.toThrow();
-      expect(() => compile(viaAttribute)).toThrow(/cannot read an attribute/);
+      expect(() => compile(viaAttribute)).toThrowRmsl(ProgramError, "compute-cannot-use-stage-io");
     }
   });
 
@@ -739,10 +779,10 @@ describe("a mistake is refused before the program runs", () => {
     const viaVarying = () => Fn(() => buf.element(int(0)).assign(varying("float")))();
 
     expect(computeWgsl(viaUniform())).toContain("@compute");
-    expect(() => computeWgsl(viaVarying())).toThrow(/cannot read a varying/);
+    expect(() => computeWgsl(viaVarying())).toThrowRmsl(ProgramError, "compute-cannot-use-stage-io");
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaUniform)).not.toThrow();
-      expect(() => compile(viaVarying)).toThrow(/cannot read a varying/);
+      expect(() => compile(viaVarying)).toThrowRmsl(ProgramError, "compute-cannot-use-stage-io");
     }
   });
 
@@ -758,8 +798,9 @@ describe("a mistake is refused before the program runs", () => {
   ])("refuses an outputStruct in %s", (_, js, wasm) => {
     const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
     for (const compile of [js, wasm]) {
-      expect(() => compile(build, { name: "main", params: [] })).toThrow(
-        /outputStruct is the value a fragment stage returns/,
+      expect(() => compile(build, { name: "main", params: [] })).toThrowRmsl(
+        ProgramError,
+        "output-struct-outside-fragment",
       );
     }
   });
@@ -770,7 +811,10 @@ describe("a mistake is refused before the program runs", () => {
   it("refuses an outputStruct in a program compiled as a routine", () => {
     const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
     for (const compile of [compileJSRoutine, compileWasmRoutine] as CompileCpuRoutine[]) {
-      expect(() => compile(build, { name: "main", params: [] })).toThrow(/with no stage/);
+      expect(() => compile(build, { name: "main", params: [] })).toThrowRmsl(
+        ProgramError,
+        "output-struct-outside-fragment",
+      );
     }
   });
 
@@ -787,7 +831,11 @@ describe("a mistake is refused before the program runs", () => {
     ["Discard()", () => Discard(), /Discard\(\) is an input of a fragment stage, or a grid/],
   ])("refuses %s in a routine, on both CPU targets", (_, read, message) => {
     for (const compile of [compileJSRoutine, compileWasmRoutine] as CompileCpuRoutine[]) {
-      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
+      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrowRmsl(
+        ProgramError,
+        "stage-input-without-stage",
+        message,
+      );
     }
   });
 
@@ -800,7 +848,11 @@ describe("a mistake is refused before the program runs", () => {
     ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
   ])("refuses %s in a grid, which has fragCoord() and no more, on both CPU targets", (_, read, message) => {
     for (const compile of [compileJSGrid, compileWasmGrid]) {
-      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
+      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrowRmsl(
+        ProgramError,
+        "stage-input-without-stage",
+        message,
+      );
       expect(() => compile(() => Fn(() => fragCoord().x)(), { name: "main", params: [] })).not.toThrow();
     }
   });
@@ -817,7 +869,46 @@ describe("a mistake is refused before the program runs", () => {
           })() as any,
         { name: "main", params: [] },
       );
-      expect(() => grid({}, 1, 1)).toThrow(/produces no value to render/);
+      expect(() => grid({}, 1, 1)).toThrowRmsl(ProgramError, "grid-without-result");
     }
+  });
+});
+
+describe("a cube map has no texel fetch", () => {
+  const none = { name: "main", params: [] };
+  /** Expects every target to refuse the graph `build` gives with a `ProgramError` of `code`. */
+  const refusedOnEveryTarget = (build: () => Node<"vec4">, code: string) => {
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, code);
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, code);
+    expect(() => compileJSFragment(build, none)).toThrowRmsl(NodeError, code);
+    expect(() => compileWasmFragment(build, none)).toThrowRmsl(NodeError, code);
+  };
+
+  /**
+   * `texture` refuses an integer cube map as the graph is built, so the graph
+   * is built with a float one and its sampler made an integer cube map in the
+   * saved data.
+   *
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
+  it("refuses an integer cube map in a graph deserialize rebuilt, on every target", () => {
+    const cube = uniform("samplerCube");
+    const graph = serialize(Fn(() => vec4(texture(cube, vec3(1, 0, 0)).x, 0, 0, 1))()) as any;
+    for (const n of graph.nodes) {
+      if (n._t === "samplerCube") n._t = "isamplerCube";
+      if (n.value?.shaderType === "samplerCube") n.value.shaderType = "isamplerCube";
+    }
+    refusedOnEveryTarget(() => deserialize(JSON.parse(JSON.stringify(graph))) as Node<"vec4">, "integer-cube-sampler");
+  });
+
+  /**
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
+  it("refuses textureLoad on a float cube map, on every target", () => {
+    const cube = uniform("samplerCube");
+    refusedOnEveryTarget(
+      () => Fn(() => vec4(textureLoad(cube as any, ivec2(0, 0) as any).x, 0, 0, 1))(),
+      "cube-map-texel-fetch",
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { ProgramError } from "../../../errors";
 import {
   attribute,
   mat3,
@@ -133,8 +134,9 @@ export class Builder {
       this.uniforms.set(name, { node, name, scope, value });
       existing = this.uniforms.get(name)!;
     } else if (existing.node._t !== type) {
-      throw new Error(
-        `[RMSL/scene] uniform "${name}" is ${withArticle(existing.node._t)}, and is registered again as ${withArticle(type)}`,
+      throw new ProgramError(
+        "uniform-registered-twice",
+        `uniform "${name}" is ${withArticle(existing.node._t)}, and is registered again as ${withArticle(type)}`,
       );
     }
     return existing.node as UniformNode<T>;

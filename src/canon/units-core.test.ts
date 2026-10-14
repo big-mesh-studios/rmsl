@@ -1,3 +1,4 @@
+import { NodeError } from "../errors";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
 import {
@@ -201,7 +202,7 @@ describe("units of the core", () => {
    * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("refuses an attribute with an empty name", () => {
-    expect(() => attributeRaw("", "float")).toThrow(/empty/);
+    expect(() => attributeRaw("", "float")).toThrowRmsl(NodeError, "empty-name");
   });
 });
 
@@ -462,7 +463,7 @@ describe("what a program does with a node it reads more than once", () => {
         } as ArrayIterator<unknown>;
       };
       try {
-        shareNodes(root);
+        shareNodes({ caller: "shareNodes" }, root);
       } finally {
         Array.prototype[Symbol.iterator] = iterator;
       }
@@ -766,10 +767,10 @@ describe("an integer and a float operand", () => {
     const arithmetic = () => Fn(() => vec4(count.add(scale), 0, 0, 1))();
     const comparison = () => Fn(() => vec4(count.lessThan(scale).select(1, 0), 0, 0, 1))();
     for (const build of [arithmetic, comparison]) {
-      expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
-      expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
-      expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
-      expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+      expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+      expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+      expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
+      expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
     }
   });
 
@@ -779,10 +780,8 @@ describe("an integer and a float operand", () => {
   it("names the conversion of each operand to the other's kind", () => {
     const count = uniform("int") as any;
     const scale = uniform("float") as any;
-    expect(() => count.add(scale)).toThrow("Convert the int with toFloat() or the float with toInt() first.");
-    expect(() => uniform("vec3").mul(uniform("uvec3") as any)).toThrow(
-      "Convert the vec3 with toUVec3() or the uvec3 with toVec3() first.",
-    );
+    expect(() => count.add(scale)).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => uniform("vec3").mul(uniform("uvec3") as any)).toThrowRmsl(NodeError, "operands-of-different-kinds");
   });
 });
 
@@ -807,10 +806,10 @@ describe("operands of two kinds in an operation that takes several", () => {
     ["select, as a method", () => count.lessThan(0).select(mask, count)],
   ])("refuses an int beside a uint in %s, on every target", (_, value) => {
     const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
-    expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
-    expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
-    expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
-    expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
   });
 
   /**
@@ -822,10 +821,10 @@ describe("operands of two kinds in an operation that takes several", () => {
     ["select", () => select(count.lessThan(0), scale, count).toFloat()],
   ])("refuses an integer beside a float in %s, on every target", (_, value) => {
     const build = () => Fn(() => vec4(value(), 0, 0, 1))();
-    expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
-    expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
-    expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
-    expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
   });
 });
 
@@ -875,24 +874,19 @@ describe("an integer operand of a function defined only for floats", () => {
     ["sin of a boolean vector", () => flags.sin().x],
   ])("refuses an integer operand of %s, on every target", (_, value) => {
     const build = () => Fn(() => vec4(value(), 0, 0, 1))();
-    const refusal = /takes a float or a float vector/;
-    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
-    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
-    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
-    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "float-only-operand");
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "float-only-operand");
+    expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "float-only-operand");
+    expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "float-only-operand");
   });
 
   /**
    * @canon spec-a-math-function-of-floats-refuses-an-integer-operand
    */
   it("names the conversion of the operand to a float", () => {
-    expect(() => count.pow(count)).toThrow(
-      "pow() takes a float or a float vector, not int. Convert it with toFloat() first.",
-    );
-    expect(() => steps.normalize()).toThrow(
-      "normalize() takes a float or a float vector, not ivec3. Convert it with toVec3() first.",
-    );
-    expect(() => rmsl.atan(scale, mask)).toThrow("atan() takes a float or a float vector, not uint.");
+    expect(() => count.pow(count)).toThrowRmsl(NodeError, "float-only-operand");
+    expect(() => steps.normalize()).toThrowRmsl(NodeError, "float-only-operand");
+    expect(() => rmsl.atan(scale, mask)).toThrowRmsl(NodeError, "float-only-operand");
   });
 });
 
@@ -920,31 +914,45 @@ describe("a float operand of an integer operation", () => {
   ])("refuses a float operand of %s, on every target", (_, value) => {
     const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
     const refusal = /takes an integer or an integer vector/;
-    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
-    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
-    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
-    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "integer-only-operand", refusal);
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "integer-only-operand", refusal);
+    expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "integer-only-operand", refusal);
+    expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "integer-only-operand", refusal);
   });
 
   /**
    * @canon spec-an-integer-operation-refuses-a-float-operand
    */
   it("names the conversion of the float to the kind of the integer beside it", () => {
-    expect(() => scale.bitXor(scale)).toThrow(
+    expect(() => scale.bitXor(scale)).toThrowRmsl(
+      NodeError,
+      "integer-only-operand",
       "bitXor() takes an integer or an integer vector, not float. Convert it with toInt() first.",
     );
-    expect(() => rmsl.bitOr(scale, mask)).toThrow("Convert it with toUint() first.");
-    expect(() => plane.bitAnd(plane)).toThrow("Convert it with toIVec2() first.");
+    expect(() => rmsl.bitOr(scale, mask)).toThrowRmsl(
+      NodeError,
+      "integer-only-operand",
+      "Convert it with toUint() first.",
+    );
+    expect(() => plane.bitAnd(plane)).toThrowRmsl(
+      NodeError,
+      "integer-only-operand",
+      "Convert it with toIVec2() first.",
+    );
   });
 
   /**
    * @canon spec-a-shift-amount-may-be-of-either-integer-kind
    */
   it("names only the conversion of the float for a shift", () => {
-    expect(() => count.shiftLeft(scale)).toThrow(
+    expect(() => count.shiftLeft(scale)).toThrowRmsl(
+      NodeError,
+      "integer-only-operand",
       "shiftLeft() takes an integer or an integer vector, not float. Convert it with toInt() first.",
     );
-    expect(() => scale.shiftRight(mask)).toThrow(
+    expect(() => scale.shiftRight(mask)).toThrowRmsl(
+      NodeError,
+      "integer-only-operand",
       "shiftRight() takes an integer or an integer vector, not float. Convert it with toUint() first.",
     );
   });
@@ -970,20 +978,22 @@ describe("an unsigned operand of an operation defined only for signed values", (
   ])("refuses an unsigned operand of %s, on every target", (_, value) => {
     const build = () => Fn(() => vec4(value().toFloat(), 0, 0, 1))();
     const refusal = /takes a float or a signed integer/;
-    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
-    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
-    expect(() => compileJSFn(build as any, none)).toThrow(refusal);
-    expect(() => compileWasmFn(build as any, none)).toThrow(refusal);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "signed-only-operand", refusal);
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "signed-only-operand", refusal);
+    expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "signed-only-operand", refusal);
+    expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "signed-only-operand", refusal);
   });
 
   /**
    * @canon spec-a-signed-operation-refuses-an-unsigned-operand
    */
   it("names the conversion to a signed integer, and keeps the signed and float cases", () => {
-    expect(() => mask.sign()).toThrow(
+    expect(() => mask.sign()).toThrowRmsl(
+      NodeError,
+      "signed-only-operand",
       "sign() takes a float or a signed integer, scalar or vector, not uint. Convert it with toInt() first.",
     );
-    expect(() => masks.negate()).toThrow("Convert it with toIVec3() first.");
+    expect(() => masks.negate()).toThrowRmsl(NodeError, "signed-only-operand", "Convert it with toIVec3() first.");
     expect(evaluateRecording((a) => a.toInt().negate().abs().toFloat(), [3])).toBe(3);
     expect(evaluateRecording((a) => a.negate().sign(), [3])).toBe(-1);
   });
@@ -1029,10 +1039,10 @@ describe("a signed and an unsigned integer operand", () => {
       () => Fn(() => vec4(signed.equal(unsigned).all().select(1, 0), 0, 0, 1))(),
     ];
     for (const build of builds) {
-      expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
-      expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
-      expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
-      expect(() => compileWasmFn(build as any, none)).toThrow(/one kind/);
+      expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+      expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "operands-of-different-kinds");
+      expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
+      expect(() => compileWasmFn(build as any, none)).toThrowRmsl(NodeError, "operands-of-different-kinds");
     }
   });
 
@@ -1042,12 +1052,8 @@ describe("a signed and an unsigned integer operand", () => {
   it("names the conversion of each operand to the other's kind", () => {
     const count = uniform("int") as any;
     const mask = uniform("uint") as any;
-    expect(() => count.add(mask)).toThrow(
-      "add() takes operands of one kind, not int and uint. Convert the int with toUint() or the uint with toInt() first.",
-    );
-    expect(() => (uniform("uvec4") as any).min(uniform("ivec4"))).toThrow(
-      "Convert the uvec4 with toIVec4() or the ivec4 with toUVec4() first.",
-    );
+    expect(() => count.add(mask)).toThrowRmsl(NodeError, "operands-of-different-kinds");
+    expect(() => (uniform("uvec4") as any).min(uniform("ivec4"))).toThrowRmsl(NodeError, "operands-of-different-kinds");
   });
 });
 
@@ -1060,9 +1066,9 @@ describe("folding a float operation on literals", () => {
     const rooted = () => Fn(() => vec4(float(-1).sqrt()))();
     const overflowing = () => Fn(() => vec4(float(1e30).mul(1e30)))();
     for (const build of [divided, rooted, overflowing]) {
-      expect(() => compileGlsl.fragment(build())).toThrow(/no target can write/);
-      expect(() => compileWgsl.fragment(build())).toThrow(/no target can write/);
-      expect(() => compileJSFn(build as any, none)).toThrow(/no target can write/);
+      expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "constant-not-finite");
+      expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "constant-not-finite");
+      expect(() => compileJSFn(build as any, none)).toThrowRmsl(NodeError, "constant-not-finite");
     }
   });
 
@@ -1091,7 +1097,7 @@ describe("operands of different widths", () => {
       ["mix", () => narrow.mix(wide, 0.5)],
       ["lessThan", () => narrow.lessThan(wide)],
     ];
-    for (const [name, build] of families) expect(build, name).toThrow(/one width/);
+    for (const [name, build] of families) expect(build, name).toThrowRmsl(NodeError, "vectors-of-different-widths");
   });
 
   /**
@@ -1157,11 +1163,11 @@ describe("a float converted to an integer", () => {
    * @canon spec-a-number-outside-an-integer-type-is-refused-by-its-constructor
    */
   it("is refused when a constructor is given a number outside the range", () => {
-    expect(() => int(3e9)).toThrow(/outside the range of int/);
-    expect(() => int(-2147483649)).toThrow(/outside the range of int/);
-    expect(() => uint(5e9)).toThrow(/outside the range of uint/);
-    expect(() => uvec2(1, 5e9)).toThrow(/outside the range of uint/);
-    expect(() => int(NaN)).toThrow(/outside the range of int/);
+    expect(() => int(3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => int(-2147483649)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => uint(5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
+    expect(() => uvec2(1, 5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
+    expect(() => int(NaN)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
     expect((int(2147483647) as any).value).toBe(2147483647);
     expect((int(-2.9) as any).value).toBe(-2);
   });
@@ -1174,8 +1180,8 @@ describe("a bare number beside an integer", () => {
   it("is refused when the integer type cannot hold it", () => {
     const count = uniform("int") as any;
     const mask = uniform("uint") as any;
-    expect(() => count.add(3e9)).toThrow(/outside the range of int/);
-    expect(() => mask.bitAnd(5e9)).toThrow(/outside the range of uint/);
+    expect(() => count.add(3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => mask.bitAnd(5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
     expect(() => count.add(2147483647)).not.toThrow();
   });
 

@@ -1,3 +1,4 @@
+import { NodeError, ProgramError } from "../../errors";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Fn, float, instanceIndex, instancedArray, int, uint, varying, vec4, vertexIndex } from "../../rmsl";
 import { compileGlsl } from "../../glsl";
@@ -57,7 +58,7 @@ describe("storage buffers in render stages", () => {
       values.element(0).assign(float(1));
       return vec4(0, 0, 0, 1);
     })();
-    expect(() => compileWgsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
+    expect(() => compileWgsl.vertex(vertex)).toThrowRmsl(ProgramError, "storage-written-outside-compute");
   });
   /**
    * @canon spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot
@@ -101,7 +102,7 @@ describe("storage buffers in render stages", () => {
       values.element(0).assign(float(1));
       return vec4(0, 0, 0, 1);
     })();
-    expect(() => compileGlsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
+    expect(() => compileGlsl.vertex(vertex)).toThrowRmsl(ProgramError, "storage-written-outside-compute");
   });
   /**
    * @canon spec-a-glsl-render-stage-refuses-a-write-to-storage
@@ -112,7 +113,7 @@ describe("storage buffers in render stages", () => {
       values.element(uint(0)).x.assign(float(1));
       return vec4(0, 0, 0, 1);
     })();
-    expect(() => compileGlsl.fragment(fragment)).toThrow(/read-only in a fragment shader/);
+    expect(() => compileGlsl.fragment(fragment)).toThrowRmsl(ProgramError, "storage-written-outside-compute");
   });
   /**
    * @canon spec-a-wgsl-render-stage-reads-storage-read-only
@@ -123,18 +124,18 @@ describe("storage buffers in render stages", () => {
       values.element(uint(0)).x.assign(float(1));
       return vec4(0, 0, 0, 1);
     })();
-    expect(() => compileWgsl.fragment(fragment)).toThrow(/read-only in a fragment shader/);
+    expect(() => compileWgsl.fragment(fragment)).toThrowRmsl(ProgramError, "storage-written-outside-compute");
   });
   /**
    * @canon spec-the-index-accessors-are-read-only
    */
-  it("refuses a write to the instance index on GLSL and WGSL", () => {
-    const vertex = Fn(() => {
-      (instanceIndex() as any).assign(uint(1));
-      return vec4(0, 0, 0, 1);
-    })();
-    expect(() => compileGlsl.vertex(vertex)).toThrow(/built-in input/);
-    expect(() => compileWgsl.vertex(vertex)).toThrow(/built-in input/);
+  it("refuses a write to the instance index as the graph is built", () => {
+    const vertex = () =>
+      Fn(() => {
+        (instanceIndex() as any).assign(uint(1));
+        return vec4(0, 0, 0, 1);
+      })();
+    expect(vertex).toThrowRmsl(NodeError, "assign-to-read-only", /built-in input/);
   });
   /**
    * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins

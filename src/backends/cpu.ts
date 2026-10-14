@@ -1,4 +1,13 @@
-import { MATRIX_DIMENSIONS, Node, OutputStruct, ShaderType, TYPE_WIDTH } from "../core";
+import { UsageError, type Origin } from "../errors";
+import {
+  MATRIX_DIMENSIONS,
+  Node,
+  OutputStruct,
+  ShaderType,
+  TYPE_WIDTH,
+  type ScalarKind,
+  componentCountOf,
+} from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
 export type CpuShaderContext = {
@@ -189,24 +198,8 @@ export type CpuProgram = {
   storageTypes?: Readonly<Record<string, ShaderType>>;
 };
 
-/** A compiled function's scalar element kind, at the WASM/typed-array level. */
-export type ScalarKind = "float" | "int" | "uint" | "bool";
-
 export function scalarKindOf(t: string | undefined): ScalarKind {
   return t === "int" || t === "uint" || t === "bool" ? t : "float";
-}
-
-/**
- * The kind of value a type's components hold, scalar and vector types alike:
- * `int` and `ivec3` are both "int". Every backend asks this of a type name,
- * so it is answered here once.
- */
-export function componentKindOf(t: string | undefined): ScalarKind {
-  if (t === undefined) return "float";
-  if (t === "bool" || t.startsWith("bvec")) return "bool";
-  if (t === "int" || t.startsWith("ivec")) return "int";
-  if (t === "uint" || t.startsWith("uvec")) return "uint";
-  return "float";
 }
 
 /** Element kind of a shader type's components; non-int vectors default to float. */
@@ -215,15 +208,6 @@ export function elementKindOf(t: string): ScalarKind {
   if (t.startsWith("uvec")) return "uint";
   if (t.startsWith("bvec")) return "bool";
   return "float";
-}
-
-/** Component count: 1 for scalars, TYPE_WIDTH for vectors, rows*cols for matrices. */
-export function componentCountOf(t: string): number {
-  const width = TYPE_WIDTH[t];
-  if (width !== undefined) return width;
-  const shape = MATRIX_DIMENSIONS[t];
-  if (shape !== undefined) return shape[0] * shape[1];
-  return 1;
 }
 
 /**
@@ -297,8 +281,8 @@ export const isVector = (value: unknown): value is ArrayLike<number> =>
   Array.isArray(value) || ArrayBuffer.isView(value);
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
-export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
-  const position = vertexPosition(raw) as VertexResult["position"];
+export function toVertexResult(origin: Origin, raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
+  const position = vertexPosition(origin, raw) as VertexResult["position"];
   return { position, varyings: (isResultObject(raw) && (raw.varyings as Record<string, unknown>)) || {} };
 }
 
@@ -307,10 +291,14 @@ export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | nu
  * `builtinPosition()`, or else its `vec4` result. A stage that gave neither
  * is refused.
  */
-export function vertexPosition(raw: unknown): ArrayLike<number> {
+export function vertexPosition(origin: Origin, raw: unknown): ArrayLike<number> {
   const position = (isResultObject(raw) ? (raw.position ?? raw.value) : raw) as ArrayLike<number> | undefined;
   if (!position) {
-    throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
+    throw new UsageError(
+      "no-position-written",
+      "A vertex stage never wrote a position, with builtinPosition() or a vec4 result.",
+      origin,
+    );
   }
   return position;
 }

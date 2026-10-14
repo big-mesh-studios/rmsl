@@ -1,3 +1,4 @@
+import { UsageError, type Origin, type BackendOrigin } from "../errors";
 import { withArticle } from "../article";
 import { type Node, type ShaderType, type UniformValue, type VariableNode } from "../rmsl";
 import { compileJSFn, compileJSFragment, compileJSVertex, type CpuShaderContext, type CpuTextureData } from "../js";
@@ -8,6 +9,9 @@ import { compileJSProgram } from "../backends/js/js";
 // same reading, not by a second one written for the CPU.
 import { samplerState, textureChannels } from "../scene/renderers/sampling";
 import type { Texture } from "../scene/textures/Texture";
+
+/** Where a program that `runner` compiles for the JS target runs, which its errors name. */
+const TEST_JS: BackendOrigin = { target: "js", caller: "runner" };
 
 // === Values ===
 
@@ -207,7 +211,7 @@ function compileRunner<A extends ShaderType>(
             return (ctx) => readFragment<A>(fragment(ctx));
           })()
         : (() => {
-            const routine = compileJSProgram(graph, withoutStage);
+            const routine = compileJSProgram(TEST_JS, graph, withoutStage);
             return (ctx) => {
               // A program that discards returns null from a routine that has no stage too.
               const value = routine.run(ctx) as ShaderValue<A> | null;
@@ -317,7 +321,7 @@ export function render<A extends ShaderType>(
 ): RenderedImage {
   const { width, height } = options;
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
-    throw new Error(`[RMSL/test] render needs a whole width and height of at least 1, got ${width}x${height}`);
+    throw new UsageError("render-size", `render needs a whole width and height of at least 1, got ${width}x${height}`);
   }
   const run = asRunner(graph, options);
   const pixels = new Float32Array(width * height * 4);
@@ -351,7 +355,7 @@ function image(
 ): RenderedImage {
   const indexOf = (x: number, y: number): number => {
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= width || y >= height) {
-      throw new Error(`[RMSL/test] (${x}, ${y}) is outside the ${width}x${height} image`);
+      throw new UsageError("pixel-outside-image", `(${x}, ${y}) is outside the ${width}x${height} image`);
     }
     return y * width + x;
   };
@@ -486,7 +490,7 @@ export interface ProgramRunner extends ShaderRunner<"vec4"> {
 export function fromProgram(program: ProgramLike, options: ProgramOptions = {}): ProgramRunner {
   const stage = options.stage ?? "fragment";
   const root = stage === "vertex" ? program.vertexRoot : program.fragmentRoot;
-  if (!root) throw new Error(`[RMSL/test] the program has no ${stage} root to run`);
+  if (!root) throw new UsageError("no-root-for-stage", `the program has no ${stage} root to run`);
 
   const names: NameMaps = {
     uniforms: slotNames(program.uniforms),
@@ -701,8 +705,9 @@ export function assertClose(
   const reason = difference(actual, expected, options.tolerance);
   if (reason === null) return;
   const prefix = options.message ? `${options.message}: ` : "";
-  throw new Error(
-    `[RMSL/test] ${prefix}${reason}` + `\n  expected: ${format(expected)}` + `\n  actual:   ${format(actual)}`,
+  throw new UsageError(
+    "expectation-failed",
+    `${prefix}${reason}` + `\n  expected: ${format(expected)}` + `\n  actual:   ${format(actual)}`,
   );
 }
 
@@ -801,7 +806,7 @@ function bound<A extends object>(kind: string, field: keyof ShaderInputs, values
           : `reads ${withArticle(kind)} nothing bound, in the slot the compiler generated ` +
             `as "${key}". Pass its node under \`${field}\`, as [node, value].`;
         const listed = reads.named && field === "uniforms" ? " It is listed in the runner's `unbound`." : "";
-        throw new Error(`[RMSL/test] the ${reads.stage} stage ${wanted}${listed}`);
+        throw new UsageError("stage-reads-unlisted", `the ${reads.stage} stage ${wanted}${listed}`);
       }
       return (target as Record<string, unknown>)[key as string];
     },
