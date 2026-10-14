@@ -151,7 +151,7 @@ describe("exports no other test reaches", () => {
   });
 
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("computes the MathUtils helpers as three.js does", () => {
     expect(euclideanModulo(-1, 3)).toBe(2);

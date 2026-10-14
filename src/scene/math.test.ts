@@ -25,7 +25,7 @@ function expectClose(a: number[], b: number[], eps = 1e-6): void {
 
 describe("Vector3", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("adds, subtracts and scales", () => {
     const v = new Vector3(1, 2, 3);
@@ -34,7 +34,7 @@ describe("Vector3", () => {
     expect(v.multiplyScalar(2).toArray()).toEqual([2, 4, 6]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("computes dot and cross", () => {
     const a = new Vector3(1, 0, 0);
@@ -45,7 +45,7 @@ describe("Vector3", () => {
   });
 
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("normalizes", () => {
     const v = new Vector3(3, 0, 0);
@@ -53,7 +53,7 @@ describe("Vector3", () => {
     expect(new Vector3().normalize().toArray()).toEqual([0, 0, 0]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("transforms directions through a matrix", () => {
     const m = new Matrix4().makeRotationY(Math.PI / 2);
@@ -61,7 +61,7 @@ describe("Vector3", () => {
     expectClose(d.toArray(), [0, 0, -1]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("sets from spherical coordinates", () => {
     const v = new Vector3().setFromSphericalCoords(2, Math.PI / 2, 0);
@@ -71,13 +71,13 @@ describe("Vector3", () => {
 
 describe("Matrix4", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("is identity by default", () => {
     expect(new Matrix4().elements).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("multiplies matrices in the right order", () => {
     const a = new Matrix4().makeTranslation(1, 2, 3);
@@ -90,7 +90,7 @@ describe("Matrix4", () => {
     expectClose(q.toArray(), [-2, 2, 3]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("inverts itself", () => {
     const m = new Matrix4().makeTranslation(3, -2, 7).multiply(new Matrix4().makeRotationX(0.7));
@@ -99,7 +99,7 @@ describe("Matrix4", () => {
     expectClose(roundTrip.toArray(), [1, 2, 3]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("composes and decomposes", () => {
     const pos = new Vector3(1, 2, 3);
@@ -115,7 +115,7 @@ describe("Matrix4", () => {
     expectClose(q.toArray(), rot.toArray());
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("builds a perspective projection", () => {
     const m = new Matrix4().makePerspective(-1, 1, 1, -1, 1, 10);
@@ -127,7 +127,7 @@ describe("Matrix4", () => {
     expectClose(m.elements.slice(10, 12), [-11 / 9, -1]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("builds an orthographic projection", () => {
     const m = new Matrix4().makeOrthographic(-2, 2, 2, -2, 1, 10);
@@ -137,7 +137,7 @@ describe("Matrix4", () => {
     expectClose(q.toArray(), [-1, -1, 1]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("looks at a target", () => {
     const m = new Matrix4().lookAt(new Vector3(0, 0, 5), new Vector3(0, 0, 0), new Vector3(0, 1, 0));
@@ -152,7 +152,7 @@ describe("Matrix4", () => {
 
 describe("Quaternion", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("rotates like the equivalent matrix", () => {
     const euler = new Euler(0.3, -0.7, 1.1);
@@ -162,7 +162,7 @@ describe("Quaternion", () => {
     expectClose(v.clone().applyQuaternion(q).toArray(), v.clone().applyMatrix4(m).toArray());
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("round-trips through a matrix", () => {
     const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.9);
@@ -172,7 +172,7 @@ describe("Quaternion", () => {
   });
 
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("normalizes", () => {
     expect(new Quaternion(2, 0, 0, 0).normalize().toArray()).toEqual([1, 0, 0, 0]);
@@ -182,7 +182,7 @@ describe("Quaternion", () => {
 
 describe("Euler", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("round-trips through a quaternion", () => {
     const e = new Euler(0.4, -0.2, 0.8);
@@ -190,7 +190,7 @@ describe("Euler", () => {
     expectClose([back.x, back.y, back.z], [e.x, e.y, e.z]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("reorders", () => {
     const e = new Euler(0.5, 0.3, 0.2, "XYZ");
@@ -203,20 +203,20 @@ describe("Euler", () => {
 
 describe("Color", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("parses hex", () => {
     const c = new Color().setHex(0xff8000);
     expectClose(c.toArray(), [1, 0x80 / 255, 0]);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("round-trips hex", () => {
     expect(new Color().setHex(0x123456).getHex()).toBe(0x123456);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("parses css rgb and short hex", () => {
     expectClose(new Color().setStyle("#0f8").toArray(), [0, 1, 0x88 / 255]);
@@ -226,7 +226,7 @@ describe("Color", () => {
 
 describe("Spherical", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("round-trips with a cartesian vector", () => {
     const v = new Vector3(1, 2, 3);
@@ -237,14 +237,14 @@ describe("Spherical", () => {
 
 describe("MathUtils", () => {
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("converts degrees and radians", () => {
     expect(degToRad(180)).toBeCloseTo(Math.PI);
     expect(radToDeg(Math.PI)).toBeCloseTo(180);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("clamps and lerps", () => {
     expect(clamp(5, 0, 1)).toBe(1);
@@ -252,7 +252,7 @@ describe("MathUtils", () => {
     expect(lerp(0, 10, 0.25)).toBe(2.5);
   });
   /**
-   * @canon spec-the-math-classes-follow-three-js
+   * @canon spec-a-math-class-computes-what-three-js-computes
    */
   it("detects powers of two", () => {
     expect(isPowerOfTwo(8)).toBe(true);
