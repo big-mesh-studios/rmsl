@@ -271,7 +271,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target, in a graph `deserialize` rebuilt too. A scalar beside a vector broadcasts instead.
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
-    - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. Every target refuses it when the program is compiled.
+    - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. The builder refuses the operation that reads it, and every target refuses it in a graph `deserialize` rebuilt.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused) — An operation on operands of two kinds is refused, by the type checker and on every target. The kinds are float, signed integer and unsigned integer. The error names, for each operand, the method that converts it to the other's kind. A bare number takes the type beside it instead. The operations are the arithmetic and bitwise operators, the comparisons, `select`, and the math functions of several operands, such as `clamp`, `mix`, `pow` and `step`.
       - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target.
@@ -299,7 +299,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-layout-fn-reads-a-built-in-input`](#spec-a-layout-fn-reads-a-built-in-input) — On GLSL, JS and WASM, an `Fn` with a layout reads a built-in input such as `fragCoord()`, `vertexIndex()` or `instanceIndex()` from its body.
       - [`@spec a-layout-fn-assigns-a-varying`](#spec-a-layout-fn-assigns-a-varying) — On GLSL, JS and WASM, an `Fn` with a layout assigns a varying from its body in the vertex stage, and the fragment stage reads the value.
       - [`@exception wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage`](#exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage) — On WGSL, an `Fn` with a layout whose body reads an attribute, a varying or a built-in input, or assigns a varying, is refused as the program compiles. The error names what it uses and asks for the value as an input. Issues #292 and #293 ask how WGSL could support it.
-    - [`@spec a-layout-fn-writes-no-output-of-its-stage`](#spec-a-layout-fn-writes-no-output-of-its-stage) — An `Fn` with a layout whose body uses a stage output, the position or the fragment depth is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input or a return value.
+    - [`@spec a-layout-fn-writes-no-output-of-its-stage`](#spec-a-layout-fn-writes-no-output-of-its-stage) — An `Fn` with a layout whose body uses a stage output, the position or the fragment depth is refused as the program builds its call. Every target refuses it in a graph `deserialize` rebuilt. The error names what it uses and asks for the value as an input or a return value.
     - [`@spec a-malformed-layout-is-refused`](#spec-a-malformed-layout-is-refused) — A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier or starts with the prefix `_rmsl_`, for an input as for the function. A call in a graph `deserialize` rebuilt is held to the same rules as every target compiles it, and also to names GLSL and WGSL can declare, as `Fn` gives only those.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
@@ -368,7 +368,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-gpu-target-reads-the-index-accessors-from-its-builtins`](#spec-a-gpu-target-reads-the-index-accessors-from-its-builtins) — On GLSL, `vertexIndex()` and `instanceIndex()` read `gl_VertexID` and `gl_InstanceID`; on WGSL, the `vertex_index` and `instance_index` builtins.
       - [`@spec a-cpu-vertex-stage-reads-the-vertex-it-runs-for`](#spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for) — On JS and WASM, a vertex stage reads `vertexIndex()` as the index of the vertex the rasterizer runs it for, counted as a GPU counts it, from the start of the attributes and not from the draw's first vertex.
       - [`@spec a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) — On JS and WASM, a vertex stage reads `instanceIndex()` as 0.
-      - [`@spec the-index-accessors-are-read-only`](#spec-the-index-accessors-are-read-only) — The compiler refuses a write to `vertexIndex()` or `instanceIndex()` on every target, and names it a built-in input.
+      - [`@spec the-index-accessors-are-read-only`](#spec-the-index-accessors-are-read-only) — A write to `vertexIndex()` or `instanceIndex()` is refused as the program builds it, and on every target in a graph `deserialize` rebuilt. The error names it a built-in input.
     - [`@spec the-weight-of-mix-stays-a-scalar`](#spec-the-weight-of-mix-stays-a-scalar) — The scalar weight of `mix` reaches every target as a scalar beside its vectors.
     - [`@spec cbrt-is-composed-of-sign-abs-and-pow`](#spec-cbrt-is-composed-of-sign-abs-and-pow) — `cbrt(x)` compiles to `sign(x)` times `pow(abs(x), 1/3)` on every target.
     - [`@spec a-select-on-a-comparison-of-integer-literals-folds-to-its-branch`](#spec-a-select-on-a-comparison-of-integer-literals-folds-to-its-branch) — A `select` whose condition compares integer literals compiles to the branch the comparison picks.
@@ -2567,7 +2567,7 @@ This follows because a scalar beside a vector broadcasts, and the result has the
 
 #### @spec a-whole-storage-buffer-cannot-be-read
 
-> A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. Every target refuses it when the program is compiled.
+> A storage node read as a whole, rather than through `element(i)`, is refused. Its type has none of the operations of its element type and is no operand. The builder refuses the operation that reads it, and every target refuses it in a graph `deserialize` rebuilt.
 
 A buffer holds no single value for an operation to take, only its elements do. So the type checker refuses the read as well as the compiler.
 
@@ -2739,7 +2739,7 @@ This follows because WGSL keeps the stage's inputs and its outputs in the entry 
 
 #### @spec a-layout-fn-writes-no-output-of-its-stage
 
-> An `Fn` with a layout whose body uses a stage output, the position or the fragment depth is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input or a return value.
+> An `Fn` with a layout whose body uses a stage output, the position or the fragment depth is refused as the program builds its call. Every target refuses it in a graph `deserialize` rebuilt. The error names what it uses and asks for the value as an input or a return value.
 
 Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own), [`fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage`](#fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage)
 
@@ -3175,7 +3175,7 @@ This follows because a CPU rasterizer draws one instance, and the one instance o
 
 ##### @spec the-index-accessors-are-read-only
 
-> The compiler refuses a write to `vertexIndex()` or `instanceIndex()` on every target, and names it a built-in input.
+> A write to `vertexIndex()` or `instanceIndex()` is refused as the program builds it, and on every target in a graph `deserialize` rebuilt. The error names it a built-in input.
 
 #### @spec the-weight-of-mix-stays-a-scalar
 

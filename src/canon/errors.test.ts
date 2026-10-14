@@ -2,35 +2,42 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  Break,
-  DataError,
-  DriverError,
-  Fn,
-  If,
-  InternalError,
-  LimitError,
-  NodeError,
-  PlatformError,
-  ProgramError,
-  RmslError,
-  TargetError,
-  UsageError,
   attribute,
+  Break,
   builtinPosition,
+  DataError,
   deserialize,
   dFdx,
+  DriverError,
   float,
+  Fn,
   fragCoord,
+  If,
   instancedArray,
+  int,
+  InternalError,
+  LimitError,
+  mat2x3,
+  type Node,
+  NodeError,
+  outputStruct,
+  PlatformError,
+  ProgramError,
+  Return,
+  RmslError,
   serialize,
+  TargetError,
   uint,
   uniform,
+  UsageError,
   varying,
+  vec2,
+  vec3,
   vec4,
 } from "../rmsl";
 import { compileGlsl, createGlsl } from "../glsl";
 import { compileWgsl, createWgslContext } from "../wgsl";
-import { compileJSFragment, compileJSRoutine, compileJSVertex, createJs, createJsGrid } from "../js";
+import { compileJSFn, compileJSFragment, compileJSRoutine, compileJSVertex, createJs, createJsGrid } from "../js";
 import { compileWasm, compileWasmFragment, compileWasmRoutine, compileWasmVertex } from "../wasm";
 import { precompileShaders } from "../vite/vite";
 import { node } from "../core";
@@ -82,6 +89,94 @@ describe("no module of rmsl throws a plain error", () => {
 });
 
 describe("an error is an instance of the class of its kind", () => {
+  /**
+   * Each node is wrong whatever program holds it, so the builder refuses it as
+   * it is made, before any target compiles anything.
+   *
+   * @canon spec-a-node-wrong-in-itself-is-a-node-error
+   */
+  it.each<[string, string, () => unknown]>([
+    [
+      "an assignment to a uniform",
+      "assign-to-read-only",
+      () => Fn(() => (uniform("vec3") as any).assign(vec3(1, 2, 3)))(),
+    ],
+    [
+      "an assignment to a read-only storage element",
+      "assign-to-read-only-storage",
+      () => Fn(() => (instancedArray(4, "float").toReadOnly().element(int(0)) as any).assign(float(1)))(),
+    ],
+    [
+      "an assignment to a whole storage buffer",
+      "assign-to-whole-storage",
+      () => Fn(() => (instancedArray(4, "vec3") as any).assign(vec3(1, 2, 3)))(),
+    ],
+    [
+      "an assignment through a swizzle that repeats a component",
+      "swizzle-repeats-component",
+      () => Fn(() => (vec3(1, 2, 3).toVar() as any).xx.assign(vec2(1, 2)))(),
+    ],
+    [
+      "a whole storage buffer read as a value",
+      "storage-read-as-a-whole",
+      () => (instancedArray(4, "float") as any).add(1),
+    ],
+    [
+      "an outputStruct used as an operand",
+      "output-struct-misplaced",
+      () => float(1).add(outputStruct(float(1)) as any),
+    ],
+    ["a fold of literals that is not finite", "constant-not-finite", () => float(1).div(0)],
+    ["a constant index past a vector", "index-out-of-range", () => vec3(1, 2, 3).element(int(5))],
+    [
+      "the inverse of a matrix that is not square",
+      "inverse-of-non-square",
+      () => (mat2x3(1, 0, 0, 0, 1, 0) as any).inverse(),
+    ],
+    ["a cross of two vectors that are not vec3", "cross-needs-vec3", () => (vec2(1, 0) as any).cross(vec2(0, 1))],
+    [
+      "a Return in a layout Fn that gives a value",
+      "return-without-value",
+      () =>
+        Fn(() => {
+          Return();
+          return float(1);
+        }).setLayout({ name: "f", type: "float", inputs: [] })(),
+    ],
+    [
+      "a layout Fn that writes the position",
+      "layout-fn-uses-stage-value",
+      () =>
+        Fn(() => {
+          builtinPosition().assign(vec4(0, 0, 0, 1));
+        }).setLayout({ name: "f", type: "void", inputs: [] })(),
+    ],
+  ])("refuses %s with a NodeError as the graph is built", (_, code, build) => {
+    expectThrows(build, NodeError, code, { target: "none" });
+  });
+
+  /**
+   * A parameter exists only inside a compile, so the refusal comes as that
+   * compile builds the graph, before it compiles anything.
+   *
+   * @canon spec-a-node-wrong-in-itself-is-a-node-error
+   */
+  it("refuses an assignment to a parameter of the compiled function with a NodeError as the graph is built", () => {
+    expectThrows(
+      () =>
+        compileJSFn(
+          (x: Node<"float">) =>
+            Fn(() => {
+              (x as any).assign(float(2));
+              return x;
+            })(),
+          { name: "main", params: [{ name: "x", type: "float" }] },
+        ),
+      NodeError,
+      "assign-to-parameter",
+    );
+  });
+
   /**
    * The sum is built of two ints and rewired in the saved data to an int and a
    * uint, which the builder would have refused.

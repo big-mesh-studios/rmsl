@@ -3504,7 +3504,7 @@ export function compileWasmModule(
     const [a, b] = node.params;
     const width = componentCountOf(node._t as string);
     if (width !== 3) {
-      throw new NodeError("cross-needs-vec3", `compileWasmFn: cross() needs a vec3, got width ${width}`, origin);
+      throw new InternalError("unexpected-cross-width", `compileWasmFn: no cross() of width ${width}`, origin);
     }
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
     const aAddr = nodeAddress(a),

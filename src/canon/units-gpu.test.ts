@@ -1,4 +1,4 @@
-import { NodeError, ProgramError, UsageError } from "../errors";
+import { NodeError, ProgramError, TargetError, UsageError } from "../errors";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   attribute,
@@ -3076,8 +3076,8 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
   it("refuses a layout Fn that reads the attribute with createWgsl", async () => {
     const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
     await expect(wgslSources(() => Fn(() => vec4(0, readsTint(), 0, 1))())).rejects.toThrowRmsl(
-      NodeError,
-      "layout-fn-uses-stage-value",
+      TargetError,
+      "layout-fn-reaches-stage-value",
       /uses an attribute/,
     );
   });

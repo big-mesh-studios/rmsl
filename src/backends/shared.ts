@@ -1,4 +1,4 @@
-import { ProgramError, UsageError, type BackendOrigin, type Origin, NodeError } from "../errors";
+import { ProgramError, UsageError, type BackendOrigin, type Origin, NodeError, TargetError } from "../errors";
 import { safeName } from "./reserved-names";
 import { withArticle } from "../article";
 import {
@@ -16,7 +16,6 @@ import {
   StorageBufferAttribute,
   node,
   operandRefusal,
-  textureRefusal,
   someNode,
   swizzleWritePlace,
   var_,
@@ -27,6 +26,8 @@ import {
   assertConstantIndexInRange,
   assignmentRoot,
   assertAssignableNode,
+  assertNode,
+  assertFnBodyNode,
 } from "../core";
 import { isInlineFn } from "./share";
 /**
@@ -400,7 +401,8 @@ function checkRoots(
     if (checkedFns.has(definition.body)) return;
     checkedFns.add(definition.body);
     assertFnIsClosed(definition);
-    assertFnBody(origin, definition, stageInputsInFns);
+    assertFnBodyNode(origin, definition);
+    if (!stageInputsInFns) assertFnReachesNoStageValue(definition);
     // A function may call `Return()`: it ends the function, not the stage.
     const stageHeldReturn = holdsReturn;
     visit(definition.body, false, true);
@@ -427,10 +429,7 @@ function checkRoots(
         LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[node.type as "break" | "continue"],
         origin,
       );
-    const textureRefused = textureRefusal(node.type, node.params?.[0]?._t);
-    if (textureRefused) throw new NodeError(textureRefused.code, textureRefused.message, origin);
-    const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
-    if (refusal) throw new NodeError(refusal.code, refusal.message, origin);
+    assertNode(origin, node);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     assertNodeNames(node);
     if (node.type === "call") {
@@ -452,8 +451,6 @@ function checkRoots(
       );
     }
     node.params?.forEach((param: any, i: number) => {
-      const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
-      if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(origin, param);
       const outside =
         outsideLoops &&
         !(node.type === "while" || (node.type === "for" && i > 0)) &&
@@ -945,36 +942,28 @@ const STAGE_BOUND: Record<string, string> = {
 };
 
 /**
- * Throws if the body of a function with a layout holds a `Return` although the
- * function gives a value, or reads or writes something that belongs to a stage.
- * A call inside it is checked with its own body.
+ * Throws a `TargetError` when the body of a function with a layout reads an
+ * input of its stage or a varying, which WGSL passes only to its entry point.
+ * The other targets reach these as globals.
  */
-function assertFnBody(origin: Origin, definition: FnDefinition, stageInputsInFns: boolean): void {
+function assertFnReachesNoStageValue(definition: FnDefinition): void {
   const seen = new Set<unknown>();
+  const named = definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`;
   const walk = (n: any): void => {
     if (!n || typeof n !== "object" || seen.has(n)) return;
     seen.add(n);
     if (Array.isArray(n)) return n.forEach(walk);
-    if (n.type === "return" && definition.type !== "void") {
-      throw new NodeError(
-        "return-without-value",
-        `${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} gives a ${definition.type}, and its body calls Return(), which gives no value. ` +
-          `Return a value at the end, or give the layout the type "void".`,
-        origin,
-      );
-    }
-    const stage =
-      stageInputsInFns && FN_REACHABLE_STAGE_VALUES.has(n.type)
-        ? undefined
-        : n.type === "varying" && n.value.carries !== undefined
-          ? `the attribute "${n.value.carries}"`
-          : STAGE_BOUND[n.type];
-    if (stage !== undefined) {
-      throw new NodeError(
-        "layout-fn-uses-stage-value",
-        `${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +
-          `Pass its value in as an input.`,
-        origin,
+    const value =
+      n.type === "varying" && n.value.carries !== undefined
+        ? `the attribute "${n.value.carries}"`
+        : FN_REACHABLE_STAGE_VALUES.has(n.type)
+          ? STAGE_BOUND[n.type]
+          : undefined;
+    if (value !== undefined) {
+      throw new TargetError(
+        "layout-fn-reaches-stage-value",
+        `${named} uses ${value}, which belongs to the stage and not to a function. Pass its value in as an input.`,
+        { target: "wgsl" },
       );
     }
     n.params?.forEach(walk);

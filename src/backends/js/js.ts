@@ -328,7 +328,7 @@ export function jsHelperSource(name: string): string {
     }
     if (op === "cross") {
       if (width !== 3) {
-        throw new NodeError("cross-needs-vec3", `cross() needs a vec3 on the JS target, got width ${width}.`, {
+        throw new InternalError("unexpected-cross-width", `the JS compiler has no cross() of width ${width}`, {
           target: "js",
         });
       }

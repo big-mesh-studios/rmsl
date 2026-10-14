@@ -129,13 +129,13 @@ describe("storage buffers in render stages", () => {
   /**
    * @canon spec-the-index-accessors-are-read-only
    */
-  it("refuses a write to the instance index on GLSL and WGSL", () => {
-    const vertex = Fn(() => {
-      (instanceIndex() as any).assign(uint(1));
-      return vec4(0, 0, 0, 1);
-    })();
-    expect(() => compileGlsl.vertex(vertex)).toThrowRmsl(NodeError, "assign-to-read-only", /built-in input/);
-    expect(() => compileWgsl.vertex(vertex)).toThrowRmsl(NodeError, "assign-to-read-only", /built-in input/);
+  it("refuses a write to the instance index as the graph is built", () => {
+    const vertex = () =>
+      Fn(() => {
+        (instanceIndex() as any).assign(uint(1));
+        return vec4(0, 0, 0, 1);
+      })();
+    expect(vertex).toThrowRmsl(NodeError, "assign-to-read-only", /built-in input/);
   });
   /**
    * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins

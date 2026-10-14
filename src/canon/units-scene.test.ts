@@ -1,4 +1,4 @@
-import { NodeError, UsageError } from "../errors";
+import { TargetError, UsageError } from "../errors";
 import { fromProgram } from "../test";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
@@ -2459,8 +2459,8 @@ describe("a material reads position and normal as TSL does", () => {
     };
     const { fragmentRoot } = material.build(new Scene());
     expect(() => compileWgsl.fragment(fragmentRoot)).toThrowRmsl(
-      NodeError,
-      "layout-fn-uses-stage-value",
+      TargetError,
+      "layout-fn-reaches-stage-value",
       /uses the attribute "_rmsl_a\d+"/,
     );
   });

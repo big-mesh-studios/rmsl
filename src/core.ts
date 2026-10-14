@@ -1451,13 +1451,13 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === NodeMethods ===
   assign(value: BaseNode<A>): void {
     assertBlockScope("assign", (blockScope) => {
-      blockScope.push(
-        new NodeImpl({
-          _t: "void",
-          type: "assign",
-          params: [this as BaseNode<ShaderType>, typedOperand(value, this._t, "assign") as BaseNode<ShaderType>],
-        }),
-      );
+      const made = new NodeImpl({
+        _t: "void",
+        type: "assign",
+        params: [this as BaseNode<ShaderType>, typedOperand(value, this._t, "assign") as BaseNode<ShaderType>],
+      });
+      assertNode(undefined, made);
+      blockScope.push(made);
     });
   }
 
@@ -2069,7 +2069,6 @@ export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0], type) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT, type))];
-  assertOperands(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
   // vector keeps the vector type (`1 - vec3` is still vec3).
   let valueIndex = VALUE_OPERAND[type] ?? 0;
@@ -2089,14 +2088,17 @@ export function op(type: string, ...args: any[]): Node<ShaderType> {
     );
   }
 
-  return node({ _t: resultType(type, valueT), type, params });
+  const made = node({ _t: resultType(type, valueT), type, params });
+  assertNode(undefined, made);
+  return made;
 }
 
 export function op1(type: string, a: any): Node<ShaderType> {
   let wrapped = wrapValue(a, type) as BaseNode<ShaderType>;
-  assertOperands(type, [wrapped]);
   let t = (wrapped as any)?._t || "float";
-  return node({ _t: resultType(type, t), type, params: [wrapped] });
+  const made = node({ _t: resultType(type, t), type, params: [wrapped] });
+  assertNode(undefined, made);
+  return made;
 }
 
 /**
@@ -2528,6 +2530,7 @@ function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): F
       body: node({ _t: layout.type, type: "seq", params: [...scope, value] }) as BaseNode<ShaderType>,
     };
     assertFnIsClosed(definition);
+    assertFnBodyNode(undefined, definition);
     return definition;
   } finally {
     blockScope = oldBlockScope;
@@ -4671,7 +4674,7 @@ function isUnsignedType(t: string): boolean {
  * signedness: its bits are kept, as the conversion does at run time. One
  * scalar part fills every component.
  */
-function integerLiteralComponents(origin: Origin, n: BaseNode<ShaderType>): number[] | null {
+function integerLiteralComponents(origin: Origin | undefined, n: BaseNode<ShaderType>): number[] | null {
   let t = n._t as string;
   if (!isIntegerType(t)) return null;
   if (isLeafLiteral(n)) return [n.value as number];
@@ -4699,7 +4702,7 @@ const integerConstants = new WeakMap<object, BaseNode<ShaderType> | null>();
  * sees its divisor as the literal `0` rather than as an unfolded subtraction.
  * Cached per node: a node is asked for by each of its parents.
  */
-function integerConstant(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+function integerConstant(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   if (!n || typeof n !== "object" || !isIntegerType(n._t as string)) return null;
   if (integerLiteralComponents(origin, n)) return n;
   let cached = integerConstants.get(n);
@@ -4719,7 +4722,7 @@ function integerLiteralNode(t: string, components: number[]): BaseNode<ShaderTyp
  * The result of a comparison between integer constants, one boolean per
  * component, or `null` when `n` isn't one.
  */
-function integerComparison(origin: Origin, n: BaseNode<ShaderType>): boolean[] | null {
+function integerComparison(origin: Origin | undefined, n: BaseNode<ShaderType>): boolean[] | null {
   let compare = INTEGER_COMPARISONS[n.type];
   let [lhs, rhs] = n.params ?? [];
   if (!compare || !lhs || !rhs) return null;
@@ -4739,7 +4742,7 @@ function integerComparison(origin: Origin, n: BaseNode<ShaderType>): boolean[] |
  * constant branches picked one by one. WGSL evaluates a constant condition
  * itself, so a branch it picks is as constant as a literal would be.
  */
-function foldSelect(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+function foldSelect(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   let [cond, ifTrue, ifFalse] = n.params ?? [];
   if (!cond || !ifTrue || !ifFalse) return null;
   let picks = isLeafLiteral(cond) ? [Boolean(cond.value)] : integerComparison(origin, cond);
@@ -4761,7 +4764,7 @@ function foldSelect(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderTyp
  * shift amount keeps its low 5 bits. WGSL rejects the unrewritten constants at
  * shader creation, even when the other operand is a run-time value.
  */
-function foldIntegerOperands(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+function foldIntegerOperands(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   let t = n._t as string;
   let [lhs, rhs] = n.params ?? [];
   if (!isIntegerType(t) || !lhs) return null;
@@ -4794,7 +4797,11 @@ function foldIntegerOperands(origin: Origin, n: BaseNode<ShaderType>): BaseNode<
  * literal operand and a float result are rounded to 32 bits, as a CPU target at
  * `float: "f32"` computes them at run time.
  */
-export function tryFold(origin: Origin, n: BaseNode<ShaderType>, float32 = false): BaseNode<ShaderType> | null {
+export function tryFold(
+  origin: Origin | undefined,
+  n: BaseNode<ShaderType>,
+  float32 = false,
+): BaseNode<ShaderType> | null {
   let folded = float32 ? foldNode32(origin, n) : foldNode(origin, n);
   if (
     folded &&
@@ -4814,7 +4821,7 @@ export function tryFold(origin: Origin, n: BaseNode<ShaderType>, float32 = false
   return folded;
 }
 
-function foldNode32(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+function foldNode32(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   let params = n.params?.map((p) => (p && isLeafLiteral(p) ? roundLiteral32(p) : p));
   let rounded = params?.some((p, i) => p !== n.params![i])
     ? mkNode({ _t: n._t as string, type: n.type, params, value: n.value })
@@ -4831,7 +4838,7 @@ function roundLiteral32(n: BaseNode<ShaderType>): BaseNode<ShaderType> {
   return mkNode({ _t: t, type: n.type, value });
 }
 
-function foldNode(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+function foldNode(origin: Origin | undefined, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   // Integer operands are folded first, so a constant subexpression counts as
   // the literal it is when this node is folded or its divisor is rewritten.
   let operands = n.params?.map((p) => integerConstant(origin, p) ?? p);
@@ -4988,7 +4995,7 @@ export function componentCountOf(t: string): number {
 }
 
 /** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
-export function refuseWholeStorageRead(origin: Origin, storage: any): never {
+export function refuseWholeStorageRead(origin: Origin | undefined, storage: any): never {
   throw new NodeError(
     "storage-read-as-a-whole",
     `storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`,
@@ -5006,7 +5013,7 @@ export function refuseWholeStorageRead(origin: Origin, storage: any): never {
  * `undefined` when it is not constant.
  */
 export function assertConstantIndexInRange(
-  origin: Origin,
+  origin: Origin | undefined,
   target: { _t?: string; type?: string; value?: unknown },
   index: BaseNode<ShaderType>,
 ): number | undefined {
@@ -5037,7 +5044,7 @@ export function assertConstantIndexInRange(
  *
  * Returns the matrix's size, which the WGSL side needs to pick its helper.
  */
-export function assertSquareMatrix(origin: Origin, operandType: string | undefined): number {
+export function assertSquareMatrix(origin: Origin | undefined, operandType: string | undefined): number {
   let shape = MATRIX_DIMENSIONS[operandType as string];
   if (shape === undefined || shape[0] !== shape[1]) {
     throw new NodeError(
@@ -5067,14 +5074,18 @@ const READ_ONLY_NAMES: Record<string, string> = {
   instanceIndex: "a built-in input",
 };
 
-/** The node an assignment to `target` writes, below any swizzle, component or column. */
+/** The node an assignment to `target` writes, below any swizzle, component or column, and inside the result of an inline Fn. */
 export function assignmentRoot(target: any): any {
-  while (ASSIGNMENT_PATH.has(target?.type)) target = target.params[0];
-  return target;
+  for (;;) {
+    if (ASSIGNMENT_PATH.has(target?.type)) target = target.params[0];
+    // An inline Fn's result is a statement list whose value is its last item, which the compiler inlines.
+    else if (target?.type === "seq") target = target.params.at(-1);
+    else return target;
+  }
 }
 
 /** Throws when a swizzle an assignment to `target` writes through names a component more than once. */
-export function assertNoRepeatedSwizzle(origin: Origin, target: any): void {
+export function assertNoRepeatedSwizzle(origin: Origin | undefined, target: any): void {
   for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
     if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
       throw new NodeError(
@@ -5092,7 +5103,7 @@ export function assertNoRepeatedSwizzle(origin: Origin, target: any): void {
  * program can write, a parameter of the compiled function, or an element of a
  * read-only storage node.
  */
-export function assertAssignableNode(origin: Origin, target: any): void {
+export function assertAssignableNode(origin: Origin | undefined, target: any): void {
   assertNoRepeatedSwizzle(origin, target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
@@ -5124,4 +5135,84 @@ export function assertAssignableNode(origin: Origin, target: any): void {
       origin,
     );
   }
+}
+
+/**
+ * Throws a `NodeError` when `node` is wrong whatever program holds it: an
+ * operation on operands it does not take, a read of a texture it cannot read,
+ * a whole storage buffer or an `outputStruct` used as a value, a constant index
+ * outside what it indexes, an assignment no program can make, or a fold of
+ * literals that no target can write. The builders ask it as they make each
+ * node, with no origin, and every compiler asks it of each node it compiles,
+ * so a graph `deserialize` rebuilt is refused alike.
+ */
+export function assertNode(origin: Origin | undefined, node: any): void {
+  const textureRefused = textureRefusal(node.type, node.params?.[0]?._t);
+  if (textureRefused) throw new NodeError(textureRefused.code, textureRefused.message, origin);
+  const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
+  if (refusal) throw new NodeError(refusal.code, refusal.message, origin);
+  node.params?.forEach((param: any, i: number) => {
+    const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
+    if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(origin, param);
+    // A statement list holds the outputStruct a stage ends with; an operation never takes one.
+    if (param?.type === "outputStruct" && node.type !== "seq") {
+      throw new NodeError(
+        "output-struct-misplaced",
+        "outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
+        origin,
+      );
+    }
+  });
+  if (node.type === "vectorElement" || node.type === "matrixElement") {
+    assertConstantIndexInRange(origin, node.params[0], node.params[1]);
+  }
+  if (node.type === "inverse") assertSquareMatrix(origin, node.params?.[0]?._t);
+  if (node.type === "cross" && node.params?.some((param: any) => param?._t !== "vec3")) {
+    const other = node.params.find((param: any) => param?._t !== "vec3")._t;
+    throw new NodeError("cross-needs-vec3", `cross() takes two vec3, not ${withArticle(other)}`, origin);
+  }
+  if (node.type === "assign") assertAssignableNode(origin, node.params[0]);
+  if (node._t === "float" && node.params?.length && node.params.every(isLeafLiteral)) tryFold(origin, node);
+}
+
+/** The node types of a stage's outputs, which a function with a layout writes on no target. */
+const STAGE_OUTPUTS: Record<string, string> = {
+  output: "an output",
+  outputStruct: "an output",
+  builtinPosition: "the position",
+  builtinFragDepth: "the fragment depth",
+};
+
+/**
+ * Throws a `NodeError` when the body of a function with a layout calls
+ * `Return()` although the function gives a value, or uses an output of its
+ * stage. Neither can be right in any program, so the call refuses it as it is
+ * built, and every compiler refuses it again.
+ */
+export function assertFnBodyNode(origin: Origin | undefined, definition: FnDefinition): void {
+  const seen = new Set<unknown>();
+  const named = definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`;
+  const walk = (n: any): void => {
+    if (!n || typeof n !== "object" || seen.has(n)) return;
+    seen.add(n);
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (n.type === "return" && definition.type !== "void") {
+      throw new NodeError(
+        "return-without-value",
+        `${named} gives a ${definition.type}, and its body calls Return(), which gives no value. ` +
+          `Return a value at the end, or give the layout the type "void".`,
+        origin,
+      );
+    }
+    const output = STAGE_OUTPUTS[n.type];
+    if (output !== undefined) {
+      throw new NodeError(
+        "layout-fn-uses-stage-value",
+        `${named} uses ${output}, which belongs to the stage and not to a function. Pass its value in as an input.`,
+        origin,
+      );
+    }
+    n.params?.forEach(walk);
+  };
+  walk(definition.body);
 }
