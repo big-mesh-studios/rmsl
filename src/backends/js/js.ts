@@ -2737,12 +2737,18 @@ function compileJSFnDetailed(
     // A reentrant call's slots are new, and so already zero.
     return [reentrant ? `${key} = ${zeros};` : `${zeros}.fill(0); ${key} = ${zeros};`];
   });
+  // A stage that writes its position starts each call at vec4(0), which a path that writes none keeps.
+  const positionReset: string[] = [];
+  if (res && ctx.positionWritten) {
+    const zeros = jsNewTemp(ctx, "vec4");
+    positionReset.push(reentrant ? `res.position = ${zeros};` : `${zeros}.fill(0); res.position = ${zeros};`);
+  }
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
   // Each object of inputs is read once, rather than at every read of an input it holds.
   for (const kind of ctx.jsInputKinds ?? []) body.push(`const ${jsInputObject(kind)} = ctx.${kind} ?? _none;`);
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
-  body.push(...varyingResets);
+  body.push(...varyingResets, ...positionReset);
   // A reentrant call's result slot is its own, made before the body, which an early return writes.
   if (reentrant && scalarResult) body.push(scalarResult);
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
@@ -3052,7 +3058,7 @@ export function compileJSVertex<W extends FloatWidth = "f64">(
   options: CompileJSStageOptions & { float?: W },
 ): VertexStage<W> {
   const program = compileJSProgram(COMPILE_JS_VERTEX, fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(COMPILE_JS_VERTEX, program.run(ctx)) as VertexResult<W>;
+  return (ctx) => toVertexResult(program.run(ctx)) as VertexResult<W>;
 }
 
 /**

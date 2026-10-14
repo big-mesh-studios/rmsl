@@ -1176,6 +1176,8 @@ export function compileGLSLWithStage(
 
   if (shaderStage === "vertex") {
     lines.push("void main(void) {");
+    // GLSL leaves a position no path writes undefined; WGSL's output starts at zero.
+    if (ctx.positionWritten) lines.push("  gl_Position = vec4(0.0);");
     for (let line of allBody) {
       lines.push("  " + line);
     }

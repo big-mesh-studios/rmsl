@@ -12,7 +12,6 @@ import {
   float,
   Fn,
   fragCoord,
-  If,
   instancedArray,
   int,
   InternalError,
@@ -286,36 +285,6 @@ describe("an error is an instance of the class of its kind", () => {
   it("refuses a draw before attach with a UsageError", () => {
     const adapter = createJsGrid({ draw: Fn(() => vec4(1, 0, 0, 1))() });
     expectThrows(() => adapter.draw(), UsageError, "not-attached", { target: "js" });
-  });
-
-  /**
-   * @canon spec-a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error
-   */
-  it("refuses a vertex stage that writes no position on the path it takes with a UsageError", () => {
-    (globalThis as any).ImageData ??= class {
-      data: Uint8ClampedArray;
-      constructor(
-        public width: number,
-        public height: number,
-      ) {
-        this.data = new Uint8ClampedArray(width * height * 4);
-      }
-    };
-    const pos = attribute("vec3");
-    const on = uniform("float");
-    const adapter = createJs(
-      () =>
-        Fn(() => {
-          If(on.greaterThan(0), () => {
-            builtinPosition().assign(vec4(pos, 1));
-          });
-        })(),
-      () => Fn(() => vec4(1, 0, 0, 1))(),
-    );
-    adapter.attach({ width: 2, height: 2, getContext: () => ({ putImageData() {} }) } as any);
-    adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
-    adapter.setUniform(on, 0);
-    expectThrows(() => adapter.draw({ count: 3 }), UsageError, "no-position-written", { target: "js" });
   });
 
   /**

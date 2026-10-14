@@ -430,6 +430,43 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
 
 const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
 
+describe("a position a CPU vertex stage does not write", () => {
+  /**
+   * @canon spec-a-path-that-writes-no-position-gives-zero
+   */
+  it("is vec4(0) in what the call returns, whatever the call before wrote", () => {
+    const write = uniform("int");
+    const build = () =>
+      Fn(() => {
+        If(write.equal(int(1)), () => {
+          builtinPosition().assign(vec4(1, 2, 3, 4));
+        });
+      })() as any;
+    for (const compile of [compileJSVertex, compileWasmVertex]) {
+      const stage = (compile as any)(build, { name: "main", params: [] });
+      expect(Array.from(stage({ uniforms: { [write.name]: 1 } }).position)).toEqual([1, 2, 3, 4]);
+      expect(Array.from(stage({ uniforms: { [write.name]: 0 } }).position)).toEqual([0, 0, 0, 0]);
+    }
+  });
+
+  /**
+   * @canon spec-a-path-that-writes-no-position-gives-zero
+   */
+  it("reads vec4(0) before the stage writes it", () => {
+    const seen = varying("float");
+    const build = () =>
+      Fn(() => {
+        seen.assign(builtinPosition().w.add(float(1)));
+        builtinPosition().assign(vec4(1, 2, 3, 4));
+      })() as any;
+    for (const compile of [compileJSVertex, compileWasmVertex]) {
+      const stage = (compile as any)(build, { name: "main", params: [] });
+      stage({});
+      expect(stage({}).varyings[seen.name]).toBe(1);
+    }
+  });
+});
+
 describe("a varying a CPU vertex stage does not write", () => {
   /**
    * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
@@ -475,7 +512,7 @@ describe("a varying a CPU vertex stage does not write", () => {
         })(),
       { name: "main", params: [], stage: "vertex" },
     );
-    expect(source.match(/\.fill\(0\)/g)).toHaveLength(1);
+    expect(source.match(/\.fill\(0\); res\.varyings/g)).toHaveLength(1);
     expect(source).toContain(`res.varyings["${sometimes.name}"] = `);
   });
 
@@ -496,7 +533,7 @@ describe("a varying a CPU vertex stage does not write", () => {
       })() as any;
     const source = compileJSFn(build, { name: "main", params: [], stage: "vertex" });
     expect(source).toContain(`res.varyings["${shade.name}"] = 0;`);
-    expect(source.match(/\.fill\(0\)/g)).toHaveLength(1);
+    expect(source.match(/\.fill\(0\); res\.varyings/g)).toHaveLength(1);
     const stage = (compileWasmVertex as any)(build, { name: "main", params: [] });
     expect(stage({ uniforms: { [stop.name]: 0 } }).varyings[shade.name]).toBe(0.25);
     const returned = stage({ uniforms: { [stop.name]: 1 } });

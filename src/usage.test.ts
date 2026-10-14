@@ -1033,8 +1033,7 @@ describe("RMSL", () => {
         builtinPosition().assign(vec4(1, 2, 3, 4));
       });
     let glsl = compileGlsl.vertex(build()());
-    expect(glsl.match(/gl_Position = /g) ?? [], "written once").toHaveLength(1);
-    expect(glsl).toContain("vec4(1, 2, 3, 4)");
+    expect(glsl.match(/gl_Position = vec4\(1, 2, 3, 4\)/g) ?? [], "written once").toHaveLength(1);
 
     let wgsl = compileWgsl.vertex(build()());
     expect(wgsl.match(/result\.position = /g) ?? [], "written once").toHaveLength(1);
