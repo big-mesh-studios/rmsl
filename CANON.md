@@ -555,13 +555,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec the-fragment-position-is-the-position-the-vertex-stage-ends-with`](#spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with) — In the fragment stage, `position` gives the object-space position the vertex stage ends with, interpolated. It carries the instance matrix and the result of `positionNode`.
         - [`@spec the-fragment-normal-is-the-geometry-normal`](#spec-the-fragment-normal-is-the-geometry-normal) — In the fragment stage, `normal` gives the geometry's object-space normal, interpolated. It carries no instance matrix.
       - [`@spec a-normal-node-gives-a-view-space-normal`](#spec-a-normal-node-gives-a-view-space-normal) — `normalNode` gives a view-space normal, which the fragment stage reads. `MeshLambertMaterial` and `MeshStandardMaterial` turn it into world space to light with: `normalize((vec4(n, 0) * viewMatrix).xyz)`. The vertex stage does not read it. The builder's `normalView` gives the geometry's normal in view space, for a `normalNode` to start from.
-- [`@axiom rmsl-tells-the-application-what-happened`](#axiom-rmsl-tells-the-application-what-happened) — What rmsl hands the application, a result or an error, says what happened in a form the application's code reads, with no text to parse and no shape to guess.
+- [`@axiom rmsl-tells-the-application-what-happened`](#axiom-rmsl-tells-the-application-what-happened) — What rmsl hands the application, a result or an error, says what happened in a form the application's code reads. No text has to be parsed and no shape guessed.
   - [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
     - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
-  - [`@axiom an-error-says-what-went-wrong-and-where`](#axiom-an-error-says-what-went-wrong-and-where) — Every error rmsl throws tells the application's code what went wrong, by its class and its code, and where, by the backend it came from whenever rmsl knows it.
-    - [`@spec every-error-that-leaves-rmsl-is-an-rmsl-error`](#spec-every-error-that-leaves-rmsl-is-an-rmsl-error) — Every error that escapes a call of rmsl is an `RmslError`. This holds for the errors rmsl throws, and for a foreign error thrown by code that rmsl calls.
-      - [`@spec no-module-of-rmsl-throws-a-plain-error`](#spec-no-module-of-rmsl-throws-a-plain-error) — No module of rmsl throws an error that is not an `RmslError`, the helpers of `rmsl/test` and the scene library included.
-      - [`@spec a-foreign-error-is-thrown-again-with-its-cause`](#spec-a-foreign-error-is-thrown-again-with-its-cause) — A foreign error that escapes a call of rmsl, such as a `TypeError` from the host's data or an error of the graphics API, is thrown again as an `RmslError`. It takes the kind rmsl can tell, and otherwise is an `InternalError`. The foreign error is its `cause`.
+  - [`@axiom an-error-says-what-went-wrong-and-where`](#axiom-an-error-says-what-went-wrong-and-where) — Every error rmsl throws tells the application's code what went wrong, by its class and its code. It also tells where, by the backend it came from, whenever rmsl knows it.
+    - [`@spec no-module-of-rmsl-throws-a-plain-error`](#spec-no-module-of-rmsl-throws-a-plain-error) — No module of rmsl throws an error that is not an `RmslError`, the helpers of `rmsl/test` and the scene library included.
     - [`@spec an-error-is-an-instance-of-the-class-of-its-kind`](#spec-an-error-is-an-instance-of-the-class-of-its-kind) — Every error rmsl throws is an instance of `RmslError`, and of the one class that extends it for its kind: `ProgramError`, `UsageError`, `TargetError`, `DataError`, `PlatformError`, `LimitError`, `DriverError` or `InternalError`. Each class is exported from `"rmsl"`.
       - [`@spec a-mistake-found-without-running-is-a-program-error`](#spec-a-mistake-found-without-running-is-a-program-error) — A mistake in the user's code that rmsl finds by reading the program, with no device, is a `ProgramError`.
         - [`@spec a-program-that-breaks-a-rule-is-refused-with-a-program-error`](#spec-a-program-that-breaks-a-rule-is-refused-with-a-program-error) — A program that breaks a rule of the language is refused with a `ProgramError`, as the program builds it and as a target compiles it.
@@ -570,14 +568,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-build-module-with-malformed-exports-is-refused-with-a-program-error`](#spec-a-build-module-with-malformed-exports-is-refused-with-a-program-error) — The Vite plugin refuses a module whose exports do not have the shape it reads with a `ProgramError`.
       - [`@spec a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error) — A mistake in the user's code that shows only while the application runs is a `UsageError`.
         - [`@spec host-data-of-the-wrong-kind-or-size-is-refused-with-a-usage-error`](#spec-host-data-of-the-wrong-kind-or-size-is-refused-with-a-usage-error) — An adapter or a host function refuses an array or a value of the wrong kind, shape or size with a `UsageError`.
-        - [`@spec a-wrong-call-of-an-adapter-is-refused-with-a-usage-error`](#spec-a-wrong-call-of-an-adapter-is-refused-with-a-usage-error) — An adapter refuses a call in the wrong order, or one that names a slot of another kind or a slot the program lacks, with a `UsageError`.
-        - [`@spec a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error`](#spec-a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error) — A program that, as it runs, does something it must not, such as a vertex stage that writes no position on the path it takes, is refused with a `UsageError` where that happens.
+        - [`@spec a-wrong-call-of-an-adapter-is-refused-with-a-usage-error`](#spec-a-wrong-call-of-an-adapter-is-refused-with-a-usage-error) — An adapter refuses with a `UsageError` a call in the wrong order. It refuses a call that names a slot of another kind, or a slot the program lacks, the same way.
+        - [`@spec a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error`](#spec-a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error) — A program that does something it must not as it runs is refused with a `UsageError` where that happens. An example is a vertex stage that writes no position on the path it takes.
       - [`@spec a-refusal-by-one-target-is-a-target-error`](#spec-a-refusal-by-one-target-is-a-target-error) — A program that one target refuses and another target runs is refused with a `TargetError`.
       - [`@spec a-malformed-saved-graph-is-a-data-error`](#spec-a-malformed-saved-graph-is-a-data-error) — `deserialize` refuses a saved graph that is malformed with a `DataError`, a node that lacks a part it needs included.
       - [`@spec a-missing-platform-is-a-platform-error`](#spec-a-missing-platform-is-a-platform-error) — An adapter or a renderer that finds no WebGL 2, no WebGPU or no canvas context throws a `PlatformError`.
-      - [`@spec work-past-a-device-limit-is-a-limit-error`](#spec-work-past-a-device-limit-is-a-limit-error) — Work that does not fit the device's limits, such as more storage buffers than a shader stage allows, a workgroup past the device's size, or a storage texture past its largest size, is refused with a `LimitError`.
+      - [`@spec work-past-a-device-limit-is-a-limit-error`](#spec-work-past-a-device-limit-is-a-limit-error) — Work that does not fit the device's limits is refused with a `LimitError`. Examples are more storage buffers than a shader stage allows, a workgroup past the device's size, and a storage texture past its largest size.
       - [`@spec a-driver-refusal-is-a-driver-error`](#spec-a-driver-refusal-is-a-driver-error) — A shader the driver does not compile or link, or another failure the driver reports, throws a `DriverError`.
-      - [`@spec an-inconsistent-compiler-is-an-internal-error`](#spec-an-inconsistent-compiler-is-an-internal-error) — A compiler of rmsl that finds its own state inconsistent, such as a slot with no place in memory or a kind of node it has no case for, throws an `InternalError`.
+      - [`@spec an-inconsistent-compiler-is-an-internal-error`](#spec-an-inconsistent-compiler-is-an-internal-error) — A compiler of rmsl that finds its own state inconsistent throws an `InternalError`. Examples are a slot with no place in memory, and a kind of node it has no case for.
       - [`@spec an-error-is-named-for-its-class`](#spec-an-error-is-named-for-its-class) — The `name` of an error rmsl throws is the name of its class.
     - [`@spec a-code-names-what-went-wrong-and-not-the-backend`](#spec-a-code-names-what-went-wrong-and-not-the-backend) — Every error rmsl throws carries a `code`, a string that names what went wrong more finely than its kind. One refusal has one code on every target.
     - [`@spec an-error-names-the-backend-it-came-from`](#spec-an-error-names-the-backend-it-came-from) — An error says which backend it came from wherever rmsl knows.
@@ -1022,8 +1020,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 - [`@fact three-js-throws-a-plain-error-for-a-vector-component-out-of-range`](#fact-three-js-throws-a-plain-error-for-a-vector-component-out-of-range) — three.js's `Vector3.setComponent` and `getComponent` throw a plain `Error`, `THREE.Vector3: index is out of range: <index>`, for an index other than 0, 1 or 2.
-- [`@fact three-js-warns-and-carries-on-for-an-unknown-euler-order-or-colour`](#fact-three-js-warns-and-carries-on-for-an-unknown-euler-order-or-colour) — three.js warns on the console and carries on for an unknown Euler order, in `Euler.setFromRotationMatrix` and `Quaternion.setFromEuler`, and for a colour string it cannot read, in `Color.setStyle`. Nothing is thrown, and the value keeps what it held.
-- [`@fact three-js-logs-and-skips-adding-an-object-to-itself`](#fact-three-js-logs-and-skips-adding-an-object-to-itself) — three.js's `Object3D.add` logs an error on the console and adds nothing when an object is added to itself. Nothing is thrown.
+- [`@fact three-js-warns-and-carries-on-for-an-unknown-euler-order-or-colour`](#fact-three-js-warns-and-carries-on-for-an-unknown-euler-order-or-colour) — three.js warns on the console and carries on for an unknown Euler order, in `Euler.setFromRotationMatrix` and `Quaternion.setFromEuler`. It does the same for a colour string `Color.setStyle` cannot read. It throws nothing, and the value keeps what it held.
+- [`@fact three-js-logs-and-skips-adding-an-object-to-itself`](#fact-three-js-logs-and-skips-adding-an-object-to-itself) — three.js's `Object3D.add` logs an error on the console and adds nothing when an object is added to itself. It throws nothing.
 - [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
 - [`@fact three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gives-a-cheap-node-no-variable) — A three.js node gets no variable of its own when it is an input, a swizzle, an array element, a variable or a built-in input. An input is a uniform or a constant. An operator or math node gets one only when it has dependencies.
 - [`@fact three-js-reuses-a-generated-value-only-where-it-is-visible`](#fact-three-js-reuses-a-generated-value-only-where-it-is-visible) — three.js reuses the variable of a generated node in the block where it declared the variable, and in the blocks inside it. In any other block it generates the node again.
@@ -4356,25 +4354,11 @@ A message tells a person. The axiom decides between errors a person reads and er
 
 The kinds of error follow the reactions, and the moment a failure shows. A mistake rmsl finds by reading the program, with no device, is a different kind from one that shows only while the application runs. A failure of the device or the driver is a different kind from a mistake in the user's code.
 
-#### @spec every-error-that-leaves-rmsl-is-an-rmsl-error
-
-> Every error that escapes a call of rmsl is an `RmslError`. This holds for the errors rmsl throws, and for a foreign error thrown by code that rmsl calls.
-
-This follows because an error of another class carries no kind, no code and no backend. An application that catches it can only read its message.
-
-##### @spec no-module-of-rmsl-throws-a-plain-error
+#### @spec no-module-of-rmsl-throws-a-plain-error
 
 > No module of rmsl throws an error that is not an `RmslError`, the helpers of `rmsl/test` and the scene library included.
 
-This follows because a plain `Error` thrown by rmsl itself is the case its parent refuses most directly: rmsl knows what went wrong where it throws.
-
-##### @spec a-foreign-error-is-thrown-again-with-its-cause
-
-> rmsl throws a foreign error that escapes a call of it again as an `RmslError`. Such an error is a `TypeError` from the host's data, or an error of the graphics API. It takes the kind rmsl can tell, and otherwise is an `InternalError`. The foreign error is its `cause`.
-
-Derives from: [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
-
-This follows because rmsl cannot change the class of an error it did not throw, but it can catch it where the call enters rmsl. The catch costs nothing on the frame path until something throws. Malformed input that slips past a check of rmsl is no foreign error. It gets the check it was missing, and a refusal of its own kind.
+This follows because a plain `Error` carries no kind, no code and no backend, so an application that catches it can only read its message. rmsl knows what went wrong where it throws. An error of the platform, such as a lost WebGL context, reaches the application as the platform throws it.
 
 #### @spec an-error-is-an-instance-of-the-class-of-its-kind
 
@@ -4448,7 +4432,7 @@ This follows because the program is not wrong. An application can run it on anot
 
 > `deserialize` refuses a saved graph that is malformed with a `DataError`, a node that lacks a part it needs included.
 
-This follows because a saved graph comes from outside the program, and the application refuses that input rather than fixing its code.
+This follows because a saved graph comes from outside the program, and the application refuses that input rather than fixing its code. A malformed graph that would reach code that reads it as well formed gets a check of its own, so it never surfaces as an error of another class.
 
 ##### @spec a-missing-platform-is-a-platform-error
 

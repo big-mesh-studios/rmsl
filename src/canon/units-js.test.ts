@@ -1,3 +1,4 @@
+import { ProgramError, UsageError } from "../errors";
 import { Session } from "node:inspector/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
@@ -1969,7 +1970,11 @@ describe("the index accessors on JS", () => {
         (vertexIndex() as any).assign(uint(1));
         builtinPosition().assign(vec4(0, 0, 0, 1));
       })();
-    expect(() => compileJS(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrow(/built-in input/);
+    expect(() => compileJS(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrowRmsl(
+      ProgramError,
+      "assign-to-read-only",
+      /built-in input/,
+    );
   });
 });
 
@@ -2005,9 +2010,13 @@ describe("the count of a draw that names none on JS", () => {
     const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
     const inputs = { attributes: { [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
     const missing = new RegExp(`missing attribute "${tint.name}"`);
-    expect(() => compileJS(vertex as any, fragment as any).draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+    expect(() => compileJS(vertex as any, fragment as any).draw(inputs, { width: 1, height: 1 })).toThrowRmsl(
+      UsageError,
+      "missing-attribute",
+      missing,
+    );
     const wasm = await compileWasm(vertex as any, fragment as any);
-    expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+    expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrowRmsl(UsageError, "missing-attribute", missing);
   });
 });
 
@@ -2185,10 +2194,22 @@ describe("the array a CPU adapter takes for an attribute", () => {
         Fn(() => builtinPosition().assign(vec4(position.add(vec2(ids.x.toFloat(), flags.toFloat())), 0, 1)))() as any,
       () => Fn(() => vec4(0, 1, 0, 1))() as any,
     );
-    expect(() => adapter.setAttribute(ids, new Float32Array(6) as any)).toThrow(/\bivec2\b.*Int32Array.*Float32Array/);
-    expect(() => adapter.setAttribute(ids.name, new Uint32Array(6))).toThrow(/Int32Array.*Uint32Array/);
-    expect(() => adapter.setAttribute(flags, new Int32Array(3) as any)).toThrow(/\buint\b.*Uint32Array/);
-    expect(() => adapter.setAttribute(position, new Int32Array(6) as any)).toThrow(/\bvec2\b.*Float32Array/);
+    expect(() => adapter.setAttribute(ids, new Float32Array(6) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(ids.name, new Uint32Array(6))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(flags, new Int32Array(3) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(position, new Int32Array(6) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
     expect(() => adapter.setAttribute(position, new Float64Array(6))).not.toThrow();
     expect(() => adapter.setAttribute(ids, new Int32Array(6))).not.toThrow();
   });
@@ -2210,11 +2231,18 @@ describe("the array a CPU adapter takes for a storage buffer", () => {
         weights.element(i).assign(weights.element(i).add(counts.element(i).toFloat()));
       })(),
     );
-    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrow(
-      /\bint\b storage buffer.*Int32Array.*Float32Array/,
+    expect(() => adapter.setAttribute(counts, new Float32Array(2) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
-    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrow(/Int32Array.*Uint32Array/);
-    expect(() => adapter.setAttribute(weights, new Int32Array(2) as any)).toThrow(/\bfloat\b storage buffer/);
+    expect(() => adapter.setAttribute(counts.name, new Uint32Array(2))).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
+    expect(() => adapter.setAttribute(weights, new Int32Array(2) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
+    );
     expect(() => adapter.setAttribute(weights, new Float64Array(2))).not.toThrow();
     expect(() => adapter.setAttribute(counts, new Int32Array(2))).not.toThrow();
   });
@@ -2230,8 +2258,9 @@ describe("the array a CPU adapter takes for a storage buffer", () => {
   ])("%s refuses a storage array of another kind given with the node", (_, create) => {
     const shades = instancedArray(1, "uint");
     const adapter = create({ draw: Fn(() => vec4(shades.element(0).toFloat(), 0, 0, 1))() });
-    expect(() => adapter.setAttribute(shades, new Int32Array(1) as any)).toThrow(
-      /\buint\b storage buffer.*Uint32Array/,
+    expect(() => adapter.setAttribute(shades, new Int32Array(1) as any)).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
     expect(() => adapter.setAttribute(shades, new Uint32Array(1))).not.toThrow();
   });
@@ -2301,30 +2330,21 @@ describe("the shape of a value a CPU adapter takes", () => {
     (_, create) => {
       const { count, offsets, tint, turn, pairs, colour } = cpuUniformShapes();
       const adapter = create(colour);
-      expect(() => adapter.setUniform(count, [2])).toThrow(
-        `[RMSL] the int uniform "${count.name}" takes one value, not an array of 1`,
-      );
-      expect(() => adapter.setUniform(tint, [1, 2])).toThrow(
-        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an array of 2`,
-      );
-      expect(() => adapter.setUniform(tint.name, 1)).toThrow(
-        `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not 1`,
-      );
+      expect(() => adapter.setUniform(count, [2])).toThrowRmsl(UsageError, "host-value-of-another-shape");
+      expect(() => adapter.setUniform(tint, [1, 2])).toThrowRmsl(UsageError, "host-value-of-another-shape");
+      expect(() => adapter.setUniform(tint.name, 1)).toThrowRmsl(UsageError, "host-value-of-another-shape");
       expect(() =>
         adapter.setUniform(turn.name, [
           [1, 0],
           [0, 1],
         ]),
-      ).toThrow(`[RMSL] the mat2 uniform "${turn.name}" takes 4 components, not an array of 2`);
-      expect(() => adapter.setUniform(offsets.name, [1])).toThrow(
-        `[RMSL] the int uniform array "${offsets.name}" takes 2 elements, not an array of 1`,
-      );
-      expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrow(
-        `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not an array of 1`,
-      );
+      ).toThrowRmsl(UsageError, "host-value-of-another-shape");
+      expect(() => adapter.setUniform(offsets.name, [1])).toThrowRmsl(UsageError, "host-value-of-another-shape");
+      expect(() => adapter.setUniform(pairs, [[1, 2], [3]])).toThrowRmsl(UsageError, "host-value-of-another-shape");
       for (const nothing of [undefined, null])
-        expect(() => adapter.setUniform(pairs, [[1, 2], nothing])).toThrow(
-          `[RMSL] the vec2 uniform array "${pairs.name}" takes 2 components in each element, not ${nothing}`,
+        expect(() => adapter.setUniform(pairs, [[1, 2], nothing])).toThrowRmsl(
+          UsageError,
+          "host-value-of-another-shape",
         );
       expect(() => adapter.setUniform(offsets, [1, undefined])).not.toThrow();
       expect(() => adapter.setUniform(offsets.name, [null, 2])).not.toThrow();
@@ -2344,14 +2364,20 @@ describe("the shape of a value a CPU adapter takes", () => {
   it.each(cpuAdapters)("%s names an object given for a uniform by what it is", (_, create) => {
     const { count, tint, colour } = cpuUniformShapes();
     const adapter = create(colour);
-    expect(() => adapter.setUniform(tint, new Vector3(1, 2, 3))).toThrow(
-      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not a Vector3`,
+    expect(() => adapter.setUniform(tint, new Vector3(1, 2, 3))).toThrowRmsl(
+      UsageError,
+      "host-value-of-another-shape",
+      `the vec3 uniform "${tint.name}" takes 3 components, not a Vector3`,
     );
-    expect(() => adapter.setUniform(count, { value: 2 })).toThrow(
-      `[RMSL] the int uniform "${count.name}" takes one value, not an object`,
+    expect(() => adapter.setUniform(count, { value: 2 })).toThrowRmsl(
+      UsageError,
+      "host-value-of-another-shape",
+      `the int uniform "${count.name}" takes one value, not an object`,
     );
-    expect(() => adapter.setUniform(tint, Object.create(null))).toThrow(
-      `[RMSL] the vec3 uniform "${tint.name}" takes 3 components, not an object`,
+    expect(() => adapter.setUniform(tint, Object.create(null))).toThrowRmsl(
+      UsageError,
+      "host-value-of-another-shape",
+      `the vec3 uniform "${tint.name}" takes 3 components, not an object`,
     );
   });
 
@@ -2366,10 +2392,8 @@ describe("the shape of a value a CPU adapter takes", () => {
   ])("%s refuses a parameter of another shape at run, and checks no uniform there", (_, create) => {
     const tint = uniform("vec3");
     const adapter = create(Fn(() => tint.z)(), { params: [{ name: "p", type: "vec2" }] });
-    expect(() => adapter.run({ p: [1] as any })).toThrow(
-      '[RMSL] the vec2 parameter "p" takes 2 components, not an array of 1',
-    );
-    expect(() => adapter.run({ p: 1 as any })).toThrow('[RMSL] the vec2 parameter "p" takes 2 components, not 1');
+    expect(() => adapter.run({ p: [1] as any })).toThrowRmsl(UsageError, "host-value-of-another-shape");
+    expect(() => adapter.run({ p: 1 as any })).toThrowRmsl(UsageError, "host-value-of-another-shape");
     const value = [0, 0, 2];
     adapter.setUniform(tint, value as [number, number, number]);
     expect(adapter.run({ p: [0, 1] })).toBe(2);
@@ -2449,8 +2473,9 @@ describe("the readback array a CPU compute adapter takes", () => {
     );
     const held = Int32Array.of(1, 2);
     adapter.setAttribute(counts, held);
-    expect(() => adapter.compute({ [counts.name]: new Float32Array(2) })).toThrow(
-      new RegExp(`the int storage buffer "${counts.name}" takes an Int32Array, not a Float32Array`),
+    expect(() => adapter.compute({ [counts.name]: new Float32Array(2) })).toThrowRmsl(
+      UsageError,
+      "host-array-of-another-kind",
     );
     expect(Array.from(held)).toEqual([1, 2]);
     const out = new Int32Array(2);
@@ -2476,8 +2501,10 @@ describe("the readback array a CPU compute adapter takes", () => {
     );
     const held = Int32Array.of(1, 2, 3);
     adapter.setAttribute(counts, held);
-    expect(() => adapter.compute({ [counts.name]: new Int32Array(2) })).toThrow(
-      `[RMSL] out["${counts.name}"] holds 2 values, and the slot has 3`,
+    expect(() => adapter.compute({ [counts.name]: new Int32Array(2) })).toThrowRmsl(
+      UsageError,
+      "readback-array-too-short",
+      `out["${counts.name}"] holds 2 values, and the slot has 3`,
     );
     expect(Array.from(held)).toEqual([1, 2, 3]);
     const out = new Int32Array(4);
@@ -2611,7 +2638,7 @@ describe("an attribute the fragment stage reads", () => {
     const wide = attributeRaw("shared", "vec4");
     await expect(
       Promise.resolve().then(() => compile(vertex as any, (() => Fn(() => vec4(narrow, wide.x))()) as any)),
-    ).rejects.toThrow(/"shared" names .* one name is one declaration/);
+    ).rejects.toThrowRmsl(ProgramError, "name-declared-twice");
   });
 
   /**
@@ -2671,7 +2698,9 @@ describe("an attribute the fragment stage reads", () => {
     "refuses a vertex stage with no root when the fragment stage reads an attribute on %s",
     async (_name, compile) => {
       const fragment = () => Fn(() => vec4(tint, 1))();
-      await expect(Promise.resolve().then(() => compile((() => []) as any, fragment as any))).rejects.toThrow(
+      await expect(Promise.resolve().then(() => compile((() => []) as any, fragment as any))).rejects.toThrowRmsl(
+        ProgramError,
+        "fragment-attribute-without-vertex-root",
         new RegExp(`reads the attribute "${tint.name}", but the vertex stage gives no root`),
       );
     },
@@ -2699,7 +2728,9 @@ describe("an attribute the fragment stage reads", () => {
     ["JS", compileJSFragment],
     ["WASM", compileWasmFragment],
   ])("refuses the attribute in a fragment stage compiled alone on %s", (_name, compile) => {
-    expect(() => (compile as CompileStage<unknown>)(() => Fn(() => vec4(tint, 1))(), none)).toThrow(
+    expect(() => (compile as CompileStage<unknown>)(() => Fn(() => vec4(tint, 1))(), none)).toThrowRmsl(
+      ProgramError,
+      "fragment-reads-attribute",
       new RegExp(`fragment stage reads the attribute "${tint.name}"`),
     );
   });

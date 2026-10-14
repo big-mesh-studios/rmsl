@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { InternalError, ProgramError } from "../errors";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { build } from "esbuild";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -141,12 +142,20 @@ describe("the harness checks what it recorded", () => {
    */
   it("fails a run in which WASM refused a recorded program", async () => {
     // A WASM compiler that refuses every program stands in for a gap in it.
-    vi.doMock("../wasm", async (original) => ({
-      ...(await original<typeof import("../wasm")>()),
-      compileWasmRoutine: () => {
-        throw new Error('[RMSL] compileWasmFn: unsupported node type in expression position: "stand-in"');
-      },
-    }));
+    vi.doMock("../wasm", async (original) => {
+      // The harness loads its modules afresh, so the error comes from that copy of rmsl.
+      const { InternalError } = await import("../errors");
+      return {
+        ...(await original<typeof import("../wasm")>()),
+        compileWasmRoutine: () => {
+          throw new InternalError(
+            "unsupported-node-kind",
+            'compileWasmFn: unsupported node type in expression position: "stand-in"',
+            { target: "wasm" },
+          );
+        },
+      };
+    });
     const { harness } = await freshHarness(true);
     const build = (a: Node<"float">) => a.add(1);
     expect(() => harness.evaluateWASM(build, [3])).toThrow(/compileWasmFn/);
@@ -493,7 +502,10 @@ describe("the Vite plugins", () => {
   it("fails the build on a default export holding a function", async () => {
     const id = `${FIXTURES}fn-member.ts`;
     const plugin = precompileShaders({ include: "fn-member.ts" }) as unknown as Transform;
-    await expect(plugin.transform.call({}, "export default { f: () => 1 };\n", id)).rejects.toThrow();
+    await expect(plugin.transform.call({}, "export default { f: () => 1 };\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "export-not-serializable",
+    );
   });
 
   /**
@@ -503,9 +515,15 @@ describe("the Vite plugins", () => {
     const id = `${FIXTURES}bad-name.ts`;
     const plugin = precompileJS({ include: "bad-name.ts" }) as unknown as Transform;
     const source = `export const __RMSL_JS_CODE = { "my-fn": "return () => 1;" };\n`;
-    await expect(plugin.transform.call({}, source, id)).rejects.toThrow();
+    await expect(plugin.transform.call({}, source, id)).rejects.toThrowRmsl(
+      ProgramError,
+      "program-name-not-identifier",
+    );
     const reserved = `export const __RMSL_JS_CODE = { default: "return () => 1;" };\n`;
-    await expect(plugin.transform.call({}, reserved, id)).rejects.toThrow(/"default", which is not/);
+    await expect(plugin.transform.call({}, reserved, id)).rejects.toThrowRmsl(
+      ProgramError,
+      "program-name-not-identifier",
+    );
   });
 
   /**
@@ -518,7 +536,7 @@ describe("the Vite plugins", () => {
     const plugin = precompileShaders({ include: "url-member.ts" }) as unknown as Transform;
     await expect(
       plugin.transform.call({}, 'export default { link: new URL("https://example.com") };\n', id),
-    ).rejects.toThrow(/\ba URL at default\.link/);
+    ).rejects.toThrowRmsl(ProgramError, "export-not-serializable");
   });
 
   /**
@@ -527,8 +545,9 @@ describe("the Vite plugins", () => {
   it("fails the build on a default export holding a negative zero", async () => {
     const id = `${FIXTURES}negative-zero.ts`;
     const plugin = precompileShaders({ include: "negative-zero.ts" }) as unknown as Transform;
-    await expect(plugin.transform.call({}, "export default { offset: -0 };\n", id)).rejects.toThrow(
-      /-0 at default\.offset/,
+    await expect(plugin.transform.call({}, "export default { offset: -0 };\n", id)).rejects.toThrowRmsl(
+      ProgramError,
+      "export-not-serializable",
     );
   });
 
@@ -620,7 +639,7 @@ describe("the Vite plugins", () => {
     try {
       const path = join(dir, "inline.wat");
       writeFileSync(path, '(module (memory (import "env" "memory") 1))');
-      await expect(plugin.load(path)).rejects.toThrow(/inline\.wat/);
+      await expect(plugin.load(path)).rejects.toThrowRmsl(ProgramError, "memory-import-not-rewritable", /inline\.wat/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

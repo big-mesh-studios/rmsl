@@ -1,3 +1,4 @@
+import { UsageError, type Origin } from "../errors";
 import {
   AttributeNode,
   ReadOnlyStorageNode,
@@ -207,7 +208,7 @@ export interface HostInputGuard {
  * The {@link HostInputGuard} of the stages `roots`. `float64` admits a
  * `Float64Array` for float components, as a CPU target takes.
  */
-export function hostInputGuard(roots: unknown, float64 = false): HostInputGuard {
+export function hostInputGuard(origin: Origin, roots: unknown, float64 = false): HostInputGuard {
   const uniforms = new Map<string, UniformDeclaration>();
   const textures = new Set<string>();
   const attributes = new Map<string, string>();
@@ -233,30 +234,31 @@ export function hostInputGuard(roots: unknown, float64 = false): HostInputGuard 
       const declared =
         uniforms.get(slot) ??
         (typeof uniform === "string" ? undefined : ((uniform as { value: unknown }).value as UniformDeclaration));
-      if (declared !== undefined) assertHostShape("uniform", slot, declared.shaderType, value, declared.length);
+      if (declared !== undefined) assertHostShape(origin, "uniform", slot, declared.shaderType, value, declared.length);
     },
     array(attribute, data) {
       const slot = slotOf(attribute);
       const attributeType = attributes.get(slot) ?? attributeTypeOf(attribute);
-      if (attributeType !== undefined) return assertHostArray("attribute", slot, attributeType, data, float64);
+      if (attributeType !== undefined) return assertHostArray(origin, "attribute", slot, attributeType, data, float64);
       const elementType = storages.get(slot)?._t ?? storageElementTypeOf(attribute);
-      if (elementType !== undefined) assertHostArray("storage buffer", slot, elementType, data, float64);
+      if (elementType !== undefined) assertHostArray(origin, "storage buffer", slot, elementType, data, float64);
     },
   };
 }
 
 /** Refuses a value given for the uniform node `uniform` of another shape than the node's own type. */
 export function assertUniformShape(
+  origin: Origin,
   uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>,
   value: unknown,
 ): void {
   const declared = (uniform as { value: unknown }).value as UniformDeclaration;
-  assertHostShape("uniform", uniform.name, declared.shaderType, value, declared.length);
+  assertHostShape(origin, "uniform", uniform.name, declared.shaderType, value, declared.length);
 }
 
-/** The error a draw of `caller` throws when its vertex stage reads the attribute `slot` and the host gave it no data. */
-export function missingAttributeError(caller: string, slot: string): Error {
-  return new Error(`[RMSL] ${caller}: draw() is missing attribute "${slot}"`);
+/** The error a draw throws when its vertex stage reads the attribute `slot` and the host gave it no data. */
+export function missingAttributeError(origin: Origin, slot: string): UsageError {
+  return new UsageError("missing-attribute", `${origin.caller}: draw() is missing attribute "${slot}"`, origin);
 }
 
 /** The declared type of an attribute node, or nothing for a storage node or a slot name. */
@@ -279,28 +281,34 @@ function storageElementTypeOf(attribute: AttributeOrSlot): string | undefined {
  * `out`. A key that names no storage slot throws, where skipping it would
  * leave a misspelled slot's array unwritten without a word.
  */
-export function requestedStorageSlots(out: object, slots: Iterable<string>): string[] {
+export function requestedStorageSlots(origin: Origin, out: object, slots: Iterable<string>): string[] {
   let known = new Set(slots);
   let requested = Object.keys(out);
-  if (requested.some((slot) => !known.has(slot))) throw unknownStorageSlots(out, known);
+  if (requested.some((slot) => !known.has(slot))) throw unknownStorageSlots(origin, out, known);
   return requested;
 }
 
 /** The error for a `compute(out)` whose keys name a slot outside `slots`, naming each such key. */
-export function unknownStorageSlots(out: object, slots: Iterable<string>): Error {
+export function unknownStorageSlots(origin: Origin, out: object, slots: Iterable<string>): UsageError {
   // The set requestedStorageSlots has already made is used as it is.
   let known = slots instanceof Set ? (slots as Set<string>) : new Set(slots);
   let unknown = Object.keys(out).filter((slot) => !known.has(slot));
-  return new Error(
-    `[RMSL] compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
+  return new UsageError(
+    "unknown-storage-slot",
+    `compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
       `Its storage slots are: ${[...known].map((s) => `"${s}"`).join(", ") || "none"}.`,
+    origin,
   );
 }
 
 /** Refuses `target`, the array `compute(out)` reads the storage slot `slot` back into, when it holds fewer than the slot's `count` values. */
-export function assertReadbackFits(slot: string, target: ArrayLike<number>, count: number): void {
+export function assertReadbackFits(origin: Origin, slot: string, target: ArrayLike<number>, count: number): void {
   if (target.length < count) {
-    throw new RangeError(`[RMSL] out["${slot}"] holds ${target.length} values, and the slot has ${count}`);
+    throw new UsageError(
+      "readback-array-too-short",
+      `out["${slot}"] holds ${target.length} values, and the slot has ${count}`,
+      origin,
+    );
   }
 }
 

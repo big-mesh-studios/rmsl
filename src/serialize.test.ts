@@ -1,3 +1,4 @@
+import { DataError, ProgramError } from "./errors";
 import { describe, expect, it } from "vitest";
 import { deserialize, serialize, type SerializedGraph } from "./serialize";
 import {
@@ -103,7 +104,7 @@ describe("serialize/deserialize", () => {
   it("refuses a rebuilt uniform with an empty name", () => {
     const graph = serialize(() => uniformRaw("scale", "float").mul(2));
     const json = JSON.stringify(graph).replace('"slot":"scale"', '"slot":""');
-    expect(() => deserialize(JSON.parse(json))).toThrow(/has no name/);
+    expect(() => deserialize(JSON.parse(json))).toThrowRmsl(DataError, "node-without-name");
   });
 
   /**
@@ -275,32 +276,29 @@ describe("serialize/deserialize", () => {
       roots: 0,
       ...patch,
     });
-    expect(() => deserialize({} as SerializedGraph)).toThrow(
-      "[RMSL] deserialize: the data needs a nodes and a buffers array, as serialize() gives",
-    );
+    expect(() => deserialize({} as SerializedGraph)).toThrowRmsl(DataError, "graph-shape");
     expect(() =>
       deserialize(graph({ nodes: [literal, { _t: "float", type: "add", params: [0, 5] }], roots: 1 })),
-    ).toThrow("[RMSL] deserialize: node 1 names a child at 5, but there are only 2");
-    expect(() => deserialize(graph({ nodes: [{ _t: "float", type: "negate", params: [1] }, literal] }))).toThrow(
-      "[RMSL] deserialize: node 0 names a child at 1, after it; a child has to come before the node using it",
+    ).toThrowRmsl(DataError, "index-out-of-range");
+    expect(() => deserialize(graph({ nodes: [{ _t: "float", type: "negate", params: [1] }, literal] }))).toThrowRmsl(
+      DataError,
+      "child-after-node",
     );
-    expect(() => deserialize(graph({ roots: [0, 3] }))).toThrow(
-      "[RMSL] deserialize: root names a node at 3, but there are only 1",
-    );
+    expect(() => deserialize(graph({ roots: [0, 3] }))).toThrowRmsl(DataError, "index-out-of-range");
     expect(() =>
       deserialize(
         graph({
           nodes: [{ _t: "float", type: "storage", value: { shaderType: "float", access: "read_write", buffer: 0 } }],
         }),
       ),
-    ).toThrow("[RMSL] deserialize: node 0 names a buffer at 0, but there are only 0");
+    ).toThrowRmsl(DataError, "index-out-of-range");
     expect(() =>
       deserialize(
         graph({
           buffers: [{ instanced: false, count: 1, itemSize: 1, arrayClass: "Float64Array" as any, array: [0] }],
         }),
       ),
-    ).toThrow("[RMSL] deserialize: buffer 0 holds a Float64Array, not a Float32Array, Int32Array or Uint32Array");
+    ).toThrowRmsl(DataError, "buffer-of-another-kind");
   });
   /**
    * @canon spec-a-graph-compiles-the-same-after-json
@@ -336,8 +334,11 @@ describe("serialize/deserialize", () => {
    */
   it("refuses an unknown node type and a uniform without a name", () => {
     const graph = (node: object) => ({ nodes: [node], buffers: [], roots: 0 }) as unknown as SerializedGraph;
-    expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrow();
-    expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrow();
+    expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrowRmsl(DataError, "unknown-node-kind");
+    expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrowRmsl(
+      DataError,
+      "node-without-name",
+    );
   });
 
   /**
@@ -359,7 +360,7 @@ describe("serialize/deserialize", () => {
       delete value.local;
       value.slot = "u; } void evil() { float y";
     }
-    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrow(/is no identifier/);
+    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrowRmsl(ProgramError, "invalid-name");
   });
 
   /**
@@ -367,10 +368,16 @@ describe("serialize/deserialize", () => {
    */
   it("refuses a graph built by hand whose variable is named by text, on every target", () => {
     const build = () => Fn(() => var_<"float">("x = 1.0; } void evil() { float y", "float"))();
-    expect(() => compileGlsl.fragment(build() as any)).toThrow(/is no identifier/);
-    expect(() => compile({ stage: "compute", workgroupSize: 64 }, build())).toThrow(/is no identifier/);
-    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrow(/is no identifier/);
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/is no identifier/);
+    expect(() => compileGlsl.fragment(build() as any)).toThrowRmsl(ProgramError, "invalid-name");
+    expect(() => compile({ stage: "compute", workgroupSize: 64 }, build())).toThrowRmsl(ProgramError, "invalid-name");
+    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
+      ProgramError,
+      "invalid-name",
+    );
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
+      ProgramError,
+      "invalid-name",
+    );
   });
 
   /**
@@ -400,6 +407,6 @@ describe("serialize/deserialize", () => {
   it("refuses a uniform named as it stands by a name GLSL or WGSL cannot declare", () => {
     const graph = serialize(Fn(() => uniformRaw("ok", "float"))()) as any;
     graph.nodes.find((n: any) => n.type === "uniform").value.slot = "float";
-    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrow(/keyword or a built-in/);
+    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrowRmsl(ProgramError, "reserved-name");
   });
 });

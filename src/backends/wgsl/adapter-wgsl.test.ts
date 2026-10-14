@@ -1,3 +1,4 @@
+import { LimitError, UsageError } from "../../errors";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Fn, instancedArray, int, invocationIndex, uint, uniform, vec4 } from "../../rmsl";
 import { createWgslCompute } from "./adapter-wgsl";
@@ -211,7 +212,7 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
     await adapter.attach();
     adapter.setAttribute(a.name, Int32Array.from([1, 2]));
     adapter.setAttribute(b.name, Int32Array.from([10, 20]));
-    await expect(adapter.compute({ c: new Int32Array(2) })).rejects.toThrow(/"c".*no storage slot/);
+    await expect(adapter.compute({ c: new Int32Array(2) })).rejects.toThrowRmsl(UsageError, "unknown-storage-slot");
     adapter.destroy();
   });
 });
@@ -322,9 +323,7 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute limits", () => {
       const program = Fn(() => {
         inputs[0]!.element(0).assign(inputs.slice(1).reduce((total, input) => total.add(input.element(0)), uint(0)));
       })();
-      await expect(createWgslCompute(program).attach()).rejects.toThrow(
-        /createWgslCompute: a compute program uses 9 storage buffers, more than the 8/,
-      );
+      await expect(createWgslCompute(program).attach()).rejects.toThrowRmsl(LimitError, "storage-buffer-count");
       expect(devicesRequested).toBe(0);
     } finally {
       Object.assign(navigator, { gpu });

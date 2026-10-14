@@ -1,3 +1,4 @@
+import { UsageError } from "../../errors";
 import { Euler } from "../math/Euler";
 import { Matrix4 } from "../math/Matrix4";
 import { Quaternion } from "../math/Quaternion";
@@ -44,7 +45,7 @@ export class Object3D extends EventDispatcher {
   add(...objects: Object3D[]): this {
     for (const object of objects) {
       if (object === this) {
-        throw new Error("[RMSL/scene] an object cannot be added to itself");
+        throw new UsageError("object-added-to-itself", "an object cannot be added to itself");
       }
       if (object.parent !== null) {
         object.parent.remove(object);

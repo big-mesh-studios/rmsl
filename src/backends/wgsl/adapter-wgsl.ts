@@ -1,3 +1,4 @@
+import { LimitError, PlatformError, UsageError, type BackendOrigin } from "../../errors";
 import { Node, ShaderType, StorageBufferAttribute, UniformArrayNode, UniformNode } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import {
@@ -44,6 +45,9 @@ export function requestComputeDevice(adapter: GPUAdapter): Promise<GPUDevice> {
   });
 }
 
+const CREATE_WGSL: BackendOrigin = { target: "wgsl", caller: "createWgsl" };
+const CREATE_WGSL_COMPUTE: BackendOrigin = { target: "wgsl", caller: "createWgslCompute" };
+
 /**
  * Throws unless `limits`, a device's or the adapter's it is requested from,
  * let one shader stage bind every storage buffer a compiled compute program
@@ -52,15 +56,17 @@ export function requestComputeDevice(adapter: GPUAdapter): Promise<GPUDevice> {
  * before that happens.
  */
 export function assertStorageBufferLimit(
+  origin: BackendOrigin,
   limits: GPUSupportedLimits,
   resources: readonly WgslResource[],
-  where: string,
 ): void {
   const count = resources.filter((r) => r.kind === "storage").length;
   const limit = limits.maxStorageBuffersPerShaderStage;
   if (count > limit) {
-    throw new Error(
-      `[RMSL] ${where}: a compute program uses ${count} storage buffers, more than the ${limit} this device allows in one shader stage; split it into programs that each use fewer, or keep values that belong together in one buffer`,
+    throw new LimitError(
+      "storage-buffer-count",
+      `${origin.caller}: a compute program uses ${count} storage buffers, more than the ${limit} this device allows in one shader stage; split it into programs that each use fewer, or keep values that belong together in one buffer`,
+      { target: origin.target, limit, requested: count },
     );
   }
 }
@@ -124,8 +130,9 @@ export interface WgslAdapter extends Adapter<AdapterResult, WgslDrawOptions> {
   device(): GPUDevice | undefined;
 }
 
-function freshCtx(shaderStage: CompileCtx["shaderStage"]): CompileCtx {
+function freshCtx(origin: BackendOrigin, shaderStage: CompileCtx["shaderStage"]): CompileCtx {
   return {
+    ...origin,
     nextId: 0,
     shaderStage,
     uniforms: new Map(),
@@ -168,7 +175,7 @@ function reflectStage(
   root: Node<ShaderType> | readonly Node<ShaderType>[],
   shaderStage: "vertex" | "fragment",
 ): { attributes: ReflectedAttribute[]; uniforms: ReflectedUniform[] } {
-  let ctx = freshCtx(shaderStage);
+  let ctx = freshCtx(CREATE_WGSL, shaderStage);
   let nodes = Array.isArray(root) ? root : root ? [root] : [];
   for (let n of nodes) compileWGSLStage(n as Node<ShaderType>, ctx);
   return {
@@ -289,7 +296,7 @@ export function uniformBufferSize(end: number): number {
  * (`reflectStage`) rather than read back off the compiled program.
  */
 export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
-  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(options.vertex, options.fragment);
+  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(CREATE_WGSL, options.vertex, options.fragment);
   let device: GPUDevice | null = null;
 
   let renderPipeline: GPURenderPipeline | null = null;
@@ -303,7 +310,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let vertexCount = 0;
   let countSlot: string | undefined;
   /** What a value or an array the host sets is checked against, and the storage buffers the stages read. */
-  const guard = hostInputGuard([vertexRoot, fragmentRoot]);
+  const guard = hostInputGuard(CREATE_WGSL, [vertexRoot, fragmentRoot]);
   /** The storage nodes the stages read, in the order the program created their buffers. */
   const storageNodes = [...guard.storages.values()];
   /** The storage attributes the stages read, by slot, and the buffers they bind. */
@@ -345,7 +352,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     const declaration = textureDeclarations.find((t) => t.slot === slot);
     // A texture the program does not read is ignored, as `setUniform` ignores a uniform it does not read.
     if (!declaration) return;
-    const image = textureImage(data, declaration.shaderType);
+    const image = textureImage(CREATE_WGSL, data, declaration.shaderType);
     const volume = declaration.shaderType.endsWith("3D");
     const format: GPUTextureFormat = image.normalized
       ? "rgba8unorm"
@@ -400,7 +407,12 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     if (!device || !renderPipeline) return;
     const entries = textureDeclarations.map((declaration) => {
       const held = gpuTextures.get(declaration.slot);
-      if (!held) throw new Error(`[RMSL] createWgsl: setTexture was never called for "${declaration.slot}"`);
+      if (!held)
+        throw new UsageError(
+          "texture-never-set",
+          `createWgsl: setTexture was never called for "${declaration.slot}"`,
+          CREATE_WGSL,
+        );
       return { declaration, held };
     });
     renderBindGroups[1] = device.createBindGroup({
@@ -487,13 +499,14 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         device = options.context.device;
       } else {
         let gpuAdapter = await navigator.gpu?.requestAdapter();
-        if (!gpuAdapter) throw new Error("[RMSL] WebGPU is not available");
+        if (!gpuAdapter) throw new PlatformError("webgpu-unavailable", "WebGPU is not available", { target: "wgsl" });
         device = await gpuAdapter.requestDevice();
       }
 
       let target = canvas ?? document.createElement("canvas");
       let glCanvasContext = target.getContext("webgpu");
-      if (!glCanvasContext) throw new Error("[RMSL] WebGPU canvas context unavailable");
+      if (!glCanvasContext)
+        throw new PlatformError("canvas-context-unavailable", "WebGPU canvas context unavailable", { target: "wgsl" });
       context = glCanvasContext;
       let format = navigator.gpu.getPreferredCanvasFormat();
       context.configure({ device, format, alphaMode: attachOptions?.alpha === false ? "opaque" : "premultiplied" });
@@ -517,7 +530,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       let textureNodes = [...sharedTextures.values()]
         .sort((a, b) => a.order - b.order)
         .map((u) => u.node as UniformNode<WgslTextureType>);
-      textureDeclarations = sharedSamplerDeclarations(textureNodes);
+      textureDeclarations = sharedSamplerDeclarations(CREATE_WGSL, textureNodes);
       let storageOrder = storageNodes.map((node) => node.name);
       let stageOptions = {
         ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
@@ -525,8 +538,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         ...(textureNodes.length > 0 ? { samplers: textureNodes } : {}),
       };
 
-      let vertexCode = compileWGSLWithStage(vertexRoot as Node<ShaderType>, "vertex", stageOptions);
-      let fragmentCode = compileWGSLWithStage(fragmentRoot, "fragment", stageOptions);
+      let vertexCode = compileWGSLWithStage(CREATE_WGSL, vertexRoot as Node<ShaderType>, "vertex", stageOptions);
+      let fragmentCode = compileWGSLWithStage(CREATE_WGSL, fragmentRoot, "fragment", stageOptions);
       let vertexModule = device.createShaderModule({ code: vertexCode });
       let fragmentModule = device.createShaderModule({ code: fragmentCode });
 
@@ -605,10 +618,10 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     draw(drawOptions) {
       if (!device || !renderPipeline || !context) {
-        throw new Error("[RMSL] createWgsl: attach() was never called");
+        throw new UsageError("not-attached", "createWgsl: attach() was never called", CREATE_WGSL);
       }
       for (const { slot } of vertexAttributes) {
-        if (!vertexBuffers.has(slot)) throw missingAttributeError("createWgsl", slot);
+        if (!vertexBuffers.has(slot)) throw missingAttributeError(CREATE_WGSL, slot);
       }
       if (textureDeclarations.length > 0 && texturesChanged) bindTextures();
       let encoder = device.createCommandEncoder();
@@ -715,7 +728,7 @@ export function createWgslCompute(
   let computePipeline: GPUComputePipeline | null = null;
   let computeResources: WgslResource[] = [];
   /** What a value or an array the host sets is checked against, and a storage node of each buffer the program reads, by slot. */
-  const guard = hostInputGuard(compute);
+  const guard = hostInputGuard(CREATE_WGSL_COMPUTE, compute);
   const declaredStorages = guard.storages;
   /** Elements of the first storage buffer the host passed, the dispatch's
    *  count when the caller names none. */
@@ -798,6 +811,7 @@ export function createWgslCompute(
   function readbacksOf(out: AdapterResult) {
     const requested = new Set(
       requestedStorageSlots(
+        CREATE_WGSL_COMPUTE,
         out,
         computeStorageResources().map((r) => r.name),
       ),
@@ -808,8 +822,8 @@ export function createWgslCompute(
         const state = storageSlots.get(resource.name)!;
         const target = out[resource.name]!;
         const valueCount = state.elements * state.itemSize;
-        assertHostArray("storage buffer", resource.name, resource.shaderType, target);
-        assertReadbackFits(resource.name, target, valueCount);
+        assertHostArray(CREATE_WGSL_COMPUTE, "storage buffer", resource.name, resource.shaderType, target);
+        assertReadbackFits(CREATE_WGSL_COMPUTE, resource.name, target, valueCount);
         return { resource, state, target, valueCount, bytes: Math.max(4, state.elements * state.layout.stride * 4) };
       });
   }
@@ -866,16 +880,16 @@ export function createWgslCompute(
       pendingAttributes.set(slot, data);
       return;
     }
-    throw new Error(`[RMSL] unknown storage slot "${slot}"`);
+    throw new UsageError("unknown-storage-slot", `unknown storage slot "${slot}"`, CREATE_WGSL_COMPUTE);
   }
 
   let adapter: WgslComputeAdapter = {
     async attach() {
       let gpuAdapter = await navigator.gpu?.requestAdapter();
-      if (!gpuAdapter) throw new Error("[RMSL] WebGPU is not available");
+      if (!gpuAdapter) throw new PlatformError("webgpu-unavailable", "WebGPU is not available", { target: "wgsl" });
       // Compiled and checked before the device is requested, so a program that throws leaves no device behind.
       let program = compile({ stage: "compute", workgroupSize: options.workgroupSize ?? 64 }, compute);
-      assertStorageBufferLimit(gpuAdapter.limits, program.resources, "createWgslCompute");
+      assertStorageBufferLimit(CREATE_WGSL_COMPUTE, gpuAdapter.limits, program.resources);
       device = await requestComputeDevice(gpuAdapter);
       let module = device.createShaderModule({ code: program.code });
       computePipeline = device.createComputePipeline({
@@ -925,7 +939,7 @@ export function createWgslCompute(
 
     async compute(out, count) {
       if (!device || !computePipeline || !computeBindGroup1) {
-        throw new Error("[RMSL] createWgslCompute: attach() was never called");
+        throw new UsageError("not-attached", "createWgslCompute: attach() was never called", CREATE_WGSL_COMPUTE);
       }
       // Checked before the dispatch, so a refusal leaves the buffers as they were.
       let reads = out && readbacksOf(out);

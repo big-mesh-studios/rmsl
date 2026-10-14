@@ -1,3 +1,4 @@
+import { UsageError } from "../../errors";
 import { Matrix4 } from "./Matrix4";
 import { Quaternion } from "./Quaternion";
 import { Vector3 } from "./Vector3";
@@ -154,7 +155,7 @@ export class Euler {
         }
         break;
       default:
-        throw new Error(`unsupported euler order: ${order}`);
+        throw new UsageError("unknown-euler-order", `unsupported euler order: ${order}`);
     }
 
     this.order = order;

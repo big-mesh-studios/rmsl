@@ -229,9 +229,9 @@ describe("the inline Fn fuzz", () => {
    * @canon spec-the-inline-fn-fuzz-tells-right-from-wrong
    */
   it("rejects a refusal the model does not name, and a run where it expects a refusal", () => {
-    const want: Outcome = { refused: ["[RMSL] one"] };
-    expect(agrees(want, { refused: ["[RMSL] one"] })).toBe(true);
-    expect(agrees(want, { refused: ["[RMSL] two"] })).toBe(false);
+    const want: Outcome = { refused: ["one"] };
+    expect(agrees(want, { refused: ["one"] })).toBe(true);
+    expect(agrees(want, { refused: ["two"] })).toBe(false);
     expect(agrees(want, { counters: [], outs: [] })).toBe(false);
   });
 });

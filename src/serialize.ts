@@ -1,3 +1,4 @@
+import { DataError } from "./errors";
 import { withArticle } from "./article";
 import {
   allocAttrId,
@@ -187,14 +188,16 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
  */
 export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<ShaderType>[] {
   if (!Array.isArray(graph?.nodes) || !Array.isArray(graph.buffers)) {
-    throw new Error("[RMSL] deserialize: the data needs a nodes and a buffers array, as serialize() gives");
+    throw new DataError("graph-shape", "deserialize: the data needs a nodes and a buffers array, as serialize() gives");
   }
   const buffers = graph.buffers.map((b, i) => {
     const Attribute = b.instanced ? StorageInstancedBufferAttribute : StorageBufferAttribute;
     const ArrayClass = ARRAY_CLASSES[b.arrayClass];
     if (!ArrayClass) {
-      throw new Error(
-        `[RMSL] deserialize: buffer ${i} holds ${withArticle(String(b.arrayClass))}, not a Float32Array, Int32Array or Uint32Array`,
+      throw new DataError(
+        "buffer-of-another-kind",
+        `deserialize: buffer ${i} holds ${withArticle(String(b.arrayClass))}, not a Float32Array, Int32Array or Uint32Array`,
+        { index: i },
       );
     }
     return new Attribute(ArrayClass.from(b.array.map((v) => decodeNumbers(v) as number)), b.itemSize);
@@ -209,9 +212,15 @@ export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<Sha
 }
 
 /** `index`, when it names one of `length` items, or an error saying what `user` named instead. */
-function indexInto(index: number, length: number, user: string, item: string): number {
+function indexInto(index: number, length: number, user: string, item: string, at?: number): number {
   if (Number.isInteger(index) && index >= 0 && index < length) return index;
-  throw new Error(`[RMSL] deserialize: ${user} names ${item} at ${index}, but there are only ${length}`);
+  throw new DataError(
+    "index-out-of-range",
+    `deserialize: ${user} names ${item} at ${index}, but there are only ${length}`,
+    {
+      index: at,
+    },
+  );
 }
 
 /** The fresh name, and id, a graph-local name `local` stands for, made by `make` the first time. */
@@ -232,13 +241,25 @@ function deserializeNode(
   total: number,
 ): Node<ShaderType> {
   if (!NODE_TYPES.has(entry.type)) {
-    throw new Error(
-      `[RMSL] deserialize: node ${nodes.length} is a "${entry.type}", which is not a kind of node rmsl has`,
+    throw new DataError(
+      "unknown-node-kind",
+      `deserialize: node ${nodes.length} is a "${entry.type}", which is not a kind of node rmsl has`,
+      { index: nodes.length },
+    );
+  }
+  const needsValue = entry.type === "storage" || entry.type === "var" || entry.type === "call" || entry.type in NAMED;
+  if (needsValue && (typeof entry.value !== "object" || entry.value === null)) {
+    throw new DataError(
+      "node-without-value",
+      `deserialize: node ${nodes.length}, ${withArticle(entry.type)}, has no value`,
+      {
+        index: nodes.length,
+      },
     );
   }
   if (entry.type === "storage") {
     const value = entry.value as { shaderType: ShaderType; access: StorageAccess; buffer: number };
-    const buffer = indexInto(value.buffer, buffers.length, `node ${nodes.length}`, "a buffer");
+    const buffer = indexInto(value.buffer, buffers.length, `node ${nodes.length}`, "a buffer", nodes.length);
     const result = storage(buffers[buffer]!, value.shaderType);
     if (value.access === "read") result.toReadOnly();
     return result as unknown as Node<ShaderType>;
@@ -246,11 +267,13 @@ function deserializeNode(
 
   const params = entry.params?.map((i) => {
     if (Number.isInteger(i) && i >= nodes.length && i < total) {
-      throw new Error(
-        `[RMSL] deserialize: node ${nodes.length} names a child at ${i}, after it; a child has to come before the node using it`,
+      throw new DataError(
+        "child-after-node",
+        `deserialize: node ${nodes.length} names a child at ${i}, after it; a child has to come before the node using it`,
+        { index: nodes.length },
       );
     }
-    return nodes[indexInto(i, total, `node ${nodes.length}`, "a child")]! as BaseNode<ShaderType>;
+    return nodes[indexInto(i, total, `node ${nodes.length}`, "a child", nodes.length)]! as BaseNode<ShaderType>;
   });
   let value = decodeNumbers(entry.value) as Record<string, unknown> | undefined;
   let name: string | undefined;
@@ -263,10 +286,12 @@ function deserializeNode(
   }
   if (entry.type === "call") {
     const { body, ...rest } = value as Record<string, unknown> & { body: number };
-    const at = indexInto(body, total, `node ${nodes.length}`, "a function body");
+    const at = indexInto(body, total, `node ${nodes.length}`, "a function body", nodes.length);
     if (at >= nodes.length) {
-      throw new Error(
-        `[RMSL] deserialize: node ${nodes.length} names a function body at ${at}, after it; a body has to come before the call`,
+      throw new DataError(
+        "body-after-call",
+        `deserialize: node ${nodes.length} names a function body at ${at}, after it; a body has to come before the call`,
+        { index: nodes.length },
       );
     }
     value = { ...rest, body: nodes[at] };
@@ -275,8 +300,10 @@ function deserializeNode(
   if (named) {
     const { local, slot, ...rest } = value as { local?: number; slot?: string };
     if (local === undefined && (typeof slot !== "string" || slot === "")) {
-      throw new Error(
-        `[RMSL] deserialize: ${withArticle(entry.type)} node has no name, neither a slot nor a local one`,
+      throw new DataError(
+        "node-without-name",
+        `deserialize: ${withArticle(entry.type)} node has no name, neither a slot nor a local one`,
+        { index: nodes.length },
       );
     }
     const fresh =

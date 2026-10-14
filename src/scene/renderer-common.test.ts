@@ -1,3 +1,4 @@
+import { type BackendOrigin, UsageError } from "../errors";
 import { describe, it, expect } from "vitest";
 import { wgslUniformDeclaration, wgslUniformLayout } from "../wgsl";
 import {
@@ -43,6 +44,8 @@ import {
 } from "./renderers/common";
 import { VERTEX_FORMATS, vertexFormatOf, type VertexFormatSpec } from "../backends/vertex-format";
 import { BufferAttribute } from "./geometries/BufferAttribute";
+
+const TEST_ORIGIN: BackendOrigin = { target: "wgsl", caller: "vertexFormatOf" };
 
 describe("cameraUniformValue", () => {
   /**
@@ -403,6 +406,7 @@ describe("vertexFormatOf", () => {
   it("reads a float attribute's format off its width", () => {
     const of = (itemSize: number): string =>
       vertexFormatOf(
+        TEST_ORIGIN,
         new BufferAttribute(new Float32Array(itemSize * 2), itemSize),
         itemSize === 1 ? "float" : `vec${itemSize}`,
       );
@@ -415,25 +419,25 @@ describe("vertexFormatOf", () => {
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
   it("treats a plain number array as the floats it uploads as", () => {
-    expect(vertexFormatOf(new BufferAttribute([0, 1, 2], 3), "vec3")).toBe("float32x3");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute([0, 1, 2], 3), "vec3")).toBe("float32x3");
   });
   /**
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
   it("reads a normalized integer attribute as its norm format", () => {
-    expect(vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4, true), "vec4")).toBe("unorm8x4");
-    expect(vertexFormatOf(new BufferAttribute(new Int8Array(8), 4, true), "vec4")).toBe("snorm8x4");
-    expect(vertexFormatOf(new BufferAttribute(new Uint16Array(4), 2, true), "vec2")).toBe("unorm16x2");
-    expect(vertexFormatOf(new BufferAttribute(new Int16Array(4), 2, true), "vec2")).toBe("snorm16x2");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Uint8Array(8), 4, true), "vec4")).toBe("unorm8x4");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Int8Array(8), 4, true), "vec4")).toBe("snorm8x4");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Uint16Array(4), 2, true), "vec2")).toBe("unorm16x2");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Int16Array(4), 2, true), "vec2")).toBe("snorm16x2");
   });
   /**
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
   it("takes a matrix's column width rather than its whole item size", () => {
     const attr = new BufferAttribute(new Float32Array(32), 16, false, "instance");
-    expect(vertexFormatOf(attr, "mat4")).toBe("float32x4");
-    expect(vertexFormatOf(new BufferAttribute(new Float32Array(18), 9), "mat3")).toBe("float32x3");
-    expect(vertexFormatOf(new BufferAttribute(new Float32Array(12), 6), "mat3x2")).toBe("float32x2");
+    expect(vertexFormatOf(TEST_ORIGIN, attr, "mat4")).toBe("float32x4");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Float32Array(18), 9), "mat3")).toBe("float32x3");
+    expect(vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Float32Array(12), 6), "mat3x2")).toBe("float32x2");
   });
   /**
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
@@ -442,9 +446,9 @@ describe("vertexFormatOf", () => {
     // Half floats held in a Uint16Array are indistinguishable from normalized
     // integers, which is the case the field exists for.
     const attr = new BufferAttribute(new Uint16Array([0x3c00, 0x3400]), 2, true);
-    expect(vertexFormatOf(attr, "vec2")).toBe("unorm16x2");
+    expect(vertexFormatOf(TEST_ORIGIN, attr, "vec2")).toBe("unorm16x2");
     attr.format = "float16x2";
-    expect(vertexFormatOf(attr, "vec2")).toBe("float16x2");
+    expect(vertexFormatOf(TEST_ORIGIN, attr, "vec2")).toBe("float16x2");
   });
   /**
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
@@ -458,12 +462,20 @@ describe("vertexFormatOf", () => {
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
   it("refuses a raw integer array, which would not be floats in the shader", () => {
-    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4), "vec4")).toThrow(/vec4.*normalized/);
+    expect(() => vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Uint8Array(8), 4), "vec4")).toThrowRmsl(
+      UsageError,
+      "vertex-format-of-another-kind",
+      /vec4.*normalized/,
+    );
   });
   /**
    * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
   it("refuses a width no format covers", () => {
-    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(6), 3, true), "vec3")).toThrow(/unorm8x3/);
+    expect(() => vertexFormatOf(TEST_ORIGIN, new BufferAttribute(new Uint8Array(6), 3, true), "vec3")).toThrowRmsl(
+      UsageError,
+      "no-vertex-format-for-array",
+      /unorm8x3/,
+    );
   });
 });

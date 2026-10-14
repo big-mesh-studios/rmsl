@@ -1,3 +1,4 @@
+import { ProgramError } from "./errors";
 import { storageBuffersOf } from "./backends/shared";
 import { type ComputeNode, type Node, type ShaderType, type StorageAccess, type StorageBufferAttribute } from "./core";
 import {
@@ -126,7 +127,11 @@ export function compile(
   program: Node<ShaderType> | readonly Node<ShaderType>[] | ComputeNode,
 ): WgslProgram {
   if (options.stage !== "compute") {
-    throw new Error(`[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`);
+    throw new ProgramError(
+      "compile-supports-compute-only",
+      `@random-mesh/rmsl/wgsl currently supports only compute compilation`,
+      { target: "wgsl" },
+    );
   }
 
   // Checked by flag rather than instanceof, so a node from another copy of the package is still recognized.

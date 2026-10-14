@@ -1,3 +1,4 @@
+import { DriverError, LimitError, PlatformError, UsageError, type Origin, type BackendOrigin } from "../../errors";
 import { Node, ShaderType, UniformNode } from "../../core";
 import {
   Adapter,
@@ -16,7 +17,7 @@ import { assertOneDeclarationPerName, linkStages, VertexRoot } from "../shared";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import type { AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
-import { compileGlsl, CompileGLSLOptions, storageTexelsOf } from "./glsl";
+import { compileGLSLWithStage, CompileGLSLOptions, storageTexelsOf } from "./glsl";
 import { drawToCanvas, GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
@@ -68,6 +69,8 @@ const GL_MODE: Record<Required<GlslDrawOptions>["mode"], number> = {
   "triangle-strip": 5,
   "triangle-fan": 6,
 };
+
+const CREATE_GLSL: BackendOrigin = { target: "glsl", caller: "createGlsl" };
 
 /** The components each location of an attribute of `type` reads: a matrix reads one column at each. */
 function componentCountForType(gl: WebGL2RenderingContext, type: number): number {
@@ -253,7 +256,8 @@ function uniformSetter(
 /** Uploads `value` to a uniform, one element after another for a uniform array, a bool as 0 or 1. */
 function setUniformValue(gl: WebGL2RenderingContext, slot: string, info: UniformInfo, value: unknown): void {
   const set = uniformSetter(gl, info.type);
-  if (!set) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
+  if (!set)
+    throw new UsageError("wrong-setter", `setUniform: "${slot}" is a texture, which setTexture sets`, CREATE_GLSL);
   const values: number[] = [];
   addComponents(value, values);
   set(info.location, values);
@@ -340,9 +344,14 @@ export function createGlsl(
   givenFragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
   options?: GlslAdapterOptions,
 ): GlslAdapter {
-  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(givenVertexRoot, givenFragmentRoot, true);
+  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(
+    CREATE_GLSL,
+    givenVertexRoot,
+    givenFragmentRoot,
+    true,
+  );
   // Each stage compiles on its own, so a name the two declare differently shows only here.
-  assertOneDeclarationPerName([vertexRoot, fragmentRoot]);
+  assertOneDeclarationPerName(CREATE_GLSL, [vertexRoot, fragmentRoot]);
   let gl: WebGL2RenderingContext | null = null;
   let state: GlStateKeeper | null = null;
   let program: WebGLProgram | null = null;
@@ -366,14 +375,19 @@ export function createGlsl(
   /** The context's MAX_TEXTURE_SIZE, read once it links. */
   let maxTextureSize = 0;
   /** What a value or an array the host sets is checked against, and the storage buffers and textures the stages read. */
-  const guard = hostInputGuard([vertexRoot, fragmentRoot]);
+  const guard = hostInputGuard(CREATE_GLSL, [vertexRoot, fragmentRoot]);
   const storages = guard.storages;
 
   function setUniform(uniform: UniformOrSlot, value: unknown): void {
     const slot = slotOf(uniform);
     if (storages.has(slot))
-      throw new Error(`[RMSL] setUniform: "${slot}" is a storage buffer, which setAttribute sets`);
-    if (guard.textures.has(slot)) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
+      throw new UsageError(
+        "wrong-setter",
+        `setUniform: "${slot}" is a storage buffer, which setAttribute sets`,
+        CREATE_GLSL,
+      );
+    if (guard.textures.has(slot))
+      throw new UsageError("wrong-setter", `setUniform: "${slot}" is a texture, which setTexture sets`, CREATE_GLSL);
     guard.uniform(uniform, value);
     const declared = guard.uniforms.get(slot);
     // A value left out, or null, reads zero, as an unset uniform does.
@@ -454,7 +468,11 @@ export function createGlsl(
   function setTexture(sampler: UniformNode<ShaderType> | string, data: CpuTextureData): void {
     const slot = slotOf(sampler);
     if (storages.has(slot))
-      throw new Error(`[RMSL] setTexture: "${slot}" is a storage buffer, which setAttribute sets`);
+      throw new UsageError(
+        "wrong-setter",
+        `setTexture: "${slot}" is a storage buffer, which setAttribute sets`,
+        CREATE_GLSL,
+      );
     const info = uniforms.get(slot);
     if (!gl || !program || !info) {
       pendingTextures.set(slot, data);
@@ -477,8 +495,8 @@ export function createGlsl(
     data: CpuTextureData,
   ): void {
     const samplerType = samplerTypeOf(gl, info.type);
-    if (!samplerType) throw new Error(`[RMSL] setTexture: "${slot}" is not a sampler`);
-    const image = textureImage(data, samplerType);
+    if (!samplerType) throw new UsageError("not-a-sampler-slot", `setTexture: "${slot}" is not a sampler`, CREATE_GLSL);
+    const image = textureImage(CREATE_GLSL, data, samplerType);
     const target = samplerType.endsWith("3D") ? gl.TEXTURE_3D : gl.TEXTURE_2D;
     const { internal, format, type } = texelFormat(gl, image.bits, image.signed, image.normalized);
     const { held, reuse } = holdTexture(gl, slot, target, image.width, image.height, image.depth, internal);
@@ -558,8 +576,10 @@ export function createGlsl(
   ): void {
     const { width, height, components, kind } = storageTextureShape(shaderType, data.length);
     if (width > maxTextureSize || height > maxTextureSize) {
-      throw new Error(
-        `[RMSL] the storage buffer "${slot}" needs a ${width}×${height} texture to be read in a render stage, past this context's MAX_TEXTURE_SIZE of ${maxTextureSize}`,
+      throw new LimitError(
+        "storage-texture-size",
+        `the storage buffer "${slot}" needs a ${width}×${height} texture to be read in a render stage, past this context's MAX_TEXTURE_SIZE of ${maxTextureSize}`,
+        { target: "glsl", limit: maxTextureSize, requested: Math.max(width, height) },
       );
     }
     const { internal, format, type, array } = storageFormat(gl, kind, components);
@@ -590,8 +610,8 @@ export function createGlsl(
   /** Compiles and links the program on `gl`, reflects its inputs, and applies what the host set before. */
   function link(gl: WebGL2RenderingContext): void {
     maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-    const vertexSource = compileGlsl.vertex(vertexRoot, options);
-    const fragmentSource = compileGlsl.fragment(fragmentRoot, options);
+    const vertexSource = compileGLSLWithStage(CREATE_GLSL, vertexRoot as Node<ShaderType>, "vertex", options);
+    const fragmentSource = compileGLSLWithStage(CREATE_GLSL, fragmentRoot, "fragment", options);
 
     const compile = (source: string, type: number): WebGLShader => {
       const shader = gl.createShader(type)!;
@@ -600,7 +620,10 @@ export function createGlsl(
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
         const log = gl.getShaderInfoLog(shader);
         gl.deleteShader(shader);
-        throw new Error(`[RMSL] GLSL shader failed to compile: ${log}`);
+        throw new DriverError("shader-compile", `GLSL shader failed to compile: ${log}`, {
+          target: "glsl",
+          log: log ?? "",
+        });
       }
       return shader;
     };
@@ -613,7 +636,7 @@ export function createGlsl(
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       const log = gl.getProgramInfoLog(program);
-      throw new Error(`[RMSL] GLSL program failed to link: ${log}`);
+      throw new DriverError("program-link", `GLSL program failed to link: ${log}`, { target: "glsl", log: log ?? "" });
     }
     gl.useProgram(program);
 
@@ -669,7 +692,7 @@ export function createGlsl(
   ): void {
     for (const [slot, info] of attributes) {
       // A built-in input, such as gl_VertexID, is listed with no location and takes no data.
-      if (!info.hasData && info.location >= 0) throw missingAttributeError("createGlsl", slot);
+      if (!info.hasData && info.location >= 0) throw missingAttributeError(CREATE_GLSL, slot);
     }
     gl.useProgram(program);
     gl.bindVertexArray(vao);
@@ -705,7 +728,7 @@ export function createGlsl(
     attach(canvas) {
       const target = canvas ?? document.createElement("canvas");
       const context = target.getContext("webgl2");
-      if (!context) throw new Error("[RMSL] WebGL2 is not available");
+      if (!context) throw new PlatformError("webgl2-unavailable", "WebGL2 is not available", { target: "glsl" });
       gl = context;
       state = options?.preserveState ? new GlStateKeeper(context) : null;
       state?.begin(ATTACH_STATE);
@@ -721,7 +744,8 @@ export function createGlsl(
     setTexture,
 
     draw(options) {
-      if (!gl || !program || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");
+      if (!gl || !program || !vao)
+        throw new UsageError("not-attached", "adapter not attached — call attach() before draw()", CREATE_GLSL);
       state?.begin(DRAW_STATE);
       try {
         drawArrays(gl, program, vao, options);

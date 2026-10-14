@@ -1,3 +1,4 @@
+import type { Origin } from "../../errors";
 import { Fn, vec4, type Node } from "../../rmsl";
 import { Material } from "./Material";
 import {
@@ -25,6 +26,9 @@ export interface MaterialProgram {
   varyings: VaryingBinding[];
   samplers: AnySamplerBinding[];
 }
+
+/** Where a node material links its stages: once, for whichever renderer draws it. */
+const NODE_MATERIAL: Origin = { caller: "NodeMaterial" };
 
 /** Evaluate a material slot, running builder functions in the active pass. */
 export function resolveSlot<T extends Node<any>>(slot: SlotValue<T> | undefined, b: Builder): T | undefined {
@@ -119,7 +123,7 @@ export class NodeMaterial extends Material {
       return clip;
     })() as Node<"vec4">;
 
-    const linked = linkStages(vertex, fragment, true);
+    const linked = linkStages(NODE_MATERIAL, vertex, fragment, true);
     const v = collectNodes(linked.vertex);
     const f = collectNodes(linked.fragment);
     const usedUniforms = new Set([...v.uniforms, ...f.uniforms]);

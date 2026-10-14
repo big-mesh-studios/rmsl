@@ -1,3 +1,4 @@
+import { LimitError, TargetError, UsageError } from "./errors";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   Fn,
@@ -397,7 +398,10 @@ for (const backend of backends) {
       const values = instancedArray(3, "uint");
       context.write(values.attribute, Uint32Array.of(1, 2), 1);
       expect(await context.read(values.attribute)).toEqual([0, 1, 2]);
-      expect(() => context.write(values.attribute, Uint32Array.of(1, 2), 2)).toThrow(/past the end/);
+      expect(() => context.write(values.attribute, Uint32Array.of(1, 2), 2)).toThrowRmsl(
+        UsageError,
+        "write-past-attribute",
+      );
       context.destroy();
     });
     /**
@@ -407,12 +411,17 @@ for (const backend of backends) {
       const context = await backend.create();
       const values = instancedArray(2, "uint");
       const weights = instancedArray(2, "float");
-      expect(() => context.write(values.attribute, Float32Array.of(1, 2) as any)).toThrow(
-        "[RMSL] the uint storage buffer takes a Uint32Array, not a Float32Array",
+      expect(() => context.write(values.attribute, Float32Array.of(1, 2) as any)).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
       );
-      expect(() => context.write(values.attribute, Int32Array.of(1, 2))).toThrow(/Uint32Array, not an Int32Array/);
-      expect(() => context.write(weights.attribute, Int32Array.of(1, 2))).toThrow(
-        /the float storage buffer takes a Float32Array/,
+      expect(() => context.write(values.attribute, Int32Array.of(1, 2))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
+      expect(() => context.write(weights.attribute, Int32Array.of(1, 2))).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
       );
       expect(await context.read(values.attribute)).toEqual([0, 0]);
       context.destroy();
@@ -473,7 +482,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     const read = Fn(() => {
       matrices.element(0).toVar();
     })().compute(1);
-    expect(() => context.compute(read)).toThrow(/laid out before a storage node named its type/);
+    expect(() => context.compute(read)).toThrowRmsl(UsageError, "storage-laid-out-too-early");
     context.destroy();
   });
   /**
@@ -499,7 +508,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     const sample = Fn(() => {
       out.element(0).assign(texture(image, vec2(0.5, 0.5)).x);
     })().compute(1);
-    expect(() => context.compute(sample)).toThrow(/sample textures/);
+    expect(() => context.compute(sample)).toThrowRmsl(TargetError, "texture-sampling-unsupported");
     context.destroy();
   });
   /**
@@ -531,9 +540,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     const sum = Fn(() => {
       out.element(0).assign(inputs.reduce((total, input) => total.add(input.element(0)), uint(0)));
     })().compute(1);
-    expect(() => context.compute(sum)).toThrow(
-      /createWgslContext: a compute program uses 9 storage buffers, more than the 8/,
-    );
+    expect(() => context.compute(sum)).toThrowRmsl(LimitError, "storage-buffer-count");
     context.destroy();
     device.destroy();
   });
@@ -547,7 +554,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     const wide = Fn(() => {
       out.element(0).assign(uint(1));
     })().compute(1, limit * 2);
-    expect(() => context.compute(wide)).toThrow(/workgroup size/);
+    expect(() => context.compute(wide)).toThrowRmsl(LimitError, "workgroup-size");
     context.destroy();
   });
   /**
@@ -560,7 +567,7 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     const wide = Fn(() => {
       out.element(0).assign(uint(1));
     })().compute((limit + 1) * 64);
-    expect(() => context.compute(wide)).toThrow(/workgroups/);
+    expect(() => context.compute(wide)).toThrowRmsl(LimitError, "workgroup-count");
     expect(await context.getArrayBufferAsync(out.attribute)).toEqual(new Uint32Array(1).buffer);
     context.destroy();
   });

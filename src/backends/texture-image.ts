@@ -1,3 +1,4 @@
+import { UsageError, type Origin } from "../errors";
 import { withArticle } from "../article";
 import type { CpuTextureData } from "./cpu";
 
@@ -29,9 +30,13 @@ const INTEGER_ARRAYS = [Int8Array, Uint8Array, Int16Array, Uint16Array, Int32Arr
  *
  * @throws When the data is not an array that sampler type can read.
  */
-export function textureImage(texture: CpuTextureData, samplerType: string): TextureImage {
+export function textureImage(origin: Origin, texture: CpuTextureData, samplerType: string): TextureImage {
   if (samplerType.endsWith("Cube"))
-    throw new Error(`[RMSL] setTexture: ${withArticle(samplerType)} texture is not supported`);
+    throw new UsageError(
+      "texture-kind-unsupported",
+      `setTexture: ${withArticle(samplerType)} texture is not supported`,
+      origin,
+    );
   const data = texture.data as ArrayBufferView & ArrayLike<number>;
   const integer = samplerType.startsWith("isampler") || samplerType.startsWith("usampler");
   const signed = samplerType.startsWith("isampler");
@@ -39,15 +44,21 @@ export function textureImage(texture: CpuTextureData, samplerType: string): Text
   let normalized = false;
   if (!integer) {
     if (!(data instanceof Uint8Array || data instanceof Uint8ClampedArray)) {
-      throw new Error(`[RMSL] setTexture: ${withArticle(samplerType)} texture takes Uint8Array data on a GPU target`);
+      throw new UsageError(
+        "texture-data-of-another-kind",
+        `setTexture: ${withArticle(samplerType)} texture takes Uint8Array data on a GPU target`,
+        origin,
+      );
     }
     bits = 8;
     normalized = true;
   } else {
     const kind = INTEGER_ARRAYS.find((array) => data instanceof array);
     if (!kind || (kind.name.startsWith("Int") ? !signed : signed)) {
-      throw new Error(
-        `[RMSL] setTexture: ${withArticle(samplerType)} texture takes ${signed ? "Int8Array, Int16Array or Int32Array" : "Uint8Array, Uint16Array or Uint32Array"} data`,
+      throw new UsageError(
+        "texture-data-of-another-kind",
+        `setTexture: ${withArticle(samplerType)} texture takes ${signed ? "Int8Array, Int16Array or Int32Array" : "Uint8Array, Uint16Array or Uint32Array"} data`,
+        origin,
       );
     }
     bits = (kind.BYTES_PER_ELEMENT * 8) as 8 | 16 | 32;
@@ -56,8 +67,10 @@ export function textureImage(texture: CpuTextureData, samplerType: string): Text
   const count = texture.width * texture.height * depth;
   const channels = texture.channels ?? 4;
   if (data.length < count * channels) {
-    throw new Error(
-      `[RMSL] setTexture: a ${texture.width}x${texture.height}x${depth} texture of ${channels} channels needs ${count * channels} values, and got ${data.length}`,
+    throw new UsageError(
+      "texture-data-size",
+      `setTexture: a ${texture.width}x${texture.height}x${depth} texture of ${channels} channels needs ${count * channels} values, and got ${data.length}`,
+      origin,
     );
   }
   const Texels = (data instanceof Uint8ClampedArray ? Uint8Array : data.constructor) as new (

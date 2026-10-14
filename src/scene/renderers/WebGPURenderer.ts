@@ -1,3 +1,4 @@
+import { PlatformError, type BackendOrigin } from "../../errors";
 /// <reference types="@webgpu/types" />
 import type { ShaderType, UniformValue } from "../../rmsl";
 import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
@@ -145,6 +146,8 @@ const UNIFORM_SLOTS = 64;
 /** Frames a uniform ring stays oversized before it shrinks, so a scene that comes and goes does not reallocate it. */
 const RING_SHRINK_FRAMES = 60;
 
+const WEBGPU_RENDERER: BackendOrigin = { target: "wgsl", caller: "WebGPURenderer" };
+
 /**
  * A WebGPU renderer for `@random-mesh/rmsl/scene`, mirroring the WebGL
  * renderer: material node graphs compile to WGSL, uniform values are packed
@@ -211,16 +214,18 @@ export class WebGPURenderer {
     this.device = device;
     this.floatFilterable = device.features?.has("float32-filterable") ?? false;
     const context = canvas.getContext("webgpu");
-    if (!context) throw new Error("[RMSL/scene] WebGPU context unavailable");
+    if (!context)
+      throw new PlatformError("canvas-context-unavailable", "WebGPU context unavailable", { target: "wgsl" });
     this.context = context as GPUCanvasContext;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.context.configure({ device, format: this.format, alphaMode: "premultiplied" });
   }
 
   static async init(canvas?: HTMLCanvasElement): Promise<WebGPURenderer> {
-    if (!navigator.gpu) throw new Error("[RMSL/scene] WebGPU is not supported by this browser");
+    if (!navigator.gpu)
+      throw new PlatformError("webgpu-unavailable", "WebGPU is not supported by this browser", { target: "wgsl" });
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error("[RMSL/scene] no WebGPU adapter available");
+    if (!adapter) throw new PlatformError("webgpu-unavailable", "no WebGPU adapter available", { target: "wgsl" });
     // A float texture filters linearly where the adapter can, as in three.js; elsewhere it reads its nearest texel.
     const device = await adapter.requestDevice({
       requiredFeatures: adapter.features.has("float32-filterable") ? ["float32-filterable"] : [],
@@ -445,7 +450,7 @@ export class WebGPURenderer {
       } else {
         value = binding.value?.({ camera, mesh });
         // Only a material's value comes from the user; the renderer computes the others in their shape.
-        assertHostShape("uniform", binding.node.name, binding.node._t as string, value);
+        assertHostShape(WEBGPU_RENDERER, "uniform", binding.node.name, binding.node._t as string, value);
       }
       // A name the renderer has no value for reads zero, as the scratch was cleared.
       if (value === undefined) continue;
@@ -514,7 +519,7 @@ export class WebGPURenderer {
     // Both stages number the textures (group 1) and the samplers of the float
     // ones (group 2) from the program's whole set, as the compiler does.
     // The list follows program.samplers, so a texture's binding is its index there.
-    const sharedSamplers = sharedSamplerDeclarations(declaredSamplers);
+    const sharedSamplers = sharedSamplerDeclarations(WEBGPU_RENDERER, declaredSamplers);
     const textureBindings = sharedSamplers.map((t, binding) => ({
       name: t.slot,
       sampler: binding,
@@ -874,7 +879,7 @@ export class WebGPURenderer {
   private formatOf(attribute: MaterialProgram["attributes"][number], mesh: Mesh): VertexFormat {
     const type = attribute.node._t;
     const attr = geometryAttribute(mesh, mesh.geometry, attribute.name);
-    if (attr) return vertexFormatOf(attr, type);
+    if (attr) return vertexFormatOf(WEBGPU_RENDERER, attr, type);
     const { columns, kind } = attributeShape(type);
     return wordFormat(kind, componentCountOf(type) / columns);
   }

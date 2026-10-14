@@ -1,3 +1,4 @@
+import type { BackendOrigin } from "../../errors";
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import {
@@ -145,6 +146,8 @@ function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipV
 
 // === Exported functions ===
 
+const COMPILE_JS: BackendOrigin = { target: "js", caller: "compileJS" };
+
 /**
  * Compiles a vertex/fragment `Fn` pair and rasterizes them exactly like
  * `compileWasm`'s `WasmRasterRoutine` does, in plain JS instead of a
@@ -159,12 +162,12 @@ export function compileJS(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSRasterOptions = {},
 ): JsRasterRoutine {
-  return compileJSRasterizer("compileJS", vertexFn, fragmentFn, options);
+  return compileJSRasterizer(COMPILE_JS, vertexFn, fragmentFn, options);
 }
 
-/** {@link compileJS} for `caller`, the call the errors of a draw name: `compileJS` itself, or an adapter that wraps it. */
+/** {@link compileJS} for `origin`, whose caller the errors of a draw name: `compileJS` itself, or an adapter that wraps it. */
 export function compileJSRasterizer(
-  caller: string,
+  origin: BackendOrigin,
   vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSRasterOptions,
@@ -175,9 +178,9 @@ export function compileJSRasterizer(
     reentrant: options.reentrant,
     float: options.float,
   };
-  const linked = linkStages(vertexFn(), fragmentFn(), true);
-  const vertexStage = compileJSProgram(() => linked.vertex, { ...stageOptions, name: "vtx", stage: "vertex" });
-  const fragmentStage = compileJSProgram(() => linked.fragment, {
+  const linked = linkStages(origin, vertexFn(), fragmentFn(), true);
+  const vertexStage = compileJSProgram(origin, () => linked.vertex, { ...stageOptions, name: "vtx", stage: "vertex" });
+  const fragmentStage = compileJSProgram(origin, () => linked.fragment, {
     ...stageOptions,
     name: "frag",
     stage: "fragment",
@@ -367,7 +370,7 @@ export function compileJSRasterizer(
     const first = options.first ?? 0;
     for (let a = 0; a < attributeSlots.length; a++) {
       const slot = attributeSlots[a]!;
-      if (!attributes[slot]) throw missingAttributeError(caller, slot);
+      if (!attributes[slot]) throw missingAttributeError(origin, slot);
     }
     // An attribute the program does not read counts for nothing, as a WebGPU
     // draw reads no buffer its shader does not declare.
@@ -396,7 +399,7 @@ export function compileJSRasterizer(
       }
       vertexCtx.vertexIndex = i + first;
       const raw = vertexStage.runInPlace(vertexCtx);
-      const position = vertexPosition(raw);
+      const position = vertexPosition(origin, raw);
       const varyings = isResultObject(raw) ? raw.varyings : undefined;
       const vertex = (vertices[i] ??= makeVertex(varyingWidths));
       for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;

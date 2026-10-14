@@ -1,3 +1,4 @@
+import { ProgramError, type Origin } from "../errors";
 import { LOOP_JUMP_STATEMENTS, LOOP_STATEMENTS, node, var_ } from "../core";
 
 /** The prefix of the variable a shared node gets, under the `_rmsl_` prefix the compiler keeps for its own names. */
@@ -60,7 +61,7 @@ export const INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE: Record<LoopJump, string> =
 /** The message of {@link INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE} for `jump`, as the user writes it. */
 function inlineFnJumpWithNoLoop(jump: string) {
   return (
-    `[RMSL] ${jump} in an Fn called outside the program's body runs where no loop is around it: ` +
+    `${jump} in an Fn called outside the program's body runs where no loop is around it: ` +
     `at the start of the first statement that reads its value, in the innermost block that holds every read. ` +
     `Read its value only inside the loop it acts on.`
   );
@@ -69,7 +70,7 @@ function inlineFnJumpWithNoLoop(jump: string) {
 /** The message of {@link INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE} for `jump`, as the user writes it. */
 function inlineFnJumpInADeeperLoop(jump: string) {
   return (
-    `[RMSL] ${jump} in an Fn called outside the program's body acts on the loop around the first ` +
+    `${jump} in an Fn called outside the program's body acts on the loop around the first ` +
     `statement that reads its value, but a read sits in a loop inside that one. ` +
     `Call the Fn inside the loop it acts on.`
   );
@@ -222,7 +223,7 @@ function framesOf(chain: Chain): Frame[] {
  *
  * Returns each of `blocks`, rewritten where a result was placed.
  */
-function placeInlineFns(blocks: any[]): any[] {
+function placeInlineFns(origin: Origin, blocks: any[]): any[] {
   /** The block that holds the roots, each an item of it. */
   const program = {};
   const holdsMemo = new Map<any, boolean>();
@@ -534,13 +535,18 @@ function placeInlineFns(blocks: any[]): any[] {
   }
   for (const [fn, jump] of jumps) {
     const loopsAround = loopsOn(runsAt(fn));
-    if (loopsAround === 0) throw new Error(INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[jump]);
+    if (loopsAround === 0)
+      throw new ProgramError("jump-in-inline-fn-outside-a-loop", INLINE_FN_JUMP_WITH_NO_LOOP_MESSAGE[jump], origin);
     const paths = reads.get(fn)!.map((read) => {
       const { anchor, chain } = lift(read);
       return fromProgram(anchor, framesOf(chain));
     });
     if (paths.some((path) => loopsOn(path) > loopsAround)) {
-      throw new Error(INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE[jump]);
+      throw new ProgramError(
+        "jump-in-inline-fn-in-a-deeper-loop",
+        INLINE_FN_JUMP_IN_A_DEEPER_LOOP_MESSAGE[jump],
+        origin,
+      );
     }
   }
   if (placed.size === 0) return blocks;
@@ -668,7 +674,7 @@ function holdsStatements(expression: any, memo: Map<any, boolean>): boolean {
  * caller holds is left as it is. A root that is an expression gets a block of
  * its own.
  */
-export function shareNodes<T>(roots: T): T {
+export function shareNodes<T>(origin: Origin, roots: T): T {
   const reads = new Map<any, number>();
   /** Where each node is read: for each read, the frames from the outermost block in. */
   const readAt = new Map<any, Frame[][]>();
@@ -921,7 +927,7 @@ export function shareNodes<T>(roots: T): T {
     Array.isArray(n) ? n.flatMap(blocksOf) : n.block?.type === "seq" ? [n.block] : [];
   const normalized = normalize(roots);
   const own = blocksOf(normalized);
-  const lowered = new Map(placeInlineFns(own).map((b, i) => [own[i], b]));
+  const lowered = new Map(placeInlineFns(origin, own).map((b, i) => [own[i], b]));
   /** A root with its block as the inline `Fn` results placed in it left it. */
   const withPlaced = (n: any): any => {
     if (Array.isArray(n)) return n.map(withPlaced);

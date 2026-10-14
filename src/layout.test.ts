@@ -1,3 +1,4 @@
+import { ProgramError } from "./errors";
 import { describe, it, expect } from "vitest";
 import { Fn, fragCoord, uniform, uniformArray, int, vec4 } from "./rmsl";
 import { wgslUniformLayout } from "./wgsl";
@@ -138,19 +139,28 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   it("refuses gpuUniformLayout on a compile at 64 bits", () => {
     const s = uniform("float");
     const options = { name: "main", params: [], gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 } } as any;
-    expect(() => compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), options)).toThrow(/float: "f32"/);
-    expect(() => compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), { ...options, float: "f64" })).toThrow(
+    expect(() => compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), options)).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
+      /float: "f32"/,
+    );
+    expect(() => compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), { ...options, float: "f64" })).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
       /drop gpuUniformLayout/,
     );
     const layout = { offsets: { [s.name]: 0 }, totalSize: 16 };
     const build = () => Fn(() => s.add(0).toVar())();
     // @ts-expect-error a layout needs float: "f32"
-    expect(() => compileWasmRoutine(build, { name: "main", params: [], gpuUniformLayout: layout })).toThrow();
+    expect(() => compileWasmRoutine(build, { name: "main", params: [], gpuUniformLayout: layout })).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
+    );
     const at64 = { name: "main", params: [], float: "f64" as const, gpuUniformLayout: layout };
     expect(() =>
       // @ts-expect-error a layout needs float: "f32", not "f64"
       compileWasmRoutine(build, at64),
-    ).toThrow();
+    ).toThrowRmsl(ProgramError, "gpu-uniform-layout-needs-f32");
   });
 
   /**
@@ -160,10 +170,26 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const s = uniform("float");
     const gpuUniformLayout = { offsets: { [s.name]: 0 }, totalSize: 16 };
     const options = { gpuUniformLayout } as any;
-    expect(() => createWasmRoutine(s.mul(2), options)).toThrow(/float: "f32"/);
-    expect(() => createWasmGrid({ draw: vec4(fragCoord().x.mul(s), 0, 0, 1), ...options })).toThrow(/float: "f32"/);
-    expect(() => createWasmCompute(Fn(() => s.mul(2).toVar())(), options)).toThrow(/float: "f32"/);
-    expect(() => createWasmRoutine(s.mul(2), { ...options, float: "f64" })).toThrow(/float: "f32"/);
+    expect(() => createWasmRoutine(s.mul(2), options)).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
+      /float: "f32"/,
+    );
+    expect(() => createWasmGrid({ draw: vec4(fragCoord().x.mul(s), 0, 0, 1), ...options })).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
+      /float: "f32"/,
+    );
+    expect(() => createWasmCompute(Fn(() => s.mul(2).toVar())(), options)).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
+      /float: "f32"/,
+    );
+    expect(() => createWasmRoutine(s.mul(2), { ...options, float: "f64" })).toThrowRmsl(
+      ProgramError,
+      "gpu-uniform-layout-needs-f32",
+      /float: "f32"/,
+    );
   });
 
   /**

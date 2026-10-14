@@ -1,3 +1,4 @@
+import { ProgramError } from "../../../errors";
 import type { BaseNode, ShaderType } from "../../../rmsl";
 
 export interface CollectedNodes {
@@ -28,8 +29,9 @@ export function collectNodes(root: BaseNode<ShaderType> | BaseNode<ShaderType>[]
     else if (type === "attribute") attributes.add(node);
     else if (type === "varying") varyings.add(node);
     else if (type === "storage") {
-      throw new Error(
-        `[RMSL] A scene material cannot read the storage buffer "${(node.value as { slot: string }).slot}": ` +
+      throw new ProgramError(
+        "scene-material-reads-storage",
+        `A scene material cannot read the storage buffer "${(node.value as { slot: string }).slot}": ` +
           "neither WebGLRenderer nor WebGPURenderer binds storage buffers. Draw it with createGlsl or createWgsl.",
       );
     }

@@ -1,3 +1,4 @@
+import { RmslError } from "../errors";
 import { expect } from "vitest";
 import { type Node } from "../rmsl";
 import { compileGlslFn } from "../glsl";
@@ -508,29 +509,21 @@ export function evaluateIntegerWASM(build: IntegerBuild, type: IntegerType, args
 }
 
 /**
- * Whether a `compileWasmRoutine`/`compileWasmFn` failure means "not supported by
- * this backend yet" rather than a real bug.
- *
- * Every deliberate "can't compile this (yet)" throw in `wasm.ts` — for
- * an unsupported node type, an integer cube-map sampler, and so on — is
- * constructed with this exact prefix (confirmed:
- * every `throw new Error(...)` in that file uses it, whether the case is a
- * known coverage gap or an internal-misuse check). A genuine WASM engine
- * trap (`WebAssembly.RuntimeError`, thrown by the VM itself when a compiled
- * module actually executes a trapping instruction) or a `CompileError`/
- * `LinkError` (malformed bytecode — a real codegen bug) never carries this
- * prefix, so this check only ever recognizes "doesn't compile", never
- * "crashed" or "computed the wrong answer".
- */
-/**
  * The tests whose recorded programs the WASM target does not compile yet, each
  * with the issue that tracks it. Keyed by the test's full name, as
  * `KNOWN_INVALID` is, so a refusal is a listed gap rather than a quiet skip.
  */
 export const KNOWN_WASM_REFUSALS: Record<string, string> = {};
 
+/**
+ * Whether a `compileWasmRoutine` failure means "this backend does not compile
+ * it" rather than a crash. Every refusal rmsl makes is an `RmslError`. A trap
+ * of the WASM engine (`WebAssembly.RuntimeError`) or a `CompileError` or
+ * `LinkError` of malformed bytecode is not one, so this recognizes only
+ * "doesn't compile", never "crashed" or "computed the wrong answer".
+ */
 function isWasmUnsupported(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("[RMSL] compileWasmFn");
+  return error instanceof RmslError;
 }
 
 /**

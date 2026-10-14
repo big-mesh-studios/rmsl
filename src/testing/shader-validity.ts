@@ -52,6 +52,7 @@ function recordBoth(root: any, stage: ShaderStage, want: ShaderLang, glslOptions
   const test = expect.getState().currentTestName ?? "<unknown test>";
   const pair = nextPair++;
   const entries: Recorded[] = [];
+  const refusals = new Map<ShaderLang, unknown>();
 
   for (const lang of ["glsl", "wgsl"] as const) {
     const entry: Recorded = { test, lang, stage, pair, src: null };
@@ -69,6 +70,7 @@ function recordBoth(root: any, stage: ShaderStage, want: ShaderLang, glslOptions
       // A backend refusing to compile is itself a signal, so it is recorded
       // rather than swallowed.
       entry.compileError = error instanceof Error ? error.message : String(error);
+      refusals.set(lang, error);
     }
     entries.push(entry);
     recorded.push(entry);
@@ -77,7 +79,7 @@ function recordBoth(root: any, stage: ShaderStage, want: ShaderLang, glslOptions
   // The caller's own compilation is one of these, so it is returned rather than
   // run a third time.
   const wanted = entries.find((e) => e.lang === want)!;
-  if (wanted.compileError) throw new Error(wanted.compileError);
+  if (refusals.has(want)) throw refusals.get(want);
   return wanted.src!;
 }
 

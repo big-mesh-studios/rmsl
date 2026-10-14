@@ -1,3 +1,4 @@
+import { ProgramError, UsageError } from "../errors";
 import { fromProgram } from "../test";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
@@ -283,18 +284,12 @@ describe("the values a scene renderer uploads", () => {
       const scene = new Scene();
       scene.add(new Mesh(new PlaneGeometry(), material));
       (material as any).opacity = [1];
-      expect(() => renderer.render(scene, camera())).toThrow(
-        '[RMSL] the float uniform "materialOpacity" takes one value, not an array of 1',
-      );
+      expect(() => renderer.render(scene, camera())).toThrowRmsl(UsageError, "host-value-of-another-shape");
       (material as any).opacity = 1;
       (material.color as any).toArray = () => [1, 1];
-      expect(() => renderer.render(scene, camera())).toThrow(
-        '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 2',
-      );
+      expect(() => renderer.render(scene, camera())).toThrowRmsl(UsageError, "host-value-of-another-shape");
       (material.color as any).toArray = () => [];
-      expect(() => renderer.render(scene, camera())).toThrow(
-        '[RMSL] the vec3 uniform "materialColor" takes 3 components, not an array of 0',
-      );
+      expect(() => renderer.render(scene, camera())).toThrowRmsl(UsageError, "host-value-of-another-shape");
     }
   });
 
@@ -1350,8 +1345,9 @@ describe("a scene renderer manages what it uploads", () => {
     const mesh = new Mesh(new PlaneGeometry(), material);
     mesh.updateMatrixWorld(true);
     const entry = renderer.ensurePipeline(material, new Scene(), false, false);
-    expect(() => renderer.packUniforms(entry, mesh, camera(), 0)).toThrow(
-      '[RMSL] the mat3 uniform "m" takes 9 components, not an array of 0',
+    expect(() => renderer.packUniforms(entry, mesh, camera(), 0)).toThrowRmsl(
+      UsageError,
+      "host-value-of-another-shape",
     );
   });
 
@@ -1377,19 +1373,23 @@ describe("a scene renderer manages what it uploads", () => {
         );
       return m;
     };
-    const message = '[RMSL] the mat3 uniform "m" takes 9 components, not an array of 4';
+    const message = 'the mat3 uniform "m" takes 9 components, not an array of 4';
 
     const { renderer } = stubWebGl();
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(), material()));
-    expect(() => renderer.render(scene, camera())).toThrow(message);
+    expect(() => renderer.render(scene, camera())).toThrowRmsl(UsageError, "host-value-of-another-shape", message);
 
     const { device, canvas } = stubDevice();
     const webgpu = new WebGPURenderer(canvas, device as any) as any;
     const mesh = new Mesh(new PlaneGeometry(), material());
     mesh.updateMatrixWorld(true);
     const entry = webgpu.ensurePipeline(mesh.material, new Scene(), false, false);
-    expect(() => webgpu.packUniforms(entry, mesh, camera(), 0)).toThrow(message);
+    expect(() => webgpu.packUniforms(entry, mesh, camera(), 0)).toThrowRmsl(
+      UsageError,
+      "host-value-of-another-shape",
+      message,
+    );
   });
 
   /**
@@ -2194,9 +2194,15 @@ describe("a scene renderer reads an attribute as the type it declares", () => {
   ] as const)("refuses an attribute declared %s whose array is of another kind, naming the type", (type, data) => {
     const read = (v: any) => (type === "float" ? v : v.toFloat());
     const { renderer } = stubWebGl();
-    expect(() => renderer.render(meshReading(type, data, read), camera())).toThrow(new RegExp(`\\b${type}\\b`));
+    expect(() => renderer.render(meshReading(type, data, read), camera())).toThrowRmsl(
+      UsageError,
+      "vertex-format-of-another-kind",
+      new RegExp(`\\b${type}\\b`),
+    );
     const { device, canvas } = stubDevice();
-    expect(() => new WebGPURenderer(canvas, device as any).render(meshReading(type, data, read), camera())).toThrow(
+    expect(() => new WebGPURenderer(canvas, device as any).render(meshReading(type, data, read), camera())).toThrowRmsl(
+      UsageError,
+      "vertex-format-of-another-kind",
       new RegExp(`\\b${type}\\b`),
     );
   });
@@ -2452,7 +2458,11 @@ describe("a material reads position and normal as TSL does", () => {
       return vec4(f(), 0, 0, 1);
     };
     const { fragmentRoot } = material.build(new Scene());
-    expect(() => compileWgsl.fragment(fragmentRoot)).toThrow(/uses the attribute "_rmsl_a\d+"/);
+    expect(() => compileWgsl.fragment(fragmentRoot)).toThrowRmsl(
+      ProgramError,
+      "layout-fn-uses-stage-value",
+      /uses the attribute "_rmsl_a\d+"/,
+    );
   });
 
   /**

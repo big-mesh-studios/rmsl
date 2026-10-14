@@ -1,3 +1,4 @@
+import { UsageError } from "../errors";
 import { describe, it, expect } from "vitest";
 import { uniform, vec2, vec4, texture } from "../rmsl";
 import { sepia } from "../effects";
@@ -164,12 +165,16 @@ describe("fromProgram", () => {
     const project = fromProgram(build(new MeshBasicMaterial()), { stage: "vertex" });
     // The vertex stage transforms the normal, and nothing here handed it one.
     // What used to come out of this is a TypeError inside a matrix multiply.
-    expect(() => project({ attributes: { position: [0, 0, 0], uv: [0, 0] } })).toThrow(
+    expect(() => project({ attributes: { position: [0, 0, 0], uv: [0, 0] } })).toThrowRmsl(
+      UsageError,
+      "stage-reads-unlisted",
       /vertex stage reads the attribute "normal".*attributes/s,
     );
 
     const shade = fromProgram(build(new MeshStandardMaterial()));
-    expect(() => shade({ varyings: { normalWorld: [0, 1, 0] } })).toThrow(
+    expect(() => shade({ varyings: { normalWorld: [0, 1, 0] } })).toThrowRmsl(
+      UsageError,
+      "stage-reads-unlisted",
       /fragment stage reads the varying "positionWorld"/,
     );
   });
@@ -187,7 +192,11 @@ describe("fromProgram", () => {
     };
     // Shading with an undefined uniform used to give a colour of NaN, which
     // says nothing about where it came from.
-    expect(() => fromProgram(withStray)()).toThrow(/the uniform "stray".*`unbound`/s);
+    expect(() => fromProgram(withStray)()).toThrowRmsl(
+      UsageError,
+      "stage-reads-unlisted",
+      /the uniform "stray".*`unbound`/s,
+    );
   });
   /**
    * @canon spec-a-read-of-an-input-nothing-bound-names-it
@@ -198,14 +207,21 @@ describe("fromProgram", () => {
     material.map = { image: undefined, width: 0, height: 0 } as never;
     const shade = fromProgram(build(material));
     expect(shade.unbound).toContain("map");
-    expect(() => shade({ varyings: { uv: [0, 0] } })).toThrow(/the texture "map"/);
+    expect(() => shade({ varyings: { uv: [0, 0] } })).toThrowRmsl(
+      UsageError,
+      "stage-reads-unlisted",
+      /the texture "map"/,
+    );
   });
   /**
    * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
    */
   it("refuses a stage the program has no root for", () => {
     const program = build(new MeshBasicMaterial());
-    expect(() => fromProgram({ fragmentRoot: program.fragmentRoot }, { stage: "vertex" })).toThrow(/no vertex root/);
+    expect(() => fromProgram({ fragmentRoot: program.fragmentRoot }, { stage: "vertex" })).toThrowRmsl(
+      UsageError,
+      "no-root-for-stage",
+    );
   });
 });
 

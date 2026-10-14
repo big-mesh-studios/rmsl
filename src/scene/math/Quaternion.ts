@@ -1,3 +1,4 @@
+import { UsageError } from "../../errors";
 import type { Euler } from "./Euler";
 import type { Matrix4 } from "./Matrix4";
 import { Vector3 } from "./Vector3";
@@ -155,7 +156,7 @@ export class Quaternion {
         this.w = c1 * c2 * c3 + s1 * s2 * s3;
         break;
       default:
-        throw new Error(`unsupported euler order: ${order}`);
+        throw new UsageError("unknown-euler-order", `unsupported euler order: ${order}`);
     }
     return this;
   }

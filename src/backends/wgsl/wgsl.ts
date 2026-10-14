@@ -1,3 +1,4 @@
+import { InternalError, ProgramError, TargetError, type BackendOrigin } from "../../errors";
 import { withArticle } from "../../article";
 import {
   BaseNode,
@@ -288,10 +289,12 @@ const WGSL_UNIFORM_RULES: AllocRules = {
     // not a shader that fails to build, it is one that reads whatever happens
     // to lie at that address, and the caller has no way to notice.
     if (base === undefined) {
-      throw new Error(
-        `[RMSL] no uniform layout is known for ${type}. Its size and` +
+      throw new InternalError(
+        "no-uniform-layout",
+        `no uniform layout is known for ${type}. Its size and` +
           ` alignment have to be added to WGSL_LAYOUT before it can be packed` +
           ` into a uniform buffer.`,
+        { target: "wgsl" },
       );
     }
     return base;
@@ -397,7 +400,7 @@ function declareWgslFn(definition: FnDefinition, ctx: CompileCtx): string {
   return declareFn(ctx, definition, (name) => {
     const child = bodyContext(ctx);
     const root = numberClashingVariables(
-      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>])[0]!),
+      shareNodes(ctx, prepareRoots(ctx, undefined, [definition.body as Node<ShaderType>])[0]!),
     );
     const compiled = compileWGSLStage(root, child);
     ctx.nextId = child.nextId;
@@ -411,7 +414,7 @@ function declareWgslFn(definition: FnDefinition, ctx: CompileCtx): string {
 
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
-  let folded = tryFold(node);
+  let folded = tryFold(ctx, node);
   if (folded) node = folded;
 
   switch (node.type) {
@@ -591,7 +594,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "uniformArrayElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let arr = compileWGSLStage(node.params![0], ctx);
       let index = compileWGSLStage(node.params![1], ctx);
       // WGSL indexes with i32 or u32; a float loop counter has to be converted.
@@ -619,7 +622,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
       const name = v.slot;
       if (!name) {
-        throw new Error("[RMSL] storage resource requires a name");
+        throw new InternalError("storage-without-name", "storage resource requires a name", ctx);
       }
 
       const type = wgslType(v.shaderType ?? node._t);
@@ -629,7 +632,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       const existing = ctx.storages?.get(name);
 
       if (existing) {
-        if (existing.type !== type) throw new Error(`[RMSL] conflicting storage declaration for "${name}"`);
+        if (existing.type !== type)
+          throw new ProgramError("storage-declared-twice", `conflicting storage declaration for "${name}"`, ctx);
         // Two nodes over one buffer, one read-only: the binding takes the wider access.
         if (existing.access !== access) existing.access = "read_write";
         return { decls: [], body: [], expr: existing.wgslName };
@@ -670,7 +674,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "invocationIndex": {
       if (ctx.shaderStage !== "compute") {
-        throw new Error("[RMSL] invocationIndex() is only valid in compute shaders");
+        throw new ProgramError("builtin-outside-its-stage", "invocationIndex() is only valid in compute shaders", ctx);
       }
 
       return {
@@ -682,7 +686,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "attribute": {
       let v = node.value as any;
-      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
+      assertNotInAComputeStage(ctx, ctx.shaderStage, COMPUTE_REFUSES.attribute);
       if (v && v.id != null && !ctx.attributes.has(v.slot)) {
         ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), shaderType: v.shaderType, slot: v.slot });
       }
@@ -695,7 +699,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "varying": {
       let v = node.value as any;
-      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.varying);
+      assertNotInAComputeStage(ctx, ctx.shaderStage, COMPUTE_REFUSES.varying);
       if (v && v.id != null && !ctx.varyings.has(v.slot)) {
         ctx.varyings.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
@@ -721,7 +725,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "builtinFragDepth": {
       if (ctx.shaderStage !== "fragment") {
-        throw new Error("builtinFragDepth() can only be used in fragment shaders");
+        throw new ProgramError(
+          "builtin-outside-its-stage",
+          "builtinFragDepth() can only be used in fragment shaders",
+          ctx,
+        );
       }
       ctx.fragDepthUsed = true;
       // The depth starts from the fragment's own, which the position input holds.
@@ -731,7 +739,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "vertexIndex":
     case "instanceIndex": {
-      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      if (ctx.shaderStage !== "vertex")
+        throw new ProgramError("builtin-outside-its-stage", `${node.type}() can only be used in vertex shaders`, ctx);
       if (node.type === "vertexIndex") ctx.vertexIndexUsed = true;
       else ctx.instanceIndexUsed = true;
       return { decls: [], body: [], expr: node.type === "vertexIndex" ? "_rmsl_vertexIndex" : "_rmsl_instanceIndex" };
@@ -739,7 +748,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "fragCoord": {
       if (ctx.shaderStage !== "fragment") {
-        throw new Error("fragCoord() can only be used in fragment shaders");
+        throw new ProgramError("builtin-outside-its-stage", "fragCoord() can only be used in fragment shaders", ctx);
       }
       ctx.fragCoordUsed = true;
       return { decls: [], body: [], expr: "_rmsl_fragCoordInput.xy" };
@@ -981,7 +990,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       // No inverse() builtin in WGSL, so one is written out per matrix size and
       // pulled in on demand.
       let operand = compileWGSLStage(node.params![0], ctx);
-      let size = assertSquareMatrix((node.params![0] as any)?._t);
+      let size = assertSquareMatrix(ctx, (node.params![0] as any)?._t);
       let helper = `_rmsl_inverse${size}`;
       ctx.wgslHelpers.add(helper);
       return {
@@ -1009,7 +1018,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "matrixElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let mat = compileWGSLStage(node.params![0], ctx);
       let idx = compileWGSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
@@ -1025,7 +1034,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "vectorElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let src = compileWGSLStage(node.params![0], ctx);
       let idx = compileWGSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
@@ -1163,7 +1172,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage, true);
+      assertAssignable(ctx, node.params![0], ctx.shaderStage, true);
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a
@@ -1358,7 +1367,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       // unhandled node becomes the literal 0.0 and the program still "compiles".
       // Every node type the public API can build has a case above, so reaching
       // this means the compiler lost one.
-      throw new Error(`[RMSL] Unsupported node type in WGSL compiler: "${node.type}"`);
+      throw new InternalError("unsupported-node-kind", `Unsupported node type in WGSL compiler: "${node.type}"`, ctx);
   }
 }
 
@@ -1609,11 +1618,13 @@ export function unaryWGSL(
 }
 
 export function compileWGSLWithStage(
+  origin: BackendOrigin,
   root: Node<ShaderType> | readonly Node<ShaderType>[],
   shaderStage: "vertex" | "fragment" | "compute",
   options?: CompileWGSLOptions,
 ): string {
   let ctx: CompileCtx = {
+    ...origin,
     nextId: 0,
     shaderStage,
     uniforms: new Map(),
@@ -1639,9 +1650,9 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  nodes = prepareRoots(shaderStage, nodes);
-  nodes = numberClashingVariables(shareNodes(nodes));
-  assertOneDeclarationPerName(nodes);
+  nodes = prepareRoots(ctx, shaderStage, nodes);
+  nodes = numberClashingVariables(shareNodes(ctx, nodes));
+  assertOneDeclarationPerName(ctx, nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
   let allBody: string[] = [];
@@ -1656,7 +1667,7 @@ export function compileWGSLWithStage(
     lastExpr = results[i].expr;
     lastType = (nodes[i] as any)?._t;
   }
-  assertStageResult(shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
+  assertStageResult(ctx, shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
   // A vec4-typed node always has a value, so its type alone settles this. An
   // explicit write means the implicit one would be a second, conflicting
   // assignment.
@@ -1676,8 +1687,9 @@ export function compileWGSLWithStage(
   // Without `options.samplers` a stage declares the textures it samples.
   let declaredTextures: { slot: string; type: string; integer: boolean }[];
   if (options?.samplers) {
-    declaredTextures = sharedSamplerDeclarations(options.samplers);
+    declaredTextures = sharedSamplerDeclarations(origin, options.samplers);
     listedOrder(
+      origin,
       "samplers",
       "texture",
       declaredTextures.map((t) => t.slot),
@@ -1697,6 +1709,7 @@ export function compileWGSLWithStage(
   // never reads costs it nothing.
   let declared = options?.uniforms
     ? sharedUniformMembers(
+        origin,
         options.uniforms,
         plain.map(([, i]) => i),
       )
@@ -1839,7 +1852,7 @@ export function compileWGSLWithStage(
 
     const workgroupSize = options?.workgroupSize ?? 64;
     if (!Number.isInteger(workgroupSize) || workgroupSize <= 0) {
-      throw new Error("[RMSL] compute workgroupSize must be a positive integer");
+      throw new ProgramError("workgroup-size-not-positive", "compute workgroupSize must be a positive integer", ctx);
     }
     lines.push(`@compute @workgroup_size(${workgroupSize})`);
     lines.push("fn main(@builtin(global_invocation_id) _rmsl_globalId: vec3<u32>) {");
@@ -1953,6 +1966,7 @@ function storageOrder(ctx: CompileCtx, options: CompileWGSLOptions | undefined):
   let read = [...ctx.storages!.values()];
   if (!options?.storages) return read.sort((a, b) => a.order - b.order).map((info) => info.name);
   return listedOrder(
+    ctx,
     "storages",
     "storage buffer",
     options.storages.map((node) => node.name),
@@ -1965,15 +1979,27 @@ function storageOrder(ctx: CompileCtx, options: CompileWGSLOptions | undefined):
  * list holds twice, and for a name the stage reads that the list leaves out,
  * since neither has one binding.
  */
-function listedOrder(list: string, what: string, listed: readonly string[], read: Iterable<string>): string[] {
+function listedOrder(
+  origin: BackendOrigin,
+  list: string,
+  what: string,
+  listed: readonly string[],
+  read: Iterable<string>,
+): string[] {
   const repeated = listed.find((name, i) => listed.indexOf(name) !== i);
   if (repeated !== undefined) {
-    throw new Error(`[RMSL] the ${list} passed to the compiler list the ${what} "${repeated}" twice`);
+    throw new ProgramError(
+      "listed-twice",
+      `the ${list} passed to the compiler list the ${what} "${repeated}" twice`,
+      origin,
+    );
   }
   for (const name of read) {
     if (!listed.includes(name)) {
-      throw new Error(
-        `[RMSL] the ${what} "${name}" is read by this stage but missing from the ${list} passed to the compiler`,
+      throw new ProgramError(
+        "missing-from-list",
+        `the ${what} "${name}" is read by this stage but missing from the ${list} passed to the compiler`,
+        origin,
       );
     }
   }
@@ -1994,14 +2020,23 @@ export type WgslTextureType =
 
 /** The textures of a render program in binding order, as the WGSL declares them: each at its index in `samplers`. */
 export function sharedSamplerDeclarations(
+  origin: BackendOrigin,
   samplers: readonly UniformNode<WgslTextureType>[],
 ): { slot: string; shaderType: string; type: string; integer: boolean }[] {
   return samplers.map((node) => {
     const shaderType = node._t as string;
     if (!isSamplerType(shaderType))
-      throw new Error(`[RMSL] "${node.name}" is ${withArticle(shaderType)} uniform, not a texture`);
+      throw new ProgramError(
+        "not-a-texture",
+        `"${node.name}" is ${withArticle(shaderType)} uniform, not a texture`,
+        origin,
+      );
     if (!(shaderType in typeToWGSL))
-      throw new Error(`[RMSL] "${node.name}" has the sampler type "${shaderType}", which WGSL has no texture for`);
+      throw new TargetError(
+        "sampler-kind-unsupported",
+        `"${node.name}" has the sampler type "${shaderType}", which WGSL has no texture for`,
+        origin,
+      );
     return { slot: node.name, shaderType, type: wgslType(shaderType), integer: isIntegerSamplerType(shaderType) };
   });
 }
@@ -2044,6 +2079,12 @@ export type CompileWGSLOptions = {
 /** The bind group a render stage's storage buffers are declared in. */
 export const WGSL_RENDER_STORAGE_GROUP = 3;
 
+const COMPILE_WGSL: BackendOrigin = { target: "wgsl", caller: "compileWgsl" };
+const COMPILE_WGSL_VERTEX: BackendOrigin = { target: "wgsl", caller: "compileWgsl.vertex" };
+const COMPILE_WGSL_FRAGMENT: BackendOrigin = { target: "wgsl", caller: "compileWgsl.fragment" };
+const COMPILE_WGSL_COMPUTE: BackendOrigin = { target: "wgsl", caller: "compileWgsl.compute" };
+const COMPILE_WGSL_FN: BackendOrigin = { target: "wgsl", caller: "compileWgslFn" };
+
 export const compileWgsl: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
   vertex(root: VertexRoot, options?: CompileWGSLOptions): string;
@@ -2051,14 +2092,14 @@ export const compileWgsl: {
   compute(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
 } = Object.assign(
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions) =>
-    compileWGSLWithStage(root, "fragment", options),
+    compileWGSLWithStage(COMPILE_WGSL, root, "fragment", options),
   {
     vertex: (root: VertexRoot, options?: CompileWGSLOptions) =>
-      compileWGSLWithStage(root as Node<ShaderType>, "vertex", options),
+      compileWGSLWithStage(COMPILE_WGSL_VERTEX, root as Node<ShaderType>, "vertex", options),
     fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions) =>
-      compileWGSLWithStage(root, "fragment", options),
+      compileWGSLWithStage(COMPILE_WGSL_FRAGMENT, root, "fragment", options),
     compute: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions) =>
-      compileWGSLWithStage(root, "compute", options),
+      compileWGSLWithStage(COMPILE_WGSL_COMPUTE, root, "compute", options),
   },
 );
 
@@ -2071,6 +2112,7 @@ export const compileWgsl: {
  * syntax error somewhere in generated code. Saying so here names the slot.
  */
 export function sharedUniformMembers(
+  origin: BackendOrigin,
   uniforms: readonly (UniformNode<ShaderType> | UniformArrayNode<ShaderType>)[],
   used: { slot: string; type: string; length?: number }[],
 ): WgslUniformDeclaration[] {
@@ -2078,10 +2120,12 @@ export function sharedUniformMembers(
   let names = new Set(declared.map((u) => u.slot));
   for (let uniform of used) {
     if (!names.has(uniform.slot)) {
-      throw new Error(
-        `[RMSL] the uniform "${uniform.slot}" is read by this stage but missing` +
+      throw new ProgramError(
+        "missing-from-list",
+        `the uniform "${uniform.slot}" is read by this stage but missing` +
           ` from the uniforms passed to the compiler. Pass every uniform of the` +
           ` program, so both stages and the host agree on the buffer layout.`,
+        origin,
       );
     }
   }
@@ -2099,13 +2143,18 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const built = fn(...paramNodes);
   if (Array.isArray(built)) {
-    throw new Error(
+    throw new TargetError(
+      "multi-return-function",
       "compileWgslFn does not support multi-return functions. Define separate functions for each return value.",
+      COMPILE_WGSL_FN,
     );
   }
-  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built])[0]!));
+  const result = numberClashingVariables(
+    shareNodes(COMPILE_WGSL_FN, prepareRoots(COMPILE_WGSL_FN, undefined, [built])[0]!),
+  );
 
   const ctx: CompileCtx = {
+    ...COMPILE_WGSL_FN,
     // The function the wrapper declares and its parameters are names a layout function cannot take.
     userFns: {
       names: new Map(),
@@ -2134,7 +2183,7 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     derivatives: "throw",
     reentrant: false,
   };
-  assertOneDeclarationPerName(result);
+  assertOneDeclarationPerName(ctx, result);
   const resultType = (result as any)._t || "float";
   const returnType = wgslType(resultType);
   const returnsNothing = resultType === "void";

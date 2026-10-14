@@ -1,3 +1,4 @@
+import { UsageError, type Origin } from "../errors";
 import { MATRIX_DIMENSIONS, Node, OutputStruct, ShaderType, TYPE_WIDTH } from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
@@ -297,8 +298,8 @@ export const isVector = (value: unknown): value is ArrayLike<number> =>
   Array.isArray(value) || ArrayBuffer.isView(value);
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
-export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
-  const position = vertexPosition(raw) as VertexResult["position"];
+export function toVertexResult(origin: Origin, raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
+  const position = vertexPosition(origin, raw) as VertexResult["position"];
   return { position, varyings: (isResultObject(raw) && (raw.varyings as Record<string, unknown>)) || {} };
 }
 
@@ -307,10 +308,14 @@ export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | nu
  * `builtinPosition()`, or else its `vec4` result. A stage that gave neither
  * is refused.
  */
-export function vertexPosition(raw: unknown): ArrayLike<number> {
+export function vertexPosition(origin: Origin, raw: unknown): ArrayLike<number> {
   const position = (isResultObject(raw) ? (raw.position ?? raw.value) : raw) as ArrayLike<number> | undefined;
   if (!position) {
-    throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
+    throw new UsageError(
+      "no-position-written",
+      "A vertex stage never wrote a position, with builtinPosition() or a vec4 result.",
+      origin,
+    );
   }
   return position;
 }

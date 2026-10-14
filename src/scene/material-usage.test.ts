@@ -1,3 +1,4 @@
+import { ProgramError } from "../errors";
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, vec3, vec4, mix, instancedArray, int, ivec2, ivec3, uvec2, uvec3, texture } from "../rmsl";
 import { compileJSFragment } from "../js";
@@ -205,8 +206,10 @@ describe("node materials", () => {
   it("refuses a uniform name registered again with another type", () => {
     const b = new Builder();
     b.materialUniform("tint", "vec3", () => [1, 0, 0]);
-    expect(() => b.materialUniform("tint", "vec4", () => [1, 0, 0, 1])).toThrow(
-      '[RMSL/scene] uniform "tint" is a vec3, and is registered again as a vec4',
+    expect(() => b.materialUniform("tint", "vec4", () => [1, 0, 0, 1])).toThrowRmsl(
+      ProgramError,
+      "uniform-registered-twice",
+      'uniform "tint" is a vec3, and is registered again as a vec4',
     );
   });
   /**
@@ -335,7 +338,11 @@ describe("a material that reads storage", () => {
     const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
     const material = new NodeMaterial();
     material.fragmentNode = () => colours.element(int(0));
-    expect(() => material.build(new Scene())).toThrow(new RegExp(`storage buffer "${colours.name}"`));
+    expect(() => material.build(new Scene())).toThrowRmsl(
+      ProgramError,
+      "scene-material-reads-storage",
+      new RegExp(`storage buffer "${colours.name}"`),
+    );
   });
 });
 

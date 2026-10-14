@@ -1,3 +1,4 @@
+import { LimitError, PlatformError, TargetError, UsageError, type Origin, type BackendOrigin } from "../../errors";
 import { withArticle } from "../../article";
 import {
   isSamplerType,
@@ -84,6 +85,8 @@ function samplesTextures(root: Node<ShaderType>): boolean {
   return someNode(root, (node) => typeof node._t === "string" && isSamplerType(node._t));
 }
 
+const CREATE_WGSL_CONTEXT: BackendOrigin = { target: "wgsl", caller: "createWgslContext" };
+
 /**
  * Creates a {@link WgslContext} on `options.device`, or on a new device that
  * binds as many storage buffers per shader stage as the hardware can.
@@ -92,7 +95,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
   let device = options.device;
   if (!device) {
     const adapter = await navigator.gpu?.requestAdapter();
-    if (!adapter) throw new Error("[RMSL] WebGPU is not available");
+    if (!adapter) throw new PlatformError("webgpu-unavailable", "WebGPU is not available", { target: "wgsl" });
     device = await requestComputeDevice(adapter);
   }
   const gpu = device;
@@ -130,10 +133,14 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     let existing = programs.get(node);
     if (existing) return existing;
     if (samplesTextures(node.computeNode)) {
-      throw new Error("[RMSL] createWgslContext: programs that sample textures aren't supported yet.");
+      throw new TargetError(
+        "texture-sampling-unsupported",
+        "createWgslContext: programs that sample textures aren't supported yet.",
+        { target: "wgsl" },
+      );
     }
     const compiled = compile({ stage: "compute" }, node);
-    assertStorageBufferLimit(gpu.limits, compiled.resources, "createWgslContext");
+    assertStorageBufferLimit(CREATE_WGSL_CONTEXT, gpu.limits, compiled.resources);
     const pipeline = gpu.createComputePipeline({
       layout: "auto",
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },
@@ -142,8 +149,10 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     const storages = compiled.resources.filter((r) => r.kind === "storage");
     for (const r of storages) {
       if (resident(r.attribute).layout.stride !== storageLayout(r.attribute).stride) {
-        throw new Error(
-          `[RMSL] createWgslContext: ${withArticle(r.shaderType)} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
+        throw new UsageError(
+          "storage-laid-out-too-early",
+          `createWgslContext: ${withArticle(r.shaderType)} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
+          CREATE_WGSL_CONTEXT,
         );
       }
     }
@@ -205,14 +214,18 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       // encoded, so one that can't run leaves the others' state untouched.
       const compiled = list.map((node) => {
         if (node.workgroupSize > maxWorkgroupSize) {
-          throw new Error(
-            `[RMSL] createWgslContext: a workgroup size of ${node.workgroupSize} is past the device's limit of ${maxWorkgroupSize}`,
+          throw new LimitError(
+            "workgroup-size",
+            `createWgslContext: a workgroup size of ${node.workgroupSize} is past the device's limit of ${maxWorkgroupSize}`,
+            { target: "wgsl", limit: maxWorkgroupSize, requested: node.workgroupSize },
           );
         }
         const workgroups = Math.ceil(node.count / node.workgroupSize);
         if (workgroups > maxComputeWorkgroupsPerDimension) {
-          throw new Error(
-            `[RMSL] createWgslContext: a count of ${node.count} needs ${workgroups} workgroups of ${node.workgroupSize}, past the device's limit of ${maxComputeWorkgroupsPerDimension}; use a larger workgroup size, up to ${maxWorkgroupSize}`,
+          throw new LimitError(
+            "workgroup-count",
+            `createWgslContext: a count of ${node.count} needs ${workgroups} workgroups of ${node.workgroupSize}, past the device's limit of ${maxComputeWorkgroupsPerDimension}; use a larger workgroup size, up to ${maxWorkgroupSize}`,
+            { target: "wgsl", limit: maxComputeWorkgroupsPerDimension, requested: workgroups },
           );
         }
         return program(node);
@@ -232,15 +245,15 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
-      assertUniformShape(uniform, value);
+      assertUniformShape(CREATE_WGSL_CONTEXT, uniform, value);
       // Copied, so changing the array afterwards doesn't reach a program without another setUniform().
       uniformValues.set(slotOf(uniform), structuredClone(value) as number | number[]);
       uniformVersion++;
     },
 
     write(attribute, data, offset = 0) {
-      assertWriteKind(attribute, data);
-      assertWriteFits(attribute, data.length, offset);
+      assertWriteKind(CREATE_WGSL_CONTEXT, attribute, data);
+      assertWriteFits(CREATE_WGSL_CONTEXT, attribute, data.length, offset);
       const { buffer, layout } = resident(attribute);
       const { slot, data: slots } = spread(data, offset * attribute.itemSize, layout);
       gpu.queue.writeBuffer(buffer, slot * 4, slots as BufferSource);

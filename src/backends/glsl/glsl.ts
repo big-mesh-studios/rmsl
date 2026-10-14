@@ -1,3 +1,4 @@
+import { InternalError, ProgramError, TargetError, type BackendOrigin } from "../../errors";
 import { BaseNode, FnDefinition, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, UniformPrecision } from "../../core";
 import {
   assertAssignable,
@@ -112,7 +113,7 @@ export function compileGLSLNode(
   ctx: CompileCtx,
 ): CompiledNode {
   // Constant folding
-  let folded = tryFold(node);
+  let folded = tryFold(ctx, node);
   if (folded) node = folded;
 
   switch (node.type) {
@@ -234,7 +235,7 @@ export function compileGLSLNode(
     }
 
     case "uniformArrayElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let arr = compileGLSLStage(node.params![0], ctx);
       let index = compileGLSLStage(node.params![1], ctx);
       // GLSL indexes with an int; a float loop counter has to be converted.
@@ -278,7 +279,11 @@ export function compileGLSLNode(
 
     case "builtinFragDepth": {
       if (ctx.shaderStage !== "fragment") {
-        throw new Error("builtinFragDepth() can only be used in fragment shaders");
+        throw new ProgramError(
+          "builtin-outside-its-stage",
+          "builtinFragDepth() can only be used in fragment shaders",
+          ctx,
+        );
       }
       ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "gl_FragDepth" };
@@ -286,13 +291,14 @@ export function compileGLSLNode(
 
     case "vertexIndex":
     case "instanceIndex": {
-      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      if (ctx.shaderStage !== "vertex")
+        throw new ProgramError("builtin-outside-its-stage", `${node.type}() can only be used in vertex shaders`, ctx);
       return { decls: [], body: [], expr: node.type === "vertexIndex" ? "uint(gl_VertexID)" : "uint(gl_InstanceID)" };
     }
 
     case "fragCoord": {
       if (ctx.shaderStage !== "fragment") {
-        throw new Error("fragCoord() can only be used in fragment shaders");
+        throw new ProgramError("builtin-outside-its-stage", "fragCoord() can only be used in fragment shaders", ctx);
       }
       return { decls: [], body: [], expr: "gl_FragCoord.xy" };
     }
@@ -558,7 +564,7 @@ export function compileGLSLNode(
     case "transpose":
       return unaryGLSL(node, ctx, "transpose");
     case "inverse":
-      assertSquareMatrix((node.params![0] as any)?._t);
+      assertSquareMatrix(ctx, (node.params![0] as any)?._t);
       return unaryGLSL(node, ctx, "inverse");
     case "determinant":
       return unaryGLSL(node, ctx, "determinant");
@@ -579,7 +585,7 @@ export function compileGLSLNode(
     }
 
     case "matrixElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let mat = compileGLSLStage(node.params![0], ctx);
       let idx = compileGLSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
@@ -595,7 +601,7 @@ export function compileGLSLNode(
     }
 
     case "vectorElement": {
-      assertConstantIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(ctx, node.params![0], node.params![1]);
       let src = compileGLSLStage(node.params![0], ctx);
       let idx = compileGLSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
@@ -721,7 +727,7 @@ export function compileGLSLNode(
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage, true);
+      assertAssignable(ctx, node.params![0], ctx.shaderStage, true);
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {
@@ -869,7 +875,7 @@ export function compileGLSLNode(
       // unhandled node becomes the literal 0.0 and the program still "compiles".
       // Every node type the public API can build has a case above, so reaching
       // this means the compiler lost one.
-      throw new Error(`[RMSL] Unsupported node type in GLSL compiler: "${node.type}"`);
+      throw new InternalError("unsupported-node-kind", `Unsupported node type in GLSL compiler: "${node.type}"`, ctx);
   }
 }
 
@@ -881,7 +887,7 @@ function declareGlslFn(definition: FnDefinition, ctx: CompileCtx): string {
   return declareFn(ctx, definition, (name) => {
     const child = bodyContext(ctx);
     const root = numberClashingVariables(
-      shareNodes(prepareRoots(undefined, [definition.body as Node<ShaderType>], undefined, true)[0]!),
+      shareNodes(ctx, prepareRoots(ctx, undefined, [definition.body as Node<ShaderType>], undefined, true)[0]!),
     );
     const compiled = compileGLSLStage(root, child);
     ctx.nextId = child.nextId;
@@ -1040,15 +1046,21 @@ export interface CompileGLSLOptions {
 }
 
 export function compileGLSLWithStage(
+  origin: BackendOrigin,
   root: Node<ShaderType> | readonly Node<ShaderType>[],
   shaderStage: "vertex" | "fragment",
   options: CompileGLSLOptions = {},
 ): string {
   const precision = options.precision ?? "highp";
   if (precision !== "lowp" && precision !== "mediump" && precision !== "highp") {
-    throw new Error(`[RMSL] unknown precision "${precision}" — use "lowp", "mediump" or "highp".`);
+    throw new ProgramError(
+      "unknown-precision",
+      `unknown precision "${precision}" — use "lowp", "mediump" or "highp".`,
+      origin,
+    );
   }
   let ctx: CompileCtx = {
+    ...origin,
     nextId: 0,
     shaderStage,
     uniforms: new Map(),
@@ -1073,9 +1085,9 @@ export function compileGLSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  nodes = prepareRoots(shaderStage, nodes, undefined, true);
-  nodes = numberClashingVariables(shareNodes(nodes));
-  assertOneDeclarationPerName(nodes);
+  nodes = prepareRoots(ctx, shaderStage, nodes, undefined, true);
+  nodes = numberClashingVariables(shareNodes(ctx, nodes));
+  assertOneDeclarationPerName(ctx, nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
   let allBody: string[] = [];
   let lastExpr = "0.0";
@@ -1089,7 +1101,7 @@ export function compileGLSLWithStage(
     lastExpr = results[i].expr;
     lastType = (nodes[i] as any)?._t;
   }
-  assertStageResult(shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
+  assertStageResult(ctx, shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
   // A vec4-typed node always has a value, so its type alone settles this. An
   // explicit write means the implicit one would be a second, conflicting
   // assignment.
@@ -1181,20 +1193,25 @@ export function compileGLSLWithStage(
   return lines.join("\n");
 }
 
+const COMPILE_GLSL: BackendOrigin = { target: "glsl", caller: "compileGlsl" };
+const COMPILE_GLSL_VERTEX: BackendOrigin = { target: "glsl", caller: "compileGlsl.vertex" };
+const COMPILE_GLSL_FRAGMENT: BackendOrigin = { target: "glsl", caller: "compileGlsl.fragment" };
+const COMPILE_GLSL_FN: BackendOrigin = { target: "glsl", caller: "compileGlslFn" };
+
 export const compileGlsl: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
   vertex(root: VertexRoot, options?: CompileGLSLOptions): string;
   fragment(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
 } = Object.assign(
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
-    compileGLSLWithStage(root, "fragment", options),
+    compileGLSLWithStage(COMPILE_GLSL, root, "fragment", options),
   {
     // The value is always a node; void only describes a body that returned
     // nothing, which still compiles to one.
     vertex: (root: VertexRoot, options?: CompileGLSLOptions) =>
-      compileGLSLWithStage(root as Node<ShaderType>, "vertex", options),
+      compileGLSLWithStage(COMPILE_GLSL_VERTEX, root as Node<ShaderType>, "vertex", options),
     fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
-      compileGLSLWithStage(root, "fragment", options),
+      compileGLSLWithStage(COMPILE_GLSL_FRAGMENT, root, "fragment", options),
   },
 );
 
@@ -1209,13 +1226,18 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const built = fn(...paramNodes);
   if (Array.isArray(built)) {
-    throw new Error(
+    throw new TargetError(
+      "multi-return-function",
       "compileGlslFn does not support multi-return functions. Define separate functions for each return value.",
+      COMPILE_GLSL_FN,
     );
   }
-  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built], undefined, true)[0]!));
+  const result = numberClashingVariables(
+    shareNodes(COMPILE_GLSL_FN, prepareRoots(COMPILE_GLSL_FN, undefined, [built], undefined, true)[0]!),
+  );
 
   const ctx: CompileCtx = {
+    ...COMPILE_GLSL_FN,
     nextId: 0,
     shaderStage: "fragment",
     // The function the wrapper declares and its parameters are names a layout function cannot take.
@@ -1244,7 +1266,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     derivatives: "throw",
     reentrant: false,
   };
-  assertOneDeclarationPerName(result);
+  assertOneDeclarationPerName(ctx, result);
   const returnType = glslType((result as any)._t || "float");
   // An early `Return()` has no value to give, so it returns the zero value of
   // the function's type, as the function does when its body ends.

@@ -1,3 +1,4 @@
+import { PlatformError, UsageError, type Origin, type BackendOrigin } from "../../errors";
 import { Node, RoutineParam, ShaderType } from "../../core";
 import {
   Adapter,
@@ -35,6 +36,11 @@ export interface CreateJsGridOptions {
   float?: CompileJSOptions["float"];
 }
 
+const CREATE_JS_GRID: BackendOrigin = { target: "js", caller: "createJsGrid" };
+const CREATE_JS_ROUTINE: BackendOrigin = { target: "js", caller: "createJsRoutine" };
+const CREATE_JS_COMPUTE: BackendOrigin = { target: "js", caller: "createJsCompute" };
+const CREATE_JS: BackendOrigin = { target: "js", caller: "createJs" };
+
 /**
  * Compiles a `fragCoord()` program with {@link compileJSGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
@@ -54,7 +60,7 @@ export function createJsGrid(options: CreateJsGridOptions): CpuAdapter {
     float: options.float,
   });
 
-  return createCpuAdapter({ draw, guard: hostInputGuard(options.draw, true) });
+  return createCpuAdapter({ origin: CREATE_JS_GRID, draw, guard: hostInputGuard(CREATE_JS_GRID, options.draw, true) });
 }
 
 export interface CreateJsRoutineOptions {
@@ -78,6 +84,7 @@ export function createJsRoutine<
   const P extends readonly RoutineParam[] = readonly [],
 >(fn: Node<A>, options: CreateJsRoutineOptions & { float?: W; params?: P } = {}): CpuRoutineAdapter<A, W, P> {
   return createCpuRoutineAdapter<A, W, P>(
+    CREATE_JS_ROUTINE,
     compileJSRoutine(() => fn, {
       name: options.name ?? "routine",
       params: [...(options.params ?? [])],
@@ -86,7 +93,7 @@ export function createJsRoutine<
       float: options.float,
     }),
     options.params ?? ([] as readonly RoutineParam[] as P),
-    hostInputGuard(fn, true),
+    hostInputGuard(CREATE_JS_ROUTINE, fn, true),
   );
 }
 
@@ -136,7 +143,12 @@ export function createJsCompute(
     float: options.float,
   });
 
-  return createCpuAdapter({ compute: computeRoutine, guard: hostInputGuard(compute, true), float: options.float });
+  return createCpuAdapter({
+    origin: CREATE_JS_COMPUTE,
+    compute: computeRoutine,
+    guard: hostInputGuard(CREATE_JS_COMPUTE, compute, true),
+    float: options.float,
+  });
 }
 
 /**
@@ -172,14 +184,14 @@ export function createJs(
   fragmentFn: (...args: any[]) => any,
   options: CompileJSRasterOptions = {},
 ): JsAdapter {
-  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(vertexFn(), fragmentFn(), true);
+  const { vertex: vertexRoots, fragment: fragmentRoots } = linkStages(CREATE_JS, vertexFn(), fragmentFn(), true);
   const routine = compileJSRasterizer(
-    "createJs",
+    CREATE_JS,
     () => vertexRoots,
     () => fragmentRoots,
     options,
   );
-  const guard = hostInputGuard([vertexRoots, fragmentRoots], true);
+  const guard = hostInputGuard(CREATE_JS, [vertexRoots, fragmentRoots], true);
 
   const uniforms: Record<string, unknown> = {};
   const attributes: Record<string, TypedArray> = {};
@@ -203,7 +215,8 @@ export function createJs(
     attach(givenCanvas) {
       canvas = givenCanvas ?? document.createElement("canvas");
       const context = canvas.getContext("2d");
-      if (!context) throw new Error("[RMSL] 2D canvas context unavailable");
+      if (!context)
+        throw new PlatformError("canvas-context-unavailable", "2D canvas context unavailable", { target: "js" });
       ctx2d = context;
     },
 
@@ -215,7 +228,7 @@ export function createJs(
     },
 
     draw(drawOptions) {
-      if (!canvas || !ctx2d) throw new Error("[RMSL] createJs: attach() was never called");
+      if (!canvas || !ctx2d) throw new UsageError("not-attached", "createJs: attach() was never called", CREATE_JS);
       const ctx: JsRasterContext = { attributes, uniforms, textures };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,
