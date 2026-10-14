@@ -1,6 +1,8 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
+  builtinFragDepth,
+  builtinPosition,
   fragCoord,
   varying,
   Fn,
@@ -16,13 +18,14 @@ import {
   type Node,
 } from "../rmsl";
 import { compileWgsl as compileWgslStage, compileWgslFn } from "../wgsl";
-import { compileGlslFn } from "../glsl";
+import { compileGlsl as compileGlslStage, compileGlslFn } from "../glsl";
 import { deserialize, serialize } from "../serialize";
-import { compileJSFn, compileJSFragment, compileJSRoutine } from "../js";
-import { compileWasmFn, compileWasmFragment, compileWasmRoutine } from "../wasm";
+import { compileJSFn, compileJSFragment, compileJSRoutine, compileJSVertex } from "../js";
+import { compileWasmFn, compileWasmFragment, compileWasmRoutine, compileWasmVertex } from "../wasm";
 import {
   assertRecordedShadersValid,
   recordingGLSL as compileGlsl,
+  expectCompileRejection,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
 import {
@@ -497,20 +500,104 @@ describe("a mistake in a function with a layout is refused", () => {
   });
 
   /**
-   * @canon spec-a-layout-fn-uses-no-input-or-output-of-its-stage
+   * @canon spec-a-layout-fn-writes-no-output-of-its-stage
    */
   it.each([
-    ["an attribute", () => attribute("vec3"), /uses an attribute/],
-    ["a varying", () => varying("float"), /uses a varying/],
-    ["fragCoord()", () => fragCoord(), /uses fragCoord\(\)/],
-  ] as const)("refuses a body that uses %s, on every target", (_, stageBound, refusal) => {
-    const use: any = stageBound();
-    const f = Fn(() => float(use.x ?? use)).setLayout({ name: "f", type: "float", inputs: [] });
+    ["the fragment depth", "fragment", () => builtinFragDepth().assign(float(0.5)), /uses the fragment depth/],
+    ["the position", "vertex", () => builtinPosition().assign(vec4(0, 0, 0, 1)), /uses the position/],
+  ] as const)("refuses a body that writes %s, on every target", (_, stage, write, refusal) => {
+    const f = Fn(() => {
+      write();
+      return float(1);
+    }).setLayout({ name: "f", type: "float", inputs: [] });
     const build = () => Fn(() => vec4(f(), 0, 0, 1))();
-    expect(() => compileGlsl.fragment(build())).toThrow(refusal);
-    expect(() => compileWgsl.fragment(build())).toThrow(refusal);
-    expect(() => compileJSFragment(build, none)).toThrow(refusal);
-    expect(() => compileWasmFragment(build, none)).toThrow(refusal);
+    const [glsl, wgsl, js, wasm] =
+      stage === "fragment"
+        ? [compileGlsl.fragment, compileWgsl.fragment, compileJSFragment, compileWasmFragment]
+        : [compileGlsl.vertex, compileWgsl.vertex, compileJSVertex, compileWasmVertex];
+    expect(() => (glsl as any)(build())).toThrow(refusal);
+    expect(() => (wgsl as any)(build())).toThrow(refusal);
+    expect(() => (js as any)(build, none)).toThrow(refusal);
+    expect(() => (wasm as any)(build, none)).toThrow(refusal);
+  });
+
+  /** A stage input a layout `Fn` reads, built into a function and a fragment stage that calls it. */
+  const readsStageInput = (name: string, read: () => Node<"float">) => {
+    const f = Fn(() => read()).setLayout({ name, type: "float", inputs: [] });
+    return () => Fn(() => vec4(0, f().add(f()), 0, 1))();
+  };
+  const aVarying = varying("float");
+  const reads = {
+    varying: readsStageInput("readsVarying", () => aVarying.mul(2)),
+    builtIn: readsStageInput("readsFragCoord", () => fragCoord().x.mul(0).add(0.25)),
+  };
+
+  /**
+   * @canon spec-a-layout-fn-reads-a-varying
+   */
+  it("reads a varying from a function, on GLSL, JS and WASM", () => {
+    const build = reads.varying;
+    expect(compileGlslStage.fragment(build())).toContain("readsVarying");
+    // The function reads 0.25 twice, doubled each time.
+    for (const compile of [compileJSFragment, compileWasmFragment]) {
+      const stage = (compile as any)(build, none) as (ctx: object) => { value: ArrayLike<number> } | undefined;
+      expect(Array.from(stage({ varyings: { [aVarying.name]: 0.25 } })!.value)).toEqual([0, 1, 0, 1]);
+    }
+  });
+
+  /**
+   * @canon spec-a-layout-fn-reads-a-built-in-input
+   */
+  it("reads fragCoord() from a function, on GLSL, JS and WASM", () => {
+    const build = reads.builtIn;
+    expect(compileGlslStage.fragment(build())).toContain("readsFragCoord");
+    for (const compile of [compileJSFragment, compileWasmFragment]) {
+      const stage = (compile as any)(build, none) as (ctx: object) => { value: ArrayLike<number> } | undefined;
+      expect(Array.from(stage({ fragCoord: [3, 4] })!.value)).toEqual([0, 0.5, 0, 1]);
+    }
+  });
+
+  /** A vertex stage whose layout `Fn` assigns the varying and returns 1. */
+  const assignsVarying = () => {
+    const written = varying("float");
+    const f = Fn(() => {
+      written.assign(float(0.5));
+      return float(1);
+    }).setLayout({ name: "assignsVarying", type: "float", inputs: [] });
+    return { written, build: () => Fn(() => vec4(f(), 0, 0, 1))() };
+  };
+
+  /**
+   * @canon spec-a-layout-fn-assigns-a-varying
+   */
+  it("assigns a varying from a function, on GLSL, JS and WASM", () => {
+    const { written, build } = assignsVarying();
+    expect(compileGlslStage.vertex(build())).toMatch(new RegExp(`${written.name} = 0\\.5`));
+    for (const compile of [compileJSVertex, compileWasmVertex]) {
+      const stage = (compile as any)(build, none) as (ctx: object) => {
+        varyings: Record<string, ArrayLike<number> | number>;
+      };
+      expect(stage({}).varyings[written.name]).toBe(0.5);
+    }
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+   */
+  it.each([
+    ["an attribute", readsStageInput("f", () => attribute("float").add(0)), /uses an attribute/],
+    ["a varying", reads.varying, /uses a varying/],
+    ["fragCoord()", reads.builtIn, /uses fragCoord\(\)/],
+  ] as const)("refuses a body that reads %s on WGSL", (_, build, refusal) => {
+    expect(expectCompileRejection(() => compileWgsl.fragment(build()))).toMatch(refusal);
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+   */
+  it("refuses a body that assigns a varying on WGSL", () => {
+    const { build } = assignsVarying();
+    expect(expectCompileRejection(() => compileWgsl.vertex(build()))).toMatch(/uses a varying/);
   });
 
   /**

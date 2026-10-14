@@ -7,6 +7,7 @@ import {
   type UniformBinding,
   type VaryingBinding,
 } from "./nodes/Builder";
+import { linkStages } from "../../backends/shared";
 import { collectNodes } from "./nodes/graph";
 import type { Scene } from "../scenes/Scene";
 
@@ -113,24 +114,33 @@ export class NodeMaterial extends Material {
     b.stage = "vertex";
     const vertex = Fn(() => {
       const clip = this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b);
-      // The fragment stage reads the position the vertex stage ends with, and the geometry's normal.
-      if (b.fragmentReads.has("position")) b.varying("positionLocal", "vec3").assign(this.localPosition(b));
-      if (b.fragmentReads.has("normal")) b.varying("normalLocal", "vec3").assign(b.attribute("normal", "vec3"));
+      // The fragment stage reads the position the vertex stage ends with; the compiler passes on any attribute it reads.
+      if (b.fragmentReadsPosition) b.varying("positionLocal", "vec3").assign(this.localPosition(b));
       return clip;
     })() as Node<"vec4">;
 
-    const v = collectNodes(vertex);
-    const f = collectNodes(fragment);
+    const linked = linkStages(vertex, fragment, true);
+    const v = collectNodes(linked.vertex);
+    const f = collectNodes(linked.fragment);
     const usedUniforms = new Set([...v.uniforms, ...f.uniforms]);
     const usedAttributes = new Set([...v.attributes, ...f.attributes]);
     const usedVaryings = new Set([...v.varyings, ...f.varyings]);
+    // An attribute the fragment stage reads reaches it in a varying the compiler made, which the program names after the attribute.
+    const varyings = [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node));
+    for (const [slot, carrier] of linked.carriers) {
+      const attribute = [...b.attributes.values()].find((binding) => binding.node.name === slot);
+      let name = attribute?.name ?? slot;
+      // A varying the material made under the attribute's name keeps it, and the carrier takes the suffix.
+      while (varyings.some((binding) => binding.name === name)) name += "Attribute";
+      varyings.push({ node: carrier, name });
+    }
 
     return {
-      vertexRoot: vertex,
-      fragmentRoot: fragment,
+      vertexRoot: linked.vertex,
+      fragmentRoot: linked.fragment,
       uniforms: [...b.uniforms.values()].filter((binding) => usedUniforms.has(binding.node)),
       attributes: [...b.attributes.values()].filter((binding) => usedAttributes.has(binding.node)),
-      varyings: [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node)),
+      varyings,
       samplers: [...b.samplers.values()],
     };
   }

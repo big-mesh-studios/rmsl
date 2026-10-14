@@ -12,7 +12,7 @@ import {
   missingAttributeError,
   UniformOrSlot,
 } from "../adapter";
-import { assertOneDeclarationPerName, VertexRoot } from "../shared";
+import { assertOneDeclarationPerName, linkStages, VertexRoot } from "../shared";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import type { AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
@@ -336,10 +336,11 @@ export interface GlslAdapter extends Adapter<never, GlslDrawOptions> {
  * list on the WGSL side.
  */
 export function createGlsl(
-  vertexRoot: VertexRoot,
-  fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
+  givenVertexRoot: VertexRoot,
+  givenFragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
   options?: GlslAdapterOptions,
 ): GlslAdapter {
+  const { vertex: vertexRoot, fragment: fragmentRoot } = linkStages(givenVertexRoot, givenFragmentRoot, true);
   // Each stage compiles on its own, so a name the two declare differently shows only here.
   assertOneDeclarationPerName([vertexRoot, fragmentRoot]);
   let gl: WebGL2RenderingContext | null = null;

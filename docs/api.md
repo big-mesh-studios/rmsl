@@ -556,7 +556,7 @@ GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS,
 - The body receives its inputs as one value that destructures as an array, `([n, l])`, and as an object, `({ n, l })`. A call passes them by position or as one object, `shade({ n, l })`.
 - A layout without a `name` gets a generated one. Two functions with one name get `_1`, `_2`, … appended. A function, input or variable name that GLSL or WGSL cannot declare, such as a keyword or a built-in, is declared under a name they can, as `float_` for `float`; the body still reads an input by the name the layout gives.
 - The arguments must have the types of the inputs, and the body must return the layout's type. A number is a `float`.
-- The body sees its inputs, its own variables and the program's uniforms, textures and storage buffers. A variable of the caller is refused with its name; pass it in as an input and return the new value. Attributes, varyings, stage outputs, the position and built-in inputs such as `fragCoord()` are refused too: pass their values in.
+- The body sees its inputs, its own variables and the program's uniforms, textures and storage buffers. A variable of the caller is refused with its name; pass it in as an input and return the new value. The body may read an attribute, a varying and a built-in input such as `fragCoord()`, and assign a varying, on GLSL, JS and WASM, as it may in TSL. WGSL refuses those, because its entry point owns them: pass their values in as inputs. Every target refuses a body that uses a stage output, the position or the fragment depth.
 
 ## I/O
 
@@ -578,6 +578,15 @@ GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS,
 | `screenUV()`               | `Node<"vec2">`        | `fragCoord() / screenSize()` — the normalized screen position.                                                                                                                                   |
 | `uv()`                     | `Node<"vec2">`        | The fullscreen-quad UV: the normalized screen position, as TSL's `uv()`.                                                                                                                         |
 | `time()`                   | `Node<"float">`       | A shared per-frame clock (seconds), as a `float` uniform the host updates.                                                                                                                       |
+
+An attribute is an input of the vertex stage, and a fragment stage may read one
+too. When a program is built from both stages (`createGlsl`, `createWgsl`,
+`compileJS`, `compileWasm`, and the scene materials), the vertex stage passes
+the attribute on in a varying, and the fragment stage reads the interpolated
+value, as TSL does. A fragment stage compiled alone throws when it reads an
+attribute, because it has no vertex stage to pass the value on. A matrix
+attribute read in the fragment stage fails on WGSL, which allows no matrix
+between stages.
 
 A declared variable carries every method of its type (`.add()`, `.mul()`, `.x`,
 `.xyz`, ...) alongside `.name`:

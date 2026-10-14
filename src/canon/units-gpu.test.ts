@@ -2932,3 +2932,256 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
     expect(await wgslEntry("vec3Storage")).toEqual(GREEN);
   }, 120_000);
 });
+
+describe("an attribute the fragment stage reads on a GPU target", () => {
+  const pos = attribute("vec3");
+  const tint = attribute("vec3");
+  const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = () => Fn(() => vec4(tint, 1))();
+  const twice = () => Fn(() => vec4(tint.x.add(tint.x), tint.y, 0, 1))();
+  /** The vertex and fragment source `createGlsl` hands the context for these stages. */
+  const glslSources = (fragmentStage: () => any) => {
+    const { gl, calls } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS || name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+      },
+    );
+    createGlsl(vertex() as any, fragmentStage()).attach({ getContext: () => gl } as any);
+    return calls.filter((c) => c.name === "shaderSource").map((c) => c.args[1] as string);
+  };
+  /** The vertex and fragment source `createWgsl` hands the device for these stages. */
+  const wgslSources = async (fragmentStage: () => any) => {
+    vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
+    vi.stubGlobal("GPUBufferUsage", { UNIFORM: 1, COPY_DST: 2, VERTEX: 4, INDEX: 8 });
+    try {
+      const { device, canvas, modules } = stubDevice();
+      await createWgsl({
+        context: { device } as any,
+        vertex: vertex() as any,
+        fragment: fragmentStage(),
+      }).attach(canvas);
+      return modules.map((m) => m.code);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("passes the attribute to the fragment stage in a varying with createGlsl", () => {
+    const [vertexSource, fragmentSource] = glslSources(fragment);
+    expect(vertexSource).toMatch(new RegExp(`in vec3 ${tint.name};`));
+    expect(vertexSource).toMatch(/out vec3 _rmsl_v\d+;/);
+    expect(vertexSource).toMatch(new RegExp(`_rmsl_v\\d+ = ${tint.name};`));
+    expect(fragmentSource).toMatch(/in vec3 _rmsl_v\d+;/);
+    expect(fragmentSource).not.toContain(tint.name);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("passes the attribute to the fragment stage in a varying with createWgsl", async () => {
+    const [vertexSource, fragmentSource] = await wgslSources(fragment);
+    expect(vertexSource).toContain(tint.name);
+    expect(vertexSource).toMatch(/_rmsl_v\d+\s*:\s*vec3<f32>/);
+    expect(fragmentSource).toMatch(/_rmsl_v\d+\s*:\s*vec3<f32>/);
+    expect(fragmentSource).not.toContain(tint.name);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+   */
+  it("declares one varying for two reads of the attribute with createGlsl and createWgsl", async () => {
+    const [vertexGlsl] = glslSources(twice);
+    expect(vertexGlsl.match(/out vec3 _rmsl_v\d+;/g)).toHaveLength(1);
+    const [vertexWgsl] = await wgslSources(twice);
+    expect(vertexWgsl.match(/_rmsl_v\d+\s*:\s*vec3<f32>/g)).toHaveLength(1);
+  });
+
+  /**
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it("passes a matrix attribute on in a matrix varying with createGlsl and createWgsl", async () => {
+    const matrix = attribute("mat2");
+    const matrixFragment = () => Fn(() => vec4(matrix.mul(vec2(1, 1)), 0, 1))();
+    const [, fragmentGlsl] = glslSources(matrixFragment);
+    expect(fragmentGlsl).toMatch(/in mat2 _rmsl_v\d+;/);
+    const [, fragmentWgsl] = await wgslSources(matrixFragment);
+    expect(fragmentWgsl).toMatch(/_rmsl_v\d+\s*:\s*mat2x2<f32>/);
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+   */
+  it("refuses a layout Fn that reads the attribute with createWgsl", async () => {
+    const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
+    await expect(wgslSources(() => Fn(() => vec4(0, readsTint(), 0, 1))())).rejects.toThrow(/uses an attribute/);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
+   */
+  it("refuses the attribute in a fragment stage compiled alone on GLSL and WGSL", () => {
+    const named = new RegExp(`fragment stage reads the attribute "${tint.name}"`);
+    expect(() => compileGlsl.fragment(fragment() as any)).toThrow(named);
+    expect(() => compileWgsl.fragment(fragment() as any)).toThrow(named);
+  });
+});
+
+describe.skipIf(!GPU_ENABLED)("an attribute the fragment stage reads, drawn on a GPU", () => {
+  /** The corner by the red vertex reads mostly red, and the pixel midway between the green and blue vertices half of each. */
+  const expectInterpolated = ([nearRed, midway]: { r: number; g: number; b: number }[]) => {
+    expect(nearRed!.r).toBeGreaterThan(nearRed!.g);
+    expect(nearRed!.r).toBeGreaterThan(nearRed!.b);
+    expect(midway!.r).toBeLessThan(40);
+    expect(midway!.g).toBeGreaterThan(80);
+    expect(midway!.b).toBeGreaterThan(80);
+  };
+  /** Draws a triangle whose fragment stage reads the `tint` attribute, which the vertices set to red, green and blue. */
+  const entry = (lang: "glsl" | "wgsl") => `
+import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
+import { ${lang === "glsl" ? "createGlsl" : "createWgsl"} } from "../${lang}";
+${READ_PIXEL}
+globalThis.__rmslFragmentAttributeRun = async () => {
+  const pos = attribute("vec3");
+  const tint = attribute("vec3");
+  const vertex = Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = Fn(() => vec4(tint, 1))();
+  const target = document.createElement("canvas");
+  target.width = 4;
+  target.height = 4;
+  const adapter = ${lang === "glsl" ? "createGlsl(vertex, fragment)" : "createWgsl({ vertex, fragment })"};
+  await adapter.attach(target);
+  adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
+  adapter.setAttribute(tint, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+  adapter.draw({ count: 3 });
+  ${lang === "wgsl" ? "await adapter.device().queue.onSubmittedWorkDone();" : ""}
+  return [readPixel(target, 0, 3), readPixel(target, 3, 0)];
+};`;
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("gives the fragment stage the attribute on WebGL with createGlsl", async () => {
+    const pixel = await runInGpuPage(
+      entry("glsl"),
+      "__rmslFragmentAttributeRun",
+      new URL(".", import.meta.url).pathname,
+    );
+    expectInterpolated(pixel);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.skipIf(!WEBGPU)(
+    "gives the fragment stage the attribute on WebGPU with createWgsl",
+    async () => {
+      const pixel = await runInWebGpuPage(
+        entry("wgsl"),
+        "__rmslFragmentAttributeRun",
+        new URL(".", import.meta.url).pathname,
+      );
+      expectInterpolated(pixel);
+    },
+    120_000,
+  );
+});
+
+describe.skipIf(!GPU_ENABLED)("a matrix attribute the fragment stage reads, drawn on a GPU", () => {
+  /** Draws a triangle whose fragment stage reads a `mat2` attribute, which every vertex sets to the identity. */
+  const entry = (lang: "glsl" | "wgsl") => `
+import { Fn, attributeRaw, builtinPosition, vec2, vec4 } from "../rmsl";
+import { ${lang === "glsl" ? "createGlsl" : "createWgsl"} } from "../${lang}";
+${READ_PIXEL}
+globalThis.__rmslMatrixAttributeRun = async () => {
+  const pos = attributeRaw("pos", "vec3");
+  const matrix = attributeRaw("matrix", "mat2");
+  const vertex = Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = Fn(() => vec4(matrix.mul(vec2(1, 1)), 0, 1))();
+  const target = document.createElement("canvas");
+  target.width = 4;
+  target.height = 4;
+  const adapter = ${lang === "glsl" ? "createGlsl(vertex, fragment)" : "createWgsl({ vertex, fragment })"};
+  await adapter.attach(target);
+  adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
+  adapter.setAttribute(matrix, Float32Array.of(1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1));
+  adapter.draw({ count: 3 });
+  ${lang === "wgsl" ? "await adapter.device().queue.onSubmittedWorkDone();" : ""}
+  return readPixel(target, 1, 2);
+};`;
+
+  /**
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it("gives the fragment stage the matrix on WebGL with createGlsl", async () => {
+    const pixel = await runInGpuPage(entry("glsl"), "__rmslMatrixAttributeRun", new URL(".", import.meta.url).pathname);
+    expect(pixel).toEqual({ r: 255, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * The device refuses the shader module, and the draw leaves the canvas as it was.
+   *
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it.skipIf(!WEBGPU)(
+    "draws nothing on WebGPU with createWgsl",
+    async () => {
+      const pixel = await runInWebGpuPage(
+        entry("wgsl"),
+        "__rmslMatrixAttributeRun",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(pixel).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+    },
+    120_000,
+  );
+});
+
+describe.skipIf(!GPU_ENABLED)("a layout Fn that reads the inputs of its stage, drawn on WebGL", () => {
+  /**
+   * @canon spec-a-layout-fn-reads-an-attribute
+   * @canon spec-a-layout-fn-assigns-a-varying
+   * @canon spec-a-layout-fn-reads-a-varying
+   * @canon spec-a-layout-fn-reads-a-built-in-input
+   */
+  it("reads an attribute, a varying and fragCoord() from functions with createGlsl", async () => {
+    const entry = `
+import { Fn, attributeRaw, builtinPosition, fragCoord, varying, vec4, float } from "../rmsl";
+import { createGlsl } from "../glsl";
+${READ_PIXEL}
+globalThis.__rmslLayoutFnInputs = async () => {
+  try {
+    const pos = attributeRaw("pos", "vec3");
+    const tint = attributeRaw("tint", "float");
+    const half = varying("float");
+    const readsAttribute = Fn(() => tint).setLayout({ name: "readsAttribute", type: "float", inputs: [] });
+    const readsVarying = Fn(() => half).setLayout({ name: "readsVarying", type: "float", inputs: [] });
+    const readsCoord = Fn(() => fragCoord().x.mul(0).add(1)).setLayout({ name: "readsCoord", type: "float", inputs: [] });
+    const assignsVarying = Fn(() => {
+      half.assign(float(0.5));
+      return float(1);
+    }).setLayout({ name: "assignsVarying", type: "float", inputs: [] });
+    const vertex = Fn(() => {
+      assignsVarying();
+      builtinPosition().assign(vec4(pos, 1));
+    })();
+    const fragment = Fn(() => vec4(readsAttribute(), readsVarying(), readsCoord(), 1))();
+    const target = document.createElement("canvas");
+    target.width = 4;
+    target.height = 4;
+    const adapter = createGlsl(vertex, fragment);
+    adapter.attach(target);
+    adapter.setAttribute(pos, Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0));
+    adapter.setAttribute(tint, Float32Array.of(1, 1, 1));
+    adapter.draw({ count: 3 });
+    return readPixel(target, 1, 2);
+  } catch (e) { return "THREW " + String(e.message || e).slice(0, 300); }
+};`;
+    const pixel = await runInGpuPage(entry, "__rmslLayoutFnInputs", new URL(".", import.meta.url).pathname);
+    expect(pixel).toEqual({ r: 255, g: 128, b: 255, a: 255 });
+  }, 120_000);
+});

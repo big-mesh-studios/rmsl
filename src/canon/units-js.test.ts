@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
+  attributeRaw,
   bool,
   builtinFragDepth,
   builtinPosition,
@@ -2560,5 +2561,146 @@ describe("a storage buffer the host never sets on a CPU compute adapter", () => 
     const read = { [out.name]: new Float32Array(3) };
     adapter.compute(read);
     expect(Array.from(read[out.name]!)).toEqual([5, 5, 5]);
+  });
+});
+
+describe("an attribute the fragment stage reads", () => {
+  const triangle = Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+  const pos = attribute("vec3");
+  const tint = attribute("vec3");
+  const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const compiles = [
+    ["JS", compileJS],
+    ["WASM", compileWasm],
+  ] as const;
+  /** The first pixel of a draw whose three vertices carry `values` in `tint`. */
+  const firstPixel = async (compile: (typeof compiles)[number][1], fragment: () => unknown, values: number[]) => {
+    const routine = await compile(vertex as any, fragment as any);
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, [tint.name]: Float64Array.from(values) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    return Array.from(pixels.slice(0, 4));
+  };
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.each(compiles)("gives the fragment stage the attribute, interpolated, on %s", async (_name, compile) => {
+    const fragment = () => Fn(() => vec4(tint, 1))();
+    expect(await firstPixel(compile, fragment, [0, 1, 0, 0, 1, 0, 0, 1, 0])).toEqual([0, 1, 0, 1]);
+    // The pixel lies in the middle of the triangle's overscaled corner, between the vertices' values.
+    const mixed = await firstPixel(compile, fragment, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    expect(mixed[0]! + mixed[1]! + mixed[2]!).toBeCloseTo(1);
+    expect(Math.max(...mixed.slice(0, 3))).toBeLessThan(1);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+   */
+  it.each(compiles)("shares one varying between reads of the attribute on %s", async (_name, compile) => {
+    const fragment = () => Fn(() => vec4(tint.x.add(tint.x), tint.y, 0, 1))();
+    expect(await firstPixel(compile, fragment, [0.25, 0.5, 0, 0.25, 0.5, 0, 0.25, 0.5, 0])).toEqual([0.5, 0.5, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+   */
+  it.each(compiles)("refuses two reads of one slot that declare different types on %s", async (_name, compile) => {
+    const narrow = attributeRaw("shared", "vec3");
+    const wide = attributeRaw("shared", "vec4");
+    await expect(
+      Promise.resolve().then(() => compile(vertex as any, (() => Fn(() => vec4(narrow, wide.x))()) as any)),
+    ).rejects.toThrow(/"shared" names .* one name is one declaration/);
+  });
+
+  /**
+   * The vertex stage is two roots, each built by an Fn of its own, so each has its own statements.
+   *
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.each(compiles)("links a vertex stage of several roots on %s", async (_name, compile) => {
+    const other = varying("vec3");
+    const roots = () => [Fn(() => other.assign(vec3(0, 0, 1)))(), Fn(() => builtinPosition().assign(vec4(pos, 1)))()];
+    const fragment = () => Fn(() => vec4(tint.add(other), 1))();
+    const routine = await compile(roots as any, fragment as any);
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, [tint.name]: Float64Array.of(0, 1, 0, 0, 1, 0, 0, 1, 0) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    expect(Array.from(pixels.slice(0, 4))).toEqual([0, 1, 1, 1]);
+  });
+
+  /**
+   * The function reads the attribute twice, and the program passes it on once.
+   *
+   * @canon spec-a-layout-fn-reads-an-attribute
+   */
+  it.each(compiles)("reads an attribute from a layout Fn, linked to a vertex stage, on %s", async (_name, compile) => {
+    const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
+    const fragment = () => Fn(() => vec4(0, readsTint().add(readsTint()), 0, 1))();
+    const routine = await compile(vertex as any, fragment as any);
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, [tint.name]: Float64Array.of(0, 0.25, 0, 0, 0.25, 0, 0, 0.25, 0) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    expect(Array.from(pixels.slice(0, 4))).toEqual([0, 0.5, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.each(compiles)(
+    "gives the fragment stage an integer attribute as the first vertex gave it on %s",
+    async (_name, compile) => {
+      const index = attributeRaw("index", "int");
+      const fragment = () => Fn(() => vec4(index.toFloat().div(4), 0, 0, 1))();
+      const routine = await compile(vertex as any, fragment as any);
+      const pixels = routine.draw(
+        { attributes: { [pos.name]: triangle, index: Int32Array.of(2, 2, 2) } },
+        { count: 3, width: 1, height: 1 },
+      );
+      expect(Array.from(pixels.slice(0, 4))).toEqual([0.5, 0, 0, 1]);
+    },
+  );
+
+  /**
+   * @canon spec-a-fragment-attribute-with-no-vertex-root-is-refused
+   */
+  it.each(compiles)(
+    "refuses a vertex stage with no root when the fragment stage reads an attribute on %s",
+    async (_name, compile) => {
+      const fragment = () => Fn(() => vec4(tint, 1))();
+      await expect(Promise.resolve().then(() => compile((() => []) as any, fragment as any))).rejects.toThrow(
+        new RegExp(`reads the attribute "${tint.name}", but the vertex stage gives no root`),
+      );
+    },
+  );
+
+  /**
+   * @canon exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+   */
+  it.each(compiles)("gives the fragment stage a matrix attribute on %s", async (_name, compile) => {
+    const matrix = attributeRaw("matrix", "mat2");
+    const fragment = () => Fn(() => vec4(matrix.mul(vec2(1, 1)), 0, 1))();
+    const routine = await compile(vertex as any, fragment as any);
+    const identity = [1, 0, 0, 1];
+    const pixels = routine.draw(
+      { attributes: { [pos.name]: triangle, matrix: Float64Array.from([...identity, ...identity, ...identity]) } },
+      { count: 3, width: 1, height: 1 },
+    );
+    expect(Array.from(pixels.slice(0, 4))).toEqual([1, 1, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-compiled-alone-refuses-an-attribute
+   */
+  it.each([
+    ["JS", compileJSFragment],
+    ["WASM", compileWasmFragment],
+  ])("refuses the attribute in a fragment stage compiled alone on %s", (_name, compile) => {
+    expect(() => (compile as CompileStage<unknown>)(() => Fn(() => vec4(tint, 1))(), none)).toThrow(
+      new RegExp(`fragment stage reads the attribute "${tint.name}"`),
+    );
   });
 });

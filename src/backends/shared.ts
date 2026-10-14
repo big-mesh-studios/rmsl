@@ -21,6 +21,7 @@ import {
   someNode,
   swizzleWritePlace,
   var_,
+  varying,
   vec4,
 } from "../core";
 import { componentCountOf, componentKindOf } from "./cpu";
@@ -738,7 +739,10 @@ function refuseWholeStorageRead(storage: any): never {
  * gives each such write made a write into the vector the swizzle reads, see
  * {@link swizzleWritePlace}, and whether the program holds an `outputStruct`.
  */
-function checkRoots(roots: readonly unknown[]): {
+function checkRoots(
+  roots: readonly unknown[],
+  stageInputsInFns: boolean,
+): {
   swizzleWrites: Map<any, any>;
   holdsOutputStruct: boolean;
   holdsReturn: boolean;
@@ -751,7 +755,7 @@ function checkRoots(roots: readonly unknown[]): {
     if (checkedFns.has(definition.body)) return;
     checkedFns.add(definition.body);
     assertFnIsClosed(definition);
-    assertFnBody(definition);
+    assertFnBody(definition, stageInputsInFns);
     // A function may call `Return()`: it ends the function, not the stage.
     const stageHeldReturn = holdsReturn;
     visit(definition.body, false, true);
@@ -832,13 +836,19 @@ export type FoundInRoots = {
  * fragment stage has its `outputStruct` written out and its implicit colour
  * converted, see {@link fragmentColour}. Any other stage, and a program with
  * no stage, refuses an `outputStruct`, which is a fragment stage's result.
+ * `stageInputsInFns` is true for a target that holds a stage's inputs and
+ * varyings as globals, where a function with a layout may reach them.
  */
 export function prepareRoots<T extends Node<ShaderType>>(
   stage: string | undefined,
   roots: readonly T[],
   found?: FoundInRoots,
+  stageInputsInFns = false,
 ): T[] {
-  const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(roots);
+  const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(
+    roots,
+    stageInputsInFns,
+  );
   if (found) {
     found.holdsReturn = holdsReturn;
     found.writesStageResult = holdsStageWrite || (stage === "vertex" && holdsVarying);
@@ -851,8 +861,10 @@ export function prepareRoots<T extends Node<ShaderType>>(
     );
   }
   roots = substituteNodes(roots, swizzleWrites);
-  if (stage === "fragment")
+  if (stage === "fragment") {
+    assertReadsNoAttribute(roots);
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
+  }
   if (holdsOutputStruct) {
     throw new Error(
       `[RMSL] outputStruct is the value a fragment stage returns, and this program is compiled ` +
@@ -861,6 +873,85 @@ export function prepareRoots<T extends Node<ShaderType>>(
     );
   }
   return [...roots];
+}
+
+/**
+ * Throws when a fragment stage compiled alone reads an attribute, which only a
+ * vertex stage is given. {@link linkStages} turns the read into a varying
+ * first, for a call that takes both stages.
+ */
+function assertReadsNoAttribute(roots: unknown): void {
+  let read: any;
+  someNode(roots, (n) => (n.type === "attribute" ? ((read = n), true) : false));
+  if (read) {
+    throw new Error(
+      `[RMSL] the fragment stage reads the attribute "${read.value.slot}", which only a vertex stage is given. ` +
+        `Compile it together with its vertex stage, in createGlsl, createWgsl, compileJS or compileWasm, or pass the value on in a varying.`,
+    );
+  }
+}
+
+/**
+ * The two stages of a program with each attribute the fragment stage reads
+ * passed on in a varying, as TSL does: the fragment stage reads the varying,
+ * and the vertex stage writes it from the attribute. Nodes of one slot share
+ * one varying. The stages the caller holds are left as they are. `carriers`
+ * holds each varying under the slot of the attribute it carries.
+ */
+export function linkStages<V, F>(
+  vertexRoot: V,
+  fragmentRoot: F,
+  stageInputsInFns = false,
+): { vertex: V; fragment: F; carriers: Map<string, any> } {
+  const reads: any[] = [];
+  // A target that refuses a stage input in a function leaves a read there to the refusal, which names the attribute.
+  const visited = new Set<unknown>();
+  const find = (n: any): void => {
+    if (!n || typeof n !== "object" || visited.has(n)) return;
+    visited.add(n);
+    if (Array.isArray(n)) return n.forEach(find);
+    if (n.type === "attribute") reads.push(n);
+    if (Array.isArray(n.params)) n.params.forEach(find);
+    if (stageInputsInFns && n.type === "call") find(n.value.body);
+  };
+  find(fragmentRoot);
+  // Reads of one slot become one varying, so a conflict between them has to show before they merge.
+  if (reads.length > 0) assertOneDeclarationPerName(fragmentRoot);
+  const replaced = new Map<any, any>();
+  const varyings = new Map<string, any>();
+  const assignments: BaseNode<ShaderType>[] = [];
+  for (const n of reads) {
+    const { slot, shaderType } = n.value;
+    let carrier = varyings.get(slot);
+    if (!carrier) {
+      carrier = varying(shaderType);
+      // A refusal of the varying names the attribute it carries, which is what the application wrote.
+      carrier.value.carries = slot;
+      varyings.set(slot, carrier);
+      assignments.push(node({ _t: "void", type: "assign", params: [carrier, n] }) as BaseNode<ShaderType>);
+    }
+    replaced.set(n, carrier);
+  }
+  if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
+  const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
+  if (!last || typeof last !== "object") {
+    throw new Error(
+      `[RMSL] the fragment stage reads the attribute "${reads[0].value.slot}", but the vertex stage gives no root to pass it on from. ` +
+        `A vertex stage returns its position.`,
+    );
+  }
+  const roots: any[] = Array.isArray(vertexRoot) ? [...vertexRoot] : [vertexRoot];
+  roots[roots.length - 1] = node({
+    _t: last._t,
+    type: "seq",
+    params: last.type === "seq" ? [...assignments, ...last.params] : [...assignments, last],
+  });
+  const vertex = Array.isArray(vertexRoot) ? roots : roots[0];
+  return {
+    vertex: vertex as V,
+    fragment: substituteNodes(fragmentRoot, replaced, stageInputsInFns),
+    carriers: varyings,
+  };
 }
 
 /**
@@ -1228,6 +1319,16 @@ const WRITTEN_BY_ONE_STAGE: Record<string, { stage: string; name: string }> = {
   builtinFragDepth: { stage: "fragment", name: "the fragment depth" },
 };
 
+/** The node types of a stage's inputs, and its varyings, which a function reaches on a target that has them as globals. */
+const FN_REACHABLE_STAGE_VALUES = new Set([
+  "attribute",
+  "varying",
+  "fragCoord",
+  "instanceIndex",
+  "invocationIndex",
+  "vertexIndex",
+]);
+
 /** The node types that belong to a stage: its inputs and its outputs, which WGSL passes to and from its entry point. */
 const STAGE_BOUND: Record<string, string> = {
   attribute: "an attribute",
@@ -1247,7 +1348,7 @@ const STAGE_BOUND: Record<string, string> = {
  * function gives a value, or reads or writes something that belongs to a stage.
  * A call inside it is checked with its own body.
  */
-function assertFnBody(definition: FnDefinition): void {
+function assertFnBody(definition: FnDefinition, stageInputsInFns: boolean): void {
   const seen = new Set<unknown>();
   const walk = (n: any): void => {
     if (!n || typeof n !== "object" || seen.has(n)) return;
@@ -1259,7 +1360,12 @@ function assertFnBody(definition: FnDefinition): void {
           `Return a value at the end, or give the layout the type "void".`,
       );
     }
-    const stage = STAGE_BOUND[n.type];
+    const stage =
+      stageInputsInFns && FN_REACHABLE_STAGE_VALUES.has(n.type)
+        ? undefined
+        : n.type === "varying" && n.value.carries !== undefined
+          ? `the attribute "${n.value.carries}"`
+          : STAGE_BOUND[n.type];
     if (stage !== undefined) {
       throw new Error(
         `[RMSL] ${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +
@@ -1443,9 +1549,10 @@ function isSwizzleWrite(target: any): boolean {
  * holds a replaced node is copied, once, so a node several others hold stays
  * one node. The graph the caller holds is left as it is.
  */
-function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
+function substituteNodes<T>(roots: T, replaced: Map<any, any>, intoCalls = false): T {
   if (replaced.size === 0) return roots;
   const copies = new Map<any, any>();
+  const definitions = new Map<any, any>();
   const substitute = (node: any): any => {
     if (Array.isArray(node)) return node.map(substitute);
     if (!node || typeof node !== "object") return node;
@@ -1453,9 +1560,19 @@ function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
     if (known !== undefined) return known;
     if (!Array.isArray(node.params)) return node;
     const params = node.params.map(substitute);
-    const result = params.every((p: any, i: number) => p === node.params[i])
-      ? node
-      : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params });
+    // A call holds the body of its function, which every call of it shares, so the body is replaced once.
+    let value = node.value;
+    if (intoCalls && node.type === "call") {
+      const body = substitute(node.value.body);
+      if (body !== node.value.body) {
+        value = definitions.get(node.value) ?? { ...node.value, body };
+        definitions.set(node.value, value);
+      }
+    }
+    const result =
+      value === node.value && params.every((p: any, i: number) => p === node.params[i])
+        ? node
+        : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params, value });
     copies.set(node, result);
     return result;
   };

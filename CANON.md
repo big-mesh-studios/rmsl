@@ -97,6 +97,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
       - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
+    - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
+      - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
+      - [`@spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once`](#spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once) — Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
+      - [`@spec a-fragment-stage-compiled-alone-refuses-an-attribute`](#spec-a-fragment-stage-compiled-alone-refuses-an-attribute) — `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
+      - [`@spec a-fragment-attribute-with-no-vertex-root-is-refused`](#spec-a-fragment-attribute-with-no-vertex-root-is-refused) — A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
+      - [`@exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects`](#exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects) — A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
@@ -287,7 +293,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-layout-fn-that-writes-a-variable-of-its-caller-is-refused`](#spec-a-layout-fn-that-writes-a-variable-of-its-caller-is-refused) — A body that assigns a variable declared outside it is refused, with an error that names the variable.
       - [`@spec a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller`](#spec-a-compiler-refuses-a-layout-fn-that-names-a-variable-of-its-caller) — Every target refuses a graph whose `Fn` with a layout names a variable declared outside it as it compiles, a graph `deserialize` rebuilt included.
     - [`@spec return-in-a-layout-fn-that-gives-a-value-is-refused`](#spec-return-in-a-layout-fn-that-gives-a-value-is-refused) — A `Return()` in an `Fn` with a layout whose type is not `void` is refused, with an error that names the function.
-    - [`@spec a-layout-fn-uses-no-input-or-output-of-its-stage`](#spec-a-layout-fn-uses-no-input-or-output-of-its-stage) — An `Fn` with a layout whose body uses an attribute, a varying, a stage output, the position, the fragment depth or a built-in input such as `fragCoord()` is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input.
+    - [`@spec a-layout-fn-reaches-the-values-of-its-stage-where-the-target-allows`](#spec-a-layout-fn-reaches-the-values-of-its-stage-where-the-target-allows) — An `Fn` with a layout whose body reads an attribute, a varying or a built-in input such as `fragCoord()` or `vertexIndex()`, or assigns a varying, reaches the stage's value on GLSL, JS and WASM. WGSL refuses it.
+      - [`@spec a-layout-fn-reads-an-attribute`](#spec-a-layout-fn-reads-an-attribute) — On GLSL, JS and WASM, an `Fn` with a layout reads an attribute of the program from its body. When the program is built from both stages, the vertex stage passes the attribute on in a varying that the function reads.
+      - [`@spec a-layout-fn-reads-a-varying`](#spec-a-layout-fn-reads-a-varying) — On GLSL, JS and WASM, an `Fn` with a layout reads a varying from its body, and gets the value the vertex stage wrote.
+      - [`@spec a-layout-fn-reads-a-built-in-input`](#spec-a-layout-fn-reads-a-built-in-input) — On GLSL, JS and WASM, an `Fn` with a layout reads a built-in input such as `fragCoord()`, `vertexIndex()` or `instanceIndex()` from its body.
+      - [`@spec a-layout-fn-assigns-a-varying`](#spec-a-layout-fn-assigns-a-varying) — On GLSL, JS and WASM, an `Fn` with a layout assigns a varying from its body in the vertex stage, and the fragment stage reads the value.
+      - [`@exception wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage`](#exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage) — On WGSL, an `Fn` with a layout whose body reads an attribute, a varying or a built-in input, or assigns a varying, is refused as the program compiles. The error names what it uses and asks for the value as an input. Issues #292 and #293 ask how WGSL could support it.
+    - [`@spec a-layout-fn-writes-no-output-of-its-stage`](#spec-a-layout-fn-writes-no-output-of-its-stage) — An `Fn` with a layout whose body uses a stage output, the position or the fragment depth is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input or a return value.
     - [`@spec a-malformed-layout-is-refused`](#spec-a-malformed-layout-is-refused) — A layout is refused where it is given when it has no `type` or an `inputs` that is no list, or an input without a name or a type, or two inputs of one name. So is a name that is no identifier or starts with the prefix `_rmsl_`, for an input as for the function. A call in a graph `deserialize` rebuilt is held to the same rules as every target compiles it, and also to names GLSL and WGSL can declare, as `Fn` gives only those.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
@@ -789,6 +801,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-plugin-with-no-include-rewrites-nothing`](#spec-a-plugin-with-no-include-rewrites-nothing) — A Vite plugin given no `include` rewrites no module.
     - [`@spec a-plugin-leaves-a-module-its-exclude-matches`](#spec-a-plugin-leaves-a-module-its-exclude-matches) — A Vite plugin leaves a module its `exclude` matches as it is, though its `include` matches it too.
   - [`@spec a-material-program-holds-only-what-its-graph-reads`](#spec-a-material-program-holds-only-what-its-graph-reads) — A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
+  - [`@spec a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads`](#spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads) — A `MaterialProgram` lists the varying that carries an attribute its fragment stage reads, under the name of the attribute's binding, such as `normal`. A test addresses it by that name. Where the material made a varying of that name, the carrier is listed as `<name>Attribute`.
   - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
@@ -914,6 +927,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
 - [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 - [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
+- [`@fact wgsl-allows-only-numeric-scalars-and-vectors-between-stages`](#fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages) — A WGSL vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type. A matrix is refused, and the shader module fails to compile.
+- [`@fact tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged) — TSL's WGSL builder writes a matrix varying as a `@location` member of the matrix type, and does not split it into columns. A fragment stage of `MeshBasicNodeMaterial` that reads `varying(mat3(a, a, a))` draws nothing on a WebGPU device, which reports the member as invalid.
+- [`@fact tsl-lets-a-layout-fn-read-a-stage-input-on-webgl`](#fact-tsl-lets-a-layout-fn-read-a-stage-input-on-webgl) — On TSL's WebGL backend, an `Fn` with a layout reads an attribute, a varying, `screenCoordinate` (the fragment coordinate) or `vertexIndex` from its body. TSL generates a GLSL function that reads the global the stage declares, and the shader draws correctly.
+- [`@fact tsl-lets-a-layout-fn-assign-a-varying`](#fact-tsl-lets-a-layout-fn-assign-a-varying) — On TSL's WebGL and WebGPU backends, an `Fn` with a layout assigns `positionLocal`, a varying the vertex stage assigns, from its body, and the vertex stage draws correctly. TSL's WGSL declares the vertex stage's varyings as a module-level private variable, which the function writes.
+- [`@fact tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu`](#fact-tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu) — On TSL's WebGPU backend, an `Fn` with a layout that reads an attribute, a varying, `screenCoordinate` or `vertexIndex` from its body generates a WGSL function that names a value only the entry point declares. The device refuses the shader module with `unresolved value`, and the draw shows nothing.
+- [`@fact tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying`](#fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying) — TSL's `AttributeNode` builds a varying of itself when the stage that reads it is not the vertex stage. The vertex stage assigns the varying from the attribute, and the fragment stage reads it, as `nodeVarying0` for the first. A node built in the vertex stage reads the attribute directly.
 - [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
 - [`@fact tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other) — TSL builds the operands of an operation as one type, and converts each operand of another type to it. An arithmetic or bitwise operator takes the type of its first operand, unless the second is the longer vector, so `int + uint` converts the `uint` to an `int`. A math function such as `clamp`, `pow` or `step` takes the type of its longest operand, and `select` that of its longer branch, the first on a tie. Two scalars of different types compare as `float`. A shift converts its amount to `uint`, and `mix` its weight to `float` when the weight is a scalar.
 - [`@fact tsl-builds-a-bitwise-operand-as-an-integer`](#fact-tsl-builds-a-bitwise-operand-as-an-integer) — TSL gives a bitwise operator or a shift the integer type of its first operand's width, and builds its operands as that type. So `float & float` converts both floats to `int`, and `~` of a `vec2` converts it to an `ivec2`.
@@ -986,6 +1005,7 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
 
 ### Coverage gaps
 
@@ -1506,6 +1526,42 @@ This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRendere
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
 > An attribute is an input of the vertex stage, read once for each vertex.
+
+#### @spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it
+
+> An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
+
+Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying`](#fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying)
+
+This follows because a TSL shader reads an attribute in its fragment stage without passing it on. It ports to rmsl by changing its import. Only a call that takes both stages sees what the fragment stage reads and the vertex stage that writes it.
+
+##### @spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+
+> `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
+
+##### @spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
+
+> Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
+
+##### @spec a-fragment-stage-compiled-alone-refuses-an-attribute
+
+> `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
+
+This follows because a stage compiled alone has no vertex stage to write the varying. A shader that declares an input nothing feeds does not compile.
+
+##### @spec a-fragment-attribute-with-no-vertex-root-is-refused
+
+> A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
+
+This follows because the vertex stage writes the varying that carries the attribute, and a stage with no root has nowhere to write it.
+
+##### @exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
+
+> A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
+
+Derives from: [`fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages`](#fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages), [`fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged)
+
+This follows because rmsl passes an attribute on in a varying of its own type, as TSL does. TSL leaves a matrix varying as it is. Issue #290 asks whether rmsl should diverge from TSL here.
 
 ### @spec a-program-runs-its-statements-in-the-order-it-writes-them
 
@@ -2617,13 +2673,45 @@ Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-
 
 This follows because `Return()` carries no value, and GLSL and WGSL refuse a `return` with no value in a function that gives one.
 
-#### @spec a-layout-fn-uses-no-input-or-output-of-its-stage
+#### @spec a-layout-fn-reaches-the-values-of-its-stage-where-the-target-allows
 
-> An `Fn` with a layout whose body uses an attribute, a varying, a stage output, the position, the fragment depth or a built-in input such as `fragCoord()` is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input.
+> An `Fn` with a layout whose body reads an attribute, a varying or a built-in input such as `fragCoord()` or `vertexIndex()`, or assigns a varying, reaches the stage's value on GLSL, JS and WASM. WGSL refuses it.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-tsl-lets-a-layout-fn-read-a-stage-input-on-webgl`](#fact-tsl-lets-a-layout-fn-read-a-stage-input-on-webgl), [`fact-tsl-lets-a-layout-fn-assign-a-varying`](#fact-tsl-lets-a-layout-fn-assign-a-varying), [`fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage`](#fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage)
+
+This follows because a TSL shader reads a stage input and assigns a varying from a function, and GLSL, JS and WASM have those values where a function reaches them. A fragment stage compiled alone refuses an attribute, which only a vertex stage is given.
+
+##### @spec a-layout-fn-reads-an-attribute
+
+> On GLSL, JS and WASM, an `Fn` with a layout reads an attribute of the program from its body. When the program is built from both stages, the vertex stage passes the attribute on in a varying that the function reads.
+
+##### @spec a-layout-fn-reads-a-varying
+
+> On GLSL, JS and WASM, an `Fn` with a layout reads a varying from its body, and gets the value the vertex stage wrote.
+
+##### @spec a-layout-fn-reads-a-built-in-input
+
+> On GLSL, JS and WASM, an `Fn` with a layout reads a built-in input such as `fragCoord()`, `vertexIndex()` or `instanceIndex()` from its body.
+
+##### @spec a-layout-fn-assigns-a-varying
+
+> On GLSL, JS and WASM, an `Fn` with a layout assigns a varying from its body in the vertex stage, and the fragment stage reads the value.
+
+##### @exception wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+
+> On WGSL, an `Fn` with a layout whose body reads an attribute, a varying or a built-in input, or assigns a varying, is refused as the program compiles. The error names what it uses and asks for the value as an input. Issues #292 and #293 ask how WGSL could support it.
+
+Derives from: [`fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage`](#fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage), [`fact-tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu`](#fact-tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu), [`fact-tsl-lets-a-layout-fn-assign-a-varying`](#fact-tsl-lets-a-layout-fn-assign-a-varying)
+
+This follows because WGSL keeps the stage's inputs and its outputs in the entry point, where a function cannot reach them. TSL's shader fails on a WebGPU device for a read, so the refusal departs from TSL only by naming the cause. TSL declares the vertex varyings as a module-level variable, so it lets a function assign one, and rmsl does not on WGSL.
+
+#### @spec a-layout-fn-writes-no-output-of-its-stage
+
+> An `Fn` with a layout whose body uses a stage output, the position or the fragment depth is refused as a program compiles, on every target. The error names what it uses and asks for the value as an input or a return value.
 
 Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own), [`fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage`](#fact-a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage)
 
-This follows because WGSL keeps these in the entry point and a function there cannot reach them, and the program must run on every target.
+This follows because WGSL returns these from the entry point, where a function cannot write them, and the program must run on every target.
 
 #### @spec a-malformed-layout-is-refused
 
@@ -5729,6 +5817,14 @@ This follows because `exclude` carves modules out of a broad `include`, which it
 
 This follows because a binding the program never reads still costs an upload on every draw.
 
+### @spec a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
+
+> A `MaterialProgram` lists the varying that carries an attribute its fragment stage reads, under the name of the attribute's binding, such as `normal`. A test addresses it by that name. Where the material made a varying of that name, the carrier is listed as `<name>Attribute`.
+
+Derives from: [`spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it)
+
+This follows because the compiler makes that varying and gives it a name of its own, which no test could know.
+
 ### @spec the-main-entry-exports-no-compiler
 
 > The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
@@ -6491,6 +6587,42 @@ This is how three.js's TSL behaves, read from its source (`Position`, `Instance`
 > TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
 
 This is how three.js's TSL behaves, read from its source (`Normal`, `Instance` and `transformNormal`, three.js 0.186).
+
+## @fact wgsl-allows-only-numeric-scalars-and-vectors-between-stages
+
+> A WGSL vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type. A matrix is refused, and the shader module fails to compile.
+
+This is how Tint, the WGSL compiler of Chromium's WebGPU, behaves. It answers with `'@location' must only be applied to declarations of numeric scalar or numeric vector type` for a `mat3x3<f32>` member.
+
+## @fact tsl-passes-a-matrix-varying-to-wgsl-unchanged
+
+> TSL's WGSL builder writes a matrix varying as a `@location` member of the matrix type, and does not split it into columns. A fragment stage of `MeshBasicNodeMaterial` that reads `varying(mat3(a, a, a))` draws nothing on a WebGPU device, which reports the member as invalid.
+
+This is how three.js's TSL behaves, read from its source (`VaryingNode` and `WGSLNodeBuilder.getVaryings`) and run on a Chromium WebGPU device (three.js 187dev). A `mat3` geometry attribute fails earlier, because a vertex buffer has no format for nine floats.
+
+## @fact tsl-lets-a-layout-fn-read-a-stage-input-on-webgl
+
+> On TSL's WebGL backend, an `Fn` with a layout reads an attribute, a varying, `screenCoordinate` (the fragment coordinate) or `vertexIndex` from its body. TSL generates a GLSL function that reads the global the stage declares, and the shader draws correctly.
+
+This is how three.js's TSL behaves, run on a Chromium WebGL 2 device through `WebGPURenderer` with `forceWebGL` (three.js 187dev). Each of the four reads drew the expected colour.
+
+## @fact tsl-lets-a-layout-fn-assign-a-varying
+
+> On TSL's WebGL and WebGPU backends, an `Fn` with a layout assigns `positionLocal`, a varying the vertex stage assigns, from its body, and the vertex stage draws correctly. TSL's WGSL declares the vertex stage's varyings as a module-level private variable, which the function writes.
+
+This is how three.js's TSL behaves, run on Chromium WebGL 2 and WebGPU devices (three.js 187dev), and read from `WGSLNodeBuilder`. The same assignment outside a function drew the same.
+
+## @fact tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu
+
+> On TSL's WebGPU backend, an `Fn` with a layout that reads an attribute, a varying, `screenCoordinate` or `vertexIndex` from its body generates a WGSL function that names a value only the entry point declares. The device refuses the shader module with `unresolved value`, and the draw shows nothing.
+
+This is how three.js's TSL behaves, run on a Chromium WebGPU device (three.js 187dev). The same reads outside a function drew correctly.
+
+## @fact tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying
+
+> TSL's `AttributeNode` builds a varying of itself when the stage that reads it is not the vertex stage. The vertex stage assigns the varying from the attribute, and the fragment stage reads it, as `nodeVarying0` for the first. A node built in the vertex stage reads the attribute directly.
+
+This is how three.js's TSL behaves, read from its source (`AttributeNode.generate`). Its WGSL and GLSL node builders generate it for `attribute('uv', 'vec2')` read in the fragment stage (three.js 187dev).
 
 ## @fact tsl-takes-a-normal-node-as-a-view-space-normal
 

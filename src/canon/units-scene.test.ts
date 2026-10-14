@@ -1,6 +1,8 @@
+import { fromProgram } from "../test";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { someNode } from "../core";
-import { float, select, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
+import { attributeRaw, Fn, float, select, uniform, vec2, vec4, texture, textureLevel, type Node } from "../rmsl";
+import { compileWgsl } from "../wgsl";
 import {
   AmbientLight,
   Blending,
@@ -212,6 +214,54 @@ globalThis.__rmslMissingAttribute = async (backend) => {
       }
     } catch (error) {
       results[type] = { error: error.message };
+    }
+  }
+  return results;
+};
+`;
+
+/**
+ * A plane drawn with a material whose fragment node reads the geometry's normal, or an attribute the
+ * geometry sets to green, by mode. Each mode returns the pixel at the middle of the canvas.
+ */
+const ENTRY_FRAGMENT_ATTRIBUTE = `
+import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, BufferAttribute,
+  MeshBasicMaterial } from "../scene";
+import { vec4 } from "../rmsl";
+${READ_PIXEL}
+globalThis.__rmslFragmentAttribute = async (backend) => {
+  const results = {};
+  for (const mode of ["normal", "tint"]) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const renderer = backend === "webgpu"
+      ? await WebGPURenderer.init(canvas)
+      : new WebGLRenderer(canvas, { antialias: false });
+    const errors = [];
+    renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+    const geometry = new PlaneGeometry(2, 2);
+    const count = geometry.getAttribute("position").count;
+    const green = Float32Array.from({ length: count * 3 }, (_, i) => (i % 3 === 1 ? 1 : 0));
+    geometry.setAttribute("tint", new BufferAttribute(green, 3));
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = mode === "normal"
+      ? (b) => vec4(b.normal.mul(0.5).add(0.5), 1)
+      : (b) => vec4(b.attribute("tint", "vec3"), 1);
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    const camera = new PerspectiveCamera(90, 1, 0.1, 100);
+    camera.position.set(0, 0, 0.5);
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    if (renderer.device) {
+      await renderer.device.queue.onSubmittedWorkDone();
+      results[mode] = errors.length ? { errors } : readPixel(canvas, 8, 8);
+    } else {
+      const gl = renderer.gl;
+      const pixels = new Uint8Array(4);
+      gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      results[mode] = { r: pixels[0], g: pixels[1], b: pixels[2], a: pixels[3] };
     }
   }
   return results;
@@ -2272,6 +2322,40 @@ describe.skipIf(!GPU_ENABLED)("a scene renderer draws an attribute of every type
     },
     60_000,
   );
+
+  const fragmentAttribute = { normal: { r: 128, g: 128, b: 255, a: 255 }, tint: GREEN };
+
+  /**
+   * The plane's normal is (0, 0, 1), drawn as the colour (0.5, 0.5, 1).
+   *
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it("gives a material's fragment node the geometry's normal and an attribute of its own on WebGL", async () => {
+    const results = await runInGpuPage(
+      `${ENTRY_FRAGMENT_ATTRIBUTE}\nglobalThis.__rmslFragmentAttributeOnWebGl = () => globalThis.__rmslFragmentAttribute("webgl");`,
+      "__rmslFragmentAttributeOnWebGl",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(results).toEqual(fragmentAttribute);
+  }, 60_000);
+
+  /**
+   * @canon spec-the-fragment-normal-is-the-geometry-normal
+   * @canon spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
+   */
+  it.skipIf(!WEBGPU)(
+    "gives a material's fragment node the geometry's normal and an attribute of its own on WebGPU",
+    async () => {
+      const results = await runInWebGpuPage(
+        `${ENTRY_FRAGMENT_ATTRIBUTE}\nglobalThis.__rmslFragmentAttributeOnWebGpu = () => globalThis.__rmslFragmentAttribute("webgpu");`,
+        "__rmslFragmentAttributeOnWebGpu",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(results).toEqual(fragmentAttribute);
+    },
+    60_000,
+  );
 });
 
 describe("a material reads position and normal as TSL does", () => {
@@ -2288,6 +2372,9 @@ describe("a material reads position and normal as TSL does", () => {
   };
   const reaches = (root: unknown, target: unknown, skip: unknown[] = []) =>
     someNode(root, (node) => node === target, skip);
+  /** Whether a varying the fragment stage reads is assigned `value` by the vertex stage. */
+  const passesOn = (program: { vertexRoot: unknown; fragmentRoot: unknown }, value: unknown) =>
+    [...collectNodes(program.fragmentRoot as any).varyings].some((v) => assigned(program.vertexRoot, v) === value);
 
   /**
    * @canon spec-the-fragment-position-is-the-position-the-vertex-stage-ends-with
@@ -2300,9 +2387,9 @@ describe("a material reads position and normal as TSL does", () => {
 
     const read = collectNodes(program.fragmentRoot).varyings;
     const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
-    expect(names).toHaveLength(2);
-    expect(names).not.toContain("positionWorld");
-    expect(names).not.toContain("normalWorld");
+    expect(names).toEqual(["positionLocal", "normal"]);
+    expect(collectNodes(program.fragmentRoot).attributes.has(bound(program, "normal"))).toBe(false);
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**
@@ -2313,9 +2400,7 @@ describe("a material reads position and normal as TSL does", () => {
     material.vertexNode = (b) => vec4(b.position, 1);
     material.fragmentNode = (b) => vec4(b.normal, 1);
     const program = material.build(new Scene());
-    const written = collectNodes(program.vertexRoot).varyings;
-    const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
-    expect(names).toContain("normalLocal");
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**
@@ -2328,7 +2413,58 @@ describe("a material reads position and normal as TSL does", () => {
     const program = material.build(new Scene());
     const written = collectNodes(program.vertexRoot).varyings;
     const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
-    expect(names).toEqual(expect.arrayContaining(["positionLocal", "normalLocal"]));
+    expect(names).toContain("positionLocal");
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
+   */
+  it("lists the varying that carries an attribute under its name, with a suffix where a varying has it", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.varying("normal", "vec3").add(b.attribute("normal", "vec3")), 1);
+    material.vertexNode = (b) => {
+      b.varying("normal", "vec3").assign(b.attribute("normal", "vec3"));
+      return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+    };
+    const names = material.build(new Scene()).varyings.map((v) => v.name);
+    expect(names).toContain("normal");
+    expect(names).toContain("normalAttribute");
+  });
+
+  /**
+   * @canon spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
+   */
+  it("lists the varying of an attribute the fragment stage reads that the material did not register", () => {
+    const outside = attributeRaw("outside", "vec3");
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = () => vec4(outside, 1);
+    expect(material.build(new Scene()).varyings.map((v) => v.name)).toContain("outside");
+  });
+
+  /**
+   * @canon exception-wgsl-refuses-a-layout-fn-that-reaches-a-value-of-its-stage
+   */
+  it("names the attribute where WGSL refuses a layout Fn that reads it in a material", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const f = Fn(() => b.normal.x).setLayout({ name: "readsNormal", type: "float", inputs: [] });
+      return vec4(f(), 0, 0, 1);
+    };
+    const { fragmentRoot } = material.build(new Scene());
+    expect(() => compileWgsl.fragment(fragmentRoot)).toThrow(/uses the attribute "_rmsl_a\d+"/);
+  });
+
+  /**
+   * @canon spec-a-material-program-lists-the-varying-of-an-attribute-its-fragment-stage-reads
+   */
+  it("lists the varying that carries the fragment normal under the attribute's name", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.normal, 1);
+    const program = material.build(new Scene());
+    expect(program.varyings.map((v) => v.name)).toContain("normal");
+    const shade = fromProgram(program);
+    expect(Array.from(shade({ varyings: { normal: [0, 1, 0] } }).value!)).toEqual([0, 1, 0, 1]);
   });
 
   /**
@@ -2386,7 +2522,7 @@ describe("a material reads position and normal as TSL does", () => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => vec4(b.normal, 1);
     const program = material.build(new Scene(), { instancing: true });
-    expect(assigned(program.vertexRoot, bound(program, "normalLocal"))).toBe(bound(program, "normal"));
+    expect(passesOn(program, bound(program, "normal"))).toBe(true);
   });
 
   /**

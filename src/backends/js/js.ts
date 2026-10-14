@@ -2614,7 +2614,7 @@ function compileJSFnDetailed(
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const found: FoundInRoots = {};
-  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, found))));
+  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, found, true))));
 
   const ctx: CompileCtx = {
     nextId: 0,

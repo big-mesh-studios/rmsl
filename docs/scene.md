@@ -118,7 +118,9 @@ material.fragmentNode = (b) => Fn(() => vec4(b.uv.x, b.uv.y, 0.5, 1))();
 `material.build(scene)` compiles the graph and returns a `MaterialProgram`:
 the vertex and fragment roots plus the exact set of uniforms, attributes,
 varyings and sampler bindings the compiled shaders reference — filtered to what
-is _actually used_, which is also what the compilers emit. The renderers use
+is _actually used_, which is also what the compilers emit. An attribute the
+fragment stage reads reaches it in a varying the program lists under the
+attribute's name, such as `normal`. The renderers use
 this to bind geometry attributes, upload uniforms (grouped by scope: camera,
 object, material) and build the WebGPU uniform-buffer layout.
 
