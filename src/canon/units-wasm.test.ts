@@ -1,4 +1,4 @@
-import { ProgramError, UsageError } from "../errors";
+import { NodeError, ProgramError, UsageError } from "../errors";
 import { describe, expect, it } from "vitest";
 import wabtInit from "wabt";
 import {
@@ -337,7 +337,10 @@ describe("the exports of a WASM module", () => {
    * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
    */
   it("refuses a program name in the reserved prefix", () => {
-    expect(() => exportsOf(() => Fn(() => float(1))(), "_rmsl_draw")).toThrowRmsl(ProgramError, "reserved-name");
+    expect(() => exportsOf(() => Fn(() => float(1))(), "_rmsl_draw")).toThrowRmsl(
+      ProgramError,
+      "reserved-program-name",
+    );
   });
 
   /**
@@ -345,7 +348,7 @@ describe("the exports of a WASM module", () => {
    */
   it("refuses to instantiate a program under a name in the reserved prefix", () => {
     const compiled = compileWasmFn(() => Fn(() => float(1))(), { name: "main", params: [] });
-    expect(() => instantiateWasmRoutine(compiled, "_rmsl_compute")).toThrowRmsl(ProgramError, "reserved-name");
+    expect(() => instantiateWasmRoutine(compiled, "_rmsl_compute")).toThrowRmsl(ProgramError, "reserved-program-name");
   });
 
   /**
@@ -1677,7 +1680,7 @@ describe("the index accessors on WASM", () => {
         builtinPosition().assign(vec4(0, 0, 0, 1));
       })();
     expect(() => compileWasm(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "assign-to-read-only",
       /built-in input/,
     );

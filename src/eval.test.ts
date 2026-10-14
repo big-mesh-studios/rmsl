@@ -1,4 +1,4 @@
-import { ProgramError } from "./errors";
+import { NodeError } from "./errors";
 import { describe, it, expect, afterAll, afterEach } from "vitest";
 import {
   Fn,
@@ -441,7 +441,7 @@ describe("RMSL evaluation", () => {
         });
         return out.add(doubled);
       })();
-    expect(() => pick(float(1))).toThrowRmsl(ProgramError, "variable-used-outside-its-branch");
+    expect(() => pick(float(1))).toThrowRmsl(NodeError, "variable-used-outside-its-branch");
 
     const assignAfter = (x: Node<"float">) =>
       Fn(() => {
@@ -455,7 +455,7 @@ describe("RMSL evaluation", () => {
         doubled.assign(float(0));
         return out;
       })();
-    expect(() => assignAfter(float(1))).toThrowRmsl(ProgramError, "variable-used-outside-its-branch");
+    expect(() => assignAfter(float(1))).toThrowRmsl(NodeError, "variable-used-outside-its-branch");
   });
 
   /**
@@ -525,7 +525,7 @@ describe("RMSL evaluation", () => {
         });
         return out.add(t);
       })();
-    expect(() => build(float(1))).toThrowRmsl(ProgramError, "else-not-after-if");
+    expect(() => build(float(1))).toThrowRmsl(NodeError, "else-not-after-if");
   });
 
   /**
@@ -546,7 +546,7 @@ describe("RMSL evaluation", () => {
         });
         return total;
       })();
-    expect(() => build(float(1))).toThrowRmsl(ProgramError, "else-not-after-if");
+    expect(() => build(float(1))).toThrowRmsl(NodeError, "else-not-after-if");
   });
 
   /**
@@ -565,7 +565,7 @@ describe("RMSL evaluation", () => {
         });
         return total;
       })();
-    expect(() => build(float(1))).toThrowRmsl(ProgramError, "else-not-after-if");
+    expect(() => build(float(1))).toThrowRmsl(NodeError, "else-not-after-if");
 
     for (const statement of [Break, Continue, Return, Discard]) {
       const between = (x: Node<"float">) =>
@@ -580,7 +580,7 @@ describe("RMSL evaluation", () => {
           });
           return total;
         })();
-      expect(() => between(float(1)), statement.name).toThrowRmsl(ProgramError, "else-not-after-if");
+      expect(() => between(float(1)), statement.name).toThrowRmsl(NodeError, "else-not-after-if");
     }
   });
 
@@ -601,7 +601,7 @@ describe("RMSL evaluation", () => {
         });
         return total;
       })();
-    expect(() => build(float(1))).toThrowRmsl(ProgramError, "else-not-after-if");
+    expect(() => build(float(1))).toThrowRmsl(NodeError, "else-not-after-if");
   });
 
   /**

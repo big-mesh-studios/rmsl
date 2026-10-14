@@ -40,7 +40,12 @@ export class RmslError extends Error {
   }
 }
 
-/** A mistake in the user's code that rmsl finds by reading the program, with no device. */
+/** A node that is wrong whatever program it ends up in, refused as it is made and as a target compiles it. */
+export class NodeError extends RmslError {
+  override name = "NodeError";
+}
+
+/** A node that could be right in another program, but breaks a rule of the program it is compiled into. */
 export class ProgramError extends RmslError {
   override name = "ProgramError";
 }

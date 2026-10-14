@@ -1,4 +1,4 @@
-import { ProgramError, UsageError } from "../errors";
+import { NodeError, ProgramError, UsageError } from "../errors";
 import { Session } from "node:inspector/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
@@ -1971,7 +1971,7 @@ describe("the index accessors on JS", () => {
         builtinPosition().assign(vec4(0, 0, 0, 1));
       })();
     expect(() => compileJS(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "assign-to-read-only",
       /built-in input/,
     );

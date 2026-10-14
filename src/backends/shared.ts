@@ -1,4 +1,4 @@
-import { ProgramError, UsageError, type BackendOrigin, type Origin } from "../errors";
+import { ProgramError, UsageError, type BackendOrigin, type Origin, NodeError } from "../errors";
 import { safeName } from "./reserved-names";
 import { withArticle } from "../article";
 import {
@@ -448,7 +448,7 @@ export function tryFold(origin: Origin, n: BaseNode<ShaderType>, float32 = false
     n.type !== "select" &&
     !Number.isFinite(Math.fround(folded.value as number))
   ) {
-    throw new ProgramError(
+    throw new NodeError(
       "constant-not-finite",
       `${n.type}() of literal operands is ${folded.value}, which a 32-bit float cannot hold and no target can write as a constant. ` +
         `Compute it from a value that is not a literal, such as a uniform.`,
@@ -708,7 +708,7 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(origin: Origin, roots
   };
   const lowered = roots.map((root, i) => (i === roots.length - 1 ? (lower(root) as T) : root));
   if (someNode(lowered, (n) => n.type === "outputStruct")) {
-    throw new ProgramError(
+    throw new NodeError(
       "output-struct-misplaced",
       "outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
       origin,
@@ -734,7 +734,7 @@ const isBlockSlot = (statement: any, i: number) =>
 
 /** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
 function refuseWholeStorageRead(origin: Origin, storage: any): never {
-  throw new ProgramError(
+  throw new NodeError(
     "storage-read-as-a-whole",
     `storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`,
     origin,
@@ -799,9 +799,9 @@ function checkRoots(
         origin,
       );
     const textureRefused = textureRefusal(node.type, node.params?.[0]?._t);
-    if (textureRefused) throw new ProgramError(textureRefused.code, textureRefused.message, origin);
+    if (textureRefused) throw new NodeError(textureRefused.code, textureRefused.message, origin);
     const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
-    if (refusal) throw new ProgramError(refusal.code, refusal.message, origin);
+    if (refusal) throw new NodeError(refusal.code, refusal.message, origin);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     assertNodeNames(node);
     if (node.type === "call") {
@@ -1088,7 +1088,7 @@ export function assertConstantIndexInRange(
   const items = array !== undefined ? "elements" : shape ? "columns" : "components";
   const k = Math.trunc(Number(constant.value));
   if (!(k >= 0 && k < count)) {
-    throw new ProgramError(
+    throw new NodeError(
       "index-out-of-range",
       `index ${k} is outside ${withArticle(what)}'s ${items} 0 to ${count - 1}`,
       origin,
@@ -1118,7 +1118,7 @@ export const DEGREES_PER_RADIAN = 180 / Math.PI;
 export function assertSquareMatrix(origin: Origin, operandType: string | undefined): number {
   let shape = MATRIX_DIMENSIONS[operandType as string];
   if (shape === undefined || shape[0] !== shape[1]) {
-    throw new ProgramError(
+    throw new NodeError(
       "inverse-of-non-square",
       `inverse() needs a square matrix, but this one is ` + `${operandType ?? "untyped"}.`,
       origin,
@@ -1408,7 +1408,7 @@ function assertFnBody(origin: Origin, definition: FnDefinition, stageInputsInFns
     seen.add(n);
     if (Array.isArray(n)) return n.forEach(walk);
     if (n.type === "return" && definition.type !== "void") {
-      throw new ProgramError(
+      throw new NodeError(
         "return-without-value",
         `${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} gives a ${definition.type}, and its body calls Return(), which gives no value. ` +
           `Return a value at the end, or give the layout the type "void".`,
@@ -1422,7 +1422,7 @@ function assertFnBody(origin: Origin, definition: FnDefinition, stageInputsInFns
           ? `the attribute "${n.value.carries}"`
           : STAGE_BOUND[n.type];
     if (stage !== undefined) {
-      throw new ProgramError(
+      throw new NodeError(
         "layout-fn-uses-stage-value",
         `${definition.name === undefined ? "An Fn with a layout" : `The Fn "${definition.name}"`} uses ${stage}, which belongs to the stage and not to a function. ` +
           `Pass its value in as an input.`,
@@ -1589,7 +1589,7 @@ function assignmentRoot(target: any): any {
 function assertNoRepeatedSwizzle(origin: Origin, target: any): void {
   for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
     if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
-      throw new ProgramError(
+      throw new NodeError(
         "swizzle-repeats-component",
         `can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
         origin,
@@ -1658,7 +1658,7 @@ export function assertAssignable(
   assertNoRepeatedSwizzle(origin, target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
-    throw new ProgramError(
+    throw new NodeError(
       "assign-to-whole-storage",
       "can't assign to a whole storage buffer; assign to one of its elements with .element(i)",
       origin,
@@ -1666,14 +1666,14 @@ export function assertAssignable(
   }
   if (!ASSIGNABLE.has(root?.type)) {
     const what = READ_ONLY_NAMES[root?.type] ?? "a computed value";
-    throw new ProgramError(
+    throw new NodeError(
       "assign-to-read-only",
       `can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
       origin,
     );
   }
   if (root.type === "var" && root.value.parameter) {
-    throw new ProgramError(
+    throw new NodeError(
       "assign-to-parameter",
       `can't assign to "${root.value.varName}", a parameter of the compiled function, whose value belongs to the caller; copy it into a variable with toVar() first`,
       origin,
@@ -1688,7 +1688,7 @@ export function assertAssignable(
     );
   }
   if (root.type === "storageElement" && root.params[0].value.access === "read") {
-    throw new ProgramError(
+    throw new NodeError(
       "assign-to-read-only-storage",
       "can't assign to an element of a storage node made read-only with toReadOnly()",
       origin,

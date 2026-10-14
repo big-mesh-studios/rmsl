@@ -1,4 +1,4 @@
-import { ProgramError } from "../../errors";
+import { NodeError, ProgramError } from "../../errors";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Fn, float, instanceIndex, instancedArray, int, uint, varying, vec4, vertexIndex } from "../../rmsl";
 import { compileGlsl } from "../../glsl";
@@ -134,8 +134,8 @@ describe("storage buffers in render stages", () => {
       (instanceIndex() as any).assign(uint(1));
       return vec4(0, 0, 0, 1);
     })();
-    expect(() => compileGlsl.vertex(vertex)).toThrowRmsl(ProgramError, "assign-to-read-only", /built-in input/);
-    expect(() => compileWgsl.vertex(vertex)).toThrowRmsl(ProgramError, "assign-to-read-only", /built-in input/);
+    expect(() => compileGlsl.vertex(vertex)).toThrowRmsl(NodeError, "assign-to-read-only", /built-in input/);
+    expect(() => compileWgsl.vertex(vertex)).toThrowRmsl(NodeError, "assign-to-read-only", /built-in input/);
   });
   /**
    * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins

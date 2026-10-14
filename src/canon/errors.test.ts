@@ -9,6 +9,7 @@ import {
   If,
   InternalError,
   LimitError,
+  NodeError,
   PlatformError,
   ProgramError,
   RmslError,
@@ -81,6 +82,32 @@ describe("no module of rmsl throws a plain error", () => {
 });
 
 describe("an error is an instance of the class of its kind", () => {
+  /**
+   * The sum is built of two ints and rewired in the saved data to an int and a
+   * uint, which the builder would have refused.
+   *
+   * @canon spec-a-node-wrong-in-itself-is-a-node-error
+   */
+  it("refuses a node wrong in itself with a NodeError as it is built, and in a rebuilt graph on every target", () => {
+    const count = uniform("int");
+    const mask = uniform("uint");
+    expectThrows(() => count.add(mask as any), NodeError, "operands-of-different-kinds", { target: "none" });
+    const graph = serialize(Fn(() => vec4(count.add(count).toFloat(), mask.toFloat(), 0, 1))()) as any;
+    const sum = graph.nodes.find((n: any) => n.type === "add");
+    sum.params[1] = graph.nodes.findIndex((n: any) => n.type === "uniform" && n._t === "uint");
+    const rebuilt = () => deserialize(JSON.parse(JSON.stringify(graph))) as any;
+    expectRefusedOnEveryTarget(
+      {
+        glsl: () => compileGlsl.fragment(rebuilt()),
+        wgsl: () => compileWgsl.fragment(rebuilt()),
+        js: () => compileJSFragment(rebuilt, none),
+        wasm: () => compileWasmFragment(rebuilt, none),
+      },
+      NodeError,
+      "operands-of-different-kinds",
+    );
+  });
+
   /**
    * @canon spec-a-program-that-breaks-a-rule-is-refused-with-a-program-error
    */
@@ -245,6 +272,7 @@ describe("an error is an instance of the class of its kind", () => {
   it("names each error for its class", () => {
     const classes = [
       RmslError,
+      NodeError,
       ProgramError,
       UsageError,
       TargetError,
@@ -260,6 +288,7 @@ describe("an error is an instance of the class of its kind", () => {
     );
     expect(names).toEqual([
       "RmslError",
+      "NodeError",
       "ProgramError",
       "UsageError",
       "TargetError",
@@ -303,10 +332,10 @@ describe("a code and a target", () => {
    * @canon spec-an-error-from-no-backend-carries-no-target
    */
   it("names no backend for a mistake made while the graph is built, inside a compile or outside one", () => {
-    expectThrows(() => float(1).add(uint(2) as any), ProgramError, "operands-of-different-kinds", { target: "none" });
+    expectThrows(() => float(1).add(uint(2) as any), NodeError, "operands-of-different-kinds", { target: "none" });
     expectThrows(
       () => compileJSRoutine(() => float(1).add(uint(2) as any), none),
-      ProgramError,
+      NodeError,
       "operands-of-different-kinds",
       { target: "none" },
     );

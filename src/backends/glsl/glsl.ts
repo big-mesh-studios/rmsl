@@ -1054,7 +1054,7 @@ export function compileGLSLWithStage(
   const precision = options.precision ?? "highp";
   if (precision !== "lowp" && precision !== "mediump" && precision !== "highp") {
     throw new ProgramError(
-      "unknown-precision",
+      "unknown-precision-option",
       `unknown precision "${precision}" — use "lowp", "mediump" or "highp".`,
       origin,
     );

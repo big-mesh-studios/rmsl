@@ -1,4 +1,4 @@
-import { ProgramError } from "../errors";
+import { NodeError } from "../errors";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -382,8 +382,8 @@ describe("a mistake in a function with a layout is refused", () => {
    */
   it("refuses a call with too few or too many arguments", () => {
     const f = Fn(([x]: [Node<"float">]) => x).setLayout(layout()) as (...args: any[]) => any;
-    expect(() => Fn(() => f())()).toThrowRmsl(ProgramError, "argument-count");
-    expect(() => Fn(() => f(float(1), float(2)))()).toThrowRmsl(ProgramError, "argument-count");
+    expect(() => Fn(() => f())()).toThrowRmsl(NodeError, "argument-count");
+    expect(() => Fn(() => f(float(1), float(2)))()).toThrowRmsl(NodeError, "argument-count");
   });
 
   /**
@@ -391,8 +391,8 @@ describe("a mistake in a function with a layout is refused", () => {
    */
   it("refuses an argument of another type, and takes a number for a float", () => {
     const f = Fn(([x]: [Node<"float">]) => x).setLayout(layout()) as (...args: any[]) => any;
-    expect(() => Fn(() => f(vec3(1, 2, 3)))()).toThrowRmsl(ProgramError, "argument-of-another-type");
-    expect(() => Fn(() => f(int(1)))()).toThrowRmsl(ProgramError, "argument-of-another-type");
+    expect(() => Fn(() => f(vec3(1, 2, 3)))()).toThrowRmsl(NodeError, "argument-of-another-type");
+    expect(() => Fn(() => f(int(1)))()).toThrowRmsl(NodeError, "argument-of-another-type");
     expect(() => Fn(() => f(2))()).not.toThrow();
   });
 
@@ -401,13 +401,13 @@ describe("a mistake in a function with a layout is refused", () => {
    */
   it("refuses a body that returns another type, or nothing, or a value for void", () => {
     const wrong = Fn(([x]: [Node<"float">]) => vec3(x)).setLayout(layout()) as (...args: any[]) => any;
-    expect(() => Fn(() => wrong(1))()).toThrowRmsl(ProgramError, "result-of-another-type");
+    expect(() => Fn(() => wrong(1))()).toThrowRmsl(NodeError, "result-of-another-type");
     const nothing = Fn(([x]: [Node<"float">]) => {
       x.toVar();
     }).setLayout(layout()) as (...args: any[]) => any;
-    expect(() => Fn(() => nothing(1))()).toThrowRmsl(ProgramError, "result-of-another-type");
+    expect(() => Fn(() => nothing(1))()).toThrowRmsl(NodeError, "result-of-another-type");
     const value = Fn(([x]: [Node<"float">]) => x).setLayout(layout("void")) as (...args: any[]) => any;
-    expect(() => Fn(() => value(1))()).toThrowRmsl(ProgramError, "result-of-another-type");
+    expect(() => Fn(() => value(1))()).toThrowRmsl(NodeError, "result-of-another-type");
   });
 
   /**
@@ -421,7 +421,7 @@ describe("a mistake in a function with a layout is refused", () => {
         return read();
       })(),
     ).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "layout-fn-uses-outer-variable",
       /Fn "read" uses the variable "total", which is declared outside it/,
     );
@@ -440,7 +440,7 @@ describe("a mistake in a function with a layout is refused", () => {
         (accumulate as (...args: any[]) => any)(1);
       })(),
     ).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "layout-fn-uses-outer-variable",
       /Fn "accumulate" uses the variable "total", which is declared outside it/,
     );
@@ -482,14 +482,10 @@ describe("a mistake in a function with a layout is refused", () => {
     body.params![body.params!.length - 1] = caller;
     const restored = () => deserialize(JSON.parse(JSON.stringify(graph))) as Node<"vec4">;
     const refusal = /uses the variable "caller", which is declared outside it/;
-    expect(() => compileGlsl.fragment(restored())).toThrowRmsl(ProgramError, "layout-fn-uses-outer-variable", refusal);
-    expect(() => compileWgsl.fragment(restored())).toThrowRmsl(ProgramError, "layout-fn-uses-outer-variable", refusal);
-    expect(() => compileJSFragment(restored, none)).toThrowRmsl(ProgramError, "layout-fn-uses-outer-variable", refusal);
-    expect(() => compileWasmFragment(restored, none)).toThrowRmsl(
-      ProgramError,
-      "layout-fn-uses-outer-variable",
-      refusal,
-    );
+    expect(() => compileGlsl.fragment(restored())).toThrowRmsl(NodeError, "layout-fn-uses-outer-variable", refusal);
+    expect(() => compileWgsl.fragment(restored())).toThrowRmsl(NodeError, "layout-fn-uses-outer-variable", refusal);
+    expect(() => compileJSFragment(restored, none)).toThrowRmsl(NodeError, "layout-fn-uses-outer-variable", refusal);
+    expect(() => compileWasmFragment(restored, none)).toThrowRmsl(NodeError, "layout-fn-uses-outer-variable", refusal);
   });
 
   /**
@@ -504,10 +500,10 @@ describe("a mistake in a function with a layout is refused", () => {
     }).setLayout(layout());
     const build = () => Fn(() => vec4(early(uniform("float")), 0, 0, 1))();
     const refusal = /Fn "f" gives a float, and its body calls Return\(\)/;
-    expect(() => compileGlsl.fragment(build())).toThrowRmsl(ProgramError, "return-without-value", refusal);
-    expect(() => compileWgsl.fragment(build())).toThrowRmsl(ProgramError, "return-without-value", refusal);
-    expect(() => compileJSFragment(build, none)).toThrowRmsl(ProgramError, "return-without-value", refusal);
-    expect(() => compileWasmFragment(build, none)).toThrowRmsl(ProgramError, "return-without-value", refusal);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, "return-without-value", refusal);
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, "return-without-value", refusal);
+    expect(() => compileJSFragment(build, none)).toThrowRmsl(NodeError, "return-without-value", refusal);
+    expect(() => compileWasmFragment(build, none)).toThrowRmsl(NodeError, "return-without-value", refusal);
   });
 
   /**
@@ -526,10 +522,10 @@ describe("a mistake in a function with a layout is refused", () => {
       stage === "fragment"
         ? [compileGlsl.fragment, compileWgsl.fragment, compileJSFragment, compileWasmFragment]
         : [compileGlsl.vertex, compileWgsl.vertex, compileJSVertex, compileWasmVertex];
-    expect(() => (glsl as any)(build())).toThrowRmsl(ProgramError, "layout-fn-uses-stage-value", refusal);
-    expect(() => (wgsl as any)(build())).toThrowRmsl(ProgramError, "layout-fn-uses-stage-value", refusal);
-    expect(() => (js as any)(build, none)).toThrowRmsl(ProgramError, "layout-fn-uses-stage-value", refusal);
-    expect(() => (wasm as any)(build, none)).toThrowRmsl(ProgramError, "layout-fn-uses-stage-value", refusal);
+    expect(() => (glsl as any)(build())).toThrowRmsl(NodeError, "layout-fn-uses-stage-value", refusal);
+    expect(() => (wgsl as any)(build())).toThrowRmsl(NodeError, "layout-fn-uses-stage-value", refusal);
+    expect(() => (js as any)(build, none)).toThrowRmsl(NodeError, "layout-fn-uses-stage-value", refusal);
+    expect(() => (wasm as any)(build, none)).toThrowRmsl(NodeError, "layout-fn-uses-stage-value", refusal);
   });
 
   /** A stage input a layout `Fn` reads, built into a function and a fragment stage that calls it. */
@@ -639,8 +635,8 @@ describe("a mistake in a function with a layout is refused", () => {
     ["a name that is no identifier", { name: "1f", type: "float", inputs: [] }, /no identifier/],
     ["a name with the reserved prefix", { name: "_rmsl_f", type: "float", inputs: [] }, /starts with "_rmsl_"/],
   ] as const)("refuses a layout with %s", (_, malformed, refusal) => {
-    expect(() => Fn(() => float(1)).setLayout(malformed as any)).toThrowRmsl(ProgramError, "invalid-layout", refusal);
-    expect(() => Fn(() => float(1), malformed as any)).toThrowRmsl(ProgramError, "invalid-layout", refusal);
+    expect(() => Fn(() => float(1)).setLayout(malformed as any)).toThrowRmsl(NodeError, "invalid-layout", refusal);
+    expect(() => Fn(() => float(1), malformed as any)).toThrowRmsl(NodeError, "invalid-layout", refusal);
   });
 
   /**
@@ -656,10 +652,10 @@ describe("a mistake in a function with a layout is refused", () => {
     const graph = serialize(Fn(() => vec4(ok(uniform("float")), 0, 0, 1))());
     tamper(graph.nodes.find((n) => n.type === "call"));
     const restored = () => deserialize(JSON.parse(JSON.stringify(graph))) as Node<"vec4">;
-    expect(() => compileGlsl.fragment(restored())).toThrowRmsl(ProgramError, "invalid-layout");
-    expect(() => compileWgsl.fragment(restored())).toThrowRmsl(ProgramError, "invalid-layout");
-    expect(() => compileJSFragment(restored, none)).toThrowRmsl(ProgramError, "invalid-layout");
-    expect(() => compileWasmFragment(restored, none)).toThrowRmsl(ProgramError, "invalid-layout");
+    expect(() => compileGlsl.fragment(restored())).toThrowRmsl(NodeError, "invalid-layout");
+    expect(() => compileWgsl.fragment(restored())).toThrowRmsl(NodeError, "invalid-layout");
+    expect(() => compileJSFragment(restored, none)).toThrowRmsl(NodeError, "invalid-layout");
+    expect(() => compileWasmFragment(restored, none)).toThrowRmsl(NodeError, "invalid-layout");
   });
 
   /**
@@ -722,7 +718,7 @@ describe("a mistake in a function with a layout is refused", () => {
       type: "int",
       inputs: [{ name: "n", type: "int" }],
     }) as (...args: any[]) => any;
-    expect(() => next(3)).toThrowRmsl(ProgramError, "argument-of-another-type");
+    expect(() => next(3)).toThrowRmsl(NodeError, "argument-of-another-type");
     expect(() => next(int(3))).not.toThrow();
   });
 

@@ -208,6 +208,7 @@ export {
   DriverError,
   InternalError,
   LimitError,
+  NodeError,
   PlatformError,
   ProgramError,
   RmslError,

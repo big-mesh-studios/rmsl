@@ -1,4 +1,4 @@
-import { InternalError, ProgramError, TargetError, type BackendOrigin } from "../../errors";
+import { InternalError, ProgramError, TargetError, type BackendOrigin, NodeError } from "../../errors";
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   CpuDrawBuffer,
@@ -322,7 +322,7 @@ export function jsHelperSource(name: string): string {
     }
     if (op === "cross") {
       if (width !== 3) {
-        throw new ProgramError("cross-needs-vec3", `cross() needs a vec3 on the JS target, got width ${width}.`, {
+        throw new NodeError("cross-needs-vec3", `cross() needs a vec3 on the JS target, got width ${width}.`, {
           target: "js",
         });
       }

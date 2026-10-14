@@ -1,4 +1,4 @@
-import { DataError, ProgramError } from "./errors";
+import { DataError, NodeError } from "./errors";
 import { describe, expect, it } from "vitest";
 import { deserialize, serialize, type SerializedGraph } from "./serialize";
 import {
@@ -360,7 +360,7 @@ describe("serialize/deserialize", () => {
       delete value.local;
       value.slot = "u; } void evil() { float y";
     }
-    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrowRmsl(ProgramError, "invalid-name");
+    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrowRmsl(NodeError, "invalid-name");
   });
 
   /**
@@ -368,16 +368,10 @@ describe("serialize/deserialize", () => {
    */
   it("refuses a graph built by hand whose variable is named by text, on every target", () => {
     const build = () => Fn(() => var_<"float">("x = 1.0; } void evil() { float y", "float"))();
-    expect(() => compileGlsl.fragment(build() as any)).toThrowRmsl(ProgramError, "invalid-name");
-    expect(() => compile({ stage: "compute", workgroupSize: 64 }, build())).toThrowRmsl(ProgramError, "invalid-name");
-    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
-      ProgramError,
-      "invalid-name",
-    );
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
-      ProgramError,
-      "invalid-name",
-    );
+    expect(() => compileGlsl.fragment(build() as any)).toThrowRmsl(NodeError, "invalid-name");
+    expect(() => compile({ stage: "compute", workgroupSize: 64 }, build())).toThrowRmsl(NodeError, "invalid-name");
+    expect(() => compileJSRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(NodeError, "invalid-name");
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(NodeError, "invalid-name");
   });
 
   /**
@@ -407,6 +401,6 @@ describe("serialize/deserialize", () => {
   it("refuses a uniform named as it stands by a name GLSL or WGSL cannot declare", () => {
     const graph = serialize(Fn(() => uniformRaw("ok", "float"))()) as any;
     graph.nodes.find((n: any) => n.type === "uniform").value.slot = "float";
-    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrowRmsl(ProgramError, "reserved-name");
+    expect(() => deserialize(JSON.parse(JSON.stringify(graph)))).toThrowRmsl(NodeError, "reserved-name");
   });
 });

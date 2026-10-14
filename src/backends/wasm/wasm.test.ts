@@ -1,4 +1,4 @@
-import { ProgramError, TargetError } from "../../errors";
+import { NodeError, ProgramError, TargetError } from "../../errors";
 import { describe, it, expect } from "vitest";
 import {
   compileWasmRoutine,
@@ -1059,7 +1059,7 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
         name: "main",
         params: [],
       }),
-    ).toThrowRmsl(ProgramError, "cross-needs-vec3");
+    ).toThrowRmsl(NodeError, "cross-needs-vec3");
   });
   /**
    * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
@@ -1551,7 +1551,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const tex = uniform("samplerCube") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0) as any).x)();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "cube-map-texel-fetch",
     );
   });
@@ -1818,7 +1818,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         return texture(tex, ivec3(0, 0, 0)).x;
       })();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "integer-cube-sampler",
     );
   });
@@ -2203,7 +2203,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         return (a as any).add(1);
       })();
     expect(() => compileWasmRoutine(build as any, { name: "step", params: [] })).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-read-as-a-whole",
     );
   });

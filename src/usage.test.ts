@@ -1,4 +1,4 @@
-import { InternalError, ProgramError, TargetError } from "./errors";
+import { InternalError, NodeError, ProgramError, TargetError } from "./errors";
 import { afterAll, describe, expect, it } from "vitest";
 import * as rmslExports from "./rmsl";
 import {
@@ -566,22 +566,22 @@ describe("RMSL", () => {
    */
   it("refuses a value that is not a texture in texture and textureLevel", () => {
     expect(() => texture(vec4(1) as any, vec2(0, 0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "not-a-sampler",
       /texture: its first argument is a vec4, not a sampler/,
     );
     expect(() => textureLevel(float(1) as any, vec2(0, 0), float(0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "not-a-sampler",
       /textureLevel: its first argument is a float, not a sampler/,
     );
     expect(() => texture(uvec2(1, 1) as any, vec2(0, 0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "not-a-sampler",
       /texture: its first argument is a uvec2, not a sampler/,
     );
     expect(() => texture(ivec2(1, 1) as any, vec2(0, 0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "not-a-sampler",
       /texture: its first argument is an ivec2, not a sampler/,
     );
@@ -592,10 +592,10 @@ describe("RMSL", () => {
    */
   it("refuses an integer cube map in texture and textureLevel", () => {
     // @ts-expect-error: texture takes no integer cube map
-    expect(() => texture(uniform("isamplerCube"), ivec3(0, 0, 0))).toThrowRmsl(ProgramError, "integer-cube-sampler");
+    expect(() => texture(uniform("isamplerCube"), ivec3(0, 0, 0))).toThrowRmsl(NodeError, "integer-cube-sampler");
     // @ts-expect-error: textureLevel takes no integer cube map
     expect(() => textureLevel(uniform("usamplerCube"), uvec3(0, 0, 0), int(0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "integer-cube-sampler",
     );
   });
@@ -1506,7 +1506,7 @@ describe("RMSL", () => {
   it("rejects a matrix product whose shapes do not meet", () => {
     let a = mat2x3(1, 0, 0, 1, 0, 0);
     let b = mat2x4(1, 0, 0, 1, 0, 0, 0, 0);
-    expect(() => (a as any).mul(b)).toThrowRmsl(ProgramError, "matrix-product-shape");
+    expect(() => (a as any).mul(b)).toThrowRmsl(NodeError, "matrix-product-shape");
   });
 
   /**
@@ -1669,7 +1669,7 @@ describe("RMSL", () => {
   it("assign outside Fn throws", () => {
     let x = float(1.0);
     // @ts-expect-error: a literal can't be assigned
-    expect(() => x.assign(float(2.0))).toThrowRmsl(ProgramError, "outside-fn-scope");
+    expect(() => x.assign(float(2.0))).toThrowRmsl(NodeError, "outside-fn-scope");
   });
 
   /**
@@ -1677,14 +1677,14 @@ describe("RMSL", () => {
    */
   it("toVar outside Fn throws", () => {
     let x = float(1.0);
-    expect(() => x.toVar()).toThrowRmsl(ProgramError, "outside-fn-scope");
+    expect(() => x.toVar()).toThrowRmsl(NodeError, "outside-fn-scope");
   });
 
   /**
    * @canon spec-a-statement-outside-an-fn-is-refused
    */
   it("If outside Fn throws", () => {
-    expect(() => If(bool(true), () => {})).toThrowRmsl(ProgramError, "outside-fn-scope");
+    expect(() => If(bool(true), () => {})).toThrowRmsl(NodeError, "outside-fn-scope");
   });
 
   // === Standalone function compilers ===
@@ -2311,7 +2311,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-fraction-beside-an-integer-is-refused
    */
   it("refuses a fractional literal beside an integer operand", () => {
-    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(ProgramError, "literal-not-whole");
+    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(NodeError, "literal-not-whole");
   });
 
   /**
@@ -2321,10 +2321,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("refuses a negative literal beside an unsigned operand", () => {
-    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrowRmsl(
-      ProgramError,
-      "literal-negative-for-unsigned",
-    );
+    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });
 
   /**
@@ -2449,8 +2446,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    */
   it("refuses to invert a matrix that is not square, in both backends", () => {
     let prog = Fn(() => (uniform("mat2x3") as any).inverse().toVar());
-    expect(() => compileGlsl(prog())).toThrowRmsl(ProgramError, "inverse-of-non-square");
-    expect(() => compileWgsl(prog())).toThrowRmsl(ProgramError, "inverse-of-non-square");
+    expect(() => compileGlsl(prog())).toThrowRmsl(NodeError, "inverse-of-non-square");
+    expect(() => compileWgsl(prog())).toThrowRmsl(NodeError, "inverse-of-non-square");
   });
 
   /**
@@ -2762,18 +2759,18 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-uniform-array-holds-no-texture
    */
   it("refuses an array of textures", () => {
-    expect(() => uniformArray("sampler2D", 2)).toThrowRmsl(ProgramError, "texture-in-uniform-array");
-    expect(() => uniformArray("sampler3D", 2)).toThrowRmsl(ProgramError, "texture-in-uniform-array");
-    expect(() => uniformArray("samplerCube", 2)).toThrowRmsl(ProgramError, "texture-in-uniform-array");
+    expect(() => uniformArray("sampler2D", 2)).toThrowRmsl(NodeError, "texture-in-uniform-array");
+    expect(() => uniformArray("sampler3D", 2)).toThrowRmsl(NodeError, "texture-in-uniform-array");
+    expect(() => uniformArray("samplerCube", 2)).toThrowRmsl(NodeError, "texture-in-uniform-array");
   });
 
   /**
    * @canon spec-a-uniform-array-length-is-a-positive-integer
    */
   it("rejects a nonsensical array length", () => {
-    expect(() => uniformArray("vec4", 0)).toThrowRmsl(ProgramError, "uniform-array-length");
-    expect(() => uniformArray("vec4", -3)).toThrowRmsl(ProgramError, "uniform-array-length");
-    expect(() => uniformArray("vec4", 2.5)).toThrowRmsl(ProgramError, "uniform-array-length");
+    expect(() => uniformArray("vec4", 0)).toThrowRmsl(NodeError, "uniform-array-length");
+    expect(() => uniformArray("vec4", -3)).toThrowRmsl(NodeError, "uniform-array-length");
+    expect(() => uniformArray("vec4", 2.5)).toThrowRmsl(NodeError, "uniform-array-length");
   });
 
   /**
@@ -2934,14 +2931,14 @@ describe("integer vectors", () => {
    */
   it("rejects a non-whole number beside an integer vector", () => {
     let prog = () => ivec2(1, 2).add(0.5).toVar();
-    expect(() => prog()).toThrowRmsl(ProgramError, "literal-not-whole");
+    expect(() => prog()).toThrowRmsl(NodeError, "literal-not-whole");
   });
 
   /**
    * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("rejects a negative literal beside an unsigned vector", () => {
-    expect(() => uvec2(1, 2).add(-1).toVar()).toThrowRmsl(ProgramError, "literal-negative-for-unsigned");
+    expect(() => uvec2(1, 2).add(-1).toVar()).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });
 
   /**
@@ -3024,7 +3021,7 @@ describe("integer samplers", () => {
    * @canon spec-a-uniform-array-holds-no-texture
    */
   it("refuses to hold an integer sampler in a uniform array", () => {
-    expect(() => uniformArray("usampler3D", 4)).toThrowRmsl(ProgramError, "texture-in-uniform-array");
+    expect(() => uniformArray("usampler3D", 4)).toThrowRmsl(NodeError, "texture-in-uniform-array");
   });
 });
 
@@ -3121,15 +3118,15 @@ describe("GLSL precision", () => {
    */
   it("refuses a precision other than low, medium or high on a uniform", () => {
     // @ts-expect-error: a uniform's precision is "low", "medium" or "high"
-    expect(() => uniform("float").setPrecision("mediump")).toThrowRmsl(ProgramError, "unknown-precision");
+    expect(() => uniform("float").setPrecision("mediump")).toThrowRmsl(NodeError, "unknown-precision");
   });
 
   /**
    * @canon spec-a-uniform-can-set-a-precision-of-its-own
    */
   it("refuses a precision on a bool or boolean vector uniform", () => {
-    expect(() => uniform("bool").setPrecision("low")).toThrowRmsl(ProgramError, "precision-on-non-number");
-    expect(() => uniformArray("bvec2", 2).setPrecision("high")).toThrowRmsl(ProgramError, "precision-on-non-number");
+    expect(() => uniform("bool").setPrecision("low")).toThrowRmsl(NodeError, "precision-on-non-number");
+    expect(() => uniformArray("bvec2", 2).setPrecision("high")).toThrowRmsl(NodeError, "precision-on-non-number");
   });
 
   /**
@@ -3251,16 +3248,16 @@ describe("casts and conversions", () => {
    * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("rejects a negative uint literal", () => {
-    expect(() => uint(-1)).toThrowRmsl(ProgramError, "literal-negative-for-unsigned");
+    expect(() => uint(-1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });
 
   /**
    * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("rejects a negative unsigned vector component, however many are given", () => {
-    expect(() => uvec2(-1)).toThrowRmsl(ProgramError, "literal-negative-for-unsigned");
-    expect(() => uvec2(-1, 0)).toThrowRmsl(ProgramError, "literal-negative-for-unsigned");
-    expect(() => uvec3(uint(1), -1)).toThrowRmsl(ProgramError, "literal-negative-for-unsigned");
+    expect(() => uvec2(-1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
+    expect(() => uvec2(-1, 0)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
+    expect(() => uvec3(uint(1), -1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });
 
   /**
@@ -3846,17 +3843,17 @@ describe("TSL free-function API", () => {
    */
   it("refuses an array that holds anything but numbers and nodes, naming what it holds", () => {
     expect(() => vec4(0).add([1, 2, "x", 4] as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /vec4 holds numbers or nodes, and this one holds a string, "x"/,
     );
     expect(() => vec4(0).add([1, 2, undefined, 4] as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /holds an empty or undefined element/,
     );
     expect(() => vec3(0).add([[1], [2], [3]] as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /vec3 holds numbers or nodes, and this one holds a nested array/,
     );
@@ -3871,39 +3868,39 @@ describe("TSL free-function API", () => {
   it("names the operation a refused array was given to", () => {
     const junk = [1, 2, "x", 4] as any;
     expect(() => vec4(0).add(junk)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /array given to add\(\) as a vec4/,
     );
     expect(() => vec4(0).lessThan(junk)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /array given to lessThan\(\) as a vec4/,
     );
     expect(() => vec4(0).dot(junk)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /array given to dot\(\) as a vec4/,
     );
     expect(() => vec4(0).mix(junk, 0.5)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /array given to mix\(\) as a vec4/,
     );
-    expect(() => abs(junk)).toThrowRmsl(ProgramError, "array-holds-non-number", /array given to abs\(\) as a vec4/);
+    expect(() => abs(junk)).toThrowRmsl(NodeError, "array-holds-non-number", /array given to abs\(\) as a vec4/);
     expect(() => add(junk, vec4(0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /array given to add\(\) as a vec4/,
     );
     expect(() => clamp(vec4(0), junk, 1)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-holds-non-number",
       /array given to clamp\(\) as a vec4/,
     );
-    expect(() => vec4(junk)).toThrowRmsl(ProgramError, "array-holds-non-number", /array given to vec4\(\) as a vec4/);
+    expect(() => vec4(junk)).toThrowRmsl(NodeError, "array-holds-non-number", /array given to vec4\(\) as a vec4/);
     expect(() => vec4(0).add([1, 2, 3, 4, 5] as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "array-is-no-vector",
       /array of length 5 given to add\(\) is no vector/,
     );
@@ -4250,7 +4247,7 @@ describe("named toVar variables", () => {
    */
   it("rejects a name that is not a valid identifier", () => {
     let bad = () => Fn(() => float(1).toVar("my var"))();
-    expect(() => compileGlsl(bad())).toThrowRmsl(ProgramError, "invalid-name");
+    expect(() => compileGlsl(bad())).toThrowRmsl(NodeError, "invalid-name");
   });
 
   /**
@@ -4258,7 +4255,7 @@ describe("named toVar variables", () => {
    */
   it("rejects a leading digit", () => {
     let bad = () => Fn(() => float(1).toVar("2x"))();
-    expect(() => compileGlsl(bad())).toThrowRmsl(ProgramError, "invalid-name");
+    expect(() => compileGlsl(bad())).toThrowRmsl(NodeError, "invalid-name");
   });
 
   /**
@@ -4266,7 +4263,7 @@ describe("named toVar variables", () => {
    */
   it("rejects the reserved _rmsl_ prefix", () => {
     let bad = () => Fn(() => float(1).toVar("_rmsl_0"))();
-    expect(() => compileGlsl(bad())).toThrowRmsl(ProgramError, "reserved-name");
+    expect(() => compileGlsl(bad())).toThrowRmsl(NodeError, "reserved-name");
   });
 
   /**

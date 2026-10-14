@@ -1,4 +1,4 @@
-import { ProgramError } from "../errors";
+import { NodeError, ProgramError } from "../errors";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -89,12 +89,12 @@ describe("a mistake is refused before the program runs", () => {
     expect(compileGlsl(allowed())).toContain("inverse(");
     expect(compileWgsl(allowed())).toContain("_rmsl_inverse3");
     expect(() => (mat2x3(1, 0, 0, 1, 0, 0) as any).mul(mat2x4(1, 0, 0, 1, 0, 0, 0, 0))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "matrix-product-shape",
     );
     const notSquare = () => Fn(() => (uniform("mat2x3") as any).inverse().element(int(0)).toVar())();
-    expect(() => compileGlsl(notSquare())).toThrowRmsl(ProgramError, "inverse-of-non-square");
-    expect(() => compileWgsl(notSquare())).toThrowRmsl(ProgramError, "inverse-of-non-square");
+    expect(() => compileGlsl(notSquare())).toThrowRmsl(NodeError, "inverse-of-non-square");
+    expect(() => compileWgsl(notSquare())).toThrowRmsl(NodeError, "inverse-of-non-square");
   });
 
   /**
@@ -116,12 +116,9 @@ describe("a mistake is refused before the program runs", () => {
     expect(wgsl).toContain("3u");
     expect(wgsl).toContain("4f");
     expect(compileGlsl(prog())).not.toMatch(/float\(2\)|float\(3\)/);
-    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(ProgramError, "literal-not-whole");
-    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrowRmsl(
-      ProgramError,
-      "literal-negative-for-unsigned",
-    );
-    expect(() => uint(-1)).toThrowRmsl(ProgramError, "literal-negative-for-unsigned");
+    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(NodeError, "literal-not-whole");
+    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
+    expect(() => uint(-1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });
 
   /**
@@ -187,17 +184,17 @@ describe("a mistake is refused before the program runs", () => {
         ),
       ).toThrowRmsl(ProgramError, "jump-outside-a-loop");
       expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "cross-needs-vec3",
       );
       expect(() => compile(() => Fn(() => (values as any).add(1).toVar())())).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "storage-read-as-a-whole",
       );
     }
     const wholeRead = () => Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())();
-    expect(() => compileWgsl.fragment(wholeRead())).toThrowRmsl(ProgramError, "storage-read-as-a-whole");
-    expect(() => compileGlsl.fragment(wholeRead())).toThrowRmsl(ProgramError, "storage-read-as-a-whole");
+    expect(() => compileWgsl.fragment(wholeRead())).toThrowRmsl(NodeError, "storage-read-as-a-whole");
+    expect(() => compileGlsl.fragment(wholeRead())).toThrowRmsl(NodeError, "storage-read-as-a-whole");
   });
 
   /**
@@ -235,10 +232,10 @@ describe("a mistake is refused before the program runs", () => {
     ];
     for (const block of blocks) {
       // Refused as the program is built, before any target compiles it.
-      expect(block).toThrowRmsl(ProgramError, "block-in-for-update");
-      expect(() => compileGlsl(block())).toThrowRmsl(ProgramError, "block-in-for-update");
-      expect(() => compileWgsl(block())).toThrowRmsl(ProgramError, "block-in-for-update");
-      for (const compile of cpuCompilers) expect(() => compile(block)).toThrowRmsl(ProgramError, "block-in-for-update");
+      expect(block).toThrowRmsl(NodeError, "block-in-for-update");
+      expect(() => compileGlsl(block())).toThrowRmsl(NodeError, "block-in-for-update");
+      expect(() => compileWgsl(block())).toThrowRmsl(NodeError, "block-in-for-update");
+      for (const compile of cpuCompilers) expect(() => compile(block)).toThrowRmsl(NodeError, "block-in-for-update");
     }
   });
 
@@ -265,10 +262,10 @@ describe("a mistake is refused before the program runs", () => {
     const graph = serialize(build());
     const loop = graph.nodes.find((n) => n.type === "for")!;
     loop.params![2] = graph.nodes.findIndex((n) => n.type === "if");
-    expect(() => compileGlsl(deserialize(graph) as Node<"float">)).toThrowRmsl(ProgramError, "block-in-for-update");
-    expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrowRmsl(ProgramError, "block-in-for-update");
+    expect(() => compileGlsl(deserialize(graph) as Node<"float">)).toThrowRmsl(NodeError, "block-in-for-update");
+    expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrowRmsl(NodeError, "block-in-for-update");
     for (const compile of cpuCompilers)
-      expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrowRmsl(ProgramError, "block-in-for-update");
+      expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrowRmsl(NodeError, "block-in-for-update");
   });
 
   /**
@@ -284,15 +281,15 @@ describe("a mistake is refused before the program runs", () => {
   };
   const refusedOnEveryTarget = (graph: ReturnType<typeof serialize>, code: string, refusal: RegExp) => {
     const none = { name: "main", params: [] };
-    expect(() => compileGlsl.fragment(deserialize(graph) as Node<"vec4">)).toThrowRmsl(ProgramError, code, refusal);
-    expect(() => compileWgsl.fragment(deserialize(graph) as Node<"vec4">)).toThrowRmsl(ProgramError, code, refusal);
+    expect(() => compileGlsl.fragment(deserialize(graph) as Node<"vec4">)).toThrowRmsl(NodeError, code, refusal);
+    expect(() => compileWgsl.fragment(deserialize(graph) as Node<"vec4">)).toThrowRmsl(NodeError, code, refusal);
     expect(() => compileJSFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       code,
       refusal,
     );
     expect(() => compileWasmFragment(() => deserialize(graph) as Node<"vec4">, none)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       code,
       refusal,
     );
@@ -416,13 +413,13 @@ describe("a mistake is refused before the program runs", () => {
         i.addAssign(1);
         jump();
       }),
-    ).toThrowRmsl(ProgramError, "jump-in-for-update");
+    ).toThrowRmsl(NodeError, "jump-in-for-update");
     const graph = serialize(loop((i) => i.addAssign(1))());
     const update = graph.nodes[graph.nodes.find((n) => n.type === "for")!.params![2]!]!;
     update.params!.push(graph.nodes.findIndex((n) => n.type === jump.name.toLowerCase()));
     for (const [name, compile] of compilers) {
       expect(() => compile(() => deserialize(graph) as Node<"vec4">), name).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "jump-in-for-update",
       );
     }
@@ -479,7 +476,7 @@ describe("a mistake is refused before the program runs", () => {
       ["mat2x3(vec2, vec2)", () => mat2x3(v("vec2"), v("vec2"))],
       ["mat2(float, float)", () => mat2(uniform("float"), uniform("float"))],
     ];
-    for (const [name, build] of refused) expect(build, name).toThrowRmsl(ProgramError, "constructor-arity");
+    for (const [name, build] of refused) expect(build, name).toThrowRmsl(NodeError, "constructor-arity");
     expect(() => mat2(v("vec4"))).not.toThrow();
     expect(() => mat2x3(v("vec3"), v("vec3"))).not.toThrow();
   });
@@ -499,7 +496,7 @@ describe("a mistake is refused before the program runs", () => {
         });
         return vec4(v);
       })();
-    expect(program).toThrowRmsl(ProgramError, "case-without-values", /Case\(\) needs at least one value/);
+    expect(program).toThrowRmsl(NodeError, "case-without-values", /Case\(\) needs at least one value/);
   });
 
   /**
@@ -537,13 +534,13 @@ describe("a mistake is refused before the program runs", () => {
       kept!.Case(0, () => {});
     };
     expect(fromAnotherBlock).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "case-outside-switch",
       /Case\(\) must be called from the block that holds its Switch\(\)/,
     );
-    expect(afterDefault).toThrowRmsl(ProgramError, "case-after-default", /Case\(\) after Default\(\)/);
+    expect(afterDefault).toThrowRmsl(NodeError, "case-after-default", /Case\(\) after Default\(\)/);
     expect(afterTheFunction).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "case-outside-switch",
       /Case\(\) must be called from the block that holds its Switch\(\)/,
     );
@@ -556,12 +553,12 @@ describe("a mistake is refused before the program runs", () => {
         return vec4(v);
       })();
     expect(afterAStatement((s, w, v) => s.Case(1, () => v.assign(w)))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "case-after-statement",
       /Case\(\) after a statement that follows the case before it/,
     );
     expect(afterAStatement((s, w, v) => s.Default(() => v.assign(w)))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "case-after-statement",
       /Default\(\) after a statement that follows the case before it/,
     );
@@ -607,7 +604,7 @@ describe("a mistake is refused before the program runs", () => {
     expect(() => build(4)()).not.toThrow();
     for (const length of [0, 1, 5, 7]) {
       expect(build(length), `length ${length}`).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "array-is-no-vector",
         new RegExp(`array of length ${length} given to add\\(\\) is no vector`),
       );
@@ -632,10 +629,10 @@ describe("a mistake is refused before the program runs", () => {
     ];
     for (const [name, compile] of compilers) {
       expect(() => compile(read(() => int(2))), `${name} read 2`).not.toThrow();
-      expect(() => compile(read(() => int(3))), `${name} read 3`).toThrowRmsl(ProgramError, "index-out-of-range");
-      expect(() => compile(read(() => int(-1))), `${name} read -1`).toThrowRmsl(ProgramError, "index-out-of-range");
+      expect(() => compile(read(() => int(3))), `${name} read 3`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(read(() => int(-1))), `${name} read -1`).toThrowRmsl(NodeError, "index-out-of-range");
       expect(() => compile(read(() => int(1).add(int(4)))), `${name} read 1 + 4`).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "index-out-of-range",
       );
     }
@@ -683,14 +680,14 @@ describe("a mistake is refused before the program runs", () => {
       })();
     for (const [name, compile] of compilers) {
       expect(() => compile(writeColumn(2)), `${name} write column 2`).not.toThrow();
-      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrowRmsl(ProgramError, "index-out-of-range");
+      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrowRmsl(NodeError, "index-out-of-range");
       expect(() => compile(writeComponent(1, 2)), `${name} write component 2`).not.toThrow();
       expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "index-out-of-range",
       );
       expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "index-out-of-range",
       );
     }
@@ -699,7 +696,7 @@ describe("a mistake is refused before the program runs", () => {
     for (const [name, compile] of compilers) {
       expect(() => compile(folded(() => int(1).add(int(1)))), `${name} read 1 + 1`).not.toThrow();
       expect(() => compile(folded(() => int(1).add(int(3)))), `${name} read 1 + 3`).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "index-out-of-range",
       );
       const foldedColumn = () =>
@@ -709,7 +706,7 @@ describe("a mistake is refused before the program runs", () => {
             .element(int(2).mul(int(2)))
             .toVar(),
         )();
-      expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrowRmsl(ProgramError, "index-out-of-range");
+      expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrowRmsl(NodeError, "index-out-of-range");
     }
     const throughSwizzle = (index: () => any) => () =>
       Fn(() => {
@@ -725,23 +722,23 @@ describe("a mistake is refused before the program runs", () => {
         [() => int(1).add(int(1)), 2],
       ] as const) {
         expect(() => compile(throughSwizzle(index)), `${name} write .zy ${k}`).toThrowRmsl(
-          ProgramError,
+          NodeError,
           "index-out-of-range",
         );
       }
       const restored = () => deserialize(serialize(throughSwizzle(() => int(5))())) as Node<"vec3">;
-      expect(() => compile(restored), `${name} write .zy 5 after JSON`).toThrowRmsl(ProgramError, "index-out-of-range");
+      expect(() => compile(restored), `${name} write .zy 5 after JSON`).toThrowRmsl(NodeError, "index-out-of-range");
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
-      expect(() => compile(read(3)), `${name} read 3`).toThrowRmsl(ProgramError, "index-out-of-range");
-      expect(() => compile(read(-1)), `${name} read -1`).toThrowRmsl(ProgramError, "index-out-of-range");
-      expect(() => compile(write(3)), `${name} write 3`).toThrowRmsl(ProgramError, "index-out-of-range");
-      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrowRmsl(ProgramError, "index-out-of-range");
+      expect(() => compile(read(3)), `${name} read 3`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(read(-1)), `${name} read -1`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(write(3)), `${name} write 3`).toThrowRmsl(NodeError, "index-out-of-range");
+      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrowRmsl(NodeError, "index-out-of-range");
       // A mat2x3 has two columns of three rows: the count is the columns.
       expect(() => compile(column(1, twoColumns)), `${name} mat2x3 column 1`).not.toThrow();
       expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "index-out-of-range",
       );
     }
@@ -881,10 +878,10 @@ describe("a cube map has no texel fetch", () => {
   const none = { name: "main", params: [] };
   /** Expects every target to refuse the graph `build` gives with a `ProgramError` of `code`. */
   const refusedOnEveryTarget = (build: () => Node<"vec4">, code: string) => {
-    expect(() => compileGlsl.fragment(build())).toThrowRmsl(ProgramError, code);
-    expect(() => compileWgsl.fragment(build())).toThrowRmsl(ProgramError, code);
-    expect(() => compileJSFragment(build, none)).toThrowRmsl(ProgramError, code);
-    expect(() => compileWasmFragment(build, none)).toThrowRmsl(ProgramError, code);
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(NodeError, code);
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(NodeError, code);
+    expect(() => compileJSFragment(build, none)).toThrowRmsl(NodeError, code);
+    expect(() => compileWasmFragment(build, none)).toThrowRmsl(NodeError, code);
   };
 
   /**

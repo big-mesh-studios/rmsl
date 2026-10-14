@@ -1,4 +1,4 @@
-import { ProgramError } from "./errors";
+import { NodeError, ProgramError } from "./errors";
 import { describe, it, expect } from "vitest";
 import {
   attribute,
@@ -41,19 +41,19 @@ function expectRefusedEverywhere(write: () => void, code: string, message?: RegE
   const restored = deserialize(serialize(root)) as Node<ShaderType>;
   for (const [name, compile] of Object.entries(compilers)) {
     expect(() => compile(() => root as Node<ShaderType>, { name: "main", params: [] }), name).toThrowRmsl(
-      ProgramError,
+      NodeError,
       code,
       message,
     );
     expect(() => compile(() => restored, { name: "main", params: [] }), `${name} after JSON`).toThrowRmsl(
-      ProgramError,
+      NodeError,
       code,
       message,
     );
   }
 }
 
-/** Expects compiling `write` as a `stage` stage to throw a `ProgramError` of `assign-in-wrong-stage` on every backend. */
+/** Expects compiling `write` as a `stage` stage to throw a `NodeError` of `assign-in-wrong-stage` on every backend. */
 function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void) {
   const build = () =>
     Fn(() => {
@@ -128,7 +128,7 @@ describe("an assignment's target", () => {
             { name: "main", params: [{ name: "x", type: "float" }] },
           ),
         name,
-      ).toThrowRmsl(ProgramError, "assign-to-parameter");
+      ).toThrowRmsl(NodeError, "assign-to-parameter");
     }
   });
 

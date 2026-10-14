@@ -1,4 +1,4 @@
-import { ProgramError } from "./errors";
+import { NodeError } from "./errors";
 import { describe, it, expect } from "vitest";
 import {
   attributeArray,
@@ -43,14 +43,14 @@ describe("storage buffers", () => {
    */
   it("rejects a node whose type doesn't match its attribute's layout", () => {
     expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "vec4")).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-item-size",
     );
     expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "uint")).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-array-kind",
     );
-    expect(() => instancedArray(new Float32Array(3), "uint")).toThrowRmsl(ProgramError, "storage-array-kind");
+    expect(() => instancedArray(new Float32Array(3), "uint")).toThrowRmsl(NodeError, "storage-array-kind");
     expect(() => storage(new StorageBufferAttribute(4, 2, Int32Array), "ivec2")).not.toThrow();
   });
 
@@ -59,15 +59,15 @@ describe("storage buffers", () => {
    */
   it("names the array an element type needs with the article its sound takes", () => {
     expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "int")).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-array-kind",
     );
     expect(() => storage(new StorageBufferAttribute(4, 1, Int32Array), "uint")).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-array-kind",
     );
     expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "ivec2")).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-item-size",
     );
   });
@@ -76,9 +76,9 @@ describe("storage buffers", () => {
    * @canon spec-a-storage-buffer-holds-no-bool
    */
   it("rejects bool elements, which a WGSL storage buffer can't hold", () => {
-    expect(() => instancedArray(4, "bool")).toThrowRmsl(ProgramError, "storage-of-bool");
+    expect(() => instancedArray(4, "bool")).toThrowRmsl(NodeError, "storage-of-bool");
     expect(() => storage(new StorageBufferAttribute(4, 3, Float32Array), "bvec3")).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "storage-of-bool",
     );
   });
@@ -92,17 +92,14 @@ describe("storage buffers", () => {
     storage(attribute, "mat2x3");
     expect(attribute.elementType).toBe("mat2x3");
     expect(() => storage(attribute, "mat2x3")).not.toThrow();
-    expect(() => storage(attribute, "mat3x2")).toThrowRmsl(ProgramError, "storage-of-another-element-type");
+    expect(() => storage(attribute, "mat3x2")).toThrowRmsl(NodeError, "storage-of-another-element-type");
   });
 
   /**
    * @canon spec-a-buffer-holds-one-element-type
    */
   it("rejects a typed array that isn't a whole number of elements", () => {
-    expect(() => instancedArray(new Float32Array(5), "vec2")).toThrowRmsl(
-      ProgramError,
-      "typed-array-not-whole-elements",
-    );
+    expect(() => instancedArray(new Float32Array(5), "vec2")).toThrowRmsl(NodeError, "typed-array-not-whole-elements");
   });
 
   /**
@@ -132,13 +129,13 @@ describe("storage buffers", () => {
       const program = Fn(() => {
         write();
       });
-      expect(() => compile({ stage: "compute" }, program())).toThrowRmsl(ProgramError, "assign-to-read-only-storage");
+      expect(() => compile({ stage: "compute" }, program())).toThrowRmsl(NodeError, "assign-to-read-only-storage");
       expect(() => compileWasmFn(() => program(), { name: "main", params: [] })).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "assign-to-read-only-storage",
       );
       expect(() => compileJSCompute(() => program(), { name: "main", params: [] })).toThrowRmsl(
-        ProgramError,
+        NodeError,
         "assign-to-read-only-storage",
       );
     }

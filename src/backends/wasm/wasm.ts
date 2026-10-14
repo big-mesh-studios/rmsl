@@ -1,4 +1,4 @@
-import { InternalError, ProgramError, TargetError, UsageError, type BackendOrigin } from "../../errors";
+import { InternalError, ProgramError, TargetError, UsageError, type BackendOrigin, NodeError } from "../../errors";
 import { withArticle } from "../../article";
 import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
@@ -821,7 +821,7 @@ const INSTANTIATE_WASM: BackendOrigin = { target: "wasm", caller: "instantiateWa
 function assertProgramName(origin: BackendOrigin, name: string): void {
   if (name.startsWith(RESERVED_VAR_PREFIX)) {
     throw new ProgramError(
-      "reserved-name",
+      "reserved-program-name",
       `${origin.caller}: the name "${name}" starts with "${RESERVED_VAR_PREFIX}", which the compiler reserves for the module's own exports. Give the program another name`,
       origin,
     );
@@ -3498,7 +3498,7 @@ export function compileWasmModule(
     const [a, b] = node.params;
     const width = componentCountOf(node._t as string);
     if (width !== 3) {
-      throw new ProgramError("cross-needs-vec3", `compileWasmFn: cross() needs a vec3, got width ${width}`, origin);
+      throw new NodeError("cross-needs-vec3", `compileWasmFn: cross() needs a vec3, got width ${width}`, origin);
     }
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
     const aAddr = nodeAddress(a),

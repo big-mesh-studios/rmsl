@@ -1,4 +1,4 @@
-import { ProgramError, TargetError } from "../errors";
+import { NodeError, ProgramError, TargetError } from "../errors";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -85,8 +85,12 @@ const none = { name: "main", params: [] };
 /** 1 where `condition` holds, 0 where it does not, as a float every target reads back. */
 const asFloat = (condition: Node<"bool">) => select(condition, float(1), float(0)) as Node<"float">;
 
-/** Compiles `build` as `stage` on every target: refused with a `ProgramError` of `refused` as its code, or compiled where it is `false`. */
-function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any>, refused: string | false) {
+/** Compiles `build` as `stage` on every target: refused with `refused`, an error class and its code, or compiled where it is `false`. */
+function expectOnEveryTarget(
+  stage: "vertex" | "fragment",
+  build: () => Node<any>,
+  refused: readonly [typeof NodeError | typeof ProgramError, string] | false,
+) {
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
@@ -94,7 +98,7 @@ function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any
     ["WASM", () => (stage === "vertex" ? compileWasmVertex(build, none) : compileWasmFragment(build, none))],
   ];
   for (const [name, compile] of compilers) {
-    if (refused) expect(compile, name).toThrowRmsl(ProgramError, refused);
+    if (refused) expect(compile, name).toThrowRmsl(refused[0], refused[1]);
     else expect(compile, name).not.toThrow();
   }
 }
@@ -169,8 +173,8 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
    */
   it("refuses the radians or degrees of an integer, which no target has", () => {
-    expect(() => Fn(() => (int(90) as any).radians().toVar())()).toThrowRmsl(ProgramError, "float-only-operand");
-    expect(() => Fn(() => (uvec2(1, 2) as any).degrees().toVar())()).toThrowRmsl(ProgramError, "float-only-operand");
+    expect(() => Fn(() => (int(90) as any).radians().toVar())()).toThrowRmsl(NodeError, "float-only-operand");
+    expect(() => Fn(() => (uvec2(1, 2) as any).degrees().toVar())()).toThrowRmsl(NodeError, "float-only-operand");
   });
 
   /**
@@ -276,42 +280,42 @@ describe("each leaf on every target it claims", () => {
    */
   it("refuses length, distance and dot of an integer or a boolean as the graph is built", () => {
     expect(() => length(int(3) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "float-only-operand",
       /length\(\) takes a float or a float vector, not int\. Convert it with toFloat\(\) first/,
     );
     expect(() => distance(uint(3) as any, uint(4) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "float-only-operand",
       /distance\(\) takes .*, not uint/,
     );
     expect(() => dot(ivec2(1, 2) as any, ivec2(3, 4) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "float-only-operand",
       /dot\(\) takes .*, not ivec2/,
     );
     expect(() => (vec2(1, 2) as any).dot(ivec2(3, 4))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "float-only-operand",
       /dot\(\) takes .*, not ivec2/,
     );
     expect(() => length(bvec3(true, false, true) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "float-only-operand",
       /Convert it with toVec3\(\) first/,
     );
     expect(() => dot(vec3(1, 2, 3), 2 as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "operands-of-different-types",
       /dot\(\) takes two arguments of one type, not vec3 and float/,
     );
     expect(() => distance(float(2), vec2(1, 2) as any)).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "operands-of-different-types",
       /distance\(\) takes two arguments of one type/,
     );
     expect(() => (mat3(1) as any).dot(mat3(1))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "float-only-operand",
       /not mat3\. Take it a column at a time, with element\(i\)/,
     );
@@ -596,7 +600,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
    */
   it("refuses a matrix built from the wrong number of values when one is a node", () => {
-    expect(() => mat2(float(3), 1, 2)).toThrowRmsl(ProgramError, "constructor-arity");
+    expect(() => mat2(float(3), 1, 2)).toThrowRmsl(NodeError, "constructor-arity");
   });
 
   /**
@@ -787,7 +791,7 @@ describe("each leaf on every target it claims", () => {
    * @canon exception-loop-refuses-a-range-with-neither-start-nor-end
    */
   it("refuses a Loop range with neither start nor end", () => {
-    expect(buildLoop(() => Loop({ name: "t" }, () => {}))).toThrowRmsl(ProgramError, "loop-range-empty");
+    expect(buildLoop(() => Loop({ name: "t" }, () => {}))).toThrowRmsl(NodeError, "loop-range-empty");
   });
 
   /**
@@ -798,7 +802,7 @@ describe("each leaf on every target it claims", () => {
     ["only a start", { start: 3, type: "uint" }],
     ["a node end of 0", { start: 5, end: uint(0), type: "uint", condition: ">=" }],
   ] as const)("refuses a uint Loop range given %s, which never ends", (_, range) => {
-    expect(buildLoop(() => Loop(range as any, () => {}))).toThrowRmsl(ProgramError, "loop-never-ends");
+    expect(buildLoop(() => Loop(range as any, () => {}))).toThrowRmsl(NodeError, "loop-never-ends");
   });
 
   /**
@@ -807,13 +811,13 @@ describe("each leaf on every target it claims", () => {
    * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
    */
   it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
-    expect(buildLoop(() => Loop(2.5, () => {}))).toThrowRmsl(ProgramError, "loop-bound-not-whole");
-    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrowRmsl(ProgramError, "loop-bound-not-whole");
+    expect(buildLoop(() => Loop(2.5, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
+    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
     expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "loop-bound-not-whole",
     );
-    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrowRmsl(ProgramError, "loop-bound-not-whole");
+    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
     const build = (a: Node<"float">) =>
       Fn(() => {
         const count = a.toVar();
@@ -827,9 +831,9 @@ describe("each leaf on every target it claims", () => {
    * @canon exception-loop-refuses-two-ranges-of-one-name
    */
   it("refuses two Loop ranges whose indices take one name", () => {
-    expect(buildLoop(() => Loop({ end: 2, name: "j" }, 3, () => {}))).toThrowRmsl(ProgramError, "loop-index-hidden");
+    expect(buildLoop(() => Loop({ end: 2, name: "j" }, 3, () => {}))).toThrowRmsl(NodeError, "loop-index-hidden");
     expect(buildLoop(() => Loop({ end: 2, name: "k" }, { end: 2, name: "k" }, () => {}))).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "loop-index-hidden",
     );
   });
@@ -881,7 +885,7 @@ describe("each leaf on every target it claims", () => {
         // @ts-expect-error: an update is a number, a node or a function
         Loop({ end: 4, update: "+= 2" }, () => {});
       })();
-    expect(build).toThrowRmsl(ProgramError, "loop-update-string");
+    expect(build).toThrowRmsl(NodeError, "loop-update-string");
   });
 
   /**
@@ -935,43 +939,47 @@ describe("each leaf on every target it claims", () => {
    */
   it("refuses to invert a matrix that is not square on every target", () => {
     const build = () => Fn(() => vec4((uniform("mat2x3") as any).inverse().element(int(0)), 1).toVar())();
-    expectOnEveryTarget("fragment", build, "inverse-of-non-square");
+    expectOnEveryTarget("fragment", build, [NodeError, "inverse-of-non-square"]);
   });
 
   /**
    * @canon spec-frag-coord-is-read-only-in-a-fragment-stage
    */
   it("refuses fragCoord in a vertex stage on every target", () => {
-    expectOnEveryTarget("vertex", () => Fn(() => vec4(fragCoord(), 0, 1).toVar())(), "builtin-outside-its-stage");
+    expectOnEveryTarget("vertex", () => Fn(() => vec4(fragCoord(), 0, 1).toVar())(), [
+      ProgramError,
+      "builtin-outside-its-stage",
+    ]);
   });
 
   /**
    * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
    */
   it("refuses the fragment depth in a vertex stage on every target", () => {
-    expectOnEveryTarget(
-      "vertex",
-      () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar())(),
+    expectOnEveryTarget("vertex", () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar())(), [
+      ProgramError,
       "builtin-outside-its-stage",
-    );
+    ]);
   });
 
   /**
    * @canon spec-the-position-is-read-only-in-a-vertex-stage
    */
   it("refuses reading the position in a fragment stage on every target", () => {
-    expectOnEveryTarget(
-      "fragment",
-      () => Fn(() => vec4(builtinPosition().x, 0, 0, 1).toVar())(),
+    expectOnEveryTarget("fragment", () => Fn(() => vec4(builtinPosition().x, 0, 0, 1).toVar())(), [
+      ProgramError,
       "position-read-in-fragment",
-    );
+    ]);
   });
 
   /**
    * @canon spec-a-vertex-stage-without-a-position-is-refused
    */
   it("refuses a vertex stage without a position on every target", () => {
-    expectOnEveryTarget("vertex", () => Fn(() => vec3(1, 2, 3).toVar())() as any, "vertex-without-position");
+    expectOnEveryTarget("vertex", () => Fn(() => vec3(1, 2, 3).toVar())() as any, [
+      ProgramError,
+      "vertex-without-position",
+    ]);
   });
 
   /**
@@ -1101,8 +1109,14 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-result-that-has-no-colour-is-refused
    */
   it("refuses a fragment result that has no colour on every target", () => {
-    expectOnEveryTarget("fragment", () => Fn(() => mat2(1, 2, 3, 4).toVar())(), "fragment-result-not-a-colour");
-    expectOnEveryTarget("fragment", () => Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar())(), "fragment-result-not-a-colour");
+    expectOnEveryTarget("fragment", () => Fn(() => mat2(1, 2, 3, 4).toVar())(), [
+      ProgramError,
+      "fragment-result-not-a-colour",
+    ]);
+    expectOnEveryTarget("fragment", () => Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar())(), [
+      ProgramError,
+      "fragment-result-not-a-colour",
+    ]);
   });
 
   /**
@@ -1803,7 +1817,7 @@ describe("each leaf on every target it claims", () => {
     ];
     for (const [place, build] of places) {
       try {
-        expectOnEveryTarget("fragment", build, "jump-outside-a-loop");
+        expectOnEveryTarget("fragment", build, [ProgramError, "jump-outside-a-loop"]);
       } catch (error) {
         throw new Error(`${name} ${place}: ${(error as Error).message}`);
       }
@@ -2011,7 +2025,7 @@ describe("an inline Fn that jumps, read in several statements", () => {
         return vec4(total);
       })();
     };
-    expectOnEveryTarget("fragment", build, "jump-in-inline-fn-outside-a-loop");
+    expectOnEveryTarget("fragment", build, [ProgramError, "jump-in-inline-fn-outside-a-loop"]);
   });
 
   /**
@@ -2038,7 +2052,7 @@ describe("an inline Fn that jumps, read in several statements", () => {
         return vec4(total);
       })();
     };
-    expectOnEveryTarget("fragment", build, "jump-in-inline-fn-in-a-deeper-loop");
+    expectOnEveryTarget("fragment", build, [ProgramError, "jump-in-inline-fn-in-a-deeper-loop"]);
   });
 
   /**
@@ -2117,7 +2131,7 @@ describe("an inline Fn that jumps, read in several statements", () => {
         return vec4(total);
       })();
     };
-    expectOnEveryTarget("fragment", build, "jump-in-inline-fn-in-a-deeper-loop");
+    expectOnEveryTarget("fragment", build, [ProgramError, "jump-in-inline-fn-in-a-deeper-loop"]);
   });
 
   /**
@@ -2227,7 +2241,7 @@ describe("an inline Fn that jumps, read in several statements", () => {
         return vec4(total);
       })();
     };
-    expectOnEveryTarget("fragment", build, "jump-in-inline-fn-outside-a-loop");
+    expectOnEveryTarget("fragment", build, [ProgramError, "jump-in-inline-fn-outside-a-loop"]);
   });
 });
 

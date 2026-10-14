@@ -1,4 +1,4 @@
-import { ProgramError } from "./errors";
+import { NodeError } from "./errors";
 import { describe, it, expect, afterAll, afterEach } from "vitest";
 import { float, Fn, int, ivec3, vec4, type Node } from "./rmsl";
 import {
@@ -92,12 +92,12 @@ describe("a vector's component by index", () => {
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
   it("rejects a constant index outside the vector on WASM, as WGSL and GLSL do", () => {
-    expect(() => evaluateWASM(() => vec4(1, 2, 3, 4).element(int(4)))).toThrowRmsl(ProgramError, "index-out-of-range");
+    expect(() => evaluateWASM(() => vec4(1, 2, 3, 4).element(int(4)))).toThrowRmsl(NodeError, "index-out-of-range");
     const write = Fn(() => {
       const v = vec4(1, 2, 3, 4).toVar();
       v.element(int(-1)).assign(float(20));
       return v;
     });
-    expect(() => evaluateWASM(() => write())).toThrowRmsl(ProgramError, "index-out-of-range");
+    expect(() => evaluateWASM(() => write())).toThrowRmsl(NodeError, "index-out-of-range");
   });
 });

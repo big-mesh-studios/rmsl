@@ -1,4 +1,4 @@
-import { ProgramError, UsageError } from "../errors";
+import { NodeError, ProgramError, UsageError } from "../errors";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   attribute,
@@ -2650,7 +2650,7 @@ describe("what WGSL writes for a name or a loop header", () => {
    */
   it("refuses a uniform with an empty name on WGSL", () => {
     expect(() => compileWgslStage.fragment(Fn(() => vec4(uniformRaw("", "float"), 0, 0, 1))())).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "empty-name",
     );
   });
@@ -2662,7 +2662,7 @@ describe("what WGSL writes for a name or a loop header", () => {
    */
   it("refuses a varying with an empty name on WGSL", () => {
     expect(() => compileWgslStage.fragment(Fn(() => vec4(varyingRaw("", "float"), 0, 0, 1))())).toThrowRmsl(
-      ProgramError,
+      NodeError,
       "empty-name",
     );
   });
@@ -3076,7 +3076,7 @@ describe("an attribute the fragment stage reads on a GPU target", () => {
   it("refuses a layout Fn that reads the attribute with createWgsl", async () => {
     const readsTint = Fn(() => tint.y).setLayout({ name: "readsTint", type: "float", inputs: [] });
     await expect(wgslSources(() => Fn(() => vec4(0, readsTint(), 0, 1))())).rejects.toThrowRmsl(
-      ProgramError,
+      NodeError,
       "layout-fn-uses-stage-value",
       /uses an attribute/,
     );

@@ -1,4 +1,4 @@
-import { InternalError, ProgramError } from "./errors";
+import { InternalError, NodeError } from "./errors";
 import { isReservedName, safeName } from "./backends/reserved-names";
 
 import { withArticle } from "./article";
@@ -1106,7 +1106,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
           params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>],
         });
       }
-      throw new ProgramError(
+      throw new NodeError(
         "matrix-product-shape",
         `A ${this._t} cannot multiply ${withArticle(otherType)}: the vector must have ` +
           `the matrix's column width or one fewer component (a position with its ` +
@@ -1118,7 +1118,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       let [c1, r1] = shape;
       let [c2, r2] = otherShape;
       if (c1 !== r2) {
-        throw new ProgramError(
+        throw new NodeError(
           "matrix-product-shape",
           `A ${this._t} cannot multiply ${withArticle(otherType)}: the left has ${c1} ` +
             `column(s) but the right has ${r2} row(s), and a matrix product needs ` +
@@ -1404,20 +1404,20 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === Uniform precision ===
   setPrecision(precision: UniformPrecision): any {
     if (this.type !== "uniform" && this.type !== "uniformArray") {
-      throw new ProgramError(
+      throw new NodeError(
         "precision-on-non-uniform",
         `setPrecision: only a uniform has a precision of its own, not ${withArticle(this.type)} node`,
       );
     }
     if (precision !== "low" && precision !== "medium" && precision !== "high") {
-      throw new ProgramError(
+      throw new NodeError(
         "unknown-precision",
         `setPrecision: a precision is "low", "medium" or "high", not ${JSON.stringify(precision)}`,
       );
     }
     const shaderType = (this.value as { shaderType: string }).shaderType;
     if (shaderType === "bool" || shaderType.startsWith("bvec")) {
-      throw new ProgramError(
+      throw new NodeError(
         "precision-on-non-number",
         `setPrecision: ${withArticle(shaderType)} uniform takes no precision, which GLSL gives only to numbers`,
       );
@@ -1701,14 +1701,14 @@ export function wrapValue<V>(x: V, operation?: string): Node<ExtractType<V>> {
     const type = ARRAY_TYPES[x.length];
     const givenTo = operation === undefined ? "" : ` given to ${operation}()`;
     if (type === undefined) {
-      throw new ProgramError(
+      throw new NodeError(
         "array-is-no-vector",
         `A JavaScript array of length ${x.length}${givenTo} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
       );
     }
     const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
     if (at >= 0) {
-      throw new ProgramError(
+      throw new NodeError(
         "array-holds-non-number",
         `A JavaScript array${givenTo} as ${withArticle(type)} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
       );
@@ -1840,14 +1840,14 @@ export function typedOperand(value: any, operandType: string, operation?: string
     return wrapValue(value, operation) as BaseNode<ShaderType>;
   }
   if (!Number.isInteger(value)) {
-    throw new ProgramError(
+    throw new NodeError(
       "literal-not-whole",
       `${value} is not a whole number, but the operand beside it is an ` +
         `${operandType}. Convert the operand to a float, or use a whole number.`,
     );
   }
   if (scalarType === "uint" && value < 0) {
-    throw new ProgramError(
+    throw new NodeError(
       "literal-negative-for-unsigned",
       `${value} is negative, but the operand beside it is unsigned. ` +
         `Use a signed operand, or a literal that is not negative.`,
@@ -2062,7 +2062,7 @@ function assertOperands(type: string, params: readonly BaseNode<ShaderType>[]): 
     type,
     params.map((p) => (p as any)?._t),
   );
-  if (refusal) throw new ProgramError(refusal.code, refusal.message);
+  if (refusal) throw new NodeError(refusal.code, refusal.message);
 }
 
 export function op(type: string, ...args: any[]): Node<ShaderType> {
@@ -2193,7 +2193,7 @@ export function assertNodeNames(n: any, where = ""): void {
   const slot = n?.value?.slot;
   for (const name of [n?.type === "var" ? n.value?.varName : undefined, slot]) {
     if (name !== undefined && !(typeof name === "string" && IDENTIFIER.test(name))) {
-      throw new ProgramError(
+      throw new NodeError(
         "invalid-name",
         `${where}a ${n.type} node is named ${JSON.stringify(name)}, which is no identifier ` +
           `(letters, digits and underscore, not starting with a digit).`,
@@ -2201,7 +2201,7 @@ export function assertNodeNames(n: any, where = ""): void {
     }
   }
   if (typeof slot === "string" && isReservedName(slot) && !slot.startsWith(RESERVED_VAR_PREFIX)) {
-    throw new ProgramError(
+    throw new NodeError(
       "reserved-name",
       `${where}a ${n.type} node is named "${slot}", which is a keyword or a built-in of GLSL or WGSL, ` +
         `or starts with "gl_" or holds two underscores in a row, and a name given as it stands cannot be changed.`,
@@ -2213,13 +2213,13 @@ export function assertNodeNames(n: any, where = ""): void {
 export function claimVarName(name: string | undefined): string {
   if (name !== undefined) {
     if (!IDENTIFIER.test(name)) {
-      throw new ProgramError(
+      throw new NodeError(
         "invalid-name",
         `toVar("${name}") must be a valid identifier (letters, digits and ` + `underscore, not starting with a digit).`,
       );
     }
     if (name.startsWith(RESERVED_VAR_PREFIX)) {
-      throw new ProgramError(
+      throw new NodeError(
         "reserved-name",
         `toVar("${name}") uses the reserved "${RESERVED_VAR_PREFIX}" prefix, ` +
           `which the compiler keeps for its own names.`,
@@ -2259,7 +2259,7 @@ function assertElseIfVariablesInChain(roots: unknown) {
       [chain],
     );
     if (usedOutside) {
-      throw new ProgramError(
+      throw new NodeError(
         "variable-used-outside-its-branch",
         "A variable made in an ElseIf condition is used after its If chain: it belongs to that ElseIf. Make it before the If to use it after the chain",
       );
@@ -2269,7 +2269,7 @@ function assertElseIfVariablesInChain(roots: unknown) {
 
 export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<ShaderType>[]) => void) {
   if (blockScope === undefined) {
-    throw new ProgramError("outside-fn-scope", `${fnName} must be called inside an Fn(() => { ... }) scope.`);
+    throw new NodeError("outside-fn-scope", `${fnName} must be called inside an Fn(() => { ... }) scope.`);
   }
   fn(blockScope);
 }
@@ -2341,10 +2341,10 @@ function describeFn(name: string | undefined): string {
  */
 function assertLayout(layout: unknown, strict = false): asserts layout is FnLayout {
   const fail = (why: string): never => {
-    throw new ProgramError("invalid-layout", `The layout of ${describeFn((layout as FnLayout)?.name)} ${why}.`);
+    throw new NodeError("invalid-layout", `The layout of ${describeFn((layout as FnLayout)?.name)} ${why}.`);
   };
   if (layout === null || typeof layout !== "object") {
-    throw new ProgramError("invalid-layout", "A layout is an object, { name, type, inputs }.");
+    throw new NodeError("invalid-layout", "A layout is an object, { name, type, inputs }.");
   }
   const { name, type, inputs } = layout as FnLayout;
   const validName = (n: unknown) => typeof n === "string" && IDENTIFIER.test(n) && !n.startsWith(RESERVED_VAR_PREFIX);
@@ -2396,7 +2396,7 @@ export function assertFnIsClosed(definition: FnDefinition): void {
   walk(definition.body);
   const outside = read.find((n) => !declared.has(n.value.varName));
   if (outside) {
-    throw new ProgramError(
+    throw new NodeError(
       "layout-fn-uses-outer-variable",
       `${describeFn(definition.name)} uses the variable "${outside.value.varName}", which is declared outside it. ` +
         `A function sees its inputs, its own variables and the uniforms, textures and storage buffers of the program. ` +
@@ -2425,7 +2425,7 @@ export function assertCallFits(call: BaseNode<ShaderType>): void {
     (definition.body as any)._t === definition.type &&
     definition.type === call._t;
   if (!fits) {
-    throw new ProgramError(
+    throw new NodeError(
       "call-does-not-fit-layout",
       "A call of an Fn with a layout does not fit its layout: its body, its inputs or its arguments disagree.",
     );
@@ -2441,7 +2441,7 @@ function fitArgument(
   const value = wrapValue(x as any) as BaseNode<ShaderType>;
   if (!isNode(value) || value._t !== input.type) {
     const got = isNode(value) && value._t !== "void" ? `a ${value._t}` : "nothing";
-    throw new ProgramError(
+    throw new NodeError(
       "argument-of-another-type",
       `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
         `Convert it to a ${input.type}${typeof x === "number" ? `, as ${input.type}(${x}) does: a plain number is a float` : ""}.`,
@@ -2458,12 +2458,12 @@ function callArguments(layout: FnLayout, args: unknown[]): unknown[] {
     const named = args[0] as Record<string, unknown>;
     const unknown_ = Object.keys(named).find((key) => !layout.inputs.some((input) => input.name === key));
     if (unknown_ !== undefined) {
-      throw new ProgramError("unknown-input", `${describeFn(layout.name)} has no input "${unknown_}".`);
+      throw new NodeError("unknown-input", `${describeFn(layout.name)} has no input "${unknown_}".`);
     }
     return layout.inputs.map((input) => named[input.name]);
   }
   if (args.length !== layout.inputs.length) {
-    throw new ProgramError(
+    throw new NodeError(
       "argument-count",
       `${describeFn(layout.name)} takes ${layout.inputs.length} input${layout.inputs.length === 1 ? "" : "s"}, and the call passes ${args.length}.`,
     );
@@ -2509,14 +2509,14 @@ function buildFnDefinition(fn: (...args: any[]) => unknown, layout: FnLayout): F
     for (const name of names) usedVarNames.add(name);
     const returned = fn(inputs);
     if (Array.isArray(returned)) {
-      throw new ProgramError(
+      throw new NodeError(
         "layout-fn-returns-list",
         `${describeFn(layout.name)} returns a list, and a function returns one value.`,
       );
     }
     const value = wrapValue(returned as any) as BaseNode<ShaderType>;
     if (value._t !== layout.type) {
-      throw new ProgramError(
+      throw new NodeError(
         "result-of-another-type",
         `${describeFn(layout.name)} has the type ${layout.type}, and its body returns ${value._t === "void" ? "nothing" : `a ${value._t}`}.`,
       );
@@ -2830,7 +2830,7 @@ function integerLiteral(type: "int" | "uint", v: number): number {
   let [low, high] = type === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
   let truncated = Math.trunc(v);
   if (!(truncated >= low && truncated <= high)) {
-    throw new ProgramError(
+    throw new NodeError(
       "literal-out-of-range",
       `${v} is outside the range of ${type}, ${low} to ${high}. Use a number inside it.`,
     );
@@ -2849,7 +2849,7 @@ export function uint(v: number | Node<"float"> | Node<"int"> | Node<"bool">): No
     return node({ _t: "uint", type: "construct", params: [v] }) as Node<"uint">;
   }
   if (v < 0) {
-    throw new ProgramError(
+    throw new NodeError(
       "literal-negative-for-unsigned",
       `uint(${v}) is negative. An unsigned literal cannot be negative.`,
     );
@@ -2873,7 +2873,7 @@ export function makeIntVecConstructor<T extends ShaderType>(
     if (scalarType === "uint") {
       for (let a of args) {
         if (typeof a === "number" && a < 0) {
-          throw new ProgramError(
+          throw new NodeError(
             "literal-negative-for-unsigned",
             `${a} is negative, but ${t} components are unsigned. ` +
               `Use a signed vector, or values that are not negative.`,
@@ -2931,7 +2931,7 @@ function matrixOfValues(t: ShaderType, values: any[]): any {
   if (!values.some(isNode)) return node({ _t: t, type: t, value: values });
   let [columns, rows] = MATRIX_DIMENSIONS[t];
   if (values.length !== columns * rows) {
-    throw new ProgramError(
+    throw new NodeError(
       "constructor-arity",
       `${t}() takes ${columns * rows} values, or ${columns} columns, not ${values.length}.`,
     );
@@ -2956,7 +2956,7 @@ function asFloatVector(vector: BaseNode<ShaderType>): BaseNode<ShaderType> {
 function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<ShaderType>[] {
   const [columns, rows] = MATRIX_DIMENSIONS[t];
   if (TYPE_WIDTH[vector._t] !== columns * rows) {
-    throw new ProgramError(
+    throw new NodeError(
       "constructor-arity",
       `${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
         `${columns * rows} components, not ${withArticle(vector._t)}.`,
@@ -2992,7 +2992,7 @@ export function makeMatConstructor<T extends ShaderType>(
     if (args.length === columns && args.every((a: any) => isNode(a))) {
       for (const column of args as BaseNode<ShaderType>[]) {
         if (!/^[iub]?vec[234]$/.test(column._t) || TYPE_WIDTH[column._t] !== rows) {
-          throw new ProgramError(
+          throw new NodeError(
             "constructor-arity",
             `${t}() takes ${columns} columns, each a vector of ${rows} components, not ${withArticle(column._t)}.`,
           );
@@ -3466,10 +3466,10 @@ function assertSampledTexture(type: string, value: BaseNode<ShaderType>): void {
   const samplerType = (value as { _t?: string } | undefined)?._t;
   if (samplerType === undefined || !isSamplerType(samplerType)) {
     const what = samplerType === undefined ? "not a node" : withArticle(samplerType);
-    throw new ProgramError("not-a-sampler", `${fn}: its first argument is ${what}, not a sampler`);
+    throw new NodeError("not-a-sampler", `${fn}: its first argument is ${what}, not a sampler`);
   }
   const refusal = textureRefusal(type, samplerType);
-  if (refusal) throw new ProgramError(refusal.code, refusal.message);
+  if (refusal) throw new NodeError(refusal.code, refusal.message);
 }
 
 /**
@@ -3614,10 +3614,10 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
  */
 export function uniformArray<T extends ShaderType>(shaderType: T, length: number): UniformArrayNode<T> {
   if (!Number.isInteger(length) || length < 1) {
-    throw new ProgramError("uniform-array-length", `uniformArray length must be a positive integer, got ${length}`);
+    throw new NodeError("uniform-array-length", `uniformArray length must be a positive integer, got ${length}`);
   }
   if (isSamplerType(shaderType)) {
-    throw new ProgramError(
+    throw new NodeError(
       "texture-in-uniform-array",
       `uniformArray cannot hold a texture. WGSL has no array of separate` +
         ` texture bindings without an extension, so there is no spelling both` +
@@ -3714,7 +3714,7 @@ export class StorageBufferAttribute {
       this.array = new arrayClass(countOrArray * itemSize);
     } else {
       if (countOrArray.length % itemSize !== 0) {
-        throw new ProgramError(
+        throw new NodeError(
           "typed-array-not-whole-elements",
           `a typed array of ${countOrArray.length} values isn't a whole number of elements of itemSize ${itemSize}`,
         );
@@ -3741,7 +3741,7 @@ export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
 export function storage<T extends ShaderType>(attribute: StorageBufferAttribute, shaderType: T): StorageNode<T> {
   assertStorageLayout(attribute, shaderType);
   if (attribute.elementType !== null && attribute.elementType !== shaderType) {
-    throw new ProgramError(
+    throw new NodeError(
       "storage-of-another-element-type",
       `an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be ${withArticle(shaderType)}`,
     );
@@ -3783,21 +3783,21 @@ function componentsOf(shaderType: ShaderType): number {
  */
 function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: ShaderType): void {
   if (shaderType === "bool" || shaderType.startsWith("bvec")) {
-    throw new ProgramError(
+    throw new NodeError(
       "storage-of-bool",
       `a storage buffer can't hold ${shaderType} elements, as WGSL's can't; store them as uint (or uvec) instead`,
     );
   }
   const components = componentsOf(shaderType);
   if (attribute.itemSize !== components) {
-    throw new ProgramError(
+    throw new NodeError(
       "storage-item-size",
       `${withArticle(shaderType)} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
     );
   }
   const arrayClass = storageArrayClass(shaderType);
   if (attribute.arrayClass !== arrayClass) {
-    throw new ProgramError(
+    throw new NodeError(
       "storage-array-kind",
       `${withArticle(shaderType)} storage node needs ${withArticle(arrayClass.name)} attribute, but its attribute holds ${withArticle(attribute.arrayClass.name)}`,
     );
@@ -3872,7 +3872,7 @@ export function invocationIndex(): Node<"uint"> {
 
 /** Refuses an empty name, which declares an input that no target can read by name. */
 function assertRawName(name: string, fn: string): void {
-  if (name === "") throw new ProgramError("empty-name", `${fn}: the name is empty`);
+  if (name === "") throw new NodeError("empty-name", `${fn}: the name is empty`);
 }
 
 export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): UniformNode<T> {
@@ -4123,13 +4123,13 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let deepestIf = ifNode;
   const assertFollows = (link: string) => {
     if (blockScope !== outer) {
-      throw new ProgramError(
+      throw new NodeError(
         "else-not-after-if",
         `${link} has to follow its If directly: it was called from inside another block`,
       );
     }
     if (outer.length !== end) {
-      throw new ProgramError(
+      throw new NodeError(
         "else-not-after-if",
         `${link} has to follow its If directly: nothing can be written between them, a variable included. Make a value the chain reads before the If`,
       );
@@ -4205,8 +4205,8 @@ const JUMP_STATEMENTS = new Set([...LOOP_JUMP_STATEMENTS, "discard", "return"]);
  * update slot of a `for` takes.
  */
 export function assertForUpdateNode(node: { type?: string }): void {
-  if (BLOCK_STATEMENTS.has(node.type!)) throw new ProgramError("block-in-for-update", FOR_UPDATE_BLOCK_MESSAGE);
-  if (JUMP_STATEMENTS.has(node.type!)) throw new ProgramError("jump-in-for-update", FOR_UPDATE_JUMP_MESSAGE);
+  if (BLOCK_STATEMENTS.has(node.type!)) throw new NodeError("block-in-for-update", FOR_UPDATE_BLOCK_MESSAGE);
+  if (JUMP_STATEMENTS.has(node.type!)) throw new NodeError("jump-in-for-update", FOR_UPDATE_JUMP_MESSAGE);
 }
 
 /**
@@ -4295,7 +4295,7 @@ export function Loop(...params: any[]): void {
   const named = names.filter((name) => name !== undefined);
   const repeated = named.find((name, i) => named.indexOf(name) !== i);
   if (repeated !== undefined) {
-    throw new ProgramError(
+    throw new NodeError(
       "loop-index-hidden",
       `Loop: two ranges name their index "${repeated}", so the inner one hides the outer from the body`,
     );
@@ -4356,13 +4356,10 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   }
   const type = range.type ?? "int";
   if (type !== "int" && type !== "uint" && type !== "float") {
-    throw new ProgramError(
-      "loop-index-type",
-      `Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`,
-    );
+    throw new NodeError("loop-index-type", `Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
   }
   if (range.start === undefined && range.end === undefined) {
-    throw new ProgramError(
+    throw new NodeError(
       "loop-range-empty",
       'Loop: a range names neither "start" nor "end", so it has nothing to count from or to',
     );
@@ -4388,21 +4385,21 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   const [first, last] = [constantOf(start!), constantOf(end!)];
   condition ??= first !== undefined && last !== undefined && first > last ? ">=" : "<";
   if (!["<", "<=", ">", ">="].includes(condition)) {
-    throw new ProgramError(
+    throw new NodeError(
       "loop-condition",
       `Loop: a condition is "<", "<=", ">" or ">=", not ${JSON.stringify(condition)}`,
     );
   }
   const update = range.update;
   if (typeof update === "string") {
-    throw new ProgramError(
+    throw new NodeError(
       "loop-update-string",
       "Loop: an update is a number, a node or a function, not a string: TSL writes a string into the shader it emits, which the JS and WASM targets have none of",
     );
   }
   const step = typeof update === "function" ? update : of(update ?? 1);
   if (type === "uint" && condition === ">=" && constantOf(end!) === 0) {
-    throw new ProgramError(
+    throw new NodeError(
       "loop-never-ends",
       'Loop: a uint range that tests ">=" against an end of 0 never ends, since every uint is at least 0. Give the index the type "int"',
     );
@@ -4413,7 +4410,7 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
 /** Throws for a number with a fraction given as a bound of an integer `Loop` index, which TSL would round. */
 function assertWholeBound(value: number, type: string): void {
   if (!Number.isInteger(value)) {
-    throw new ProgramError(
+    throw new NodeError(
       "loop-bound-not-whole",
       `Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
     );
@@ -4480,18 +4477,15 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
   /** Checks that a `Case` or `Default` is added where it can still reach the program. */
   const check = (name: string) => {
     if (closed)
-      throw new ProgramError(
-        "case-after-default",
-        `${name}() after Default(): a Switch takes no case after its Default.`,
-      );
+      throw new NodeError("case-after-default", `${name}() after Default(): a Switch takes no case after its Default.`);
     if (blockScope !== block) {
-      throw new ProgramError(
+      throw new NodeError(
         "case-outside-switch",
         `${name}() must be called from the block that holds its Switch(), as Switch(x).Case(...).Default(...).`,
       );
     }
     if (after !== undefined && block.length !== after) {
-      throw new ProgramError(
+      throw new NodeError(
         "case-after-statement",
         `${name}() after a statement that follows the case before it: the chain would run before that statement.`,
       );
@@ -4510,7 +4504,7 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
       const caseBody = params[params.length - 1] as () => void;
       const values = params.slice(0, -1) as IntLike[];
       if (values.length === 0) {
-        throw new ProgramError(
+        throw new NodeError(
           "case-without-values",
           "Case() needs at least one value: a case with no values can never match.",
         );
