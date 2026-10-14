@@ -560,9 +560,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
   - [`@axiom an-error-says-what-went-wrong-and-where`](#axiom-an-error-says-what-went-wrong-and-where) — Every error rmsl throws tells the application's code what went wrong, by its class and its code. It also tells where, by the backend it came from, whenever rmsl knows it.
     - [`@spec no-module-of-rmsl-throws-a-plain-error`](#spec-no-module-of-rmsl-throws-a-plain-error) — No module of rmsl throws an error that is not an `RmslError`, the helpers of `rmsl/test` and the scene library included.
-    - [`@spec an-error-is-an-instance-of-the-class-of-its-kind`](#spec-an-error-is-an-instance-of-the-class-of-its-kind) — Every error rmsl throws is an instance of `RmslError`, and of the one class that extends it for its kind: `ProgramError`, `UsageError`, `TargetError`, `DataError`, `PlatformError`, `LimitError`, `DriverError` or `InternalError`. Each class is exported from `"rmsl"`.
-      - [`@spec a-mistake-found-without-running-is-a-program-error`](#spec-a-mistake-found-without-running-is-a-program-error) — A mistake in the user's code that rmsl finds by reading the program, with no device, is a `ProgramError`.
-        - [`@spec a-program-that-breaks-a-rule-is-refused-with-a-program-error`](#spec-a-program-that-breaks-a-rule-is-refused-with-a-program-error) — A program that breaks a rule of the language is refused with a `ProgramError`, as the program builds it and as a target compiles it.
+    - [`@spec an-error-is-an-instance-of-the-class-of-its-kind`](#spec-an-error-is-an-instance-of-the-class-of-its-kind) — Every error rmsl throws is an instance of `RmslError`, and of the one class that extends it for its kind: `NodeError`, `ProgramError`, `UsageError`, `TargetError`, `DataError`, `PlatformError`, `LimitError`, `DriverError` or `InternalError`. Each class is exported from `"rmsl"`.
+      - [`@spec a-node-wrong-in-itself-is-a-node-error`](#spec-a-node-wrong-in-itself-is-a-node-error) — A node that is wrong whatever program it ends up in is refused with a `NodeError`. That holds as the program builds the node, and as a target compiles a graph `deserialize` rebuilt with it.
+      - [`@spec a-mistake-found-without-running-is-a-program-error`](#spec-a-mistake-found-without-running-is-a-program-error) — A mistake in the user's code that rmsl finds by reading the program, with no device, is a `ProgramError` when no node holds it in itself.
+        - [`@spec a-program-that-breaks-a-rule-is-refused-with-a-program-error`](#spec-a-program-that-breaks-a-rule-is-refused-with-a-program-error) — A target refuses with a `ProgramError` a node that could be correct in another program but breaks a rule of the one it compiles.
         - [`@spec a-compile-call-with-wrong-options-is-refused-with-a-program-error`](#spec-a-compile-call-with-wrong-options-is-refused-with-a-program-error) — A compile function given options that cannot hold together, or lists that do not match the program, refuses them with a `ProgramError`.
         - [`@spec stages-that-do-not-fit-are-refused-with-a-program-error`](#spec-stages-that-do-not-fit-are-refused-with-a-program-error) — A vertex and a fragment stage compiled together that do not fit each other are refused with a `ProgramError`.
         - [`@spec a-build-module-with-malformed-exports-is-refused-with-a-program-error`](#spec-a-build-module-with-malformed-exports-is-refused-with-a-program-error) — The Vite plugin refuses a module whose exports do not have the shape it reads with a `ProgramError`.
@@ -4362,21 +4363,29 @@ This follows because a plain `Error` carries no kind, no code and no backend, so
 
 #### @spec an-error-is-an-instance-of-the-class-of-its-kind
 
-> Every error rmsl throws is an instance of `RmslError`, and of the one class that extends it for its kind: `ProgramError`, `UsageError`, `TargetError`, `DataError`, `PlatformError`, `LimitError`, `DriverError` or `InternalError`. Each class is exported from `"rmsl"`.
+> Every error rmsl throws is an instance of `RmslError`, and of the one class that extends it for its kind: `NodeError`, `ProgramError`, `UsageError`, `TargetError`, `DataError`, `PlatformError`, `LimitError`, `DriverError` or `InternalError`. Each class is exported from `"rmsl"`.
 
 This follows because JavaScript code tells one error from another by `instanceof`. TypeScript narrows on it to the fields of the class. An error does not need to keep its class across a worker boundary or a second installed copy of rmsl. A caller there reads its `name` and its `code`.
 
+##### @spec a-node-wrong-in-itself-is-a-node-error
+
+> A node that is wrong whatever program it ends up in is refused with a `NodeError`. That holds as the program builds the node, and as a target compiles a graph `deserialize` rebuilt with it.
+
+This follows because such a node can be judged from itself and its inputs alone. Examples are an operation on operands it does not take, a literal outside its type, and an assignment to a uniform. An `ElseIf` that does not follow its `If` is one too. Nothing about the program around it can make it right, so the user fixes the line that made it. A refusal of a rebuilt graph is the same refusal, so it has the same class and code.
+
+Many such nodes are type errors too, since a type is judged from a node and its inputs. Some are not: no type expresses the range of a number, or the place of a statement.
+
 ##### @spec a-mistake-found-without-running-is-a-program-error
 
-> A mistake in the user's code that rmsl finds by reading the program, with no device, is a `ProgramError`.
+> A mistake in the user's code that rmsl finds by reading the program, with no device, is a `ProgramError` when no node holds it in itself.
 
 This follows because such a mistake shows the same way on every run, and the user fixes it in their code before anything runs.
 
 ###### @spec a-program-that-breaks-a-rule-is-refused-with-a-program-error
 
-> A program that breaks a rule of the language is refused with a `ProgramError`, as the program builds it and as a target compiles it.
+> A target refuses with a `ProgramError` a node that could be correct in another program but breaks a rule of the one it compiles.
 
-This follows because the program, not the device or the data, is what is wrong.
+This follows because whether such a node is right depends on the program. A read of `fragCoord()` is right in a fragment stage and wrong in a vertex stage. A `Break()` is right inside a loop and wrong outside every loop. Only the compiler sees the stage and the whole program.
 
 ###### @spec a-compile-call-with-wrong-options-is-refused-with-a-program-error
 
