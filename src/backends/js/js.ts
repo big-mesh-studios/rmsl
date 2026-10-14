@@ -2264,18 +2264,16 @@ export function compileJSNode(
       let is3D = samplerType.endsWith("3D");
       let isCube = samplerType.endsWith("Cube");
       if (isCube && isInteger) {
-        throw new TargetError(
-          "integer-cube-sampler",
-          "The JS target supports samplerCube, not isamplerCube/usamplerCube, yet.",
+        throw new InternalError(
+          "unexpected-sampler-kind",
+          `an integer cube map reached the JS compiler, past the refusal of every target`,
           { target: "js" },
         );
       }
       if (!samplerType.endsWith("2D") && !is3D && !isCube) {
-        throw new TargetError(
-          "sampler-kind-unsupported",
-          "The JS target supports sampler2D/sampler3D/samplerCube textures only.",
-          { target: "js" },
-        );
+        throw new InternalError("unexpected-sampler-kind", `the JS compiler has no texture read of ${samplerType}`, {
+          target: "js",
+        });
       }
       let texRef = `ctx.textures[${JSON.stringify(slot)}]`;
       let coords = jsCompileOperand(node.params![1], ctx);
@@ -2312,7 +2310,7 @@ export function compileJSNode(
       let samplerType = samplerNode?._t || "sampler2D";
       let slot = (samplerNode.value as any)?.slot;
       if (!samplerType.endsWith("2D") && !samplerType.endsWith("3D")) {
-        throw new TargetError("sampler-kind-unsupported", "The JS target supports sampler2D/sampler3D textures only.", {
+        throw new InternalError("unexpected-sampler-kind", `the JS compiler has no texel fetch of ${samplerType}`, {
           target: "js",
         });
       }

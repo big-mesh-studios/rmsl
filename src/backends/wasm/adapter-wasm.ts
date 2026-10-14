@@ -1,4 +1,4 @@
-import { PlatformError, UsageError, type Origin, type BackendOrigin } from "../../errors";
+import { PlatformError, UsageError, type BackendOrigin } from "../../errors";
 import { Node, RoutineParam, ShaderType } from "../../core";
 import {
   Adapter,

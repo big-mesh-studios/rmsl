@@ -402,7 +402,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-      - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — Every target refuses a program that reads an integer cube map. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
+      - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — Every target refuses a program that reads an integer cube map, in a graph `deserialize` rebuilt too. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
     - [`@spec texture-size-gives-the-dimensions`](#spec-texture-size-gives-the-dimensions) — `textureSize` gives the width and height of a 2D texture or a cube map, and the depth too of a 3D texture.
     - [`@spec texture-load-reads-one-texel-of-a-float-texture`](#spec-texture-load-reads-one-texel-of-a-float-texture) — `textureLoad` reads one texel of a float texture at an integer coordinate, with no filter, and gives a `vec4`.
   - [`@spec a-swizzle-reads-and-writes-the-components-it-names`](#spec-a-swizzle-reads-and-writes-the-components-it-names) — A swizzle reads the components it names, in its order, in any of the spellings `xyzw`, `rgba` and `stpq`. Written through, it writes the same components of the variable it reaches.
@@ -3372,7 +3372,7 @@ Derives from: [`fact-an-integer-texture-cannot-be-filtered`](#fact-an-integer-te
 
 ##### @exception an-integer-cube-map-cannot-be-fetched
 
-> Every target refuses a program that reads an integer cube map. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
+> Every target refuses a program that reads an integer cube map, in a graph `deserialize` rebuilt too. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
 
 Derives from: [`fact-a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-texel-fetch)
 

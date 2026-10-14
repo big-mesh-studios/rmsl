@@ -339,25 +339,17 @@ function isIntegerSamplerType(t: string): boolean {
   return t.startsWith("isampler") || t.startsWith("usampler");
 }
 
-/** `textureLoad()`/integer-sampler fetch only supports 2D/3D — reject 1D/cube/texture-arrays early. */
+/** Throws unless `t` is a 2D or 3D sampler, the samplers a texel fetch reads; every target refuses a fetch of a cube map before this. */
 function assertSampled2Dor3D(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D")) {
-    throw new TargetError(
-      "sampler-kind-unsupported",
-      "compileWasmFn: texture uniforms support sampler2D/sampler3D (and their integer variants) only.",
-      { target: "wasm" },
-    );
+    throw new InternalError("unexpected-sampler-kind", `compileWasmFn: no texel fetch of ${t}`, { target: "wasm" });
   }
 }
 
-/** `texture()`/`textureLod()` additionally supports samplerCube (float only) — reject 1D/texture-arrays early. */
+/** Throws unless `t` is a sampler `texture()` and `textureLod()` read: 2D, 3D or a cube map. */
 function assertSampledTextureType(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D") && !t.endsWith("Cube")) {
-    throw new TargetError(
-      "sampler-kind-unsupported",
-      "compileWasmFn: texture uniforms support sampler2D/sampler3D/samplerCube (2D/3D integer variants too) only.",
-      { target: "wasm" },
-    );
+    throw new InternalError("unexpected-sampler-kind", `compileWasmFn: no texture read of ${t}`, { target: "wasm" });
   }
 }
 
@@ -2762,10 +2754,9 @@ export function compileWasmModule(
     assertSampledTextureType(samplerType);
     const isCube = samplerType.endsWith("Cube");
     if (isCube && isIntegerSamplerType(samplerType)) {
-      throw new TargetError(
-        "integer-cube-sampler",
-        "compileWasmFn: samplerCube supports texture()/textureLod() as a float sampler only " +
-          "(isamplerCube/usamplerCube aren't supported yet).",
+      throw new InternalError(
+        "unexpected-sampler-kind",
+        "compileWasmFn: an integer cube map reached the compiler, past the refusal of every target",
         { target: "wasm" },
       );
     }

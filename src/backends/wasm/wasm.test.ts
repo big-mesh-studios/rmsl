@@ -1551,8 +1551,8 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const tex = uniform("samplerCube") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0) as any).x)();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrowRmsl(
-      TargetError,
-      "sampler-kind-unsupported",
+      ProgramError,
+      "cube-map-texel-fetch",
     );
   });
 });

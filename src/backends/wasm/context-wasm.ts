@@ -1,4 +1,4 @@
-import { TargetError, type Origin, type BackendOrigin } from "../../errors";
+import { TargetError, type BackendOrigin } from "../../errors";
 import {
   type ComputeNode,
   type StorageBufferAttribute,

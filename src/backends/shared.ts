@@ -19,6 +19,7 @@ import {
   TYPE_WIDTH,
   node,
   operandRefusal,
+  textureRefusal,
   someNode,
   swizzleWritePlace,
   var_,
@@ -797,6 +798,8 @@ function checkRoots(
         LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE[node.type as "break" | "continue"],
         origin,
       );
+    const textureRefused = textureRefusal(node.type, node.params?.[0]?._t);
+    if (textureRefused) throw new ProgramError(textureRefused.code, textureRefused.message, origin);
     const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
     if (refusal) throw new ProgramError(refusal.code, refusal.message, origin);
     if (node.type === "outputStruct") holdsOutputStruct = true;

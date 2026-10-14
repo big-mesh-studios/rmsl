@@ -35,6 +35,9 @@ import {
   type Var,
   serialize,
   deserialize,
+  texture,
+  textureLoad,
+  ivec2,
 } from "../rmsl";
 import { compileJSCompute, compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
 import {
@@ -871,5 +874,44 @@ describe("a mistake is refused before the program runs", () => {
       );
       expect(() => grid({}, 1, 1)).toThrowRmsl(ProgramError, "grid-without-result");
     }
+  });
+});
+
+describe("a cube map has no texel fetch", () => {
+  const none = { name: "main", params: [] };
+  /** Expects every target to refuse the graph `build` gives with a `ProgramError` of `code`. */
+  const refusedOnEveryTarget = (build: () => Node<"vec4">, code: string) => {
+    expect(() => compileGlsl.fragment(build())).toThrowRmsl(ProgramError, code);
+    expect(() => compileWgsl.fragment(build())).toThrowRmsl(ProgramError, code);
+    expect(() => compileJSFragment(build, none)).toThrowRmsl(ProgramError, code);
+    expect(() => compileWasmFragment(build, none)).toThrowRmsl(ProgramError, code);
+  };
+
+  /**
+   * `texture` refuses an integer cube map as the graph is built, so the graph
+   * is built with a float one and its sampler made an integer cube map in the
+   * saved data.
+   *
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
+  it("refuses an integer cube map in a graph deserialize rebuilt, on every target", () => {
+    const cube = uniform("samplerCube");
+    const graph = serialize(Fn(() => vec4(texture(cube, vec3(1, 0, 0)).x, 0, 0, 1))()) as any;
+    for (const n of graph.nodes) {
+      if (n._t === "samplerCube") n._t = "isamplerCube";
+      if (n.value?.shaderType === "samplerCube") n.value.shaderType = "isamplerCube";
+    }
+    refusedOnEveryTarget(() => deserialize(JSON.parse(JSON.stringify(graph))) as Node<"vec4">, "integer-cube-sampler");
+  });
+
+  /**
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
+  it("refuses textureLoad on a float cube map, on every target", () => {
+    const cube = uniform("samplerCube");
+    refusedOnEveryTarget(
+      () => Fn(() => vec4(textureLoad(cube as any, ivec2(0, 0) as any).x, 0, 0, 1))(),
+      "cube-map-texel-fetch",
+    );
   });
 });
