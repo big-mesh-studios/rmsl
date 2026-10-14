@@ -37,9 +37,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
 - [`@term precompile`](#term-precompile) — Running rmsl at build time, so that the application ships the compiled code instead of rmsl.
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
-  - [`@spec every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) — Every target shades a pixel by its centre alone, with one sample. A pixel that an edge of a triangle crosses takes the colour of the triangle or none. `createGlsl` asks its WebGL 2 context for no multisampling.
+  - [`@spec every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) — Every target shades a pixel by its centre alone, with one sample, so a pixel that an edge of a triangle crosses takes the colour of the triangle or none.
     - [`@spec the-glsl-adapter-draws-with-one-sample`](#spec-the-glsl-adapter-draws-with-one-sample) — `createGlsl` asks its WebGL 2 context for no multisampling, so it shades a pixel whole or not at all, as WebGPU does.
     - [`@exception a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#exception-a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — On GLSL, a pixel centre that lies exactly on a horizontal edge belongs to the triangle above that edge. WebGPU and the CPU rasterizers give it to the triangle below.
+    - [`@exception the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has`](#exception-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has) — `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
     - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite as a 32-bit float, such as `float(1).div(0)`, `float(-1).sqrt()` or `float(1e30).mul(1e30)`, is refused with one error on every target. The same operation on a run-time value gives its result.
@@ -525,7 +526,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-number-given-to-an-effect-compiles-as-a-literal`](#spec-a-number-given-to-an-effect-compiles-as-a-literal) — A number given as a parameter of an effect compiles as a literal in the effect's code.
     - [`@spec a-node-given-to-an-effect-is-read-as-given`](#spec-a-node-given-to-an-effect-is-read-as-given) — An effect reads a node the caller passes as a parameter, so a uniform can drive that parameter.
   - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
-    - [`@spec webgl-renderer-draws-without-multisampling-unless-asked`](#spec-webgl-renderer-draws-without-multisampling-unless-asked) — `WebGLRenderer` asks its WebGL 2 context for no multisampling unless its `antialias` option is true, as three.js's renderers do.
+    - [`@spec webgl-renderer-draws-without-multisampling-unless-asked`](#spec-webgl-renderer-draws-without-multisampling-unless-asked) — `WebGLRenderer` asks its WebGL 2 context for no multisampling unless its `antialias` option is true, as three.js's `WebGLRenderer` does.
     - [`@exception an-object-added-to-itself-is-refused`](#exception-an-object-added-to-itself-is-refused) — `Object3D.add` refuses an object added to itself with a `UsageError`, where three.js logs an error and adds nothing.
     - [`@spec a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant) — `WebGLRenderer` and `WebGPURenderer` draw a mesh whose geometry lacks an attribute its material reads, as TSL does. The attribute reads (0, 0, 0, 1), cut to its width, at every vertex, and the renderer warns. Where TSL bakes that constant into the shader as a literal, rmsl keeps one shader and feeds the attribute the constant. WebGL feeds it from the value the context keeps at the location, and WebGPU from a buffer of that value that every vertex reads.
       - [`@spec a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks`](#spec-a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks) — The renderer warns `Vertex attribute "<name>" not found on geometry.`, as TSL words it, once for each attribute of each geometry, not at every frame.
@@ -1190,7 +1191,7 @@ The axiom decides between defined behaviour and the native freedom of each langu
 
 ### @spec every-target-shades-a-pixel-by-its-centre-alone
 
-> Every target shades a pixel by its centre alone, with one sample. A pixel that an edge of a triangle crosses takes the colour of the triangle or none. `createGlsl` asks its WebGL 2 context for no multisampling.
+> Every target shades a pixel by its centre alone, with one sample, so a pixel that an edge of a triangle crosses takes the colour of the triangle or none.
 
 Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default)
 
@@ -1211,6 +1212,14 @@ This follows because a WebGL 2 context multisamples unless asked not to, and Web
 Derives from: [`fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
 
 GL counts window rows from the bottom, so its own rule gives such a pixel to the triangle above it on the screen. A shader cannot change the rule. Drawing the image upside down and copying it back flipped would overwrite what other adapters drew on the canvas.
+
+#### @exception the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
+
+> `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
+
+Derives from: [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
+
+`getContext` gives back the context a canvas already has, whatever attributes it is asked for, and a context keeps its multisampling for its life. Refusing such a canvas would stop `createGlsl` from drawing beside a `WebGLRenderer` made with `antialias: true`.
 
 ### @spec folding-gives-the-run-time-result
 
@@ -4154,11 +4163,11 @@ This follows because TSL is the shading language of three.js, and its users brin
 
 #### @spec webgl-renderer-draws-without-multisampling-unless-asked
 
-> `WebGLRenderer` asks its WebGL 2 context for no multisampling unless its `antialias` option is true, as three.js's renderers do.
+> `WebGLRenderer` asks its WebGL 2 context for no multisampling unless its `antialias` option is true, as three.js's `WebGLRenderer` does.
 
 Derives from: [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js), [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default)
 
-This follows because a three.js scene ports by changing its import, and three.js draws without multisampling unless asked. `WebGPURenderer` draws with one sample, so the two renderers draw a scene alike.
+This follows because a three.js scene ports by changing its import, and three.js draws without multisampling unless asked. With the default, it draws a scene with one sample, as `WebGPURenderer`, which has no `antialias` option, draws it.
 
 #### @exception an-object-added-to-itself-is-refused
 

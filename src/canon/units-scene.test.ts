@@ -68,7 +68,7 @@ globalThis.__rmslR8UIRowsRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const dataTexture = new DataTexture(new Uint8Array([10, 20, 30, 40, 50, 60]), 3, 2, 1, RedIntegerFormat, UnsignedByteType);
   const material = new MeshBasicMaterial();
@@ -152,7 +152,7 @@ globalThis.__rmslAttributeTypes = async (backend) => {
     try {
       const renderer = backend === "webgpu"
         ? await WebGPURenderer.init(canvas)
-        : new WebGLRenderer(canvas, { antialias: false });
+        : new WebGLRenderer(canvas);
       results[name] = await drawCase(renderer, canvas, attributeCase);
     } catch (error) {
       results[name] = { error: error.message };
@@ -188,7 +188,7 @@ globalThis.__rmslMissingAttribute = async (backend) => {
     try {
       const renderer = backend === "webgpu"
         ? await WebGPURenderer.init(canvas)
-        : new WebGLRenderer(canvas, { antialias: false });
+        : new WebGLRenderer(canvas);
       const errors = [];
       renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
       const material = new MeshBasicMaterial();
@@ -238,7 +238,7 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
     canvas.height = 16;
     const renderer = backend === "webgpu"
       ? await WebGPURenderer.init(canvas)
-      : new WebGLRenderer(canvas, { antialias: false });
+      : new WebGLRenderer(canvas);
     const errors = [];
     renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
     const geometry = new PlaneGeometry(2, 2);
@@ -1763,7 +1763,7 @@ globalThis.__rmslDepthMaskRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 4);
@@ -1807,7 +1807,7 @@ globalThis.__rmslTexturelessRun = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 16;
     canvas.height = 16;
-    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    const renderer = new WebGLRenderer(canvas);
     renderer.setClearColor(0x000000);
     return renderer;
   };
@@ -1847,7 +1847,7 @@ globalThis.__rmslFloatThenIntegerRun = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 16;
     canvas.height = 16;
-    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    const renderer = new WebGLRenderer(canvas);
     renderer.setClearColor(0x000000);
     return renderer;
   };
@@ -1892,7 +1892,7 @@ const preserveStateRun = async (preserveState) => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false, preserveState });
+  const renderer = new WebGLRenderer(canvas, { preserveState });
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
@@ -1925,7 +1925,7 @@ globalThis.__rmslPreserveStateOff = () => preserveStateRun(false);
 globalThis.__rmslPreserveStateOn = () => preserveStateRun(true);
 const ownVertexArrayRun = (vertexArray) => {
   const canvas = document.createElement("canvas");
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
@@ -1950,7 +1950,7 @@ const pixelsOver = (dirty) => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);

@@ -23,6 +23,21 @@ const readPixel = (canvas, x, y) => {
 `;
 
 /**
+ * A helper for an entry: `readImage(canvas)` gives the red, green, blue and
+ * alpha bytes of every pixel of a canvas, read as `readPixel` reads one.
+ */
+export const READ_IMAGE = `
+const readImage = (canvas) => {
+  const flat = document.createElement("canvas");
+  flat.width = canvas.width;
+  flat.height = canvas.height;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  return context.getImageData(0, 0, canvas.width, canvas.height).data;
+};
+`;
+
+/**
  * Helpers for an entry to check what a call leaves on a WebGL 2 context:
  * `dirtyGlState(gl)` sets every piece of state rmsl touches or reads to a value
  * of the page's own, with objects of its own; `glState(gl)` reads that state, the

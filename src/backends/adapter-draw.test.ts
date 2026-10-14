@@ -68,7 +68,7 @@ const flatIndex = () => {
 // second, written into the GL texture the first made.
 const drawRetextured = (adapter) => {
   const target = canvas();
-  const gl = target.getContext("webgl2");
+  const gl = target.getContext("webgl2", { antialias: false });
   let created = 0;
   const createTexture = gl.createTexture.bind(gl);
   gl.createTexture = () => (created++, createTexture());
@@ -83,7 +83,7 @@ const drawRetextured = (adapter) => {
 // The textured triangle drawn over state the page set, and over a fresh context.
 const drawnOver = (dirty) => {
   const target = canvas();
-  const gl = target.getContext("webgl2");
+  const gl = target.getContext("webgl2", { antialias: false });
   if (dirty) dirtyGlState(gl);
   const adapter = createGlsl(offsetVertex(), texturedFragment());
   adapter.attach(target);
@@ -100,7 +100,7 @@ const drawnOver = (dirty) => {
 // Every piece of state that a call of a GLSL adapter left changed, over state the page set.
 const glslStateChanged = (preserveState) => {
   const target = canvas();
-  const gl = target.getContext("webgl2");
+  const gl = target.getContext("webgl2", { antialias: false });
   dirtyGlState(gl);
   const before = glState(gl);
   const changed = new Set();

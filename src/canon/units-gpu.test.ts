@@ -52,7 +52,7 @@ import {
   releaseGpu,
   webgpuAvailable,
 } from "../testing/gpu";
-import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
+import { READ_IMAGE, READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { stubDevice, stubGl } from "./scene-stubs";
 import { CONDITION_PAIRS, inlineFnConditions, inlineFnPaths } from "../testing/inline-fn-paths";
 import { createGlsl } from "../glsl";
@@ -722,7 +722,7 @@ const GREEN = { r: 0, g: 255, b: 0, a: 255 };
  * writing, the third not writing, the third writing `vec4(0)`, and every one
  * writing.
  */
-const UNWRITTEN_POSITION = `
+const UNWRITTEN_POSITION = `${READ_IMAGE}
 import { Fn, If, attribute, builtinPosition, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
@@ -731,12 +731,7 @@ import { createWasm } from "../wasm";
 const TRIANGLE = Float32Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0);
 const CASES = { noneWrites: [1, 1, 1], thirdSkips: [0, 0, 1], thirdWritesZero: [0, 0, 1], everyWrites: [0, 0, 0] };
 const litPixels = (canvas) => {
-  const flat = document.createElement("canvas");
-  flat.width = canvas.width;
-  flat.height = canvas.height;
-  const context = flat.getContext("2d");
-  context.drawImage(canvas, 0, 0);
-  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const data = readImage(canvas);
   let lit = 0;
   for (let i = 0; i < data.length; i += 4) if (data[i] > 0) lit++;
   return lit;
@@ -811,11 +806,13 @@ describe("a path of a vertex stage that writes no position", () => {
 
   /**
    * @canon spec-a-path-that-writes-no-position-gives-zero
+   * @canon spec-the-glsl-adapter-draws-with-one-sample
    */
   it.skipIf(!GPU_ENABLED || !WEBGPU)(
-    "draws as vec4(0) on WGSL",
+    "draws as vec4(0) on WGSL, lighting the pixels GLSL lights",
     async () => {
       const lit = await unwrittenPosition("__rmslUnwrittenWgsl", true);
+      expect(await unwrittenPosition("__rmslUnwrittenGlsl"), "GLSL lights what WGSL lights").toEqual(lit);
       expect(lit.noneWrites).toBe(0);
       expect(lit.thirdSkips).toBe(lit.thirdWritesZero);
       expect(lit.everyWrites).toBeGreaterThan(0);
@@ -825,13 +822,17 @@ describe("a path of a vertex stage that writes no position", () => {
 });
 
 /**
- * An entry of a GPU page that draws shapes with `createGlsl` on a 4×4 canvas,
- * each as two windings, and returns the alpha of each pixel: a row of numbers
- * for each row from the top. Corners are in pixels.
+ * Entries of a GPU page that draw shapes on a 4×4 canvas with one adapter
+ * each, every shape in both windings, and return the alpha of each pixel: a
+ * row of numbers for each row from the top. Corners are in pixels. One more
+ * draws the columns with `createGlsl` on a canvas whose context multisamples.
  */
-const EDGE_PIXELS = `
+const EDGE_PIXELS = `${READ_IMAGE}
 import { Fn, attribute, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
 const rectangle = (l, t, r, b) => [l, t, r, t, l, b, l, b, r, t, r, b];
 const SHAPES = {
   columns: rectangle(0.5, -1, 2.5, 5),
@@ -840,52 +841,71 @@ const SHAPES = {
   bottomRight: [2.5, 2.5, 2.5, -9, -9, 2.5],
 };
 const reversed = (corners) => corners.map((_, i) => corners[i - (i % 6) + 4 - (i % 6) + 2 * (i % 2)]);
-globalThis.__rmslEdgePixelsGlsl = async () => {
-  const drawn = {};
-  for (const [name, corners] of Object.entries(SHAPES)) {
-    drawn[name] = [];
-    for (const wound of [corners, reversed(corners)]) {
-      const pos = attribute("vec2");
-      const canvas = document.createElement("canvas");
-      canvas.width = 4;
-      canvas.height = 4;
-      const adapter = createGlsl(Fn(() => vec4(pos, 0, 1))(), Fn(() => vec4(1, 0, 0, 1))());
-      adapter.attach(canvas);
-      adapter.setAttribute(pos, Float32Array.from(wound.map((v, i) => (i % 2 === 0 ? (v / 4) * 2 - 1 : 1 - (v / 4) * 2))));
-      adapter.draw({ count: wound.length / 2 });
-      const flat = document.createElement("canvas");
-      flat.width = 4;
-      flat.height = 4;
-      const context = flat.getContext("2d");
-      context.drawImage(canvas, 0, 0);
-      const data = context.getImageData(0, 0, 4, 4).data;
-      drawn[name].push(Array.from({ length: 4 }, (_, y) => Array.from({ length: 4 }, (_, x) => data[(y * 4 + x) * 4 + 3]).join(" ")).join("/"));
-    }
-  }
-  return drawn;
+const alphas = (canvas) => {
+  const data = readImage(canvas);
+  return Array.from({ length: 4 }, (_, y) => Array.from({ length: 4 }, (_, x) => data[(y * 4 + x) * 4 + 3]).join(" ")).join("/");
+};
+const drawn = async (corners, create, canvas = document.createElement("canvas")) => {
+  const pos = attribute("vec2");
+  canvas.width = 4;
+  canvas.height = 4;
+  const adapter = create(Fn(() => vec4(pos, 0, 1))(), Fn(() => vec4(1, 0, 0, 1))());
+  await adapter.attach(canvas);
+  adapter.setAttribute(pos, Float32Array.from(corners.map((v, i) => (i % 2 === 0 ? (v / 4) * 2 - 1 : 1 - (v / 4) * 2))));
+  adapter.draw({ count: corners.length / 2 });
+  if (adapter.device) await adapter.device().queue.onSubmittedWorkDone();
+  return alphas(canvas);
+};
+const drawEach = async (create) => {
+  const shapes = {};
+  for (const [name, corners] of Object.entries(SHAPES)) shapes[name] = [await drawn(corners, create), await drawn(reversed(corners), create)];
+  return shapes;
+};
+globalThis.__rmslEdgePixelsGlsl = () => drawEach((vertex, fragment) => createGlsl(vertex, fragment));
+globalThis.__rmslEdgePixelsWgsl = () => drawEach((vertex, fragment) => createWgsl({ vertex, fragment }));
+globalThis.__rmslEdgePixelsJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslEdgePixelsWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslEdgePixelsOnAMultisampledContext = () => {
+  const canvas = document.createElement("canvas");
+  canvas.getContext("webgl2", { antialias: true });
+  return drawn(SHAPES.columns, (vertex, fragment) => createGlsl(vertex, fragment), canvas);
 };
 `;
 
-describe("a pixel an edge of a triangle crosses on createGlsl", () => {
+describe("a pixel an edge of a triangle crosses", () => {
   const dir = new URL(".", import.meta.url).pathname;
-  /** What `EDGE_PIXELS` returns on WebGL 2 on SwiftShader, and on the GPU through the browser of the WebGPU tests. */
-  const drawnOnEach = async () => [
-    await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsGlsl", dir),
-    ...(WEBGPU ? [await runInWebGpuPage(EDGE_PIXELS, "__rmslEdgePixelsGlsl", dir)] : []),
-  ];
+  let drawing: Promise<{ glsl: any[]; others: any[] }> | undefined;
+  /**
+   * What `EDGE_PIXELS` returns for `createGlsl` on WebGL 2 on SwiftShader and
+   * on the GPU through the browser of the WebGPU tests, and for the targets
+   * that draw by WebGPU's rule: `createJs`, `createWasm`, and `createWgsl` when
+   * a WebGPU device is there. The draws run once for every test.
+   */
+  const drawnOnEach = () =>
+    (drawing ??= (async () => ({
+      glsl: [
+        await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsGlsl", dir),
+        ...(WEBGPU ? [await runInWebGpuPage(EDGE_PIXELS, "__rmslEdgePixelsGlsl", dir)] : []),
+      ],
+      others: [
+        await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsJs", dir),
+        await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsWasm", dir),
+        ...(WEBGPU ? [await runInWebGpuPage(EDGE_PIXELS, "__rmslEdgePixelsWgsl", dir)] : []),
+      ],
+    }))());
 
   /**
-   * A pixel is shaded at 255 or not at all, with nothing between. The columns
-   * are what Chromium's WebGPU shades for the same shape.
+   * A pixel is shaded at 255 or not at all, with nothing between, and a
+   * vertical edge gives the columns every other target gives.
    *
    * @canon spec-the-glsl-adapter-draws-with-one-sample
    */
   it.skipIf(!GPU_ENABLED)(
-    "is shaded whole or not at all",
+    "is shaded whole or not at all on createGlsl, as on every other target",
     async () => {
-      const columns = "255 255 0 0/255 255 0 0/255 255 0 0/255 255 0 0";
-      for (const drawn of await drawnOnEach()) {
-        expect(drawn.columns).toEqual([columns, columns]);
+      const { glsl, others } = await drawnOnEach();
+      for (const drawn of glsl) {
+        for (const other of others) expect(drawn.columns).toEqual(other.columns);
         for (const pattern of Object.values(drawn).flat() as string[]) {
           expect(
             pattern.split(/[ /]/).every((alpha) => alpha === "0" || alpha === "255"),
@@ -898,22 +918,39 @@ describe("a pixel an edge of a triangle crosses on createGlsl", () => {
   );
 
   /**
-   * WebGPU shades rows 0 and 1 of the rectangle, the four pixels of the
-   * top-left triangle, and two rows of the bottom-right one.
+   * The other targets shade rows 0 and 1 of the rectangle, all sixteen pixels
+   * of the top-left triangle, and rows 0 and 1 of the bottom-right one.
    *
    * @canon exception-a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
    */
   it.skipIf(!GPU_ENABLED)(
-    "on a horizontal edge belongs to the triangle above it",
+    "on a horizontal edge belongs to the triangle above it on createGlsl, and below it elsewhere",
     async () => {
-      const rows = "0 0 0 0/255 255 255 255/255 255 255 255/0 0 0 0";
-      const topLeft = "0 0 0 0/255 255 255 255/255 255 255 255/255 255 255 255";
-      const bottomRight = "255 255 0 0/255 255 0 0/255 255 0 0/0 0 0 0";
-      for (const drawn of await drawnOnEach()) {
-        expect(drawn.rows).toEqual([rows, rows]);
-        expect(drawn.topLeft).toEqual([topLeft, topLeft]);
-        expect(drawn.bottomRight).toEqual([bottomRight, bottomRight]);
+      const both = (pattern: string) => [pattern, pattern];
+      const { glsl, others } = await drawnOnEach();
+      for (const drawn of glsl) {
+        expect(drawn.rows).toEqual(both("0 0 0 0/255 255 255 255/255 255 255 255/0 0 0 0"));
+        expect(drawn.topLeft).toEqual(both("0 0 0 0/255 255 255 255/255 255 255 255/255 255 255 255"));
+        expect(drawn.bottomRight).toEqual(both("255 255 0 0/255 255 0 0/255 255 0 0/0 0 0 0"));
       }
+      for (const drawn of others) {
+        expect(drawn.rows).toEqual(both("255 255 255 255/255 255 255 255/0 0 0 0/0 0 0 0"));
+        expect(drawn.topLeft).toEqual(both("255 255 255 255/255 255 255 255/255 255 255 255/255 255 255 255"));
+        expect(drawn.bottomRight).toEqual(both("255 255 0 0/255 255 0 0/0 0 0 0/0 0 0 0"));
+      }
+    },
+    120_000,
+  );
+
+  /**
+   * @canon exception-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "takes part of the colour on createGlsl attached to a canvas whose context multisamples",
+    async () => {
+      expect(await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsOnAMultisampledContext", dir)).toBe(
+        "128 255 128 0/128 255 128 0/128 255 128 0/128 255 128 0",
+      );
     },
     120_000,
   );
