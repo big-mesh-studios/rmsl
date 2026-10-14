@@ -2552,7 +2552,11 @@ export function compileJSNode(
 
     case "return": {
       const label = ctx.jsScopes?.at(-1);
-      return { decls: [], body: [label === undefined ? (ctx.returnStatement ?? "return;") : `break ${label};`], expr: "0" };
+      return {
+        decls: [],
+        body: [label === undefined ? (ctx.returnStatement ?? "return;") : `break ${label};`],
+        expr: "0",
+      };
     }
 
     case "scope": {
@@ -2614,7 +2618,9 @@ function compileJSFnDetailed(
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const found: FoundInRoots = {};
-  const resultNodes = numberClashingVariables(shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, found, true))));
+  const resultNodes = numberClashingVariables(
+    shareNodes(inlineCalls(prepareRoots(options.stage, rawNodes, found, true))),
+  );
 
   const ctx: CompileCtx = {
     nextId: 0,
