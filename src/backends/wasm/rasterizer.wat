@@ -166,6 +166,30 @@
         (br $varyingContinue)))
     (i32.add (local.get $outCount) (i32.const 1)))
 
+  ;; Whether the near clip keeps vertex $v: in front of the plane w = 1e-5, or
+  ;; inside WebGPU's clip volume however small its w.
+  (func $keeps (param $base i32) (param $v i32) (result i32)
+    (local $x f64) (local $y f64) (local $z f64) (local $w f64)
+    (local.set $x (call $posComponentAt (local.get $base) (local.get $v) (i32.const 0)))
+    (local.set $y (call $posComponentAt (local.get $base) (local.get $v) (i32.const 1)))
+    (local.set $z (call $posComponentAt (local.get $base) (local.get $v) (i32.const 2)))
+    (local.set $w (call $posComponentAt (local.get $base) (local.get $v) (i32.const 3)))
+    (i32.or
+      (f64.gt (local.get $w) (f64.const 1e-5))
+      (i32.and
+        (i32.and
+          (i32.and (f64.le (f64.neg (local.get $w)) (local.get $x)) (f64.le (local.get $x) (local.get $w)))
+          (i32.and (f64.le (f64.neg (local.get $w)) (local.get $y)) (f64.le (local.get $y) (local.get $w))))
+        (i32.and (f64.le (f64.const 0) (local.get $z)) (f64.le (local.get $z) (local.get $w))))))
+
+  ;; Whether vertex $v is at vec4(0), which lies in the clip volume with w 0.
+  (func $atOrigin (param $base i32) (param $v i32) (result i32)
+    (i32.and
+      (f64.eq (call $posComponentAt (local.get $base) (local.get $v) (i32.const 3)) (f64.const 0))
+      (call $keeps (local.get $base) (local.get $v))))
+
+  ;; A vertex kept behind the plane, inside the clip volume, has no cut point
+  ;; towards one outside it.
   (func $clipEdge
     (param $positionsOutBase i32) (param $varyingsOutBase i32) (param $varyingBytes i32)
     (param $clipScratchBase i32) (param $varyingDescBase i32) (param $varyingDescCount i32)
@@ -173,14 +197,15 @@
     (local $wA f64) (local $wB f64) (local $aIn i32) (local $bIn i32)
     (local.set $wA (call $posComponentAt (local.get $positionsOutBase) (local.get $a) (i32.const 3)))
     (local.set $wB (call $posComponentAt (local.get $positionsOutBase) (local.get $b) (i32.const 3)))
-    (local.set $aIn (f64.gt (local.get $wA) (f64.const 1e-5)))
-    (local.set $bIn (f64.gt (local.get $wB) (f64.const 1e-5)))
+    (local.set $aIn (call $keeps (local.get $positionsOutBase) (local.get $a)))
+    (local.set $bIn (call $keeps (local.get $positionsOutBase) (local.get $b)))
     (if (local.get $aIn)
       (then
         (local.set $outCount
           (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
             (local.get $clipScratchBase) (local.get $a) (local.get $outCount)))))
-    (if (i32.ne (local.get $aIn) (local.get $bIn))
+    (if (i32.and (i32.ne (local.get $aIn) (local.get $bIn))
+          (f64.gt (f64.max (local.get $wA) (local.get $wB)) (f64.const 1e-5)))
       (then
         (local.set $outCount
           (call $interpVertexToScratch
@@ -235,11 +260,15 @@
       (f64.gt (local.get $f) (f64.const 0))
       (i32.and (f64.eq (local.get $f) (f64.const 0)) (local.get $owns))))
 
+  ;; A clip coordinate over w; 0 for a vertex at vec4(0), as WebGPU places it.
+  (func $ndc (param $c f64) (param $w f64) (result f64)
+    (select (f64.const 0) (f64.div (local.get $c) (local.get $w)) (f64.eq (local.get $w) (f64.const 0))))
+
   (func $screenX (param $clippedPositionsOutBase i32) (param $widthF f64) (param $vertexIndex i32) (result f64)
     (f64.mul
       (f64.add
         (f64.mul
-          (f64.div
+          (call $ndc
             (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 0))
             (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 3)))
           (f64.const 0.5))
@@ -252,7 +281,7 @@
         (f64.const 1)
         (f64.add
           (f64.mul
-            (f64.div
+            (call $ndc
               (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 1))
               (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 3)))
             (f64.const 0.5))
@@ -341,6 +370,7 @@
     (local $pixelDepth f64) (local $depthAddr i32) (local $fragDepth f64)
     (local $wind f64) (local $owns0 i32) (local $owns1 i32) (local $owns2 i32)
     (local $nearest f64) (local $farthest f64) (local $crossesDepthRange i32)
+    (local $atZero i32)
 
     (local.set $widthF (f64.convert_i32_s (local.get $width)))
     (local.set $heightF (f64.convert_i32_s (local.get $height)))
@@ -369,6 +399,15 @@
         (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
         (br_if $clipBreak (i32.ge_s (local.get $t2) (local.get $vertexCount)))
         (local.set $outCount (i32.const 0))
+        ;; Such a triangle meets the clip volume only along the edge from vec4(0) to the vertex in front.
+        (block $clipped
+          (br_if $clipped
+            (i32.and
+              (i32.or (i32.or (call $atOrigin (local.get $positionsOutBase) (local.get $t)) (call $atOrigin (local.get $positionsOutBase) (local.get $t1)))
+                (call $atOrigin (local.get $positionsOutBase) (local.get $t2)))
+              (i32.eqz
+                (i32.and (i32.and (call $keeps (local.get $positionsOutBase) (local.get $t)) (call $keeps (local.get $positionsOutBase) (local.get $t1)))
+                  (call $keeps (local.get $positionsOutBase) (local.get $t2))))))
         (local.set $outCount
           (call $clipEdge (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
             (local.get $clipScratchBase) (local.get $varyingDescBase) (local.get $varyingDescCount)
@@ -392,7 +431,7 @@
             (local.set $clippedVertexCount
               (call $emitTriangleFromScratch (local.get $clipScratchBase) (local.get $varyingBytes)
                 (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
-                (local.get $clippedVertexCount) (i32.const 0) (i32.const 2) (i32.const 3)))))
+                (local.get $clippedVertexCount) (i32.const 0) (i32.const 2) (i32.const 3))))))
         (local.set $t (i32.add (local.get $t) (i32.const 3)))
         (br $clipContinue)))
 
@@ -417,9 +456,14 @@
           (local.set $invW0 (f64.div (f64.const 1) (local.get $w0)))
           (local.set $invW1 (f64.div (f64.const 1) (local.get $w1)))
           (local.set $invW2 (f64.div (f64.const 1) (local.get $w2)))
-          (local.set $depth0 (f64.div (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
-          (local.set $depth1 (f64.div (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
-          (local.set $depth2 (f64.div (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
+          (local.set $depth0 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
+          (local.set $depth1 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
+          (local.set $depth2 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
+          ;; A vertex at vec4(0) outweighs the others in perspective, so its varyings are every fragment's.
+          (local.set $atZero
+            (select (i32.const 0)
+              (select (i32.const 1) (select (i32.const 2) (i32.const -1) (f64.eq (local.get $w2) (f64.const 0))) (f64.eq (local.get $w1) (f64.const 0)))
+              (f64.eq (local.get $w0) (f64.const 0))))
           (local.set $area
             (f64.sub
               (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
@@ -493,11 +537,22 @@
                         (br_if $skipPixel
                           (i32.and (i32.eqz (local.get $writesDepth))
                             (f64.gt (local.get $pixelDepth) (f64.load (local.get $depthAddr)))))
-                        (call $interpolateVaryings
-                          (local.get $varyingDescBase) (local.get $varyingDescCount)
-                          (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
-                          (local.get $t) (local.get $t1) (local.get $t2)
-                          (local.get $b0) (local.get $invW0) (local.get $b1) (local.get $invW1) (local.get $b2) (local.get $invW2) (local.get $invW))
+                        (if (i32.lt_s (local.get $atZero) (i32.const 0))
+                          (then
+                            (call $interpolateVaryings
+                              (local.get $varyingDescBase) (local.get $varyingDescCount)
+                              (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
+                              (local.get $t) (local.get $t1) (local.get $t2)
+                              (local.get $b0) (local.get $invW0) (local.get $b1) (local.get $invW1) (local.get $b2) (local.get $invW2) (local.get $invW)))
+                          (else
+                            (call $interpolateVaryings
+                              (local.get $varyingDescBase) (local.get $varyingDescCount)
+                              (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
+                              (local.get $t) (local.get $t1) (local.get $t2)
+                              (f64.convert_i32_u (i32.eqz (local.get $atZero))) (f64.const 1)
+                              (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 1))) (f64.const 1)
+                              (f64.convert_i32_u (i32.eq (local.get $atZero) (i32.const 2))) (f64.const 1)
+                              (f64.const 1))))
                         (if (local.get $readsFragCoord)
                           (then
                             (f64.store (local.get $fragCoordAddress) (local.get $px))

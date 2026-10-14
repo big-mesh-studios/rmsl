@@ -40,6 +40,10 @@ For each original (non-indexed) triangle, clips it against the homogeneous
 near plane `w > W_CLIP_EPS` (Sutherland-Hodgman, single plane): a triangle
 fully in front passes through unchanged, one fully behind is dropped, and
 one straddling the plane is cut into a quad and fan-triangulated into two.
+A vertex inside WebGPU's clip volume (`-w <= x, y <= w`, `0 <= z <= w`) is
+kept however small its `w`, and has no cut point towards a vertex outside
+it. A triangle with a vertex at `vec4(0)` and a vertex the clip does not
+keep is dropped, as only an edge of it lies in the clip volume.
 Cut vertices lerp both the clip-space position and the whole varying blob
 linearly (not perspective-corrected — correct for clip space, pre-divide).
 Results land in `clippedPositionsOutBase`/`clippedVaryingsOutBase`, using
@@ -47,7 +51,9 @@ Results land in `clippedPositionsOutBase`/`clippedVaryingsOutBase`, using
 
 ### 3. Triangle pass
 
-For each clipped triangle: perspective divide and screen-space mapping, a
+For each clipped triangle: perspective divide and screen-space mapping
+(a vertex at `vec4(0)` lands at the centre, at depth 0, and its varyings
+are every fragment's, as WebGPU draws it), a
 degenerate-area skip, a clamped bounding box, and per pixel in that box an
 edge-function coverage test. A pixel centre that lies on an edge belongs to
 the triangle whose edge, wound so its inside is positive, runs up the

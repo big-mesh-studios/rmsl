@@ -824,6 +824,90 @@ describe("a path of a vertex stage that writes no position", () => {
   );
 });
 
+/**
+ * One entry of a GPU page for each adapter. Each draws triangles with a vertex
+ * at or near `vec4(0)` on a 16×16 canvas, each vertex a colour of its own, and
+ * returns what each draw shows: a row of characters for each row of pixels,
+ * the red, green and blue bytes of each pixel joined.
+ */
+const ZERO_W = `
+import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const FRONT = [-1, -1, 0.5, 1, 1, -1, 0.5, 1];
+const CASES = {
+  origin: [...FRONT, 0, 0, 0, 0],
+  negativeZero: [...FRONT, -0, -0, -0, -0],
+  small: [-0.5, -0.5, 0, 1, 0.5, -0.25, 0, 1, 0, 0, 0, 0],
+  tinyW: [...FRONT, 0, 0, 0, 1e-6],
+  tinyWOffCentre: [...FRONT, 5e-7, 2.5e-7, 0, 1e-6],
+};
+const pixels = (canvas) => {
+  const flat = document.createElement("canvas");
+  flat.width = canvas.width;
+  flat.height = canvas.height;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rows = [];
+  for (let y = 0; y < canvas.height; y++) {
+    const row = [];
+    for (let x = 0; x < canvas.width; x++) row.push(Array.from(data.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 3)).join(","));
+    rows.push(row.join(" "));
+  }
+  return rows;
+};
+const drawEach = async (create, settle) => {
+  const drawn = {};
+  for (const [name, positions] of Object.entries(CASES)) {
+    const position = attribute("vec4");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const vertex = Fn(() => {
+      shade.assign(colour);
+      return vec4(position);
+    })();
+    const fragment = Fn(() => vec4(shade, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, Float32Array.from(positions));
+    adapter.setAttribute(colour, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    drawn[name] = pixels(canvas);
+  }
+  return drawn;
+};
+globalThis.__rmslZeroWJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslZeroWWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslZeroWWgsl = () =>
+  drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+describe("a triangle with a vertex at or near vec4(0)", () => {
+  /**
+   * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+   * @canon spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "draws on JS and WASM what it draws on WebGPU",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const webgpu = await runInWebGpuPage(ZERO_W, "__rmslZeroWWgsl", dir);
+      expect(await runInGpuPage(ZERO_W, "__rmslZeroWJs", dir)).toEqual(webgpu);
+      expect(await runInGpuPage(ZERO_W, "__rmslZeroWWasm", dir)).toEqual(webgpu);
+    },
+    120_000,
+  );
+});
+
 describe("setUniform on a sampler slot of createGlsl before attach", () => {
   /**
    * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot

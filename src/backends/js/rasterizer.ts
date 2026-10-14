@@ -94,6 +94,11 @@ function makeVertex(widths: readonly number[]): ClipVertex {
   return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
 }
 
+/** A clip coordinate over `w`, the coordinate of normalized device space; 0 for a vertex at `vec4(0)`, as WebGPU places it. */
+function ndc(c: number, w: number): number {
+  return w === 0 ? 0 : c / w;
+}
+
 /** The vertex a fraction `t` of the way from `a` to `b`. */
 function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
   const out = makeVertex(a.varyings.map((v) => v.length));
@@ -107,16 +112,31 @@ function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
 }
 
 /**
+ * Whether a clip position is kept by the near clip: in front of the plane
+ * `w = W_CLIP_EPS`, or inside WebGPU's clip volume however small its `w`.
+ */
+function keeps(p: Float64Array): boolean {
+  const w = p[3]!;
+  return w > W_CLIP_EPS || (-w <= p[0]! && p[0]! <= w && -w <= p[1]! && p[1]! <= w && 0 <= p[2]! && p[2]! <= w);
+}
+
+/** Whether a clip position is `vec4(0)`, which lies in the clip volume with `w` 0. */
+function atOrigin(p: Float64Array): boolean {
+  return p[3] === 0 && keeps(p);
+}
+
+/**
  * One edge (`a` -> `b`) of a triangle's single-plane Sutherland-Hodgman
- * clip against `w > W_CLIP_EPS`: keep `a` if it's on the inside, and
- * whenever the edge crosses the plane (`a`/`b` disagree), emit the cut
- * point — same as `rasterizer.wat`'s `$clipEdge`.
+ * clip against `w > W_CLIP_EPS`: keep `a` if it's kept, and whenever the
+ * edge crosses the plane (`a`/`b` disagree), emit the cut point — same as
+ * `rasterizer.wat`'s `$clipEdge`. A vertex kept behind the plane, inside the
+ * clip volume, has no cut point towards one outside it.
  */
 function clipEdge(poly: ClipVertex[], a: ClipVertex, b: ClipVertex): void {
-  const aIn = a.position[3]! > W_CLIP_EPS;
-  const bIn = b.position[3]! > W_CLIP_EPS;
+  const aIn = keeps(a.position);
+  const bIn = keeps(b.position);
   if (aIn) poly.push(a);
-  if (aIn !== bIn) {
+  if (aIn !== bIn && Math.max(a.position[3]!, b.position[3]!) > W_CLIP_EPS) {
     const t = (W_CLIP_EPS - a.position[3]!) / (b.position[3]! - a.position[3]!);
     poly.push(lerpVertex(a, b, t));
   }
@@ -128,6 +148,9 @@ function clipEdge(poly: ClipVertex[], a: ClipVertex, b: ClipVertex): void {
  * fan order `rasterizer.wat`'s `$rasterize` clip pass uses.
  */
 function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipVertex[][]): void {
+  // Such a triangle meets the clip volume only along the edge from vec4(0) to the vertex in front.
+  const origin = atOrigin(v0.position) || atOrigin(v1.position) || atOrigin(v2.position);
+  if (origin && !(keeps(v0.position) && keeps(v1.position) && keeps(v2.position))) return;
   const poly: ClipVertex[] = [];
   clipEdge(poly, v0, v1);
   clipEdge(poly, v1, v2);
@@ -237,12 +260,12 @@ export function compileJSRasterizer(
 
     // Clip space -> NDC (perspective divide) -> screen space, y flipped
     // to match a canvas's top-down row order.
-    const s0x = ((v0.position[0]! / w0) * 0.5 + 0.5) * width;
-    const s0y = (1 - ((v0.position[1]! / w0) * 0.5 + 0.5)) * height;
-    const s1x = ((v1.position[0]! / w1) * 0.5 + 0.5) * width;
-    const s1y = (1 - ((v1.position[1]! / w1) * 0.5 + 0.5)) * height;
-    const s2x = ((v2.position[0]! / w2) * 0.5 + 0.5) * width;
-    const s2y = (1 - ((v2.position[1]! / w2) * 0.5 + 0.5)) * height;
+    const s0x = (ndc(v0.position[0]!, w0) * 0.5 + 0.5) * width;
+    const s0y = (1 - (ndc(v0.position[1]!, w0) * 0.5 + 0.5)) * height;
+    const s1x = (ndc(v1.position[0]!, w1) * 0.5 + 0.5) * width;
+    const s1y = (1 - (ndc(v1.position[1]!, w1) * 0.5 + 0.5)) * height;
+    const s2x = (ndc(v2.position[0]!, w2) * 0.5 + 0.5) * width;
+    const s2y = (1 - (ndc(v2.position[1]!, w2) * 0.5 + 0.5)) * height;
 
     const area = (s1x - s0x) * (s2y - s0y) - (s1y - s0y) * (s2x - s0x);
     if (area === 0) return; // degenerate (zero-area) triangle: skip it
@@ -262,9 +285,11 @@ export function compileJSRasterizer(
       invW2 = 1 / w2;
     // NDC depth (z/w) is affine in screen space, like x/w and y/w above,
     // so it interpolates with plain barycentric weights — no invW needed.
-    const depth0 = v0.position[2]! / w0,
-      depth1 = v1.position[2]! / w1,
-      depth2 = v2.position[2]! / w2;
+    const depth0 = ndc(v0.position[2]!, w0),
+      depth1 = ndc(v1.position[2]!, w1),
+      depth2 = ndc(v2.position[2]!, w2);
+    // A vertex at vec4(0) outweighs the others in perspective, so its varyings are every fragment's, as WebGPU gives them.
+    const atZero = w0 === 0 ? 0 : w1 === 0 ? 1 : w2 === 0 ? 2 : -1;
     const slots = varyingSlots;
     const depths = depthBuffer!;
     // A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
@@ -300,10 +325,10 @@ export function compileJSRasterizer(
         if (!writesDepth && pixelDepth > depths[pixelIndex]!) continue;
 
         // Perspective-correct: each vertex's varying weighted by its barycentric over w, the sum over w again.
-        const p0 = b0 * invW0,
-          p1 = b1 * invW1,
-          p2 = b2 * invW2,
-          perspective = 1 / invW;
+        const p0 = atZero < 0 ? b0 * invW0 : atZero === 0 ? 1 : 0,
+          p1 = atZero < 0 ? b1 * invW1 : atZero === 1 ? 1 : 0,
+          p2 = atZero < 0 ? b2 * invW2 : atZero === 2 ? 1 : 0,
+          perspective = atZero < 0 ? 1 / invW : 1;
         for (let k = 0; k < slots.length; k++) {
           const a = v0.varyings[k]!,
             b = v1.varyings[k]!,
