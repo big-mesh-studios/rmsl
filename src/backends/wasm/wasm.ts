@@ -1,9 +1,21 @@
 import { InternalError, ProgramError, TargetError, UsageError, type BackendOrigin, NodeError } from "../../errors";
 import { withArticle } from "../../article";
-import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
+import {
+  MATRIX_DIMENSIONS,
+  Node,
+  RESERVED_VAR_PREFIX,
+  ShaderType,
+  StorageAccess,
+  componentCountOf,
+  type ScalarKind,
+  DEGREES_PER_RADIAN,
+  RADIANS_PER_DEGREE,
+  isLeafLiteral,
+  assertSquareMatrix,
+  assertConstantIndexInRange,
+} from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
-  componentCountOf,
   CpuDrawBuffer,
   CpuRoutine,
   CpuGrid,
@@ -23,11 +35,9 @@ import {
   CpuTextureWrap,
   elementKindOf,
   isAggregate,
-  ScalarKind,
   scalarKindOf,
 } from "../cpu";
 import {
-  assertSquareMatrix,
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
   assertStageResult,
@@ -36,14 +46,10 @@ import {
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
-  assertConstantIndexInRange,
-  DEGREES_PER_RADIAN,
-  RADIANS_PER_DEGREE,
   assignedStorageElement,
   parameterNode,
   CompileFnOptions,
   COMPONENT_INDEX,
-  isLeafLiteral,
   resolveSwizzleTarget,
   inlineCalls,
   LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE,

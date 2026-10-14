@@ -1,9 +1,9 @@
+import { componentCountOf } from "../../core";
 import { PlatformError, type BackendOrigin } from "../../errors";
 /// <reference types="@webgpu/types" />
 import type { ShaderType, UniformValue } from "../../rmsl";
 import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "../../wgsl";
 import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
-import { componentCountOf } from "../../backends/cpu";
 import { assertHostShape } from "../../backends/host-shape";
 import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";

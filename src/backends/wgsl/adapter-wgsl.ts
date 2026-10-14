@@ -1,5 +1,13 @@
 import { LimitError, PlatformError, UsageError, type BackendOrigin } from "../../errors";
-import { Node, ShaderType, StorageBufferAttribute, UniformArrayNode, UniformNode } from "../../core";
+import {
+  Node,
+  ShaderType,
+  StorageBufferAttribute,
+  UniformArrayNode,
+  UniformNode,
+  componentCountOf,
+  componentKindOf,
+} from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import {
   Adapter,
@@ -18,7 +26,7 @@ import {
   SetUniform,
   UniformOrSlot,
 } from "../adapter";
-import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
+import { type CpuTextureData } from "../cpu";
 import { assertHostArray, attributeShape, wordFormat } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { CompileCtx, linkStages, VertexRoot } from "../shared";

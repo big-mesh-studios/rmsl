@@ -12,9 +12,13 @@ import {
   UniformNode,
   isIntegerSamplerType,
   isSamplerType,
+  componentKindOf,
+  tryFold,
+  isIntegerType,
+  assertSquareMatrix,
+  assertConstantIndexInRange,
 } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
-import { componentKindOf } from "../cpu";
 import {
   CompileCtx,
   CompileFnOptions,
@@ -26,8 +30,6 @@ import {
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
   assertPositionIsReadable,
-  assertSquareMatrix,
-  assertConstantIndexInRange,
   assertAssignable,
   bodyContext,
   declareFn,
@@ -39,8 +41,6 @@ import {
   loopGuard,
   loopTest,
   resolveSwizzleTarget,
-  tryFold,
-  isIntegerType,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";

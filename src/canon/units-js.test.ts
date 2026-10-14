@@ -1,3 +1,4 @@
+import { roundHalfToEven } from "../core";
 import { NodeError, ProgramError, UsageError } from "../errors";
 import { Session } from "node:inspector/promises";
 import { setFlagsFromString } from "node:v8";
@@ -42,7 +43,6 @@ import {
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { jsHelperSource } from "../backends/js/js";
-import { roundHalfToEven } from "../backends/shared";
 import {
   compileJS,
   compileJSCompute,

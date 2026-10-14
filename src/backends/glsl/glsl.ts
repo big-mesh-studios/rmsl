@@ -1,5 +1,19 @@
 import { InternalError, ProgramError, TargetError, type BackendOrigin } from "../../errors";
-import { BaseNode, FnDefinition, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, UniformPrecision } from "../../core";
+import {
+  BaseNode,
+  FnDefinition,
+  MATRIX_DIMENSIONS,
+  Node,
+  ShaderType,
+  TYPE_WIDTH,
+  UniformPrecision,
+  tryFold,
+  isIntegerType,
+  componentCountOf,
+  componentKindOf,
+  assertSquareMatrix,
+  assertConstantIndexInRange,
+} from "../../core";
 import {
   assertAssignable,
   bodyContext,
@@ -13,19 +27,14 @@ import {
   PREC_UNARY,
   VertexRoot,
   assertPositionIsReadable,
-  assertSquareMatrix,
-  assertConstantIndexInRange,
   assertStageResult,
   prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
   loopTest,
-  tryFold,
-  isIntegerType,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
-import { componentCountOf, componentKindOf } from "../cpu";
 import { SHARED_NAME_PREFIX, shareNodes } from "../share";
 
 export const typeToGLSL: Record<string, string> = {

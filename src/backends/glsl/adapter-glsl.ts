@@ -1,5 +1,5 @@
 import { DriverError, LimitError, PlatformError, UsageError, type Origin, type BackendOrigin } from "../../errors";
-import { Node, ShaderType, UniformNode } from "../../core";
+import { Node, ShaderType, UniformNode, componentCountOf, componentKindOf } from "../../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -14,7 +14,7 @@ import {
   UniformOrSlot,
 } from "../adapter";
 import { assertOneDeclarationPerName, linkStages, VertexRoot } from "../shared";
-import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
+import { type CpuTextureData } from "../cpu";
 import type { AttributeKind } from "../vertex-format";
 import { textureImage } from "../texture-image";
 import { compileGLSLWithStage, CompileGLSLOptions, storageTexelsOf } from "./glsl";

@@ -1,7 +1,6 @@
 import { UsageError, type Origin } from "../errors";
 import { withArticle } from "../article";
-import { MATRIX_DIMENSIONS, type StorageBufferAttribute } from "../core";
-import { componentKindOf } from "./cpu";
+import { MATRIX_DIMENSIONS, type StorageBufferAttribute, componentKindOf } from "../core";
 
 /** The kind of the components a vertex attribute reads. */
 export type AttributeKind = "float" | "int" | "uint";

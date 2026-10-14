@@ -1,4 +1,4 @@
-import { InternalError, NodeError } from "./errors";
+import { InternalError, NodeError, type Origin } from "./errors";
 import { isReservedName, safeName } from "./backends/reserved-names";
 
 import { withArticle } from "./article";
@@ -4588,4 +4588,540 @@ export function isSamplerType(type: string): boolean {
 /** Whether a sampler type reads integers, which no filtering sampler goes with. */
 export function isIntegerSamplerType(type: string): boolean {
   return type.startsWith("isampler") || type.startsWith("usampler");
+}
+
+export function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
+  return (n.type === "float" || n.type === "int" || n.type === "uint" || n.type === "bool") && !n.params;
+}
+
+/**
+ * An integer operation on literal operands, computed the way every backend
+ * computes it at run time: wrapped to 32 bits, with WGSL's results for
+ * division and remainder by zero and for `INT_MIN / -1`, shift amounts taken
+ * modulo 32, and `clamp` as `min(max(e, low), high)`. `undefined` for an
+ * operation this doesn't fold.
+ */
+function foldInteger(op: string, t: "int" | "uint", [a = 0, b = 0, c = 0]: number[]): number | undefined {
+  let wrap = t === "int" ? (x: number) => x | 0 : (x: number) => x >>> 0;
+  switch (op) {
+    case "add":
+      return wrap(a + b);
+    case "sub":
+      return wrap(a - b);
+    case "mul":
+      return wrap(Math.imul(a, b));
+    case "div":
+      return b === 0 || (t === "int" && a === -2147483648 && b === -1) ? a : wrap(Math.trunc(a / b));
+    case "mod":
+      return b === 0 ? 0 : wrap(a % b);
+    case "negate":
+      return wrap(-a);
+    case "abs":
+      return wrap(Math.abs(a));
+    case "bitAnd":
+      return wrap(a & b);
+    case "bitOr":
+      return wrap(a | b);
+    case "bitXor":
+      return wrap(a ^ b);
+    case "bitNot":
+      return wrap(~a);
+    case "shiftLeft":
+      return wrap(a << b);
+    case "shiftRight":
+      return t === "int" ? a >> b : a >>> b;
+    case "min":
+      return Math.min(a, b);
+    case "max":
+      return Math.max(a, b);
+    case "clamp":
+      return Math.min(Math.max(a, b), c);
+  }
+  return undefined;
+}
+
+const INTEGER_COMPARISONS: Record<string, (a: number, b: number) => boolean> = {
+  lessThan: (a, b) => a < b,
+  greaterThan: (a, b) => a > b,
+  lessThanEqual: (a, b) => a <= b,
+  greaterThanEqual: (a, b) => a >= b,
+  equal: (a, b) => a === b,
+  notEqual: (a, b) => a !== b,
+};
+
+/** A component of a literal that may be a splat: one value stands for every component. */
+function componentAt(components: number[], i: number): number {
+  return components[components.length > 1 ? i : 0]!;
+}
+
+/** Whether `t` is `int`, `uint`, or a vector of either. */
+export function isIntegerType(t: string): boolean {
+  let kind = componentKindOf(t);
+  return kind === "int" || kind === "uint";
+}
+
+function isUnsignedType(t: string): boolean {
+  return componentKindOf(t) === "uint";
+}
+
+/**
+ * The components of an integer literal — a scalar, a vector literal, or a
+ * vector constructor whose parts are all constant — or `null` when `n` isn't
+ * one. A part may be a constant expression, and may have the other
+ * signedness: its bits are kept, as the conversion does at run time. One
+ * scalar part fills every component.
+ */
+function integerLiteralComponents(origin: Origin, n: BaseNode<ShaderType>): number[] | null {
+  let t = n._t as string;
+  if (!isIntegerType(t)) return null;
+  if (isLeafLiteral(n)) return [n.value as number];
+  if (n.type === t && Array.isArray(n.value)) return n.value as number[];
+  let width = TYPE_WIDTH[t] ?? 1;
+  if (width === 1 || n.type !== "construct" || !n.params?.length) return null;
+  let parts: number[] = [];
+  for (let param of n.params) {
+    let constant = integerConstant(origin, param);
+    let components = constant && integerLiteralComponents(origin, constant);
+    if (!components) return null;
+    parts.push(...components);
+  }
+  if (n.params.length === 1 && parts.length === 1) parts = Array(width).fill(parts[0]);
+  if (parts.length !== width) return null;
+  let wrap = isUnsignedType(t) ? (x: number) => x >>> 0 : (x: number) => x | 0;
+  return parts.map(wrap);
+}
+
+const integerConstants = new WeakMap<object, BaseNode<ShaderType> | null>();
+
+/**
+ * `n` as an integer literal when it is a constant integer expression, or
+ * `null`. Folding happens from the leaves up, so `a.div(int(2).sub(int(2)))`
+ * sees its divisor as the literal `0` rather than as an unfolded subtraction.
+ * Cached per node: a node is asked for by each of its parents.
+ */
+function integerConstant(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  if (!n || typeof n !== "object" || !isIntegerType(n._t as string)) return null;
+  if (integerLiteralComponents(origin, n)) return n;
+  let cached = integerConstants.get(n);
+  if (cached !== undefined) return cached;
+  integerConstants.set(n, null);
+  let folded = tryFold(origin, n);
+  let result = folded && folded !== n ? integerConstant(origin, folded) : null;
+  integerConstants.set(n, result);
+  return result;
+}
+
+function integerLiteralNode(t: string, components: number[]): BaseNode<ShaderType> {
+  return mkNode({ _t: t, type: t, value: (TYPE_WIDTH[t] ?? 1) > 1 ? components : components[0] });
+}
+
+/**
+ * The result of a comparison between integer constants, one boolean per
+ * component, or `null` when `n` isn't one.
+ */
+function integerComparison(origin: Origin, n: BaseNode<ShaderType>): boolean[] | null {
+  let compare = INTEGER_COMPARISONS[n.type];
+  let [lhs, rhs] = n.params ?? [];
+  if (!compare || !lhs || !rhs) return null;
+  let a = integerConstant(origin, lhs);
+  let b = integerConstant(origin, rhs);
+  let ca = a && integerLiteralComponents(origin, a);
+  let cb = b && integerLiteralComponents(origin, b);
+  if (!ca || !cb) return null;
+  return Array.from({ length: Math.max(ca.length, cb.length) }, (_, i) =>
+    compare(componentAt(ca, i), componentAt(cb, i)),
+  );
+}
+
+/**
+ * A select whose condition is a constant: the chosen branch, or — for a
+ * condition that differs between components — the components of two
+ * constant branches picked one by one. WGSL evaluates a constant condition
+ * itself, so a branch it picks is as constant as a literal would be.
+ */
+function foldSelect(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let [cond, ifTrue, ifFalse] = n.params ?? [];
+  if (!cond || !ifTrue || !ifFalse) return null;
+  let picks = isLeafLiteral(cond) ? [Boolean(cond.value)] : integerComparison(origin, cond);
+  if (!picks) return null;
+  if (picks.every((p) => p === picks![0])) return picks[0] ? ifTrue : ifFalse;
+  let a = integerLiteralComponents(origin, ifTrue);
+  let b = integerLiteralComponents(origin, ifFalse);
+  if (!a || !b) return null;
+  return integerLiteralNode(
+    n._t as string,
+    picks.map((p, i) => (p ? componentAt(a!, i) : componentAt(b!, i))),
+  );
+}
+
+/**
+ * Integer operations on literals, folded component by component, and a
+ * literal divisor or shift amount rewritten to the value the run-time rules
+ * already use: a zero divisor becomes 1 (`x / 1` is `x`, `x % 1` is `0`) and a
+ * shift amount keeps its low 5 bits. WGSL rejects the unrewritten constants at
+ * shader creation, even when the other operand is a run-time value.
+ */
+function foldIntegerOperands(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let t = n._t as string;
+  let [lhs, rhs] = n.params ?? [];
+  if (!isIntegerType(t) || !lhs) return null;
+  let kind: "int" | "uint" = isUnsignedType(t) ? "uint" : "int";
+  let operands = n.params!.map((param) => integerLiteralComponents(origin, param));
+  if (operands.every((c) => c !== null)) {
+    let folded = Array.from({ length: TYPE_WIDTH[t] ?? 1 }, (_, i) =>
+      foldInteger(
+        n.type,
+        kind,
+        operands.map((c) => componentAt(c!, i)),
+      ),
+    );
+    if (folded.every((v) => v !== undefined)) return integerLiteralNode(t, folded as number[]);
+  }
+  let b = rhs ? integerLiteralComponents(origin, rhs) : null;
+  if (!rhs || !b) return null;
+  let rewrite =
+    n.type === "div" || n.type === "mod"
+      ? (v: number) => (v === 0 ? 1 : v)
+      : n.type === "shiftLeft" || n.type === "shiftRight"
+        ? (v: number) => v & 31
+        : null;
+  if (!rewrite || b.every((v) => rewrite!(v) === v)) return null;
+  return mkNode({ _t: t, type: n.type, params: [lhs, integerLiteralNode(rhs._t as string, b.map(rewrite))] });
+}
+
+/**
+ * `n` folded to the literal it computes, or null. With `float32`, a float
+ * literal operand and a float result are rounded to 32 bits, as a CPU target at
+ * `float: "f32"` computes them at run time.
+ */
+export function tryFold(origin: Origin, n: BaseNode<ShaderType>, float32 = false): BaseNode<ShaderType> | null {
+  let folded = float32 ? foldNode32(origin, n) : foldNode(origin, n);
+  if (
+    folded &&
+    folded._t === "float" &&
+    folded.type === "float" &&
+    n.type !== "float" &&
+    n.type !== "select" &&
+    !Number.isFinite(Math.fround(folded.value as number))
+  ) {
+    throw new NodeError(
+      "constant-not-finite",
+      `${n.type}() of literal operands is ${folded.value}, which a 32-bit float cannot hold and no target can write as a constant. ` +
+        `Compute it from a value that is not a literal, such as a uniform.`,
+      origin,
+    );
+  }
+  return folded;
+}
+
+function foldNode32(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let params = n.params?.map((p) => (p && isLeafLiteral(p) ? roundLiteral32(p) : p));
+  let rounded = params?.some((p, i) => p !== n.params![i])
+    ? mkNode({ _t: n._t as string, type: n.type, params, value: n.value })
+    : n;
+  let folded = foldNode(origin, rounded);
+  return folded && isLeafLiteral(folded) ? roundLiteral32(folded) : folded;
+}
+
+/** A float literal, scalar, vector or matrix, with each value rounded to 32 bits; any other node as it is. */
+function roundLiteral32(n: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  let t = n._t as string;
+  if (t !== "float" && !/^(vec|mat)/.test(t)) return n;
+  let value = Array.isArray(n.value) ? (n.value as number[]).map(Math.fround) : Math.fround(n.value as number);
+  return mkNode({ _t: t, type: n.type, value });
+}
+
+function foldNode(origin: Origin, n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  // Integer operands are folded first, so a constant subexpression counts as
+  // the literal it is when this node is folded or its divisor is rewritten.
+  let operands = n.params?.map((p) => integerConstant(origin, p) ?? p);
+  if (operands?.some((p, i) => p !== n.params![i])) {
+    n = mkNode({ _t: n._t as string, type: n.type, params: operands, value: n.value });
+  }
+  // A select with a constant condition collapses to the chosen branch,
+  // whatever the branches are — the guard below only admits scalar literals,
+  // so this is checked before it.
+  if (n.type === "select") return foldSelect(origin, n);
+  let integerOperands = foldIntegerOperands(origin, n);
+  if (integerOperands) return integerOperands;
+  let params = n.params ?? [];
+  if (!params.every(isLeafLiteral)) return null;
+  let p0 = params[0]?.value;
+  let p1 = params[1]?.value;
+  let t = n._t;
+  if (t === "float" || t === "int" || t === "uint") {
+    let a = p0 as number;
+    let b = p1 as number;
+    switch (n.type) {
+      case "add":
+        return mkNode({ _t: t, type: t, value: a + b });
+      case "sub":
+        return mkNode({ _t: t, type: t, value: a - b });
+      case "mul":
+        return mkNode({ _t: t, type: t, value: a * b });
+      case "div":
+        return mkNode({ _t: t, type: t, value: a / b });
+      case "negate":
+        return mkNode({ _t: t, type: t, value: -a });
+      // JavaScript's % truncates toward zero. The float operation is floored,
+      // following GLSL's mod(), so folding it with % would give a literal that
+      // disagrees with what the same expression computes when its operands are
+      // not constants.
+      case "mod":
+        return mkNode({ _t: t, type: t, value: a - b * Math.floor(a / b) });
+      case "sin":
+        return mkNode({ _t: t, type: t, value: Math.sin(a) });
+      case "cos":
+        return mkNode({ _t: t, type: t, value: Math.cos(a) });
+      case "tan":
+        return mkNode({ _t: t, type: t, value: Math.tan(a) });
+      case "asin":
+        return mkNode({ _t: t, type: t, value: Math.asin(a) });
+      case "acos":
+        return mkNode({ _t: t, type: t, value: Math.acos(a) });
+      case "atan":
+        return mkNode({ _t: t, type: t, value: Math.atan(a) });
+      case "sinh":
+        return mkNode({ _t: t, type: t, value: Math.sinh(a) });
+      case "cosh":
+        return mkNode({ _t: t, type: t, value: Math.cosh(a) });
+      case "tanh":
+        return mkNode({ _t: t, type: t, value: Math.tanh(a) });
+      case "asinh":
+        return mkNode({ _t: t, type: t, value: Math.asinh(a) });
+      case "acosh":
+        return mkNode({ _t: t, type: t, value: Math.acosh(a) });
+      case "atanh":
+        return mkNode({ _t: t, type: t, value: Math.atanh(a) });
+      case "abs":
+        return mkNode({ _t: t, type: t, value: Math.abs(a) });
+      case "sign":
+        return mkNode({ _t: t, type: t, value: Math.sign(a) });
+      case "floor":
+        return mkNode({ _t: t, type: t, value: Math.floor(a) });
+      case "ceil":
+        return mkNode({ _t: t, type: t, value: Math.ceil(a) });
+      case "round":
+        return mkNode({ _t: t, type: t, value: roundHalfToEven(a) });
+      case "trunc":
+        return mkNode({ _t: t, type: t, value: Math.trunc(a) });
+      case "radians":
+        return mkNode({ _t: t, type: t, value: a * RADIANS_PER_DEGREE });
+      case "degrees":
+        return mkNode({ _t: t, type: t, value: a * DEGREES_PER_RADIAN });
+      case "fract":
+        return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
+      case "sqrt":
+        return mkNode({ _t: t, type: t, value: Math.sqrt(a) });
+      case "inverseSqrt":
+        return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
+      case "atan2":
+        return mkNode({ _t: t, type: t, value: Math.atan2(a, b) });
+      case "exp":
+        return mkNode({ _t: t, type: t, value: Math.exp(a) });
+      case "log":
+        return mkNode({ _t: t, type: t, value: Math.log(a) });
+      case "exp2":
+        return mkNode({ _t: t, type: t, value: Math.pow(2, a) });
+      case "log2":
+        return mkNode({ _t: t, type: t, value: Math.log2(a) });
+      case "pow":
+        return mkNode({ _t: t, type: t, value: Math.pow(a, b) });
+      case "min":
+        return mkNode({ _t: t, type: t, value: Math.min(a, b) });
+      case "max":
+        return mkNode({ _t: t, type: t, value: Math.max(a, b) });
+      case "dot":
+        return mkNode({ _t: t, type: t, value: a * b });
+    }
+  }
+  return null;
+}
+
+export function mkNode(config: {
+  _t?: string;
+  type: string;
+  params?: BaseNode<ShaderType>[];
+  value?: unknown;
+}): BaseNode<ShaderType> {
+  return new NodeImpl({
+    _t: config._t ?? config.type,
+    type: config.type,
+    params: config.params,
+    value: config.value,
+  }) as BaseNode<ShaderType>;
+}
+
+/** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */
+export function roundHalfToEven(x: number): number {
+  const r = Math.round(x);
+  return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
+/** The factors `radians` and `degrees` multiply by, on every target that computes them itself. */
+export const RADIANS_PER_DEGREE = Math.PI / 180;
+export const DEGREES_PER_RADIAN = 180 / Math.PI;
+
+/** A compiled function's scalar element kind, at the WASM/typed-array level. */
+export type ScalarKind = "float" | "int" | "uint" | "bool";
+
+/**
+ * The kind of value a type's components hold, scalar and vector types alike:
+ * `int` and `ivec3` are both "int". Every backend asks this of a type name,
+ * so it is answered here once.
+ */
+export function componentKindOf(t: string | undefined): ScalarKind {
+  if (t === undefined) return "float";
+  if (t === "bool" || t.startsWith("bvec")) return "bool";
+  if (t === "int" || t.startsWith("ivec")) return "int";
+  if (t === "uint" || t.startsWith("uvec")) return "uint";
+  return "float";
+}
+
+/** Component count: 1 for scalars, TYPE_WIDTH for vectors, rows*cols for matrices. */
+export function componentCountOf(t: string): number {
+  const width = TYPE_WIDTH[t];
+  if (width !== undefined) return width;
+  const shape = MATRIX_DIMENSIONS[t];
+  if (shape !== undefined) return shape[0] * shape[1];
+  return 1;
+}
+
+/** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
+export function refuseWholeStorageRead(origin: Origin, storage: any): never {
+  throw new NodeError(
+    "storage-read-as-a-whole",
+    `storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`,
+    origin,
+  );
+}
+
+/**
+ * A constant index outside the components of a vector, the columns of a
+ * matrix or the elements of a uniform array is refused by every target, so the
+ * same program is not refused on one and compiled to a read of nothing on
+ * another. A constant index is a literal, or an operation of literals that
+ * folds to one. Asked wherever an element is compiled, which also reaches a
+ * graph that `deserialize` rebuilt. Returns the index when it is inside, and
+ * `undefined` when it is not constant.
+ */
+export function assertConstantIndexInRange(
+  origin: Origin,
+  target: { _t?: string; type?: string; value?: unknown },
+  index: BaseNode<ShaderType>,
+): number | undefined {
+  const constant = isLeafLiteral(index) ? index : tryFold(origin, index);
+  if (!constant || !isLeafLiteral(constant)) return undefined;
+  const type = target._t as string;
+  const array = target.type === "uniformArray" ? (target.value as { length: number }).length : undefined;
+  const shape = MATRIX_DIMENSIONS[type];
+  const count = array ?? (shape ? shape[0] : componentCountOf(type));
+  const what = array !== undefined ? `${type}[${array}]` : type;
+  const items = array !== undefined ? "elements" : shape ? "columns" : "components";
+  const k = Math.trunc(Number(constant.value));
+  if (!(k >= 0 && k < count)) {
+    throw new NodeError(
+      "index-out-of-range",
+      `index ${k} is outside ${withArticle(what)}'s ${items} 0 to ${count - 1}`,
+      origin,
+    );
+  }
+  return k;
+}
+
+/**
+ * Only a square matrix has an inverse, and neither language offers an overload
+ * for the rest. Asked in both backends, so the two cannot come to different
+ * answers about the same program — one emitting a call no driver accepts while
+ * the other refuses it.
+ *
+ * Returns the matrix's size, which the WGSL side needs to pick its helper.
+ */
+export function assertSquareMatrix(origin: Origin, operandType: string | undefined): number {
+  let shape = MATRIX_DIMENSIONS[operandType as string];
+  if (shape === undefined || shape[0] !== shape[1]) {
+    throw new NodeError(
+      "inverse-of-non-square",
+      `inverse() needs a square matrix, but this one is ` + `${operandType ?? "untyped"}.`,
+      origin,
+    );
+  }
+  return shape[0];
+}
+
+/** The node types an assignment can write, through any swizzle, component or column of them. */
+const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
+
+/** The node types an assignment passes through on the way to the node it writes. */
+const ASSIGNMENT_PATH = new Set(["swizzle", "vectorElement", "matrixElement"]);
+
+/** What to call a node that can't be assigned, by its type, in the error refusing it. */
+const READ_ONLY_NAMES: Record<string, string> = {
+  uniform: "a uniform",
+  uniformArray: "a uniform",
+  uniformArrayElement: "a uniform",
+  attribute: "an attribute",
+  fragCoord: "a built-in input",
+  invocationIndex: "a built-in input",
+  vertexIndex: "a built-in input",
+  instanceIndex: "a built-in input",
+};
+
+/** The node an assignment to `target` writes, below any swizzle, component or column. */
+export function assignmentRoot(target: any): any {
+  while (ASSIGNMENT_PATH.has(target?.type)) target = target.params[0];
+  return target;
+}
+
+/** Throws when a swizzle an assignment to `target` writes through names a component more than once. */
+export function assertNoRepeatedSwizzle(origin: Origin, target: any): void {
+  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
+    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
+      throw new NodeError(
+        "swizzle-repeats-component",
+        `can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
+        origin,
+      );
+    }
+  }
+}
+
+/**
+ * Throws when an assignment to `target` is wrong whatever program holds it: a
+ * swizzle that names a component twice, a whole storage buffer, a value no
+ * program can write, a parameter of the compiled function, or an element of a
+ * read-only storage node.
+ */
+export function assertAssignableNode(origin: Origin, target: any): void {
+  assertNoRepeatedSwizzle(origin, target);
+  const root = assignmentRoot(target);
+  if (root?.type === "storage") {
+    throw new NodeError(
+      "assign-to-whole-storage",
+      "can't assign to a whole storage buffer; assign to one of its elements with .element(i)",
+      origin,
+    );
+  }
+  if (!ASSIGNABLE.has(root?.type)) {
+    const what = READ_ONLY_NAMES[root?.type] ?? "a computed value";
+    throw new NodeError(
+      "assign-to-read-only",
+      `can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
+      origin,
+    );
+  }
+  if (root.type === "var" && root.value.parameter) {
+    throw new NodeError(
+      "assign-to-parameter",
+      `can't assign to "${root.value.varName}", a parameter of the compiled function, whose value belongs to the caller; copy it into a variable with toVar() first`,
+      origin,
+    );
+  }
+  if (root.type === "storageElement" && root.params[0].value.access === "read") {
+    throw new NodeError(
+      "assign-to-read-only-storage",
+      "can't assign to an element of a storage node made read-only with toReadOnly()",
+      origin,
+    );
+  }
 }

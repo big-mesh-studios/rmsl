@@ -1,6 +1,6 @@
 import { ProgramError, TargetError, type BackendOrigin } from "../../errors";
-import { Node, ShaderType } from "../../core";
-import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
+import { Node, ShaderType, componentCountOf, componentKindOf } from "../../core";
+import { CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import {
   compileWasmModule,

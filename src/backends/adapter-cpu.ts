@@ -1,5 +1,5 @@
 import { PlatformError, UsageError, type Origin, type BackendOrigin } from "../errors";
-import { RoutineParam, RoutineParams, ShaderType, UniformNode } from "../core";
+import { RoutineParam, RoutineParams, ShaderType, UniformNode, componentCountOf } from "../core";
 import {
   Adapter,
   AttributeOrSlot,
@@ -16,7 +16,6 @@ import { assertHostArray } from "./vertex-format";
 import { assertHostShape } from "./host-shape";
 import {
   CpuDrawBuffer,
-  componentCountOf,
   ComputeStage,
   CpuGrid,
   CpuRoutine,

@@ -1,15 +1,7 @@
 import type { BackendOrigin } from "../../errors";
-import { Node, ShaderType } from "../../core";
+import { Node, ShaderType, componentCountOf, componentKindOf, type ScalarKind } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
-import {
-  componentCountOf,
-  componentKindOf,
-  CpuDrawBuffer,
-  CpuShaderContext,
-  isResultObject,
-  ScalarKind,
-  vertexPosition,
-} from "../cpu";
+import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
 

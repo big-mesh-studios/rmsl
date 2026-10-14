@@ -1,6 +1,6 @@
+import { componentCountOf } from "../core";
 import { UsageError, type Origin } from "../errors";
 import { withArticle } from "../article";
-import { componentCountOf } from "./cpu";
 
 /**
  * Refuses `value`, given for the input `name` of `type`, unless it has the
