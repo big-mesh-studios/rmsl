@@ -391,7 +391,7 @@ export function compileJSRasterizer(
       }
       vertexCtx.vertexIndex = i + first;
       const raw = vertexStage.runInPlace(vertexCtx);
-      const position = vertexPosition(origin, raw);
+      const position = vertexPosition(raw);
       const varyings = isResultObject(raw) ? raw.varyings : undefined;
       const vertex = (vertices[i] ??= makeVertex(varyingWidths));
       for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;

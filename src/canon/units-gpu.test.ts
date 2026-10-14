@@ -715,6 +715,115 @@ globalThis.__rmslUnitsWgsl = async () => {
 
 const GREEN = { r: 0, g: 255, b: 0, a: 255 };
 
+/**
+ * One entry of a GPU page for each adapter. Each draws a triangle over the
+ * lower-left half of a 16×16 canvas, whose vertices write their position only
+ * where `skip` is 0. It returns how many pixels each draw lit: no vertex
+ * writing, the third not writing, the third writing `vec4(0)`, and every one
+ * writing.
+ */
+const UNWRITTEN_POSITION = `
+import { Fn, If, attribute, builtinPosition, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const TRIANGLE = Float32Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0);
+const CASES = { noneWrites: [1, 1, 1], thirdSkips: [0, 0, 1], thirdWritesZero: [0, 0, 1], everyWrites: [0, 0, 0] };
+const litPixels = (canvas) => {
+  const flat = document.createElement("canvas");
+  flat.width = canvas.width;
+  flat.height = canvas.height;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  let lit = 0;
+  for (let i = 0; i < data.length; i += 4) if (data[i] > 0) lit++;
+  return lit;
+};
+const drawEach = async (create, settle) => {
+  const lit = {};
+  for (const [name, skips] of Object.entries(CASES)) {
+    const position = attribute("vec3");
+    const skip = attribute("float");
+    const vertex = Fn(() => {
+      If(skip.lessThan(0.5), () => {
+        builtinPosition().assign(vec4(position, 1));
+      }).Else(() => {
+        if (name === "thirdWritesZero") builtinPosition().assign(vec4(0, 0, 0, 0));
+      });
+    })();
+    const fragment = Fn(() => vec4(1, 0, 0, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setAttribute(skip, Float32Array.from(skips));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    lit[name] = litPixels(canvas);
+  }
+  return lit;
+};
+globalThis.__rmslUnwrittenGlsl = () => drawEach((vertex, fragment) => createGlsl(vertex, fragment));
+globalThis.__rmslUnwrittenJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslUnwrittenWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslUnwrittenWgsl = () =>
+  drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+const unwrittenPosition = (entry: string, onWebGpu = false) =>
+  (onWebGpu ? runInWebGpuPage : runInGpuPage)(UNWRITTEN_POSITION, entry, new URL(".", import.meta.url).pathname);
+
+describe("a path of a vertex stage that writes no position", () => {
+  /**
+   * @canon spec-a-path-that-writes-no-position-gives-zero
+   */
+  it("starts the GLSL position at vec4(0) in a stage that assigns it, and only there", () => {
+    const position = attribute("vec3");
+    const assigns = compileGlsl.vertex(Fn(() => builtinPosition().assign(vec4(position, 1)))());
+    expect(assigns).toMatch(/void main\(void\) \{\n {2}gl_Position = vec4\(0\.0\);/);
+    expect(assigns.match(/gl_Position = /g)).toHaveLength(2);
+    const returns = compileGlsl.vertex(Fn(() => vec4(position, 1))());
+    expect(returns.match(/gl_Position = /g)).toHaveLength(1);
+  });
+
+  /**
+   * @canon spec-a-path-that-writes-no-position-gives-zero
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws as vec4(0) on GLSL, JS and WASM",
+    async () => {
+      for (const entry of ["__rmslUnwrittenGlsl", "__rmslUnwrittenJs", "__rmslUnwrittenWasm"]) {
+        const lit = await unwrittenPosition(entry);
+        expect(lit.noneWrites, entry).toBe(0);
+        expect(lit.thirdSkips, entry).toBe(lit.thirdWritesZero);
+        expect(lit.everyWrites, entry).toBeGreaterThan(0);
+      }
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-path-that-writes-no-position-gives-zero
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "draws as vec4(0) on WGSL",
+    async () => {
+      const lit = await unwrittenPosition("__rmslUnwrittenWgsl", true);
+      expect(lit.noneWrites).toBe(0);
+      expect(lit.thirdSkips).toBe(lit.thirdWritesZero);
+      expect(lit.everyWrites).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+});
+
 describe("setUniform on a sampler slot of createGlsl before attach", () => {
   /**
    * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot

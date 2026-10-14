@@ -244,6 +244,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
     - [`@spec a-vertex-stage-without-a-position-is-refused`](#spec-a-vertex-stage-without-a-position-is-refused) — A vertex stage whose result is not a `vec4`, and which writes no position itself, is refused on every target, a literal zero included.
     - [`@spec a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position) — A vertex stage writes its `vec4` result as the position, or the position it assigns through `builtinPosition()`, once.
+    - [`@spec a-path-that-writes-no-position-gives-zero`](#spec-a-path-that-writes-no-position-gives-zero) — In a vertex stage that assigns `builtinPosition()`, a path that assigns none gives the vertex the position `vec4(0)`, on every target. A read of the position before a write gives `vec4(0)` too. A draw gives such a vertex what it gives one that writes `vec4(0)`.
     - [`@spec a-vertex-stage-may-return-several-values-ending-in-its-position`](#spec-a-vertex-stage-may-return-several-values-ending-in-its-position) — A vertex stage may return several values, of which the last is its position, or return nothing and write its position. A fragment stage has no such requirement.
     - [`@spec the-fragment-depth-is-written-only-in-a-fragment-stage`](#spec-the-fragment-depth-is-written-only-in-a-fragment-stage) — `builtinFragDepth()` writes the depth of a fragment stage, and is refused in a vertex stage.
     - [`@spec frag-coord-is-read-only-in-a-fragment-stage`](#spec-frag-coord-is-read-only-in-a-fragment-stage) — `fragCoord()` in a vertex stage is refused.
@@ -570,7 +571,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error) — A mistake in the user's code that shows only while the application runs is a `UsageError`.
         - [`@spec host-data-of-the-wrong-kind-or-size-is-refused-with-a-usage-error`](#spec-host-data-of-the-wrong-kind-or-size-is-refused-with-a-usage-error) — An adapter or a host function refuses an array or a value of the wrong kind, shape or size with a `UsageError`.
         - [`@spec a-wrong-call-of-an-adapter-is-refused-with-a-usage-error`](#spec-a-wrong-call-of-an-adapter-is-refused-with-a-usage-error) — An adapter refuses with a `UsageError` a call in the wrong order. It refuses a call that names a slot of another kind, or a slot the program lacks, the same way.
-        - [`@spec a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error`](#spec-a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error) — A program that does something it must not as it runs is refused with a `UsageError` where that happens. An example is a vertex stage that writes no position on the path it takes.
       - [`@spec a-refusal-by-one-target-is-a-target-error`](#spec-a-refusal-by-one-target-is-a-target-error) — A program that one target refuses and another target runs is refused with a `TargetError`.
       - [`@spec a-malformed-saved-graph-is-a-data-error`](#spec-a-malformed-saved-graph-is-a-data-error) — `deserialize` refuses a saved graph that is malformed with a `DataError`, a node that lacks a part it needs included.
       - [`@spec a-missing-platform-is-a-platform-error`](#spec-a-missing-platform-is-a-platform-error) — An adapter or a renderer that finds no WebGL 2, no WebGPU or no canvas context throws a `PlatformError`.
@@ -730,7 +730,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot) — A compiled CPU program, a routine, a stage or a grid, reads what the context the host passes holds, by slot name: its parameters, uniforms and uniform arrays, and, in a program that has them, attributes, varyings and `fragCoord()`, which reads as `[0, 0]` when the context gives none.
     - [`@spec a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value) — A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
     - [`@spec a-routine-refuses-an-input-only-a-stage-has`](#spec-a-routine-refuses-an-input-only-a-stage-has) — A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
-    - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+    - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position. A call that takes a path writing no position returns `vec4(0)` as the position.
     - [`@spec a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write`](#spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write) — On a CPU target, a varying of the program that a call of the vertex stage does not write is 0, or a vector of zeros, in what the call returns.
     - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
     - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
@@ -804,7 +804,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-restored-graph-keeps-its-shape`](#spec-a-restored-graph-keeps-its-shape) — A node read in several places stays one node, and what several roots share stays shared. A storage buffer is rebuilt once, with its layout, its contents or none, and its access. A uniform array keeps its length.
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced. A variable or a slot named by text that is no identifier, or a slot named by a keyword or a built-in of GLSL or WGSL, or by a name with the prefix `gl_` or two underscores in a row, is one such case, and every target refuses it again as it compiles, so a graph built by hand is refused alike.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
-  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, and a varying 0. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
+  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
   - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
   - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
@@ -938,6 +938,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 - [`@fact tsl-leaves-a-stage-return-undefined`](#fact-tsl-leaves-a-stage-return-undefined) — TSL's WGSL builder ends a fragment stage's `main` by returning its output struct, so the bare `return` that `Return()` adds in the stage is invalid WGSL. Its GLSL `main` returns nothing, and a `return` there leaves the stage's outputs unwritten, so undefined.
 - [`@fact tsl-writes-a-material-depth-on-every-path`](#fact-tsl-writes-a-material-depth-on-every-path) — TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
+- [`@fact tsl-writes-the-vertex-position-on-every-path`](#fact-tsl-writes-the-vertex-position-on-every-path) — TSL has no position a shader assigns. `NodeMaterial` makes the vertex stage's result its output, from `vertexNode` or the model-view-projection of the position. The builder writes that result as the position once, at the end of `main`, on every path.
+- [`@fact a-wgsl-vertex-output-starts-at-zero`](#fact-a-wgsl-vertex-output-starts-at-zero) — A WGSL variable declared in a function without an initializer holds the zero value of its type. A vertex stage that writes its output struct on some paths gives a position of `vec4(0)` on the others. GLSL ES 3.00 leaves a `gl_Position` the stage does not write undefined.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-a-layout-makes-an-fn-a-function-of-its-own`](#fact-tsl-a-layout-makes-an-fn-a-function-of-its-own) — TSL's `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, builds its body once into a function of the layout's name, type and inputs. The shader declares that function once and calls it at each use. An `Fn` without a layout runs its body at each call. A `Return()` in the body writes `return` into that function.
@@ -2394,6 +2396,14 @@ This follows because a shader that breaks the rules of its stage either fails in
 #### @spec a-vertex-stage-writes-its-position
 
 > A vertex stage writes its `vec4` result as the position, or the position it assigns through `builtinPosition()`, once.
+
+#### @spec a-path-that-writes-no-position-gives-zero
+
+> In a vertex stage that assigns `builtinPosition()`, a path that assigns none gives the vertex the position `vec4(0)`, on every target. A read of the position before a write gives `vec4(0)` too. A draw gives such a vertex what it gives one that writes `vec4(0)`.
+
+Derives from: [`spec-a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-a-wgsl-vertex-output-starts-at-zero`](#fact-a-wgsl-vertex-output-starts-at-zero), [`fact-tsl-writes-the-vertex-position-on-every-path`](#fact-tsl-writes-the-vertex-position-on-every-path)
+
+This follows because WebGPU gives such a vertex a position of zero, and every target gives what WebGPU gives. TSL cannot write the position on one path only, so this is an addition that departs from nothing. GLSL starts the position at zero itself, rather than leave it to the driver. A CPU target starts each vertex at zero, rather than refuse the draw or keep the position of the vertex before. Issue #297 settled this.
 
 #### @spec a-vertex-stage-may-return-several-values-ending-in-its-position
 
@@ -4425,12 +4435,6 @@ This follows because the data arrives only as the application runs.
 
 This follows because the order and the slots of the calls belong to one run of the application.
 
-###### @spec a-program-that-does-wrong-as-it-runs-is-refused-with-a-usage-error
-
-> A program that does something it must not as it runs is refused with a `UsageError` where that happens. An example is a vertex stage that writes no position on the path it takes.
-
-This follows because which path a program takes depends on the data of the run.
-
 ##### @spec a-refusal-by-one-target-is-a-target-error
 
 > A program that one target refuses and another target runs is refused with a `TargetError`.
@@ -5403,9 +5407,9 @@ This follows because a routine has no stage to give such an input, so reading on
 
 #### @spec a-vertex-stage-returns-its-position-and-varyings
 
-> `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+> `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position. A call that takes a path writing no position returns `vec4(0)` as the position.
 
-Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position)
+Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position), [`spec-a-path-that-writes-no-position-gives-zero`](#spec-a-path-that-writes-no-position-gives-zero)
 
 This follows because the shape of a result follows from the function that compiled the program, so a caller reads the position and the varyings of a vertex stage without asking which of two shapes it got.
 
@@ -5877,7 +5881,7 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 
 ### @spec a-js-routine-allocates-nothing-per-call
 
-> A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, and a varying 0. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
+> A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
 
 This follows because a call that builds a new array or a closure gives the garbage collector work on every call, and a per-pixel call is the one that cannot afford it.
 
@@ -6708,6 +6712,18 @@ This is how three.js's TSL behaves, read from its source (`Discard`, `WGSLNodeBu
 > TSL's `NodeMaterial` writes a fragment's depth once, on every path, as `depth.assign(depthNode)`. A depth a shader assigns on one path only gets no default: WGSL's output struct starts at 0, and GLSL leaves `gl_FragDepth` undefined.
 
 This is how three.js's TSL behaves, read from its source (`NodeMaterial.setupDepth` and `WGSLNodeBuilder`, three.js 0.186).
+
+## @fact tsl-writes-the-vertex-position-on-every-path
+
+> TSL has no position a shader assigns. `NodeMaterial` makes the vertex stage's result its output, from `vertexNode` or the model-view-projection of the position. The builder writes that result as the position once, at the end of `main`, on every path.
+
+This is how three.js's TSL behaves, read from its source (`NodeMaterial.setup` and `GLSLNodeBuilder.buildCode`, which writes `gl_Position = ` for the vertex stage's result, three.js 0.186.1).
+
+## @fact a-wgsl-vertex-output-starts-at-zero
+
+> A WGSL variable declared in a function without an initializer holds the zero value of its type. A vertex stage that writes its output struct on some paths gives a position of `vec4(0)` on the others. GLSL ES 3.00 leaves a `gl_Position` the stage does not write undefined.
+
+On Chromium, WebGL2 on SwiftShader and on Metal, and WebGPU on Metal, draw a vertex whose position is unwritten as one written `vec4(0)`. A triangle whose third vertex writes nothing lights the same pixels as one whose third vertex writes `vec4(0)`. On a 16×16 target that is 64 pixels on WebGPU and 72 on WebGL, against 120 and 136 for the whole triangle. A triangle whose vertices all write nothing lights none.
 
 ## @fact tsl-break-continue-return-and-discard-are-statements
 

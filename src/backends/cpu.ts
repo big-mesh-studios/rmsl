@@ -1,4 +1,3 @@
-import { UsageError, type Origin } from "../errors";
 import {
   MATRIX_DIMENSIONS,
   Node,
@@ -281,26 +280,17 @@ export const isVector = (value: unknown): value is ArrayLike<number> =>
   Array.isArray(value) || ArrayBuffer.isView(value);
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
-export function toVertexResult(origin: Origin, raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
-  const position = vertexPosition(origin, raw) as VertexResult["position"];
+export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
+  const position = vertexPosition(raw) as VertexResult["position"];
   return { position, varyings: (isResultObject(raw) && (raw.varyings as Record<string, unknown>)) || {} };
 }
 
 /**
  * The position of what a vertex stage returned: the one it wrote with
- * `builtinPosition()`, or else its `vec4` result. A stage that gave neither
- * is refused.
+ * `builtinPosition()`, or else its `vec4` result.
  */
-export function vertexPosition(origin: Origin, raw: unknown): ArrayLike<number> {
-  const position = (isResultObject(raw) ? (raw.position ?? raw.value) : raw) as ArrayLike<number> | undefined;
-  if (!position) {
-    throw new UsageError(
-      "no-position-written",
-      "A vertex stage never wrote a position, with builtinPosition() or a vec4 result.",
-      origin,
-    );
-  }
-  return position;
+export function vertexPosition(raw: unknown): ArrayLike<number> {
+  return (isResultObject(raw) ? (raw.position ?? raw.value) : raw) as ArrayLike<number>;
 }
 
 /** The outputs of a fragment that wrote none, which every such fragment shares: a per-pixel call allocates nothing for it. */

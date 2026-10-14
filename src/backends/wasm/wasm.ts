@@ -1101,11 +1101,20 @@ export function compileWasmModule(
     return bytes;
   }
 
+  /** The bytes that start a position the stage writes at vec4(0), which a path that writes none keeps. */
+  function clearPositionInMemory(): number[] {
+    if (!positionWritten || positionAddress === undefined) return [];
+    const bytes: number[] = [];
+    for (let k = 0; k < 4; k++) bytes.push(...storeComponent(positionAddress, "float", k * componentSizeOf("float"), f64ConstBytes(0)));
+    return bytes;
+  }
+
   const code = [
     WASM_OP.block,
     exitBlockType,
     ...roundInputsInMemory(),
     ...clearVaryingsInMemory(),
+    ...clearPositionInMemory(),
     ...bodyBytes,
     WASM_OP.end,
   ];
@@ -4960,7 +4969,7 @@ export function instantiateWasmVertex(
   externalMemory?: WebAssembly.Memory,
 ): VertexStage {
   const program = instantiateWasmProgram(compiled, name, externalMemory);
-  return (ctx) => toVertexResult(INSTANTIATE_WASM, program.run(ctx));
+  return (ctx) => toVertexResult(program.run(ctx));
 }
 
 /** {@link instantiateWasmRoutine} for a program compiled with `stage: "fragment"`: a fragment stage. */
