@@ -727,7 +727,8 @@ export function createGlsl(
   const adapter: GlslAdapter = {
     attach(canvas) {
       const target = canvas ?? document.createElement("canvas");
-      const context = target.getContext("webgl2");
+      // One sample, as WebGPU and the CPU rasterizers shade a pixel by its centre alone.
+      const context = target.getContext("webgl2", { antialias: false });
       if (!context) throw new PlatformError("webgl2-unavailable", "WebGL2 is not available", { target: "glsl" });
       gl = context;
       state = options?.preserveState ? new GlStateKeeper(context) : null;

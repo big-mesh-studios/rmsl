@@ -824,6 +824,101 @@ describe("a path of a vertex stage that writes no position", () => {
   );
 });
 
+/**
+ * An entry of a GPU page that draws shapes with `createGlsl` on a 4×4 canvas,
+ * each as two windings, and returns the alpha of each pixel: a row of numbers
+ * for each row from the top. Corners are in pixels.
+ */
+const EDGE_PIXELS = `
+import { Fn, attribute, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+const rectangle = (l, t, r, b) => [l, t, r, t, l, b, l, b, r, t, r, b];
+const SHAPES = {
+  columns: rectangle(0.5, -1, 2.5, 5),
+  rows: rectangle(-1, 0.5, 5, 2.5),
+  topLeft: [0.5, 0.5, 0.5, 9, 9, 0.5],
+  bottomRight: [2.5, 2.5, 2.5, -9, -9, 2.5],
+};
+const reversed = (corners) => corners.map((_, i) => corners[i - (i % 6) + 4 - (i % 6) + 2 * (i % 2)]);
+globalThis.__rmslEdgePixelsGlsl = async () => {
+  const drawn = {};
+  for (const [name, corners] of Object.entries(SHAPES)) {
+    drawn[name] = [];
+    for (const wound of [corners, reversed(corners)]) {
+      const pos = attribute("vec2");
+      const canvas = document.createElement("canvas");
+      canvas.width = 4;
+      canvas.height = 4;
+      const adapter = createGlsl(Fn(() => vec4(pos, 0, 1))(), Fn(() => vec4(1, 0, 0, 1))());
+      adapter.attach(canvas);
+      adapter.setAttribute(pos, Float32Array.from(wound.map((v, i) => (i % 2 === 0 ? (v / 4) * 2 - 1 : 1 - (v / 4) * 2))));
+      adapter.draw({ count: wound.length / 2 });
+      const flat = document.createElement("canvas");
+      flat.width = 4;
+      flat.height = 4;
+      const context = flat.getContext("2d");
+      context.drawImage(canvas, 0, 0);
+      const data = context.getImageData(0, 0, 4, 4).data;
+      drawn[name].push(Array.from({ length: 4 }, (_, y) => Array.from({ length: 4 }, (_, x) => data[(y * 4 + x) * 4 + 3]).join(" ")).join("/"));
+    }
+  }
+  return drawn;
+};
+`;
+
+describe("a pixel an edge of a triangle crosses on createGlsl", () => {
+  const dir = new URL(".", import.meta.url).pathname;
+  /** What `EDGE_PIXELS` returns on WebGL 2 on SwiftShader, and on the GPU through the browser of the WebGPU tests. */
+  const drawnOnEach = async () => [
+    await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsGlsl", dir),
+    ...(WEBGPU ? [await runInWebGpuPage(EDGE_PIXELS, "__rmslEdgePixelsGlsl", dir)] : []),
+  ];
+
+  /**
+   * A pixel is shaded at 255 or not at all, with nothing between. The columns
+   * are what Chromium's WebGPU shades for the same shape.
+   *
+   * @canon spec-the-glsl-adapter-draws-with-one-sample
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "is shaded whole or not at all",
+    async () => {
+      const columns = "255 255 0 0/255 255 0 0/255 255 0 0/255 255 0 0";
+      for (const drawn of await drawnOnEach()) {
+        expect(drawn.columns).toEqual([columns, columns]);
+        for (const pattern of Object.values(drawn).flat() as string[]) {
+          expect(
+            pattern.split(/[ /]/).every((alpha) => alpha === "0" || alpha === "255"),
+            pattern,
+          ).toBe(true);
+        }
+      }
+    },
+    120_000,
+  );
+
+  /**
+   * WebGPU shades rows 0 and 1 of the rectangle, the four pixels of the
+   * top-left triangle, and two rows of the bottom-right one.
+   *
+   * @canon exception-a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "on a horizontal edge belongs to the triangle above it",
+    async () => {
+      const rows = "0 0 0 0/255 255 255 255/255 255 255 255/0 0 0 0";
+      const topLeft = "0 0 0 0/255 255 255 255/255 255 255 255/255 255 255 255";
+      const bottomRight = "255 255 0 0/255 255 0 0/255 255 0 0/0 0 0 0";
+      for (const drawn of await drawnOnEach()) {
+        expect(drawn.rows).toEqual([rows, rows]);
+        expect(drawn.topLeft).toEqual([topLeft, topLeft]);
+        expect(drawn.bottomRight).toEqual([bottomRight, bottomRight]);
+      }
+    },
+    120_000,
+  );
+});
+
 describe("setUniform on a sampler slot of createGlsl before attach", () => {
   /**
    * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot

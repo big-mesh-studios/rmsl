@@ -137,8 +137,8 @@ same faces it shows unmirrored.
 
 ### WebGLRenderer
 
-`new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`,
-`depth`, `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
+`new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`
+(multisampling, default `false` as in three.js), `depth`, `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
 `preserveState`.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any

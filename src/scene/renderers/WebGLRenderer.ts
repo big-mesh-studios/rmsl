@@ -149,7 +149,7 @@ export class WebGLRenderer {
     this.canvas = canvas ?? document.createElement("canvas");
     this.precision = options.precision ?? "highp";
     const gl = this.canvas.getContext("webgl2", {
-      antialias: options.antialias ?? true,
+      antialias: options.antialias ?? false,
       depth: options.depth ?? true,
     });
     if (!gl) {

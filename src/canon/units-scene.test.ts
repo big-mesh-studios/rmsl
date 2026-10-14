@@ -269,6 +269,25 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
 };
 `;
 
+describe("the multisampling WebGLRenderer asks for", () => {
+  /**
+   * @canon spec-webgl-renderer-draws-without-multisampling-unless-asked
+   */
+  it("asks for none unless antialias is true", () => {
+    const asked = (options?: { antialias?: boolean }) => {
+      const canvas: any = { width: 4, height: 4 };
+      let attributes: WebGLContextAttributes | undefined;
+      const { gl } = stubGl(canvas);
+      canvas.getContext = (_kind: string, given: WebGLContextAttributes) => ((attributes = given), gl);
+      new WebGLRenderer(canvas, options);
+      return attributes?.antialias;
+    };
+    expect(asked()).toBe(false);
+    expect(asked({ antialias: false })).toBe(false);
+    expect(asked({ antialias: true })).toBe(true);
+  });
+});
+
 describe("the values a scene renderer uploads", () => {
   /**
    * A material property of another shape than its uniform's type is refused
