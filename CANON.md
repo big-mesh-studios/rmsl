@@ -998,7 +998,58 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 ### Typed errors
 
-Every refusal is a plain `Error` today, and a caller can tell refusals apart only by their messages. The owner wants typed errors, which issue #43 proposes. Their shape is open: one class with a code, a class per kind, or a base class with subclasses.
+Every refusal is a plain `Error` today, and a caller can tell refusals apart only by their messages. The owner wants typed errors, which issue #43 proposes. An error is an instance of one base class, and of one subclass of it for each kind. A caller narrows an error by `instanceof`. Each error carries a `code`, a string that names what went wrong more finely than its kind, and a subclass may declare fields of its own.
+
+Settled so far: an error does not have to survive a worker boundary or a second installed copy of rmsl. Identity by `instanceof` within one copy is enough, and a caller across copies or realms accepts the limit.
+
+The kinds are decided by what a caller does next, which thought experiments from the user's view at each moment settle. A `target` error is a refusal by one target only: the program works on another. A program that every target refuses is a `program` error.
+
+The throw sites fall into these categories. A static error is one rmsl finds by reading the program or its input, with no device. A runtime error depends on the device, the driver, or the data and calls of a running application.
+
+- Static:
+  - the program breaks a rule;
+  - one target cannot do what the program asks;
+  - a compile call has wrong options;
+  - a vertex and a fragment stage compiled together do not fit;
+  - rmsl's own compiler is inconsistent;
+  - a saved graph is malformed;
+  - a module the build tool reads is malformed.
+- Runtime:
+  - the platform is missing;
+  - the device's limits are too small;
+  - the driver refuses or fails;
+  - host data has the wrong kind, shape or size;
+  - the host calls an adapter wrongly;
+  - the program, when run, does something it must not.
+- Other: the helpers of `rmsl/test`, and the scene math ported from three.js.
+
+Every error rmsl throws is typed, in every category, the helpers of `rmsl/test` and their failed assertions included. No module of rmsl throws a plain `Error`.
+
+A mistake in the user's code is one of two kinds, by when it shows. A `program` error is static: the program breaks a rule, a compile call has wrong options, or two stages compiled together do not fit. A `usage` error shows only while the application runs. Host data has the wrong kind, shape or size, the host calls an adapter wrongly, or the program does something it must not when run. Only a `usage` error can be survived by skipping that call or that frame.
+
+A module given to the build tool with malformed exports is a `program` error, since the fix is in code the user wrote. A `data` error is a malformed saved graph that `deserialize` reads, input from outside the program that a caller refuses.
+
+The device side has three kinds. A `platform` error says the platform is missing, such as no WebGL 2, no WebGPU or no canvas context, and a caller picks another backend once. A `limit` error says the work does not fit the device's limits, and a caller can resize the work or the data, or fall back. A `driver` error says the driver refused or failed what rmsl gave it, such as a shader that does not compile or link. It carries the driver's log.
+
+An `internal` error says rmsl's own compiler is inconsistent. Examples are a slot with no place in memory, or a node type a compiler has no case for. No program causes it, and a caller reports it as a bug in rmsl. No target may lack a node type unless an exception says so, and then the refusal is a `target` error.
+
+The kinds are thus `program`, `usage`, `target`, `data`, `platform`, `limit`, `driver` and `internal`.
+
+The base class is `RmslError`. Each kind has a class of its own that extends it, named for the kind: `ProgramError`, `UsageError`, `TargetError`, `DataError`, `PlatformError`, `LimitError`, `DriverError` and `InternalError`. Each is exported from `"rmsl"`, and the `name` of an error is the name of its class. Firefox has a global `InternalError` of its own, which `instanceof RmslError` tells apart.
+
+A message carries no prefix such as `[RMSL]`. The class name and the `target` say that an error is rmsl's and where it came from.
+
+A `limit` error carries the `limit` and the amount `requested`. A `driver` error carries the driver's `log`. A `data` error carries the `index` of the entry of the saved graph that is malformed. No other kind declares a field of its own, apart from the `target` that follows.
+
+An error says where it came from whenever rmsl knows. Every error thrown inside a backend's call carries the `target` of that backend, whatever its kind: a compile, a create, `attach`, `draw`, `compute` or a setter. A `target`, `platform`, `limit` or `driver` error always comes from a backend, so it always carries one. An error thrown while the program builds its graph, or by `deserialize`, comes from no backend and carries none. Its stack points at the user's own line.
+
+A `code` names what went wrong, never the backend that found it. One refusal has one code on every target, and `target` alone says where it came from. Every target then refuses a program with the same class and the same code, which a test can compare.
+
+A test of a refusal asserts the class and the code of the error. It checks the message too only where a spec pins its wording. A refusal that every target makes is tested through one helper. It compiles on all four targets and asserts the same class and code on each. A test that leaves a target out names the exception that lets it.
+
+Every error that escapes a call of rmsl is an error of rmsl, foreign errors included. Malformed input that slips past a check gets the missing check, and its error is a `data` error. Where a call enters rmsl, rmsl catches any other foreign error and throws it again with the original as its `cause`. It takes the kind rmsl can tell, such as `platform` or `driver`, and otherwise `internal`. The catch leaves the frame path free of allocation until something throws, which the benches confirm.
+
+The scene math ported from three.js throws typed errors too, where three.js throws a plain `Error`. When the typed errors land, that departure is an exception under the axiom that a TSL shader ports by changing its import.
 
 ### Divergences found
 
