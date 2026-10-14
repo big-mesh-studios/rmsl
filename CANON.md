@@ -6768,6 +6768,7 @@ This is how three.js's TSL behaves, checked by running its code generator for GL
 ## @fact a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage
 
 > In WGSL the attributes, the varyings a fragment stage reads and the built-in inputs are parameters of the entry point, and the outputs are its return value. A function it calls reaches them only if the entry point passes them. In GLSL ES 3.00 they are globals.
+
 ## @fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them
 
 > TSL r187 generates the statements of an `Fn` called outside the program's body in each branch of an `If` that reads its value.
