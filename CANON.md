@@ -350,11 +350,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec every-adapter-shares-one-type-of-setuniform`](#spec-every-adapter-shares-one-type-of-setuniform) — Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
       - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
     - [`@spec a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) — A program the host calls with its inputs in a context checks neither the shape of a value nor the kind of an array. These programs are the function `compileJSFn` gives, which `precompileJS` ships, the program `precompileWasm` ships, and the routines, grids, stages and draws of `compileJS*` and `compileWasm*`. Their inputs include `ctx.storages` and the attribute arrays of a draw. A value of another shape, or an array of another kind, gives what that target gives. Each component it reads still converts as a typed slot of its kind does.
-    - [`@spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined`](#spec-a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined) — A JS or WASM draw reads an element of an attribute array that the array does not hold, past its end or a hole or `undefined` within it, as a typed slot of the attribute's kind converts `undefined`.
-      - [`@spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan) — A JS or WASM draw reads an element a `float` attribute's array does not hold as NaN.
-      - [`@spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero) — A JS or WASM draw reads an element an `int` or `uint` attribute's array does not hold as 0.
-      - [`@spec a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan) — A JS or WASM draw reads each component of a `vec3` attribute that its array does not hold as NaN.
-      - [`@spec a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero) — A JS or WASM draw reads each component of an `ivec3` or `uvec3` attribute that its array does not hold as 0.
+    - [`@spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined`](#spec-a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined) — A JS or WASM draw reads a hole or `undefined` inside an attribute array as a typed slot of the attribute's kind converts `undefined`.
+      - [`@spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan) — A JS or WASM draw reads a hole or `undefined` inside a `float` attribute's array as NaN.
+      - [`@spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero) — A JS or WASM draw reads a hole or `undefined` inside an `int` or `uint` attribute's array as 0.
+      - [`@spec a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan) — A JS or WASM draw reads each component of a `vec3` attribute that is a hole or `undefined` inside its array as NaN.
+      - [`@spec a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero) — A JS or WASM draw reads each component of an `ivec3` or `uvec3` attribute that is a hole or `undefined` inside its array as 0.
   - [`@spec a-message-puts-the-article-its-sound-takes-before-a-name`](#spec-a-message-puts-the-article-its-sound-takes-before-a-name) — A refusal puts before a name of a type, a class or a kind of value the article its sound takes. Examples are `an int`, `an Int32Array`, `an object`, `an HTMLElement`, `a uint`, `a uvec3`, `a usampler2D`, `a unorm8x4`, `a Uint32Array` and `a URL`. It reads a name that opens with two capitals letter by letter.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
@@ -3265,35 +3265,35 @@ This follows because such a program runs once for each pixel or invocation, and 
 
 #### @spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined
 
-> A JS or WASM draw reads an element of an attribute array that the array does not hold, past its end or a hole or `undefined` within it, as a typed slot of the attribute's kind converts `undefined`.
+> A JS or WASM draw reads a hole or `undefined` inside an attribute array as a typed slot of the attribute's kind converts `undefined`.
 
 Derives from: [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs), [`fact-a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it)
 
-This follows because a draw checks nothing of its attribute arrays and converts each component as a typed slot of its kind does, and both targets then read the same value.
+This follows because a draw checks nothing of its attribute arrays. It converts each component as a typed slot of its kind does, and both targets then read the same value. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
 
 ##### @spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
 
-> A JS or WASM draw reads an element a `float` attribute's array does not hold as NaN.
+> A JS or WASM draw reads a hole or `undefined` inside a `float` attribute's array as NaN.
 
-This follows because a float slot converts `undefined` with ToNumber, which gives NaN.
+This follows because a float slot converts `undefined` with ToNumber, which gives NaN. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
 
 ##### @spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
 
-> A JS or WASM draw reads an element an `int` or `uint` attribute's array does not hold as 0.
+> A JS or WASM draw reads a hole or `undefined` inside an `int` or `uint` attribute's array as 0.
 
-This follows because an integer slot converts `undefined` with ToInt32 or ToUint32, which give 0.
+This follows because an integer slot converts `undefined` with ToInt32 or ToUint32, which give 0. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
 
 ##### @spec a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan
 
-> A JS or WASM draw reads each component of a `vec3` attribute that its array does not hold as NaN.
+> A JS or WASM draw reads each component of a `vec3` attribute that is a hole or `undefined` inside its array as NaN.
 
-This follows because a draw reads a vector attribute one component at a time, and a float slot converts `undefined` with ToNumber.
+This follows because a draw reads a vector attribute one component at a time, and a float slot converts `undefined` with ToNumber. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
 
 ##### @spec a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero
 
-> A JS or WASM draw reads each component of an `ivec3` or `uvec3` attribute that its array does not hold as 0.
+> A JS or WASM draw reads each component of an `ivec3` or `uvec3` attribute that is a hole or `undefined` inside its array as 0.
 
-This follows because a draw reads a vector attribute one component at a time, and an integer slot converts `undefined` with ToInt32 or ToUint32.
+This follows because a draw reads a vector attribute one component at a time, and an integer slot converts `undefined` with ToInt32 or ToUint32. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
 
 ### @spec a-message-puts-the-article-its-sound-takes-before-a-name
 
