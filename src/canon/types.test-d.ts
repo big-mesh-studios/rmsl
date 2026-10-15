@@ -444,7 +444,7 @@ describe("the array setAttribute takes", () => {
   });
 
   /**
-   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it("takes any typed array by slot name", () => {
     glsl.setAttribute(ids.name, new Float32Array(2));

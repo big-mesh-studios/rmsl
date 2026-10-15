@@ -883,6 +883,7 @@ describe("the array a GPU adapter takes for an attribute", () => {
    * The stub context reports an `ivec2`, a `uint` and a `vec3` attribute.
    *
    * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it("refuses an array of another kind on createGlsl, named by node or by slot", () => {
     const ids = attribute("ivec2");
@@ -935,6 +936,7 @@ describe("the array a GPU adapter takes for an attribute", () => {
    * A stub device stands in for the GPU.
    *
    * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it("refuses an array of another kind on createWgsl, named by node or by slot", async () => {
     vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });

@@ -14,12 +14,17 @@ const WEBGPU = GPU_ENABLED && (await webgpuAvailable());
 const TARGETS = ["glsl", "wgsl", "js", "wasm"] as const;
 
 /**
- * Draws over a 4×4 canvas with one adapter, named by `globalThis.__rmslTarget`.
- * `drawFlag(type, flags, read)` draws a triangle over the canvas whose clip w is
- * 1 where `read(flag)` holds and 0 where it does not, so it shows only where
- * every vertex reads true. `drawFragmentFlag(flags)` draws the whole triangle
- * and colours it green where the fragment stage reads the `bool` attribute true.
- * Each returns the pixel at (1, 2), or the code of the error that refused it.
+ * Draws over a 4×4 canvas with one adapter, named by `globalThis.__rmslTarget`,
+ * and returns the pixel at (1, 2), or the code of the error that refused it.
+ *
+ * `drawFlag` draws a triangle over the canvas whose clip w is 1 where
+ * `read(flag)` holds and 0 where it does not, so it shows only where every
+ * vertex reads true. `drawFragmentFlag` draws the whole triangle, green where
+ * the fragment stage reads `read(flag)` true and black where it reads false.
+ *
+ * With `globalThis.__rmslFloatFallback` set, an adapter that refuses the
+ * integer array for the attribute is given the same values as a
+ * `Float32Array`, the array it takes today, so the draw reaches the shader.
  */
 const BOOL_ATTRIBUTE = `
 import { Fn, attributeRaw, builtinPosition, float, vec4 } from "../rmsl";
@@ -30,6 +35,14 @@ import { createWasm } from "../wasm";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
 const target = globalThis.__rmslTarget;
+const setFlag = (adapter, flag, flags) => {
+  try {
+    adapter.setAttribute(flag, flags);
+  } catch (error) {
+    if (!globalThis.__rmslFloatFallback || error.code !== "host-array-of-another-kind") throw error;
+    adapter.setAttribute(flag, Float32Array.from(flags));
+  }
+};
 const draw = async (type, flags, vertexOf, fragmentOf) => {
   try {
     const pos = attributeRaw("pos", "vec3");
@@ -45,7 +58,7 @@ const draw = async (type, flags, vertexOf, fragmentOf) => {
     canvas.width = 4;
     canvas.height = 4;
     adapter.setAttribute(pos, TRIANGLE);
-    adapter.setAttribute(flag, flags);
+    setFlag(adapter, flag, flags);
     await adapter.attach(canvas);
     adapter.draw({ count: 3 });
     if (target === "wgsl") await adapter.device().queue.onSubmittedWorkDone();
@@ -56,8 +69,8 @@ const draw = async (type, flags, vertexOf, fragmentOf) => {
 };
 const drawFlag = (type, flags, read) =>
   draw(type, flags, (pos, flag) => vec4(pos, read(flag).select(float(1), float(0))), () => vec4(0, 1, 0, 1));
-const drawFragmentFlag = (flags) =>
-  draw("bool", flags, (pos) => vec4(pos, 1), (flag) => vec4(0, flag.select(float(1), float(0)), 0, 1));
+const drawFragmentFlag = (type, flags, read) =>
+  draw(type, flags, (pos) => vec4(pos, 1), (flag) => vec4(0, read(flag).select(float(1), float(0)), 0, 1));
 const each = (value) => [value, value, value];
 globalThis.__rmslBool = async () => ({
   minusOne: await drawFlag("bool", Int32Array.of(...each(-1)), (f) => f),
@@ -69,18 +82,70 @@ globalThis.__rmslBoolVector = async () => ({
   bvec3: await drawFlag("bvec3", Int32Array.of(...each([-1, 0, 7]).flat()), (f) => f.x.and(f.y.not()).and(f.z)),
   bvec4: await drawFlag("bvec4", Int32Array.of(...each([1, 0, 0, -1]).flat()), (f) => f.x.and(f.y.not()).and(f.z.not()).and(f.w)),
 });
-// The first vertex holds false and the other two true.
-globalThis.__rmslBoolFragment = async () => drawFragmentFlag(Int32Array.of(0, 1, 1));
+// The first vertex holds false, and the other two true.
+globalThis.__rmslBoolFragment = async () => drawFragmentFlag("bool", Int32Array.of(0, 1, 1), (f) => f);
+// The first vertex holds (false, true), and the other two (true, false).
+globalThis.__rmslBoolVectorFragment = async () =>
+  drawFragmentFlag("bvec2", Int32Array.of(0, 1, 1, 0, 1, 0), (f) => f.x.not().and(f.y));
+`;
+
+/**
+ * A plane whose geometry lacks the `bvec4` attribute its material reads,
+ * drawn green where the attribute reads (false, false, false, true) and black
+ * otherwise, by `WebGLRenderer` or, given `"webgpu"`, by `WebGPURenderer`.
+ */
+const SCENE_MISSING_BOOL = `
+import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial } from "../scene";
+import { float, vec4 } from "../rmsl";
+${READ_PIXEL}
+globalThis.__rmslMissingBool = async (backend) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  try {
+    const renderer = backend === "webgpu" ? await WebGPURenderer.init(canvas) : new WebGLRenderer(canvas, { antialias: false });
+    const errors = [];
+    renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+    const material = new MeshBasicMaterial();
+    material.vertexNode = (b) => {
+      const f = b.attribute("missing", "bvec4");
+      const holds = f.w.and(f.x.not()).and(f.y.not()).and(f.z.not());
+      b.varying("colour", "vec4").assign(vec4(0, holds.select(float(1), float(0)), 0, 1));
+      return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+    };
+    material.fragmentNode = (b) => b.varying("colour", "vec4");
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+    const camera = new PerspectiveCamera(90, 1, 0.1, 100);
+    camera.position.set(0, 0, 0.5);
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    if (renderer.device) {
+      await renderer.device.queue.onSubmittedWorkDone();
+      return errors.length ? { errors } : readPixel(canvas, 8, 8);
+    }
+    const gl = renderer.gl;
+    const pixels = new Uint8Array(4);
+    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    const error = gl.getError();
+    return error ? { error } : { r: pixels[0], g: pixels[1], b: pixels[2], a: pixels[3] };
+  } catch (error) {
+    return { error: error.message };
+  }
+};
 `;
 
 const GREEN = { r: 0, g: 255, b: 0, a: 255 };
 const BLACK = { r: 0, g: 0, b: 0, a: 255 };
 const NOTHING = { r: 0, g: 0, b: 0, a: 0 };
 
-/** Runs one entry of {@link BOOL_ATTRIBUTE} on `target`, in the page that target draws in. */
-const run = (target: string, entry: string) =>
+/**
+ * Runs one entry of {@link BOOL_ATTRIBUTE} on `target`, in the page that
+ * target draws in, falling back to a float array where `floatFallback` is set.
+ */
+const run = (target: string, entry: string, floatFallback: boolean) =>
   (target === "wgsl" ? runInWebGpuPage : runInGpuPage)(
-    `globalThis.__rmslTarget = ${JSON.stringify(target)};\n${BOOL_ATTRIBUTE}`,
+    `globalThis.__rmslTarget = ${JSON.stringify(target)};\nglobalThis.__rmslFloatFallback = ${floatFallback};\n${BOOL_ATTRIBUTE}`,
     entry,
     import.meta.dirname,
   );
@@ -91,43 +156,46 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
   }, 120_000);
 
   /**
-   * An `Int32Array` of -1 reads true only where `createGlsl` points it as unsigned.
+   * The draw reaches the shader through a float array where the adapter refuses
+   * the integer one. An `Int32Array` of -1 reads true only where `createGlsl`
+   * points it as unsigned.
    *
-   * @canon bug-a-bool-attribute-is-declared-as-a-boolean-input
-   * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
-   * @canon spec-the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers
    * @canon spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero
+   * @canon spec-the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers
+   * @canon bug-an-adapter-declares-a-bool-attribute-as-a-boolean-input
    */
   it.fails(
     "reads true where its integer is not zero on glsl",
     async () => {
-      expect(await run("glsl", "__rmslBool")).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
+      expect(await run("glsl", "__rmslBool", true)).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
     },
     120_000,
   );
 
   /**
-   * @canon bug-a-bool-attribute-is-declared-as-a-boolean-input
-   * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
+   * The draw reaches the shader through a float array where the adapter refuses
+   * the integer one.
+   *
    * @canon spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero
+   * @canon bug-an-adapter-declares-a-bool-attribute-as-a-boolean-input
    */
   it.skipIf(!WEBGPU).fails(
     "reads true where its integer is not zero on wgsl",
     async () => {
-      expect(await run("wgsl", "__rmslBool")).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
+      expect(await run("wgsl", "__rmslBool", true)).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
     },
     120_000,
   );
 
   for (const target of ["js", "wasm"]) {
     /**
-     * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
      * @canon spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero
+     * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
      */
     it.fails(
       `reads true where its integer is not zero on ${target}`,
       async () => {
-        expect(await run(target, "__rmslBool")).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
+        expect(await run(target, "__rmslBool", false)).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
       },
       120_000,
     );
@@ -135,14 +203,16 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
 
   for (const target of ["glsl", "wgsl"]) {
     /**
-     * @canon bug-a-bool-attribute-is-declared-as-a-boolean-input
-     * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
+     * The draw reaches the shader through a float array where the adapter
+     * refuses the integer one.
+     *
      * @canon spec-a-boolean-vector-attribute-reads-each-component-against-zero
+     * @canon bug-an-adapter-declares-a-bool-attribute-as-a-boolean-input
      */
     it.skipIf(target === "wgsl" && !WEBGPU).fails(
       `reads each component of a boolean vector on ${target}`,
       async () => {
-        expect(await run(target, "__rmslBoolVector")).toEqual({ bvec2: GREEN, bvec3: GREEN, bvec4: GREEN });
+        expect(await run(target, "__rmslBoolVector", true)).toEqual({ bvec2: GREEN, bvec3: GREEN, bvec4: GREEN });
       },
       120_000,
     );
@@ -150,46 +220,113 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
 
   for (const target of ["js", "wasm"]) {
     /**
-     * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
      * @canon spec-a-boolean-vector-attribute-reads-each-component-against-zero
+     * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
      */
     it.fails(
       `reads each component of a boolean vector on ${target}`,
       async () => {
-        expect(await run(target, "__rmslBoolVector")).toEqual({ bvec2: GREEN, bvec3: GREEN, bvec4: GREEN });
-      },
-      120_000,
-    );
-  }
-
-  for (const target of ["wgsl", "js", "wasm"]) {
-    /**
-     * The first vertex holds false, so a fragment that takes it reads false.
-     *
-     * @canon bug-a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets
-     * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
-     * @canon spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
-     */
-    it.skipIf(target === "wgsl" && !WEBGPU).fails(
-      `reads a bool attribute of the first vertex in the fragment stage on ${target}`,
-      async () => {
-        expect(await run(target, "__rmslBoolFragment")).toEqual(BLACK);
+        expect(await run(target, "__rmslBoolVector", false)).toEqual({ bvec2: GREEN, bvec3: GREEN, bvec4: GREEN });
       },
       120_000,
     );
   }
 
   /**
-   * The last vertex holds true, so a fragment that takes it reads true.
+   * The first vertex holds false, so a fragment that takes it reads false. The
+   * draw reaches the shader through a float array where the adapter refuses
+   * the integer one.
    *
-   * @canon bug-a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets
-   * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
+   * @canon spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
+   * @canon exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
+   * @canon bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
+   */
+  it.skipIf(!WEBGPU).fails(
+    "reads a bool attribute of the first vertex in the fragment stage on wgsl",
+    async () => {
+      expect(await run("wgsl", "__rmslBoolFragment", true)).toEqual(BLACK);
+    },
+    120_000,
+  );
+
+  /**
+   * The first vertex holds (false, true), so a fragment that takes it reads
+   * green. The draw reaches the shader through a float array where the adapter
+   * refuses the integer one.
+   *
+   * @canon spec-a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex
+   * @canon bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
+   */
+  it.skipIf(!WEBGPU).fails(
+    "reads each component of a boolean vector attribute of the first vertex in the fragment stage on wgsl",
+    async () => {
+      expect(await run("wgsl", "__rmslBoolVectorFragment", true)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  for (const target of ["js", "wasm"]) {
+    /**
+     * The CPU targets take only a float array for the attribute today, which
+     * the draw falls back to.
+     *
+     * @canon spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
+     * @canon exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
+     */
+    it(`reads a bool attribute of the first vertex in the fragment stage on ${target}`, async () => {
+      expect(await run(target, "__rmslBoolFragment", true)).toEqual(BLACK);
+    }, 120_000);
+
+    /**
+     * @canon spec-a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex
+     */
+    it(`reads each component of a boolean vector attribute of the first vertex in the fragment stage on ${target}`, async () => {
+      expect(await run(target, "__rmslBoolVectorFragment", true)).toEqual(GREEN);
+    }, 120_000);
+  }
+
+  /**
+   * The last vertex holds true, so a fragment that takes it reads true, and
+   * (true, false) for the vector, which reads black.
+   *
    * @canon exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex
+   * @canon bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
    */
   it.fails(
     "reads a bool attribute of the last vertex in the fragment stage on glsl",
     async () => {
-      expect(await run("glsl", "__rmslBoolFragment")).toEqual(GREEN);
+      expect(await run("glsl", "__rmslBoolFragment", true)).toEqual(GREEN);
+      expect(await run("glsl", "__rmslBoolVectorFragment", true)).toEqual(BLACK);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
+   * @canon bug-a-scene-renderer-declares-a-bool-attribute-its-geometry-lacks-as-a-boolean-input
+   */
+  it.fails(
+    "gives a bvec4 attribute its geometry lacks true only in w on WebGL",
+    async () => {
+      expect(await runInGpuPage(SCENE_MISSING_BOOL, "__rmslMissingBool", import.meta.dirname)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
+   * @canon bug-a-scene-renderer-declares-a-bool-attribute-its-geometry-lacks-as-a-boolean-input
+   */
+  it.skipIf(!WEBGPU).fails(
+    "gives a bvec4 attribute its geometry lacks true only in w on WebGPU",
+    async () => {
+      expect(
+        await runInWebGpuPage(
+          `${SCENE_MISSING_BOOL}\nglobalThis.__rmslMissingBoolOnWebGpu = () => globalThis.__rmslMissingBool("webgpu");`,
+          "__rmslMissingBoolOnWebGpu",
+          import.meta.dirname,
+        ),
+      ).toEqual(GREEN);
     },
     120_000,
   );
@@ -209,53 +346,72 @@ const adapterWithFlag = (target: (typeof TARGETS)[number]) => {
         : target === "js"
           ? createJs(vertex, fragment)
           : createWasm(vertex, fragment);
-  return { adapter: adapter as { setAttribute(slot: string, data: ArrayLike<number>): void }, flag };
+  return adapter as { setAttribute(slot: string, data: ArrayLike<number>): void };
 };
 
 describe("a bool attribute's array", () => {
   for (const target of TARGETS) {
     /**
+     * @canon spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute
      * @canon bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute
      */
     it.fails(`is taken as an Int32Array or a Uint32Array on ${target}`, () => {
-      const { adapter } = adapterWithFlag(target);
+      const adapter = adapterWithFlag(target);
       expect(() => adapter.setAttribute("flag", Int32Array.of(1, 0, -1))).not.toThrow();
       expect(() => adapter.setAttribute("flag", Uint32Array.of(1, 0, 2 ** 32 - 1))).not.toThrow();
     });
 
     /**
+     * @canon spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute
+     * @canon exception-a-bool-attribute-refuses-the-float-array-tsl-reads
      * @canon bug-an-adapter-takes-a-float-array-for-a-bool-attribute
      */
-    it.fails(`is refused as a Float32Array or a Float64Array on ${target}`, () => {
-      const { adapter } = adapterWithFlag(target);
-      expect(() => adapter.setAttribute("flag", Float32Array.of(1, 0, 1))).toThrowRmsl(
-        UsageError,
-        "host-array-of-another-kind",
-      );
-      expect(() => adapter.setAttribute("flag", Float64Array.of(1, 0, 1))).toThrowRmsl(
-        UsageError,
-        "host-array-of-another-kind",
-      );
+    it.fails(`is refused as a Float32Array or a Float64Array, naming what it takes, on ${target}`, () => {
+      const adapter = adapterWithFlag(target);
+      for (const array of [Float32Array.of(1, 0, 1), Float64Array.of(1, 0, 1)]) {
+        expect(() => adapter.setAttribute("flag", array)).toThrowRmsl(
+          UsageError,
+          "host-array-of-another-kind",
+          /bool.*Int32Array.*Uint32Array/,
+        );
+      }
+    });
+
+    /**
+     * Refused today too, as an array of another kind than the float array taken.
+     *
+     * @canon spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute
+     * @canon exception-a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads
+     */
+    it(`is refused as an 8- or 16-bit integer array on ${target}`, () => {
+      const adapter = adapterWithFlag(target);
+      for (const array of [Uint8Array.of(1, 0, 1), Int16Array.of(1, 0, 1)]) {
+        expect(() => adapter.setAttribute("flag", array)).toThrowRmsl(UsageError, "host-array-of-another-kind");
+      }
     });
   }
 
   /**
-   * @canon bug-a-scene-renderer-refuses-an-integer-array-for-a-bool-attribute
+   * @canon spec-a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers
+   * @canon exception-a-bool-attribute-refuses-the-float-array-tsl-reads
+   * @canon exception-a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads
+   * @canon bug-a-scene-renderer-reads-a-bool-attribute-as-a-float-attribute
    */
-  it.fails("reads through an unsigned format, and no float array, on a scene renderer", () => {
+  it.fails("reads through an unsigned format, and takes no float or narrow array, on a scene renderer", () => {
     const origin = { target: "wgsl", caller: "vertexFormatOf" } as const;
-    const format = (array: Int32Array | Uint32Array | Float32Array) =>
+    const format = (array: Int32Array | Uint32Array | Float32Array | Uint8Array) =>
       vertexFormatOf(origin, new BufferAttribute(array, 1), "bool");
     expect(format(Int32Array.of(1, 0, -1))).toBe("uint32");
     expect(format(Uint32Array.of(1, 0, 1))).toBe("uint32");
     expect(() => format(Float32Array.of(1, 0, 1))).toThrow();
+    expect(() => format(Uint8Array.of(1, 0, 1, 0))).toThrow();
   });
 });
 
 describe("a bool attribute in a compiled vertex stage", () => {
   /**
-   * @canon bug-a-bool-attribute-is-declared-as-a-boolean-input
    * @canon spec-a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input
+   * @canon bug-a-stage-compiler-declares-a-bool-attribute-as-a-boolean-input
    */
   it.fails("is declared an unsigned input by compileGlsl and compileWgsl", () => {
     const flag = attributeRaw("flag", "bvec2");

@@ -2221,6 +2221,7 @@ describe("the array a CPU adapter takes for an attribute", () => {
 
   /**
    * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it.each(adapters)("%s refuses an array of another kind, named by node or by slot", (_, create) => {
     const position = attribute("vec2");
