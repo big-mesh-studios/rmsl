@@ -95,12 +95,17 @@ const none = { name: "main", params: [] };
 let profiler: Session | undefined;
 
 /**
- * The bytes `run` allocates a call, over `runs` calls after `warm` calls, by
- * V8's sampling heap profiler, collected objects included. Only the library's
- * code counts: a compiled program has no source URL, and the rest of the
- * library lies under `src/backends/`. It measures twice and keeps the smaller:
- * another worker's load only adds to a measurement, and an allocation the
- * calls make shows in both.
+ * The bytes `run` allocates a call, over `runs` calls after `warm` rounds of
+ * warming, by V8's sampling heap profiler, collected objects included. Only the
+ * library's code counts: a compiled program has no source URL, and the rest of
+ * the library lies under `src/backends/`. It measures twice and keeps the
+ * smaller: another worker's load only adds to a measurement, and an allocation
+ * the calls make shows in both.
+ *
+ * V8 compiles optimized code on another thread, and code that still runs in
+ * the interpreter boxes the floats it computes. So the warming runs `run` ten
+ * times `warm` times, and then waits for the compiler to install what it made,
+ * before it measures.
  */
 async function allocatedBy(run: () => unknown, warm: number, runs: number): Promise<number> {
   if (!profiler) {
@@ -108,7 +113,14 @@ async function allocatedBy(run: () => unknown, warm: number, runs: number): Prom
     profiler.connect();
     await profiler.post("HeapProfiler.enable");
   }
-  for (let k = 0; k < warm; k++) run();
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  for (let k = 0; k < warm * 10; k++) run();
+  // A full collection frees what earlier tests left, which throws away code that holds their objects, so the
+  // warming runs again after it.
+  gc();
+  for (let k = 0; k < warm * 10; k++) run();
+  await new Promise((resolve) => setTimeout(resolve, 50));
   let least = Infinity;
   for (let round = 0; round < 2; round++) {
     await profiler.post("HeapProfiler.startSampling", {
@@ -1456,6 +1468,97 @@ describe("the scalars and inputs of a JS function", () => {
     // A draw calls a stage 262 times, and an object is 16 bytes at the least.
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
   });
+
+  /**
+   * The same two triangles as an indexed strip of four vertices, culled, so a
+   * draw makes slots and triangles for its indices on each call.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing per vertex or fragment of an indexed strip it culls", async () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1, 0, 0, 1))(),
+    );
+    const ctx = {
+      attributes: { [position.name]: Float64Array.of(-1, 1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 0) },
+      index: Uint16Array.of(0, 1, 2, 3),
+    };
+    const options = { width: 16, height: 16, topology: "triangle-strip" as const, cullMode: "back" as const };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * A program that reads no attribute and places its four vertices by
+   * `vertexIndex()`: each index lies past every attribute, as there is none,
+   * so a table sized by the attributes alone would send each through a map.
+   * The indices start at 1000, so a table that stopped short of them would too.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing on an indexed draw whose program reads no attribute", async () => {
+    // Vertex 1000 + w lies at x = w - 1, y = 1 - (w % 2) * 2: w of 0 to 3 make a quad over the target.
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          const w = vertexIndex().toFloat().sub(1000);
+          builtinPosition().assign(vec4(w.sub(1), float(1).sub(w.mod(2).mul(2)), 0, 1));
+        })(),
+      () => Fn(() => vec4(1, 0, 0, 1))(),
+    );
+    const ctx = { attributes: {}, index: Uint16Array.of(1000, 1002, 1001, 1001, 1002, 1003) };
+    const options = { width: 16, height: 16 };
+    expect(Array.from(raster.draw(ctx, options).slice(0, 4))).toEqual([1, 0, 0, 1]);
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * An attribute of 1048580 vertices, drawn through indices past 1048575 but
+   * inside it: a table that stopped at 1048575 would send them through a map.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing on an indexed draw through vertices of its attributes past 1048575", async () => {
+    const shade = attribute("float");
+    const s = varying("float");
+    // Vertex 1048576 + w lies at x = w - 1, y = 1 - (w % 2) * 2.
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          const w = vertexIndex().toFloat().sub(1048576);
+          s.assign(shade);
+          builtinPosition().assign(vec4(w.sub(1), float(1).sub(w.mod(2).mul(2)), 0, 1));
+        })(),
+      () => Fn(() => vec4(s, 0, 0, 1))(),
+    );
+    const ctx = {
+      attributes: { [shade.name]: new Float64Array(1048580).fill(1) },
+      index: Uint32Array.of(1048576, 1048578, 1048577, 1048577, 1048578, 1048579),
+    };
+    const options = { width: 16, height: 16 };
+    expect(Array.from(raster.draw(ctx, options).slice(0, 4))).toEqual([1, 0, 0, 1]);
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * Indices into four vertices of an attribute, each named twice.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing on an indexed draw whose indices name the vertices its attributes hold", async () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1, 0, 0, 1))(),
+    );
+    const ctx = {
+      attributes: { [position.name]: Float64Array.of(-1, 1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 0) },
+      index: Uint32Array.of(0, 1, 2, 2, 1, 3),
+    };
+    const options = { width: 16, height: 16 };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
 });
 
 describe("what a JS draw allocates for the scalars it passes its stages", () => {
@@ -1848,7 +1951,7 @@ describe("an attribute element the host's array does not hold", () => {
    * The red channel of a 1 by 1 draw, of a triangle covering it, of three
    * vertices whose attribute `attr` has `values`: 1 where the fragment program
    * `hit` holds, and 0 otherwise. The vertex program `pass` hands the attribute
-   * on in a varying.
+   * on in a varying. With `index`, the draw takes its vertices by it.
    */
   function drawsRed(
     compileRaster: typeof compileJS,
@@ -1856,6 +1959,7 @@ describe("an attribute element the host's array does not hold", () => {
     values: ArrayLike<number>,
     pass: () => void,
     hit: () => Node<"bool">,
+    index?: Uint16Array,
   ): number {
     const position = attribute("vec3");
     const raster = compileRaster(
@@ -1868,18 +1972,20 @@ describe("an attribute element the host's array does not hold", () => {
     );
     const positions = Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
     const out = raster.draw(
-      { attributes: { [position.name]: positions, [attr.name]: values as Float64Array } },
+      { attributes: { [position.name]: positions, [attr.name]: values as Float64Array }, index },
       { width: 1, height: 1, count: 3 },
     );
     return out[0]!;
   }
 
-  /** Arrays that hold no element for any of three vertices of `width` components: one that ends before them, one of holes, and one of undefined. */
-  const lacking = (empty: ArrayLike<number>, width: number): ArrayLike<number>[] => [
-    empty,
+  /** Arrays as long as three vertices of `width` components that hold no element of them: one of holes, and one of undefined. */
+  const lacking = (width: number): ArrayLike<number>[] => [
     new Array<number>(3 * width),
     Array.from({ length: 3 * width }, () => undefined as unknown as number),
   ];
+
+  /** The three vertices of a draw by indices, in order. */
+  const inOrder = Uint16Array.of(0, 1, 2);
 
   /** Whether a float is NaN: the one value that is not equal to itself. */
   const isNaN = (x: Node<"float">) => x.notEqual(x);
@@ -1888,7 +1994,7 @@ describe("an attribute element the host's array does not hold", () => {
    * @canon spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
    */
   it.each(rasterizers)("%s: reads a float attribute element its array lacks as NaN", (_, compileRaster) => {
-    const draw = (values: ArrayLike<number>) => {
+    const draw = (values: ArrayLike<number>, hit: (v: Node<"float">) => Node<"bool"> = isNaN, index?: Uint16Array) => {
       const c = attribute("float");
       const v = varying("float");
       return drawsRed(
@@ -1896,14 +2002,18 @@ describe("an attribute element the host's array does not hold", () => {
         c,
         values,
         () => v.assign(c),
-        () => isNaN(v),
+        () => hit(v),
+        index,
       );
     };
-    for (const values of lacking(new Float32Array(0), 1)) expect(draw(values)).toBe(1);
-    // An array that ends after the first vertex: the other two read NaN, which every fragment then reads.
-    expect(draw(Float32Array.of(2.5))).toBe(1);
+    for (const values of lacking(1)) expect(draw(values)).toBe(1);
     // An array that holds its elements reads them.
     expect(draw(Float32Array.of(2.5, 2.5, 2.5))).toBe(0);
+    // An array that ends before the draw's vertices is refused without indices, and read as 0, not NaN, with them.
+    expect(() => draw(Float32Array.of(0))).toThrowRmsl(UsageError, "attribute-range");
+    const isZero = (v: Node<"float">) => v.equal(float(0));
+    expect(draw(new Float32Array(0), isZero, inOrder)).toBe(1);
+    expect(draw(Float32Array.of(0), isZero, inOrder)).toBe(1);
   });
 
   /**
@@ -1932,14 +2042,14 @@ describe("an attribute element the host's array does not hold", () => {
         () => v.equal(uint(0)),
       );
     };
-    for (const values of lacking(new Int32Array(0), 1)) expect(drawInt(values)).toBe(1);
-    for (const values of lacking(new Uint32Array(0), 1)) expect(drawUint(values)).toBe(1);
+    for (const values of lacking(1)) expect(drawInt(values)).toBe(1);
+    for (const values of lacking(1)) expect(drawUint(values)).toBe(1);
     expect(drawInt(Int32Array.of(7, 7, 7))).toBe(0);
     expect(drawUint(Uint32Array.of(7, 7, 7))).toBe(0);
-    // An array that ends after the first vertex, which holds 0. An integer varying is flat, from the first vertex,
-    // so the value goes through a float varying, which reads 0 in every fragment only if the two vertices the
-    // array lacks read 0 as well.
-    const drawThroughFloat = (type: "int" | "uint", values: ArrayLike<number>) => {
+    // An array that ends after the first vertex, which holds 0: refused without indices, and read as 0 past its
+    // end with them. An integer varying is flat, from the first vertex, so the value goes through a float varying,
+    // which reads 0 in every fragment only if the two vertices past the end read 0 as well.
+    const drawThroughFloat = (type: "int" | "uint", values: ArrayLike<number>, index?: Uint16Array) => {
       const c = attribute(type);
       const v = varying("float");
       return drawsRed(
@@ -1948,17 +2058,19 @@ describe("an attribute element the host's array does not hold", () => {
         values,
         () => v.assign(c.toFloat()),
         () => v.equal(float(0)),
+        index,
       );
     };
-    expect(drawThroughFloat("int", Int32Array.of(0))).toBe(1);
-    expect(drawThroughFloat("uint", Uint32Array.of(0))).toBe(1);
+    expect(() => drawThroughFloat("int", Int32Array.of(0))).toThrowRmsl(UsageError, "attribute-range");
+    expect(drawThroughFloat("int", Int32Array.of(0), inOrder)).toBe(1);
+    expect(drawThroughFloat("uint", Uint32Array.of(0), inOrder)).toBe(1);
   });
 
   /**
    * @canon spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan
    */
   it.each(rasterizers)("%s: reads each vec3 attribute component its array lacks as NaN", (_, compileRaster) => {
-    const draw = (values: ArrayLike<number>) => {
+    const draw = (values: ArrayLike<number>, hit: (v: Node<"float">) => Node<"bool"> = isNaN, index?: Uint16Array) => {
       const c = attribute("vec3");
       const v = varying("vec3");
       return drawsRed(
@@ -1966,18 +2078,22 @@ describe("an attribute element the host's array does not hold", () => {
         c,
         values,
         () => v.assign(c),
-        () => and(isNaN(v.x), isNaN(v.y), isNaN(v.z)),
+        () => and(hit(v.x), hit(v.y), hit(v.z)),
+        index,
       );
     };
-    for (const values of lacking(new Float32Array(0), 3)) expect(draw(values)).toBe(1);
+    for (const values of lacking(3)) expect(draw(values)).toBe(1);
     expect(draw(new Float32Array(9).fill(2.5))).toBe(0);
+    // An array that ends before the draw's vertices is refused without indices, and read as 0, not NaN, with them.
+    expect(() => draw(new Float32Array(0))).toThrowRmsl(UsageError, "attribute-range");
+    expect(draw(new Float32Array(0), (x) => x.equal(float(0)), inOrder)).toBe(1);
   });
 
   /**
    * @canon spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero
    */
   it.each(rasterizers)("%s: reads each ivec3 or uvec3 attribute component its array lacks as 0", (_, compileRaster) => {
-    const drawInt = (values: ArrayLike<number>) => {
+    const drawInt = (values: ArrayLike<number>, index?: Uint16Array) => {
       const c = attribute("ivec3");
       const v = varying("ivec3");
       const zero = int(0);
@@ -1987,9 +2103,10 @@ describe("an attribute element the host's array does not hold", () => {
         values,
         () => v.assign(c),
         () => and(v.x.equal(zero), v.y.equal(zero), v.z.equal(zero)),
+        index,
       );
     };
-    const drawUint = (values: ArrayLike<number>) => {
+    const drawUint = (values: ArrayLike<number>, index?: Uint16Array) => {
       const c = attribute("uvec3");
       const v = varying("uvec3");
       const zero = uint(0);
@@ -1999,13 +2116,18 @@ describe("an attribute element the host's array does not hold", () => {
         values,
         () => v.assign(c),
         () => and(v.x.equal(zero), v.y.equal(zero), v.z.equal(zero)),
+        index,
       );
     };
-    for (const values of lacking(new Int32Array(0), 3)) expect(drawInt(values)).toBe(1);
-    for (const values of lacking(new Uint32Array(0), 3)) expect(drawUint(values)).toBe(1);
+    for (const values of lacking(3)) expect(drawInt(values)).toBe(1);
+    for (const values of lacking(3)) expect(drawUint(values)).toBe(1);
     // Each component the array holds is read, so a draw whose first component alone is 0 stays black.
     expect(drawInt(Int32Array.of(0, 7, 7, 0, 7, 7, 0, 7, 7))).toBe(0);
     expect(drawUint(Uint32Array.of(0, 7, 7, 0, 7, 7, 0, 7, 7))).toBe(0);
+    // An array that ends before the draw's vertices is refused without indices, and read as 0 with them.
+    expect(() => drawInt(new Int32Array(0))).toThrowRmsl(UsageError, "attribute-range");
+    expect(drawInt(new Int32Array(0), inOrder)).toBe(1);
+    expect(drawUint(new Uint32Array(0), inOrder)).toBe(1);
   });
 });
 
@@ -2443,7 +2565,7 @@ describe("the fragments a CPU rasterizer draws", () => {
    * triangle the clip makes starts at it, and one whose first two vertices do,
    * so that the clip makes its first vertex between the other two.
    *
-   * @canon spec-a-flat-varying-takes-the-first-vertex
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
    */
   it.each(rasterizers)("%s: reads an integer varying as the triangle's first vertex wrote it", (_, compileRaster) => {
     const pos = attribute("vec3");

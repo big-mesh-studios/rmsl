@@ -3,6 +3,7 @@ import { Node, ShaderType, componentCountOf, componentKindOf, type ScalarKind } 
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
+import { createDrawAssembly, CpuIndexArray, cullSign, DrawAssemblyOptions, DrawAttributes } from "../assemble";
 import { attributeKindOf } from "../vertex-format";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
@@ -26,6 +27,8 @@ export interface CompileJSRasterOptions {
  */
 export interface JsRasterContext {
   attributes: Record<string, TypedArray>;
+  /** The indices the draw takes its vertices by, or none to take them in order. */
+  index?: CpuIndexArray;
   uniforms?: Record<string, unknown>;
   textures?: CpuShaderContext["textures"];
 }
@@ -38,7 +41,7 @@ export interface JsRasterContext {
  * declares `loadOp`/`depthLoadOp` together, per pass, rather than clearing
  * as a separate operation.
  */
-export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions {
+export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions, DrawAssemblyOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
@@ -212,6 +215,8 @@ export function compileJSRasterizer(
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(vertexStage.attributeTypes[slot]!));
   // A bool attribute reaches the vertex stage as the unsigned integers it is lowered to.
   const attributeKinds = attributeSlots.map((slot) => attributeKindOf(vertexStage.attributeTypes[slot]!));
+  /** The attributes the vertex stage reads, as a draw checks and assembles them. */
+  const read: DrawAttributes = { slots: attributeSlots, widths: attributeWidths };
   /**
    * The value of each attribute for the vertex being shaded, in the order of the
    * slots: an array of its own filled for each vertex, a scalar as one element.
@@ -219,8 +224,6 @@ export function compileJSRasterizer(
   const attributeArrays = attributeWidths.map((w) => new Float64Array(w));
   /** The same arrays under their slots, as the vertex stage reads them; the loop over vertices reads the list. */
   const vertexAttributes = Object.fromEntries(attributeSlots.map((slot, i) => [slot, attributeArrays[i]!]));
-  /** The position of each attribute in the slots, by slot: a map, as an object read by many names would deoptimize the draw. */
-  const attributeIndex = new Map(attributeSlots.map((slot, i) => [slot, i]));
   /** The host's array of each attribute during a draw, and how {@link readerOf} reads it. */
   const hostArrays: ArrayLike<number>[] = attributeSlots.map(() => NO_TARGET);
   const hostReaders = attributeSlots.map(() => 0);
@@ -247,6 +250,10 @@ export function compileJSRasterizer(
   };
   /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
   const vertices: ClipVertex[] = [];
+  /** The vertices each draw shades and the triangles it makes of them. */
+  const assembly = createDrawAssembly(origin, read);
+  /** The sign of the screen area of a triangle the draw being made culls, or 0. */
+  let cull = 0;
 
   // Persists across draw() calls of one size, like WasmRasterRoutine's depth
   // buffer: a draw of another width or height clears it, as its pixels lie elsewhere.
@@ -286,6 +293,7 @@ export function compileJSRasterizer(
 
     const area = (s1x - s0x) * (s2y - s0y) - (s1y - s0y) * (s2x - s0x);
     if (area === 0) return; // degenerate (zero-area) triangle: skip it
+    if (area * cull > 0) return; // a face the draw culls
     // Each edge function, times `wind`, is positive inside whichever way the triangle winds.
     const wind = area > 0 ? 1 : -1;
     const owns0 = ownsEdge((s2x - s1x) * wind, (s2y - s1y) * wind);
@@ -396,21 +404,27 @@ export function compileJSRasterizer(
   }
 
   /**
-   * Runs the vertex stage for each of `vertexCount` vertices from `first`, and
-   * keeps each one's position and varyings. A function of its own, so the
-   * per-draw work before it, which reads the host's objects by many names,
-   * cannot deoptimize the work it does for each vertex.
+   * Runs the vertex stage for each of the first `slotCount` slots, on the
+   * vertex `vertexOfSlot` gives it, and keeps each one's position and varyings.
+   * A function of its own, so the per-draw work before it, which reads the
+   * host's objects by many names, cannot deoptimize the work it does for each
+   * vertex.
    */
-  function shadeVertices(vertexCount: number, first: number): void {
-    for (let i = 0; i < vertexCount; i++) {
+  function shadeVertices(vertexOfSlot: Uint32Array, slotCount: number): void {
+    for (let i = 0; i < slotCount; i++) {
+      const v = vertexOfSlot[i]!;
       for (let a = 0; a < attributeSlots.length; a++) {
         const host = hostArrays[a]!;
         const reader = hostReaders[a]!;
         const w = attributeWidths[a]!;
         const kind = attributeKinds[a]!;
         const into = attributeArrays[a]!;
-        // An element the host's array lacks reads as undefined, which the slot converts as a typed slot does.
-        for (let k = 0, index = (i + first) * w; k < w; k++, index++) {
+        // A vertex past the end of an attribute reads it as zero.
+        if ((v + 1) * w > host.length) {
+          into.fill(0);
+          continue;
+        }
+        for (let k = 0, index = v * w; k < w; k++, index++) {
           switch (reader) {
             case 0:
               into[k] = attributeComponent(kind, (host as Float64Array)[index]!);
@@ -441,7 +455,7 @@ export function compileJSRasterizer(
           }
         }
       }
-      vertexCtx.vertexIndex = i + first;
+      vertexCtx.vertexIndex = v;
       const raw = vertexStage.runInPlace(vertexCtx);
       const position = vertexPosition(raw);
       const varyings = isResultObject(raw) ? raw.varyings : undefined;
@@ -460,23 +474,11 @@ export function compileJSRasterizer(
   function drawShaded(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
     const { attributes } = ctx;
-    const first = options.first ?? 0;
     for (let a = 0; a < attributeSlots.length; a++) {
       const slot = attributeSlots[a]!;
       if (!attributes[slot]) throw missingAttributeError(origin, slot);
     }
-    // An attribute the program does not read counts for nothing, as a WebGPU
-    // draw reads no buffer its shader does not declare.
-    let firstSlot: string | undefined;
-    for (const slot in attributes) {
-      if (!attributeIndex.has(slot)) continue;
-      firstSlot = slot;
-      break;
-    }
-    const inferredCount = firstSlot
-      ? Math.floor(attributes[firstSlot]!.length / attributeWidths[attributeIndex.get(firstSlot)!]!) - first
-      : 0;
-    const vertexCount = options.count ?? inferredCount;
+    assembly.draw(attributes, ctx.index, options);
 
     for (let a = 0; a < attributeSlots.length; a++) {
       const host = attributes[attributeSlots[a]!]!;
@@ -484,7 +486,7 @@ export function compileJSRasterizer(
       hostReaders[a] = readerOf(host);
     }
 
-    shadeVertices(vertexCount, first);
+    shadeVertices(assembly.vertexOfSlot, assembly.slotCount);
 
     const pixelCount = width * height;
     if (!depthBuffer || depthBuffer.length < pixelCount) {
@@ -516,10 +518,12 @@ export function compileJSRasterizer(
     target = result;
     targetWidth = width;
     targetHeight = height;
-    for (let t = 0; t + 2 < vertexCount; t += 3) {
-      const v0 = vertices[t]!,
-        v1 = vertices[t + 1]!,
-        v2 = vertices[t + 2]!;
+    cull = cullSign(options);
+    const triangles = assembly.triangles;
+    for (let t = 0; t < assembly.triangleCount; t++) {
+      const v0 = vertices[triangles[t * 3]!]!,
+        v1 = vertices[triangles[t * 3 + 1]!]!,
+        v2 = vertices[triangles[t * 3 + 2]!]!;
       // A triangle wholly in front of the near plane is rasterized as it is; only one that crosses it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
         rasterize(v0, v1, v2, v0);

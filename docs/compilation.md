@@ -447,7 +447,10 @@ of compiling one `Fn` into a callable, they link a compiled vertex/fragment
 pair against a generic triangle rasterizer (near-plane clipping, a LEQUAL
 depth test) — the plain-JS counterpart to
 [`compileWasm`/`createWasm`](wasm.md#rasterizing-a-vertexfragment-pair), same
-shape, same semantics.
+shape, same semantics. That includes how a draw takes its triangles: a
+`topology` of a list or a strip, an index array in `ctx.index` (or through
+`setIndex` on `createJs`) over which `first` and `count` count indices, and a
+`cullMode` and `frontFace`, as that section describes.
 
 ### Scratch & reentrancy
 

@@ -12,6 +12,7 @@ import {
   WasmParam,
 } from "./wasm";
 import { linkStages } from "../shared";
+import { createDrawAssembly, CpuIndexArray, cullSign, DrawAssemblyOptions, DrawAttributes } from "../assemble";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -25,8 +26,8 @@ export const RASTERIZER_VERTEX_IMPORT = { module: "vertex", name: "main" } as co
 export const RASTERIZER_FRAGMENT_IMPORT = { module: "fragment", name: "main" } as const;
 
 /**
- * `rasterize`'s own i32 params, in argument order — see rasterizer.wat's
- * `$rasterize` function for the same list.
+ * `rasterize`'s own params, in argument order — see rasterizer.wat's
+ * `$rasterize` function for the same list. All are i32 but `cullSign`, an f64.
  */
 export const RASTERIZE_PARAMS = [
   "vertexCount",
@@ -56,6 +57,9 @@ export const RASTERIZE_PARAMS = [
   "writesDepth",
   "discardAddress",
   "mayDiscard",
+  "triangleBase",
+  "triangleCount",
+  "cullSign",
 ] as const;
 
 /**
@@ -187,6 +191,8 @@ export type CompileWasmOptions = Pick<
  */
 export interface WasmRasterContext {
   attributes: Record<string, TypedArray>;
+  /** The indices the draw takes its vertices by, or none to take them in order. */
+  index?: CpuIndexArray;
   uniforms?: Record<string, number | number[]>;
   textures?: Record<string, CpuTextureData>;
 }
@@ -201,7 +207,7 @@ export interface WasmRasterContext {
  * Both default to `true`, so each draw starts from a cleared buffer, as a
  * three.js render does.
  */
-export interface WasmRasterDrawOptions extends DrawCountOptions, DrawClearOptions {
+export interface WasmRasterDrawOptions extends DrawCountOptions, DrawClearOptions, DrawAssemblyOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
@@ -214,10 +220,11 @@ export interface WasmRasterDrawOptions extends DrawCountOptions, DrawClearOption
  */
 export interface WasmRasterRoutine {
   /**
-   * Runs the vertex pass over `options.count` vertices (a non-indexed
-   * triangle list, so a multiple of 3 — defaults to everything the first
-   * attribute slot's data implies, like every other draw-capable
-   * adapter's own `count`), then the clip and triangle passes into a
+   * Runs the vertex pass over the vertices the draw names: `options.count`
+   * of them from `options.first`, in order or by `ctx.index`, made into
+   * triangles by `options.topology` (`count` defaults to the vertices the
+   * first attribute the program reads holds, or to the indices from `first`
+   * to the end of `ctx.index`), then the clip and triangle passes into a
    * `width` x `height`, 4-components-per-pixel buffer, the same flat
    * row-major convention `CpuRoutine.draw()` uses. See
    * {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
@@ -433,25 +440,22 @@ export function compileWasmRasterizer(
     return pixels * (VEC4_BYTES + 8);
   }
 
-  /**
-   * The vertices from `first` on that the first attribute the program reads
-   * holds, in the order the host passes them, or 0 when it passes none the
-   * program reads.
-   */
-  function inferCount(attributes: WasmRasterContext["attributes"], first: number): number {
-    // An attribute the program does not read counts for nothing, as a WebGPU
-    // draw reads no buffer its shader does not declare.
-    for (const slot in attributes) {
-      const layout = attrLayout.find((a) => a.slot === slot);
-      if (layout) return Math.floor(attributes[slot]!.length / layout.componentCount) - first;
-    }
-    return 0;
-  }
+  /** The attributes the vertex stage reads from the host, as a draw checks and assembles them. */
+  const hostAttributes = attrLayout.filter((a) => a.slot !== VERTEX_INDEX_SLOT);
+  const read: DrawAttributes = {
+    slots: hostAttributes.map((a) => a.slot),
+    widths: hostAttributes.map((a) => a.componentCount),
+  };
+  /** The vertices each draw shades and the triangles it makes of them. */
+  const assembly = createDrawAssembly(origin, read);
 
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
-    const first = options.first ?? 0;
-    const vertexCount = options.count ?? inferCount(ctx.attributes, first);
+    for (const slot of read.slots) if (!ctx.attributes[slot]) throw missingAttributeError(origin, slot);
+    assembly.draw(ctx.attributes, ctx.index, options);
+    /** The vertices the vertex pass shades: one for each the draw names. */
+    const vertexCount = assembly.slotCount;
+    const triangleCount = assembly.triangleCount;
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
     // Every region is sized before anything is written, so the depth buffer can
     // be moved out of the way of the others first.
@@ -472,8 +476,11 @@ export function compileWasmRasterizer(
     cursor = align8(cursor + varyingLayout.length * VARYING_DESC_BYTES);
     const clipScratchBase = cursor;
     cursor = align8(cursor + 4 * (VEC4_BYTES + varyingBytes));
+    // A list without indices takes each three vertices in turn, which the module does when handed no table.
+    const triangleBase = assembly.inOrder ? 0 : cursor;
+    if (!assembly.inOrder) cursor = align8(cursor + triangleCount * 12);
     // near-plane clipping fans each triangle into at most a quad (2 triangles).
-    const maxClippedVertices = vertexCount * 2;
+    const maxClippedVertices = triangleCount * 6;
     const clippedPositionsOutBase = cursor;
     cursor = align8(cursor + maxClippedVertices * VEC4_BYTES);
     const clippedVaryingsOutBase = cursor;
@@ -522,7 +529,7 @@ export function compileWasmRasterizer(
       // A vertex stage reads `vertexIndex()` as an attribute holding each vertex's index.
       if (a.slot === VERTEX_INDEX_SLOT) {
         for (let v = 0; v < vertexCount; v++)
-          view.setUint32(attrSrcBase + v * attrStrideBytes + a.offset, v + first, true);
+          view.setUint32(attrSrcBase + v * attrStrideBytes + a.offset, assembly.vertexOfSlot[v]!, true);
         continue;
       }
       const src = ctx.attributes[a.slot];
@@ -530,15 +537,23 @@ export function compileWasmRasterizer(
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;
-        const srcIndex = (v + first) * componentCount;
+        const vertex = assembly.vertexOfSlot[v]!;
+        // A vertex past the end of an attribute reads it as zero.
+        const past = (vertex + 1) * componentCount > src.length;
+        const srcIndex = vertex * componentCount;
         for (let c = 0; c < componentCount; c++) {
-          const value = src[srcIndex + c] as number;
+          const value = past ? 0 : (src[srcIndex + c] as number);
           // The vertex stage reads an integer attribute as a 32-bit integer, and a float one as an f64.
           if (a.kind === "float") view.setFloat64(base + c * 8, value, true);
           else if (a.kind === "uint") view.setUint32(base + c * 4, value, true);
           else view.setInt32(base + c * 4, value, true);
         }
       }
+    }
+    if (!assembly.inOrder) {
+      new Int32Array(memory.buffer, triangleBase, triangleCount * 3).set(
+        assembly.triangles.subarray(0, triangleCount * 3),
+      );
     }
     writeAttributeDescriptors(
       view,
@@ -599,6 +614,9 @@ export function compileWasmRasterizer(
       writesDepth,
       discardAddress,
       mayDiscard,
+      triangleBase,
+      triangleCount,
+      cullSign(options),
     );
 
     const result = new Float64Array(memory.buffer, outputBase, width * height * 4);

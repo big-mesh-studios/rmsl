@@ -1,0 +1,110 @@
+{
+  "errors": [],
+  "adapterInfo": {
+    "vendor": "0",
+    "architecture": "",
+    "device": "0",
+    "description": "Apple M1",
+    "isFallbackAdapter": false
+  },
+  "strip": [
+    {
+      "ndc": [
+        -0.567,
+        -0.267
+      ],
+      "pixel": [
+        13,
+        40
+      ],
+      "value": 10,
+      "triangle": 0,
+      "matches": [
+        "v[k]"
+      ]
+    },
+    {
+      "ndc": [
+        -0.2,
+        0.267
+      ],
+      "pixel": [
+        25,
+        23
+      ],
+      "value": 11,
+      "triangle": 1,
+      "matches": [
+        "v[k]"
+      ]
+    },
+    {
+      "ndc": [
+        0.2,
+        -0.267
+      ],
+      "pixel": [
+        38,
+        40
+      ],
+      "value": 12,
+      "triangle": 2,
+      "matches": [
+        "v[k]"
+      ]
+    }
+  ],
+  "list": [
+    {
+      "ndc": [
+        -0.5,
+        -0.633
+      ],
+      "pixel": [
+        16,
+        52
+      ],
+      "value": 20,
+      "triangle": 0,
+      "firstVertexId": 20,
+      "isFirst": true
+    },
+    {
+      "ndc": [
+        0.5,
+        0.367
+      ],
+      "pixel": [
+        48,
+        20
+      ],
+      "value": 30,
+      "triangle": 1,
+      "firstVertexId": 30,
+      "isFirst": true
+    }
+  ],
+  "conclusion": {
+    "perTriangle": [
+      "v[k]",
+      "v[k]",
+      "v[k]"
+    ],
+    "listFlatIsFirst": true
+  },
+  "implementation": {
+    "name": "wgpu via Deno",
+    "deno": {
+      "deno": "2.4.5",
+      "v8": "13.7.152.14-rusty",
+      "typescript": "5.8.3"
+    },
+    "os": {
+      "target": "aarch64-apple-darwin",
+      "arch": "aarch64",
+      "os": "darwin",
+      "vendor": "apple",
+      "standalone": false
+    }
+  }
+}
