@@ -1049,7 +1049,7 @@ describe("a pixel centre on an edge the clip cuts", () => {
    * exactly 0, which its precision puts on the other side.
    *
    * @canon spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
-   * @canon exception-a-gpu-target-decides-a-pixel-centre-on-a-clipped-edge-by-its-precision
+   * @canon exception-a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision
    */
   it.skipIf(!GPU_ENABLED || !WEBGPU)(
     "lights the same pixels on JS and WASM, and on WebGPU but for some centres its precision decides",
