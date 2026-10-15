@@ -1,0 +1,12 @@
+# WebGPU — Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36
+drawIndexed(count 3, first 2.9): no exception; validation none; pixels 0 to 3: nothing | 12 | 12 | nothing
+drawIndexed(count 3.9, first 0): no exception; validation none; pixels 0 to 3: 10 | nothing | nothing | nothing
+drawIndexed(count 3, first -0.5): no exception; validation none; pixels 0 to 3: 10 | nothing | nothing | nothing
+drawIndexed(count 3, first -1): TypeError: Failed to execute 'drawIndexed' on 'GPURenderPassEncoder': Value is outside the 'unsigned long' value range.; validation none; pixels 0 to 3: nothing | nothing | nothing | nothing
+drawIndexed(count -3, first 0): TypeError: Failed to execute 'drawIndexed' on 'GPURenderPassEncoder': Value is outside the 'unsigned long' value range.; validation none; pixels 0 to 3: nothing | nothing | nothing | nothing
+drawIndexed(count 3, first NaN): TypeError: Failed to execute 'drawIndexed' on 'GPURenderPassEncoder': Value is not of type 'unsigned long'.; validation none; pixels 0 to 3: nothing | nothing | nothing | nothing
+drawIndexed(count Infinity, first 0): TypeError: Failed to execute 'drawIndexed' on 'GPURenderPassEncoder': Value is infinite and not of type 'unsigned long'.; validation none; pixels 0 to 3: nothing | nothing | nothing | nothing
+draw(count 3, first 2.9): no exception; validation none; pixels 0 to 3: nothing | 12 | 12 | nothing
+draw(count 3.9, first 0): no exception; validation none; pixels 0 to 3: 10 | nothing | nothing | nothing
+draw(count 3, first -1): TypeError: Failed to execute 'draw' on 'GPURenderPassEncoder': Value is outside the 'unsigned long' value range.; validation none; pixels 0 to 3: nothing | nothing | nothing | nothing
+draw(count NaN, first 0): TypeError: Failed to execute 'draw' on 'GPURenderPassEncoder': Value is not of type 'unsigned long'.; validation none; pixels 0 to 3: nothing | nothing | nothing | nothing
