@@ -64,7 +64,7 @@ window.run = async (forceWebGL, arrayName, stage, value, type, component) => {
     geometry.setAttribute("flag", new T.BufferAttribute(new Arr(Array(3 * width).fill(value)), width));
   }
   const node = attribute("flag", type);
-  const flag = component === null ? node : node[component];
+  const flag = component === null ? node : component === "not" ? node.not() : node[component];
   const material = new T.MeshBasicNodeMaterial();
   if (stage === "vertex") {
     material.vertexNode = vec4(positionGeometry.xy, 0, flag.select(float(1), float(0)));
@@ -106,7 +106,7 @@ const browsers = {
   webgpu: await chromium.launch({ channel: "chromium" }),
   webgl2: await chromium.launch({ args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"] }),
 };
-/** Each case: the stage that reads the attribute, its array (null for none), the value at every component, its type, and the component read. */
+/** Each case: the stage that reads the attribute, its array (null for none), the value at every component, its type, and the component read, or `not` for its negation. */
 const CASES: [string, string | null, number, string, string | null][] = [
   ["vertex", "Float32Array", 1, "bool", null],
   ["vertex", "Float32Array", 0, "bool", null],
@@ -119,6 +119,7 @@ const CASES: [string, string | null, number, string, string | null][] = [
   ["vertex", "Int32Array", -1, "bvec2", "y"],
   ["vertex", "Float32Array", 0.5, "bvec2", "y"],
   ["vertex", null, 0, "bool", null],
+  ["vertex", null, 0, "bool", "not"],
   ["vertex", null, 0, "bvec4", "w"],
   ["vertex", null, 0, "bvec4", "x"],
   ["fragment", "Float32Array", 1, "bool", null],
