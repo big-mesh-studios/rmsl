@@ -485,16 +485,17 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGPU device", () => {
  * `__rmslShaderCompileError` draws with a uniform named `webgl_flag`. rmsl uses
  * a raw name as given, and WebGL reserves the `webgl_` prefix, so the browser
  * refuses to compile the vertex shader on every driver, and its log names the
- * uniform. `__rmslProgramLinkError` reads a uniform array one `vec4` longer than
+ * uniform. `__rmslReservedNames` does the same for each of `uniformRaw`,
+ * `attributeRaw` and `varyingRaw`, with the `webgl_` and the `_webgl_` prefix.
+ * `__rmslProgramLinkError` reads a uniform array one `vec4` longer than
  * the device's `MAX_VERTEX_UNIFORM_VECTORS`. rmsl leaves that limit to the
  * device, and Chromium's WebGL 2 on SwiftShader refuses it when it links the
  * program, not when it compiles the shader.
  */
 const DRIVER_SCENE = `
-import { Fn, builtinPosition, int, uniformArray, uniformRaw, vec4 } from "../rmsl";
+import { Fn, attributeRaw, builtinPosition, int, uniformArray, uniformRaw, varyingRaw, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
-const attach = (vertex) => {
-  const fragment = Fn(() => vec4(0, 1, 0, 1))();
+const attach = (vertex, fragment = Fn(() => vec4(0, 1, 0, 1))()) => {
   try {
     createGlsl(vertex, fragment).attach(document.createElement("canvas"));
     return { thrown: false };
@@ -505,6 +506,22 @@ const attach = (vertex) => {
 globalThis.__rmslShaderCompileError = () => {
   const flag = uniformRaw("webgl_flag", "float");
   return attach(Fn(() => builtinPosition().assign(vec4(flag)))());
+};
+// Each raw name WebGL reserves, as a uniform, an attribute and a varying, with either prefix.
+globalThis.__rmslReservedNames = () => {
+  const results = {};
+  for (const name of ["webgl_flag", "_webgl_flag"]) {
+    const uniform = uniformRaw(name, "float");
+    results[\`uniformRaw \${name}\`] = attach(Fn(() => builtinPosition().assign(vec4(uniform)))());
+    const attribute = attributeRaw(name, "float");
+    results[\`attributeRaw \${name}\`] = attach(Fn(() => builtinPosition().assign(vec4(attribute)))());
+    const varying = varyingRaw(name, "float");
+    results[\`varyingRaw \${name}\`] = attach([
+      Fn(() => varying.assign(1))(),
+      Fn(() => builtinPosition().assign(vec4(0)))(),
+    ], Fn(() => vec4(varying))());
+  }
+  return results;
 };
 globalThis.__rmslProgramLinkError = () => {
   const limit = document.createElement("canvas").getContext("webgl2").getParameter(WebGL2RenderingContext.MAX_VERTEX_UNIFORM_VECTORS);
@@ -525,6 +542,18 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGL 2 driver", () => {
   it("throws a DriverError for a vertex shader the driver does not compile", async () => {
     const result = await runInGpuPage(DRIVER_SCENE, "__rmslShaderCompileError", import.meta.dirname);
     expect(result).toMatchObject({ name: "DriverError", code: "shader-compile", target: "glsl" });
+  }, 120_000);
+
+  /**
+   * @canon spec-a-raw-name-webgl-reserves-reaches-the-glsl-driver
+   */
+  it("throws a DriverError naming a uniform, attribute or varying of either prefix WebGL reserves", async () => {
+    const results = await runInGpuPage(DRIVER_SCENE, "__rmslReservedNames", import.meta.dirname);
+    expect(Object.keys(results)).toHaveLength(6);
+    for (const [form, result] of Object.entries(results as Record<string, { code: string; log: string }>)) {
+      expect({ form, code: result.code }).toEqual({ form, code: "shader-compile" });
+      expect(result.log).toContain(form.split(" ")[1]);
+    }
   }, 120_000);
 
   /**
