@@ -3,6 +3,11 @@ import { attribute, builtinPosition, Fn, uniform, varying, vec4, vertexIndex } f
 import { UsageError } from "../errors";
 import { compileJS, createJs } from "../js";
 import { compileWasm, createWasm } from "../wasm";
+import { TriangleAssembly } from "../backends/assemble";
+import { RASTERIZE_PARAMS } from "../backends/wasm/rasterizer";
+import type { BackendOrigin } from "../errors";
+
+const ORIGIN: BackendOrigin = { target: "js", caller: "compileJS" };
 
 const rasterizers: [string, typeof compileJS][] = [
   ["JS", compileJS],
@@ -211,14 +216,13 @@ describe.each(rasterizers)("a CPU rasterizer on %s assembles triangles as WebGPU
   });
 
   /**
-   * A float attribute of 3 vertices, under a draw of 6: the second triangle's
-   * vertices all lie past its end.
+   * The position attribute holds 6 vertices and comes first, and a shade
+   * attribute holds 3: a check of the first attribute alone, or of `count`
+   * without `first`, would let some of these draws through.
    *
-   * The draw reads the attribute as zero instead.
-   *
-   * @canon bug-a-cpu-draw-whose-count-passes-an-attribute-reads-it-as-zero
+   * @canon spec-a-cpu-draw-whose-count-passes-an-attribute-is-refused
    */
-  it.fails("refuses a draw whose count reaches past the end of an attribute", () => {
+  it("refuses a draw whose count reaches past the end of an attribute", () => {
     const position = attribute("vec4");
     const shade = attribute("float");
     const s = varying("float");
@@ -230,13 +234,16 @@ describe.each(rasterizers)("a CPU rasterizer on %s assembles triangles as WebGPU
         })() as any,
       () => Fn(() => vec4(s, 1, 0, 1))() as any,
     );
-    const positions = zigzag(6);
-    expect(() =>
+    const positions = Float64Array.from(zigzag(6));
+    const draw = (shades: number, options: Partial<DrawOptions>) =>
       routine.draw(
-        { attributes: { [position.name]: Float64Array.from(positions), [shade.name]: Float64Array.of(0.5, 0.5, 0.5) } },
-        { width: WIDTH, height: HEIGHT, count: 6 },
-      ),
-    ).toThrowRmsl(UsageError, "attribute-range");
+        { attributes: { [position.name]: positions, [shade.name]: new Float64Array(shades).fill(0.5) } },
+        { width: WIDTH, height: HEIGHT, ...options },
+      );
+    expect(() => draw(3, { count: 6 })).toThrowRmsl(UsageError, "attribute-range", shade.name);
+    expect(() => draw(3, {})).toThrowRmsl(UsageError, "attribute-range");
+    expect(() => draw(6, { first: 4, count: 3 })).toThrowRmsl(UsageError, "attribute-range");
+    expect(() => draw(6, { first: 3, count: 3 })).not.toThrow();
   });
 
   /**
@@ -325,6 +332,16 @@ describe.each(rasterizers)("a CPU rasterizer on %s draws by an index array", (_,
     expect(draw(positions, { first: 6, count: 0 }, index)(centroid(positions, 0, 1, 2))).toBe(null);
     for (const options of [{ first: 4, count: 3 }, { first: 0, count: 7 }, { first: 7 }])
       expect(() => draw(positions, options, index)).toThrowRmsl(UsageError, "index-range");
+    expect(() => draw(positions, { first: 4, count: 3 }, index)).toThrowRmsl(
+      UsageError,
+      "index-range",
+      /3 indices from index 4.*holds 6/,
+    );
+    expect(() => draw(positions, { first: 7 }, index)).toThrowRmsl(
+      UsageError,
+      "index-range",
+      /the indices from index 7 to the end.*holds 6/,
+    );
   });
 
   /**
@@ -415,6 +432,119 @@ describe.each(rasterizers)("a CPU rasterizer on %s draws by an index array", (_,
     const positions = [...zigzag(6), 0, 0.9, 0, 1];
     const show = idProgram(compile)(positions, {}, Uint16Array.of(6, 0, 1), [10, 11, 12, 13, 14, 15]);
     expect(show(centroid(positions, 6, 0, 1))).toEqual({ id: 0, vertexIndex: 6 });
+  });
+});
+
+describe.each(rasterizers)("a CPU rasterizer on %s takes first and count as WebGPU takes them", (_, compile) => {
+  /**
+   * 2.9 would round to 3 and 3.9 to 4: a rounding draw would draw from vertex 3,
+   * or a fourth vertex that completes no triangle.
+   *
+   * @canon spec-a-cpu-draw-drops-the-fraction-of-first-and-count
+   */
+  it("drops the fraction of first and count, with and without indices", () => {
+    const positions = zigzag(8);
+    const draw = idProgram(compile);
+    const index = Uint16Array.of(0, 1, 2, 3, 4, 5, 6, 7);
+    for (const by of [undefined, index]) {
+      const show = draw(positions, { topology: "triangle-strip", first: 2.9, count: 3.9 }, by);
+      expect(stripIds(show, positions, 6)).toEqual([null, null, 12, null, null, null]);
+    }
+  });
+
+  /**
+   * -0.5 drops its fraction to 0 and draws, where rounding down would give -1.
+   *
+   * @canon spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count
+   */
+  it("refuses a first or count that is negative, not finite or past 4294967295", () => {
+    const positions = zigzag(6);
+    const draw = idProgram(compile);
+    const index = Uint16Array.of(0, 1, 2, 3, 4, 5);
+    for (const by of [undefined, index]) {
+      for (const options of [{ first: -1 }, { count: -3 }, { first: NaN }, { count: Infinity }, { first: 4294967296 }])
+        expect(() => draw(positions, options, by)).toThrowRmsl(UsageError, "draw-range");
+      expect(draw(positions, { first: -0.5, count: 3 }, by)(centroid(positions, 0, 1, 2))?.id).toBe(10);
+    }
+  });
+});
+
+describe.each(rasterizers)("a CPU rasterizer on %s refuses an option value it does not name", (_, compile) => {
+  const draw = (options: Record<string, unknown>) => idProgram(compile)(zigzag(4), options as Partial<DrawOptions>);
+
+  /**
+   * @canon spec-a-cpu-draw-refuses-an-unknown-topology
+   */
+  it("refuses a topology it does not name", () => {
+    for (const topology of ["triangle-fan", "point-list", "line-strip", "TRIANGLE-STRIP"])
+      expect(() => draw({ topology })).toThrowRmsl(UsageError, "unknown-draw-option", topology);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-refuses-an-unknown-cull-mode
+   */
+  it("refuses a cull mode it does not name", () => {
+    for (const cullMode of ["Back", "both", ""])
+      expect(() => draw({ cullMode })).toThrowRmsl(UsageError, "unknown-draw-option", "cullMode");
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-refuses-an-unknown-front-face
+   */
+  it("refuses a front face it does not name", () => {
+    for (const frontFace of ["CW", "clockwise"])
+      expect(() => draw({ frontFace })).toThrowRmsl(UsageError, "unknown-draw-option", frontFace);
+  });
+});
+
+describe("the tables a CPU draw assembles its triangles in", () => {
+  /**
+   * @canon spec-a-js-draw-without-indices-keeps-no-vertex-table
+   */
+  it("keeps no table of the vertices of a draw without indices", () => {
+    const assembly = new TriangleAssembly();
+    assembly.assemble(ORIGIN, undefined, 0, 6, "triangle-strip", 6);
+    expect(assembly.triangleCount).toBe(4);
+    expect((assembly as unknown as { slotOfVertex: Int32Array }).slotOfVertex.length).toBe(0);
+  });
+
+  /**
+   * The rasterizer module's `rasterize` is wrapped to read the `triangleBase`
+   * each draw hands it: 0 for a list without indices, a table for a strip.
+   *
+   * @canon spec-a-wasm-list-draw-without-indices-writes-no-triangle-table
+   */
+  it("hands the WASM rasterizer module no table for a list without indices", () => {
+    const Instance = WebAssembly.Instance;
+    const bases: number[] = [];
+    (WebAssembly as any).Instance = function (module: WebAssembly.Module, imports?: any) {
+      const instance = new Instance(module, imports);
+      if (!imports?.vertex) return instance;
+      const rasterize = instance.exports.rasterize as (...args: number[]) => void;
+      return {
+        exports: {
+          ...instance.exports,
+          rasterize: (...args: number[]) => {
+            bases.push(args[RASTERIZE_PARAMS.indexOf("triangleBase")]!);
+            rasterize(...args);
+          },
+        },
+      };
+    };
+    try {
+      const position = attribute("vec4");
+      const routine = compileWasm(
+        () => Fn(() => builtinPosition().assign(position))() as any,
+        () => Fn(() => vec4(1))() as any,
+      );
+      const ctx = { attributes: { [position.name]: Float64Array.from(zigzag(6)) } };
+      routine.draw(ctx, { width: 4, height: 4 });
+      routine.draw(ctx, { width: 4, height: 4, topology: "triangle-strip" });
+    } finally {
+      (WebAssembly as any).Instance = Instance;
+    }
+    expect(bases[0]).toBe(0);
+    expect(bases[1]).toBeGreaterThan(0);
   });
 });
 

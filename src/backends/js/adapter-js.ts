@@ -24,7 +24,7 @@ import {
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileJS, compileJSRasterizer, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour, linkStages } from "../shared";
-import { assertIndexArray, CpuIndexArray, DrawAssemblyOptions } from "../assemble";
+import { CpuIndexArray, DrawAssemblyOptions, indexHolder } from "../assemble";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
 
 export interface CreateJsGridOptions {
@@ -203,7 +203,7 @@ export function createJs(
   const uniforms: Record<string, unknown> = {};
   const attributes: Record<string, TypedArray> = {};
   const textures: Record<string, CpuTextureData> = {};
-  let index: CpuIndexArray | undefined;
+  const indices = indexHolder(CREATE_JS);
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
@@ -235,17 +235,11 @@ export function createJs(
       textures[slotOf(sampler)] = texture;
     },
 
-    setIndex(given) {
-      if (given === null) index = undefined;
-      else {
-        assertIndexArray(CREATE_JS, given);
-        index = given;
-      }
-    },
+    setIndex: indices.set,
 
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new UsageError("not-attached", "createJs: attach() was never called", CREATE_JS);
-      const ctx: JsRasterContext = { attributes, uniforms, textures, index };
+      const ctx: JsRasterContext = { attributes, uniforms, textures, index: indices.index };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,
         first: drawOptions?.first,

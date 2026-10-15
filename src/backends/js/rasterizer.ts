@@ -3,7 +3,14 @@ import { Node, ShaderType, componentCountOf, componentKindOf, type ScalarKind } 
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
-import { CpuIndexArray, cullSign, DrawAssemblyOptions, TriangleAssembly } from "../assemble";
+import {
+  assembleDraw,
+  CpuIndexArray,
+  cullSign,
+  DrawAssemblyOptions,
+  DrawAttributes,
+  TriangleAssembly,
+} from "../assemble";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -186,8 +193,8 @@ export function compileJSRasterizer(
   const attributeSlots = Object.keys(vertexStage.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(vertexStage.attributeTypes[slot]!));
   const attributeKinds = attributeSlots.map((slot) => componentKindOf(vertexStage.attributeTypes[slot]!));
-  const widths: Record<string, number> = {};
-  attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
+  /** The attributes the vertex stage reads, as a draw checks and assembles them. */
+  const read: DrawAttributes = { slots: attributeSlots, widths: attributeWidths };
   /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */
   const vertexAttributes: Record<string, number | Float64Array | undefined> = {};
   attributeSlots.forEach((slot, i) => {
@@ -367,35 +374,11 @@ export function compileJSRasterizer(
   function drawShaded(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
     const { attributes } = ctx;
-    const first = options.first ?? 0;
     for (let a = 0; a < attributeSlots.length; a++) {
       const slot = attributeSlots[a]!;
       if (!attributes[slot]) throw missingAttributeError(origin, slot);
     }
-    // An attribute the program does not read counts for nothing, as a WebGPU
-    // draw reads no buffer its shader does not declare. A draw that names its
-    // count, or takes its vertices by indices, counts none.
-    let inferredCount = 0;
-    if (!ctx.index && options.count === undefined) {
-      for (const slot in attributes) {
-        if (widths[slot] === undefined) continue;
-        inferredCount = Math.floor(attributes[slot]!.length / widths[slot]!) - first;
-        break;
-      }
-    }
-    // The vertices the longest attribute holds; an index past them reads every attribute as zero.
-    let held = 0;
-    for (let a = 0; a < attributeSlots.length; a++) {
-      held = Math.max(held, Math.floor(attributes[attributeSlots[a]!]!.length / attributeWidths[a]!));
-    }
-    assembly.assemble(
-      origin,
-      ctx.index,
-      first,
-      ctx.index ? options.count : (options.count ?? inferredCount),
-      options.topology,
-      held,
-    );
+    assembleDraw(assembly, origin, attributes, read, ctx.index, options);
 
     // vertex pass: once for each vertex the draw names
     for (let i = 0; i < assembly.slotCount; i++) {

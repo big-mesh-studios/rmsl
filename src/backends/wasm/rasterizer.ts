@@ -12,7 +12,14 @@ import {
   WasmParam,
 } from "./wasm";
 import { linkStages } from "../shared";
-import { CpuIndexArray, cullSign, DrawAssemblyOptions, TriangleAssembly } from "../assemble";
+import {
+  assembleDraw,
+  CpuIndexArray,
+  cullSign,
+  DrawAssemblyOptions,
+  DrawAttributes,
+  TriangleAssembly,
+} from "../assemble";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -443,40 +450,17 @@ export function compileWasmRasterizer(
     return pixels * (VEC4_BYTES + 8);
   }
 
-  /**
-   * The vertices from `first` on that the first attribute the program reads
-   * holds, in the order the host passes them, or 0 when it passes none the
-   * program reads.
-   */
-  function inferCount(attributes: WasmRasterContext["attributes"], first: number): number {
-    // An attribute the program does not read counts for nothing, as a WebGPU
-    // draw reads no buffer its shader does not declare.
-    for (const slot in attributes) {
-      const layout = attrLayout.find((a) => a.slot === slot);
-      if (layout) return Math.floor(attributes[slot]!.length / layout.componentCount) - first;
-    }
-    return 0;
-  }
+  /** The attributes the vertex stage reads from the host, as a draw checks and assembles them. */
+  const hostAttributes = attrLayout.filter((a) => a.slot !== VERTEX_INDEX_SLOT);
+  const read: DrawAttributes = {
+    slots: hostAttributes.map((a) => a.slot),
+    widths: hostAttributes.map((a) => a.componentCount),
+  };
 
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
-    const first = options.first ?? 0;
-    // The vertices the longest attribute holds; an index past them reads every attribute as zero.
-    let held = 0;
-    for (const a of attrLayout) {
-      if (a.slot === VERTEX_INDEX_SLOT) continue;
-      const src = ctx.attributes[a.slot];
-      if (!src) throw missingAttributeError(origin, a.slot);
-      held = Math.max(held, Math.floor(src.length / a.componentCount));
-    }
-    assembly.assemble(
-      origin,
-      ctx.index,
-      first,
-      ctx.index ? options.count : (options.count ?? inferCount(ctx.attributes, first)),
-      options.topology,
-      held,
-    );
+    for (const slot of read.slots) if (!ctx.attributes[slot]) throw missingAttributeError(origin, slot);
+    assembleDraw(assembly, origin, ctx.attributes, read, ctx.index, options);
     /** The vertices the vertex pass shades: one for each the draw names. */
     const vertexCount = assembly.slotCount;
     const triangleCount = assembly.triangleCount;
@@ -500,8 +484,9 @@ export function compileWasmRasterizer(
     cursor = align8(cursor + varyingLayout.length * VARYING_DESC_BYTES);
     const clipScratchBase = cursor;
     cursor = align8(cursor + 4 * (VEC4_BYTES + varyingBytes));
-    const triangleBase = cursor;
-    cursor = align8(cursor + triangleCount * 12);
+    // A list without indices takes each three vertices in turn, which the module does when handed no table.
+    const triangleBase = assembly.inOrder ? 0 : cursor;
+    if (!assembly.inOrder) cursor = align8(cursor + triangleCount * 12);
     // near-plane clipping fans each triangle into at most a quad (2 triangles).
     const maxClippedVertices = triangleCount * 6;
     const clippedPositionsOutBase = cursor;
@@ -573,9 +558,11 @@ export function compileWasmRasterizer(
         }
       }
     }
-    new Int32Array(memory.buffer, triangleBase, triangleCount * 3).set(
-      assembly.triangles.subarray(0, triangleCount * 3),
-    );
+    if (!assembly.inOrder) {
+      new Int32Array(memory.buffer, triangleBase, triangleCount * 3).set(
+        assembly.triangles.subarray(0, triangleCount * 3),
+      );
+    }
     writeAttributeDescriptors(
       view,
       attrDescBase,

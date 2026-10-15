@@ -24,7 +24,7 @@ import {
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileWasm, compileWasmRasterizer, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour, linkStages } from "../shared";
-import { assertIndexArray, CpuIndexArray, DrawAssemblyOptions } from "../assemble";
+import { CpuIndexArray, DrawAssemblyOptions, indexHolder } from "../assemble";
 import {
   compileWasmCompute,
   compileWasmGrid,
@@ -238,7 +238,7 @@ export function createWasm(
   const uniforms: Record<string, number | number[]> = {};
   const attributes: Record<string, TypedArray> = {};
   const textures: Record<string, CpuTextureData> = {};
-  let index: CpuIndexArray | undefined;
+  const indices = indexHolder(CREATE_WASM);
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
@@ -270,17 +270,11 @@ export function createWasm(
       textures[slotOf(sampler)] = texture;
     },
 
-    setIndex(given) {
-      if (given === null) index = undefined;
-      else {
-        assertIndexArray(CREATE_WASM, given);
-        index = given;
-      }
-    },
+    setIndex: indices.set,
 
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new UsageError("not-attached", "createWasm: attach() was never called", CREATE_WASM);
-      const ctx: WasmRasterContext = { attributes, uniforms, textures, index };
+      const ctx: WasmRasterContext = { attributes, uniforms, textures, index: indices.index };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,
         first: drawOptions?.first,

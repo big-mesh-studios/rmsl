@@ -1473,6 +1473,48 @@ describe("the scalars and inputs of a JS function", () => {
     const options = { width: 16, height: 16, topology: "triangle-strip" as const, cullMode: "back" as const };
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
   });
+
+  /**
+   * A program that reads no attribute and places its four vertices by
+   * `vertexIndex()`: each index lies past every attribute, as there is none,
+   * so a table sized by the attributes alone would send each through a map.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing on an indexed draw whose program reads no attribute", async () => {
+    // Vertex v lies at x = v - 1, y = 1 - (v % 2) * 2: vertices 0 to 3 make a quad over the target.
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          const v = vertexIndex().toFloat();
+          builtinPosition().assign(vec4(v.sub(1), float(1).sub(v.mod(2).mul(2)), 0, 1));
+        })(),
+      () => Fn(() => vec4(1, 0, 0, 1))(),
+    );
+    const ctx = { attributes: {}, index: Uint16Array.of(0, 2, 1, 1, 2, 3) };
+    const options = { width: 16, height: 16 };
+    expect(Array.from(raster.draw(ctx, options).slice(0, 4))).toEqual([1, 0, 0, 1]);
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * Indices into four vertices of an attribute, each named twice.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing on an indexed draw whose indices name the vertices its attributes hold", async () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1, 0, 0, 1))(),
+    );
+    const ctx = {
+      attributes: { [position.name]: Float64Array.of(-1, 1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 0) },
+      index: Uint32Array.of(0, 1, 2, 2, 1, 3),
+    };
+    const options = { width: 16, height: 16 };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
 });
 
 describe("what a JS program keeps after a call", () => {
