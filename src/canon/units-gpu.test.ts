@@ -830,8 +830,9 @@ describe("a path of a vertex stage that writes no position", () => {
  * reports, and once on a canvas whose context has no alpha, in a colour of
  * alpha 0.5, as the red and alpha bytes. `__rmslEdgePixelsOnWebGpu` draws with
  * `createGlsl` and `createWgsl`, with the WebGPU adapter's vendor and
- * architecture. Both draw lines that cross pixels off their centres, and
- * points on pixel corners, with each GPU adapter. The draws of `createGlsl`
+ * architecture. Both draw lines that cross pixels off their centres with
+ * each GPU adapter, and points on pixel corners with `createWgsl`, since a
+ * GLSL point has no defined size. The draws of `createGlsl`
  * come with the name of the driver that made them.
  */
 const EDGE_PIXELS = `${READ_IMAGE}
@@ -886,9 +887,9 @@ const drawEach = async (create) => {
 const glsl = (vertex, fragment) => createGlsl(vertex, fragment);
 const LINES = [[[0.2, 0.1], [3.9, 3.6]], [[0.1, 3.3], [3.7, 0.4]]];
 const POINTS = [[1, 1], [3, 2]];
-const primitivesOn = async (create) => {
+const primitivesOn = async (create, names = ["lines", "points"]) => {
   const result = {};
-  for (const [name, vertices] of [["lines", LINES.flat()], ["points", POINTS]]) {
+  for (const [name, vertices] of [["lines", LINES.flat()], ["points", POINTS]].filter(([name]) => names.includes(name))) {
     const pos = attribute("vec2");
     const canvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
     const adapter = create(Fn(() => vec4(pos, 0, 1))(), Fn(() => vec4(1, 0, 0, 1))(), name);
@@ -929,7 +930,7 @@ globalThis.__rmslEdgePixelsOnWebGl = async () => {
     wasm: await drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment)),
     multisampled,
     withoutAlpha: await withoutAlpha(),
-    primitives: { glsl: await primitivesOn(glsl) },
+    primitives: { glsl: await primitivesOn(glsl, ["lines"]) },
   };
 };
 globalThis.__rmslEdgePixelsOnWebGpu = async () => {
@@ -940,7 +941,7 @@ globalThis.__rmslEdgePixelsOnWebGpu = async () => {
     wgsl: await drawEach(wgslWith("triangle-list")),
     adapter: \`\${info.vendor}/\${info.architecture}\`,
     primitives: {
-      glsl: await primitivesOn(glsl),
+      glsl: await primitivesOn(glsl, ["lines"]),
       wgsl: await primitivesOn((vertex, fragment, name) => wgslWith(name === "lines" ? "line-list" : "point-list")(vertex, fragment)),
     },
   };
@@ -985,11 +986,17 @@ const MEASURED_GLSL_HORIZONTAL: Record<string, string> = {
   splitRowBelow: "0 0 0 0/0 0 0 0/255 255 255 255/255 255 255 255",
 };
 
-/** The drivers whose GLSL rule for a pixel centre on an edge was measured: ANGLE on SwiftShader and on Metal. */
-const MEASURED_GLSL_DRIVER = /SwiftShader|ANGLE Metal Renderer/;
+/** The drivers whose GLSL rule for a pixel centre on an edge was measured: ANGLE on SwiftShader, and on Metal on an Apple M1. */
+const MEASURED_GLSL_DRIVER = /SwiftShader|ANGLE Metal Renderer: Apple M1,/;
 
-/** The WebGPU adapters, as `vendor/architecture`, whose rule for a pixel centre on an edge was measured: Metal on Apple silicon. */
-const MEASURED_WGSL_ADAPTER = /^apple\/metal-/;
+/**
+ * Whether the WebGPU page draws through the adapter whose rule for a pixel
+ * centre on an edge was measured: Metal on an Apple M1. The adapter, as
+ * `vendor/architecture`, names no model, so the WebGL renderer of the same
+ * page names it.
+ */
+const measuredWgslAdapter = (adapter: string, renderer: string) =>
+  /^apple\/metal-/.test(adapter) && /ANGLE Metal Renderer: Apple M1,/.test(renderer);
 
 /** The shapes of `EDGE_PIXELS` that together cover the canvas, sharing one edge through pixel centres. */
 const COMPLEMENTARY = [
@@ -1075,21 +1082,17 @@ describe("a pixel an edge of a triangle crosses", () => {
 
   /**
    * The lines cross pixels away from their centres, where a multisampled
-   * buffer covers a part of a pixel, and the points sit on pixel corners, where
-   * a multisampled buffer covers a part of four.
+   * buffer covers a part of a pixel. Points are left out: a GLSL point has no
+   * defined size.
    *
    * @canon spec-the-glsl-adapter-makes-its-context-with-one-sample
    */
   it.skipIf(!GPU_ENABLED)(
-    "is shaded whole or not at all by a line or a point on createGlsl",
+    "is shaded whole or not at all by a line on createGlsl",
     async () => {
       const { glsl } = (await drawnOnEach()).primitives;
       for (const drawn of glsl) {
         expect(shadedWholeOrNotAtAll({ lines: [drawn.lines!, drawn.lines!] }), JSON.stringify(drawn)).toBe(true);
-        expect(
-          drawn.points!.split(/[ /]/).every((alpha: string) => alpha === "0" || alpha === "255"),
-          JSON.stringify(drawn),
-        ).toBe(true);
       }
     },
     120_000,
@@ -1133,17 +1136,18 @@ describe("a pixel an edge of a triangle crosses", () => {
   );
 
   /**
-   * The measured adapter follows the top-left rule on every edge. Another
-   * adapter passes whatever it shades: WebGPU leaves the rule to the driver.
+   * The measured adapter follows the top-left rule on every edge. On another
+   * adapter the test is skipped: WebGPU leaves the rule to the driver.
    *
    * @canon exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver
    */
   it.skipIf(!GPU_ENABLED || !WEBGPU)(
     "on a top or a left edge, horizontal, vertical or sloped, is shaded on createWgsl, on the measured adapter",
-    async () => {
-      const { wgsl, adapter } = await drawnOnEach();
-      if (MEASURED_WGSL_ADAPTER.test(adapter!))
-        expect(wgsl, adapter).toEqual(byTopLeftRule(Object.keys(TOP_LEFT_RULE)));
+    async (context) => {
+      const { wgsl, adapter, glsl } = await drawnOnEach();
+      const renderer = glsl[1]!.renderer;
+      if (!measuredWgslAdapter(adapter!, renderer)) return context.skip(`unmeasured adapter ${adapter} (${renderer})`);
+      expect(wgsl, adapter).toEqual(byTopLeftRule(Object.keys(TOP_LEFT_RULE)));
     },
     120_000,
   );
@@ -1185,22 +1189,25 @@ describe("a pixel an edge of a triangle crosses", () => {
   /**
    * The measured drivers follow WebGPU's rule but on a horizontal edge, whose
    * centres they give to the triangle above. Another driver is checked only by
-   * the test above.
+   * the test above, and the test is skipped when no driver it drew on was
+   * measured.
    *
    * @canon exception-a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver
    */
   it.skipIf(!GPU_ENABLED)(
     "on a horizontal edge belongs to the triangle above it on createGlsl, on the measured drivers",
-    async () => {
+    async (context) => {
+      const drawn = (await drawnOnEach()).glsl.filter(({ renderer }: { renderer: string }) =>
+        MEASURED_GLSL_DRIVER.test(renderer),
+      );
+      if (drawn.length === 0) return context.skip("no measured driver");
       const expected = Object.fromEntries(
         Object.entries({ ...TOP_LEFT_RULE, ...MEASURED_GLSL_HORIZONTAL }).map(([name, pattern]) => [
           name,
           [pattern, pattern],
         ]),
       );
-      for (const { renderer, shapes } of (await drawnOnEach()).glsl) {
-        if (MEASURED_GLSL_DRIVER.test(renderer)) expect(shapes, renderer).toEqual(expected);
-      }
+      for (const { renderer, shapes } of drawn) expect(shapes, renderer).toEqual(expected);
     },
     120_000,
   );
@@ -1227,7 +1234,7 @@ describe("a pixel an edge of a triangle crosses", () => {
             expect(crossed, alphas).toBeLessThan(255);
           }
         } else {
-          expect([first, third], alphas).toEqual([255, 0]);
+          for (const crossed of [first, third]) expect([0, 255], alphas).toContain(crossed);
         }
       }
     },
@@ -1236,7 +1243,9 @@ describe("a pixel an edge of a triangle crosses", () => {
 
   /**
    * The colour has alpha 0.5. A drawing buffer without alpha keeps no alpha,
-   * so every pixel reads 255, and the red shows the columns were drawn.
+   * so every pixel reads 255, and the red shows the columns were drawn: column
+   * 1 inside the rectangle, column 3 outside it, and columns 0 and 2, whose
+   * centres its edges cross, whole or empty as the driver decides.
    *
    * @canon spec-the-glsl-adapter-draws-with-the-context-a-canvas-has
    */
@@ -1245,7 +1254,13 @@ describe("a pixel an edge of a triangle crosses", () => {
     async () => {
       const { red, alpha } = (await drawnOnEach()).withoutAlpha;
       expect(alpha).toBe(Array(16).fill(255).join(" "));
-      expect(red).toBe(Array(4).fill("255 255 0 0").join(" "));
+      const reds = red.split(" ").map(Number);
+      for (let row = 0; row < 4; row++) {
+        const [first, second, third, fourth] = reds.slice(row * 4, row * 4 + 4);
+        expect(second, red).toBe(255);
+        expect(fourth, red).toBe(0);
+        for (const crossed of [first, third]) expect([0, 255], red).toContain(crossed);
+      }
     },
     120_000,
   );
