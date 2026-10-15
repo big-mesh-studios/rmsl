@@ -998,7 +998,7 @@ describe("a pixel an edge of a triangle crosses", () => {
     })());
 
   /**
-   * @canon spec-the-glsl-adapter-draws-with-one-sample
+   * @canon spec-the-glsl-adapter-makes-its-context-with-one-sample
    */
   it.skipIf(!GPU_ENABLED)(
     "is shaded whole or not at all on createGlsl",
@@ -1106,7 +1106,7 @@ describe("a pixel an edge of a triangle crosses", () => {
    * The rectangle's edges cross the centres of columns 0 and 2, which take a
    * part of the colour. How large a part depends on the sample pattern.
    *
-   * @canon exception-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
+   * @canon spec-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
    */
   it.skipIf(!GPU_ENABLED)(
     "takes part of the colour on createGlsl attached to a canvas whose context multisamples",

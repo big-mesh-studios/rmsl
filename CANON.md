@@ -39,11 +39,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
   - [`@spec every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) — Every target shades a pixel by its centre alone, with one sample, so a pixel that an edge of a triangle crosses takes the colour of the triangle or none.
     - [`@spec the-glsl-adapter-draws-with-one-sample`](#spec-the-glsl-adapter-draws-with-one-sample) — `createGlsl` asks its WebGL 2 context for no multisampling, so it shades a pixel whole or not at all, as WebGPU does.
+      - [`@spec the-glsl-adapter-makes-its-context-with-one-sample`](#spec-the-glsl-adapter-makes-its-context-with-one-sample) — `createGlsl` attached to a canvas that has no context yet makes a WebGL 2 context with no multisampling, so it shades a pixel whole or not at all.
+      - [`@spec the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has`](#spec-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has) — `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
     - [`@spec the-wgsl-adapter-draws-with-one-sample`](#spec-the-wgsl-adapter-draws-with-one-sample) — `createWgsl` draws with one sample, so it shades a pixel whole or not at all.
     - [`@spec a-cpu-rasterizer-shades-a-pixel-whole-or-not-at-all`](#spec-a-cpu-rasterizer-shades-a-pixel-whole-or-not-at-all) — The JS and WASM rasterizers of `createJs` and `createWasm` test the centre of a pixel alone, so they shade a pixel whole or not at all.
     - [`@spec webgl-renderer-draws-with-one-sample-by-default`](#spec-webgl-renderer-draws-with-one-sample-by-default) — `WebGLRenderer` asks its WebGL 2 context for no multisampling when its `antialias` option is not true, as three.js's `WebGLRenderer` does.
     - [`@exception webgl-renderer-multisamples-when-antialias-is-true`](#exception-webgl-renderer-multisamples-when-antialias-is-true) — `WebGLRenderer` given `antialias: true` asks its WebGL 2 context for multisampling, so a pixel an edge crosses takes part of the triangle's colour.
-    - [`@exception the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has`](#exception-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has) — `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
     - [`@exception webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has`](#exception-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has) — `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context, and with its samples, whatever its `antialias` option asks. It neither warns nor refuses, as three.js's `WebGLRenderer` does neither.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
@@ -1214,6 +1215,24 @@ Derives from: [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-con
 
 This follows because a WebGL 2 context multisamples unless asked not to, and WebGPU draws with one sample.
 
+##### @spec the-glsl-adapter-makes-its-context-with-one-sample
+
+> `createGlsl` attached to a canvas that has no context yet makes a WebGL 2 context with no multisampling, so it shades a pixel whole or not at all.
+
+This follows because `getContext` honours the attributes it is given when it makes a context, and the canvas holds no other context to share.
+
+##### @spec the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
+
+> `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
+
+Derives from: [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
+
+This follows because `createGlsl` then shares a canvas with a `WebGLRenderer` made with `antialias: true`, as three.js's `WebGLRenderer` shares the context a canvas has, and drawing with one sample there would cost a resolve and a full-screen copy on every draw.
+
+No fact forces this. `createGlsl` could resolve the canvas into a single-sampled framebuffer with `blitFramebuffer`, draw there, and copy the whole result back with a full-screen quad. A probe on SwiftShader and on Metal in Chromium found that the pixels the other adapters drew survive that copy on a context with alpha. On a context made with `alpha: false`, the resolve fails with `INVALID_OPERATION` and the copy blacks out what the page drew. There the route would need a framebuffer of the canvas's own format. That route costs a resolve and a copy per draw.
+
+Refusing a canvas whose `SAMPLES` is greater than 0 would stop `createGlsl` from drawing beside a `WebGLRenderer` made with `antialias: true`.
+
 #### @spec the-wgsl-adapter-draws-with-one-sample
 
 > `createWgsl` draws with one sample, so it shades a pixel whole or not at all.
@@ -1245,14 +1264,6 @@ This follows because three.js draws with one sample unless asked, so following t
 Derives from: [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default), [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
 
 three.js's `WebGLRenderer` multisamples when its `antialias` option is true, and a three.js scene ports by changing its import. The application asks for the departure by name.
-
-#### @exception the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
-
-> `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
-
-Derives from: [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
-
-A context keeps the multisampling it was made with for its life. Refusing such a canvas would stop `createGlsl` from drawing beside a `WebGLRenderer` made with `antialias: true`.
 
 #### @exception webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
 
