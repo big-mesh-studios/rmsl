@@ -558,7 +558,8 @@ function lowerBooleanAttributes<T>(roots: T, intoCalls: boolean): T {
   someNode(roots, (n) => {
     if (n.type === "attribute") {
       const carrier = unsignedCarrierOf(n.value.shaderType);
-      if (carrier !== undefined && !replaced.has(n)) replaced.set(n, unsignedRead(n, carrier).convert(n.value.shaderType));
+      if (carrier !== undefined && !replaced.has(n))
+        replaced.set(n, unsignedRead(n, carrier).convert(n.value.shaderType));
     } else if (n.type === "assign" && n.params[0]?.value?.carries !== undefined) {
       const [, value] = n.params;
       const attribute = value.type === "construct" ? value.params[0] : undefined;

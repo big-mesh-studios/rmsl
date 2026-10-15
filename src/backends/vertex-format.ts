@@ -164,7 +164,8 @@ export function vertexFormatOf(origin: Origin, attr: VertexSource, type: string)
       origin,
     );
   // A boolean takes only the two 32-bit integer arrays, so any other is refused before a format is looked for it.
-  if (boolean && !(attr.array instanceof Int32Array || attr.array instanceof Uint32Array)) throw anotherKind(attr.format);
+  if (boolean && !(attr.array instanceof Int32Array || attr.array instanceof Uint32Array))
+    throw anotherKind(attr.format);
   const declared = attr.format ?? formatName(origin, attr, count);
   // A boolean reads a signed 32-bit integer's bits as unsigned, which are zero exactly where the integer is.
   const named = boolean && declared.startsWith("sint32") ? (`u${declared.slice(1)}` as VertexFormat) : declared;
@@ -258,9 +259,10 @@ function hostArrayError(
   float64: boolean,
 ): Error {
   const kind = attributeKindOf(type);
-  const takes = componentKindOf(type) === "bool"
-    ? "Int32Array or a Uint32Array"
-    : `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
+  const takes =
+    componentKindOf(type) === "bool"
+      ? "Int32Array or a Uint32Array"
+      : `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
   return new UsageError(
     "host-array-of-another-kind",
     `the ${type} ${what}${slot === undefined ? "" : ` "${slot}"`} takes ${withArticle(takes)}, not ${withArticle(arrayTypeName(data))}. ` +
