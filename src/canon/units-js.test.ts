@@ -602,7 +602,7 @@ describe("a varying a CPU vertex stage does not write", () => {
 
 describe("the varyings a JS rasterizer interpolates", () => {
   /**
-   * @canon spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes
+   * @canon spec-a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes
    */
   it("interpolates a varying the first vertex does not write, as 0 at that vertex", () => {
     const position = attribute("vec3");

@@ -763,7 +763,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
-    - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
+    - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips at the near plane, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
@@ -778,7 +778,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
-      - [`@spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes`](#spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes) — The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+      - [`@spec a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes`](#spec-a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes) — The JS rasterizer interpolates every float varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
       - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
       - [`@spec an-input-is-bound-by-its-node`](#spec-an-input-is-bound-by-its-node) — A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
@@ -5646,7 +5646,7 @@ This follows because the vector a JS function computes lives in a slot that the 
 
 #### @spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair
 
-> `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
+> `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips at the near plane, and keeps the closer fragment.
 
 ##### @spec the-wasm-rasterizer-links-its-stages-in-one-memory
 
@@ -5746,13 +5746,13 @@ Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target
 
 This follows because a WebGPU pipeline culls no face unless it asks to, and a CPU target gives what WebGPU gives.
 
-##### @spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes
+##### @spec a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes
 
-> The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+> The JS rasterizer interpolates every float varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
 
 Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
 
-This follows because a GPU passes the fragment stage every varying the vertex stage declares, from every vertex, and leaves the value of one a vertex does not write undefined, which 0 is as good a value for as any.
+This follows because a GPU passes the fragment stage every varying the vertex stage declares, from every vertex, and leaves the value of one a vertex does not write undefined, which 0 is as good a value for as any. An integer varying is not interpolated: it takes the first vertex's value, as [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) states.
 
 #### @spec shader-logic-is-tested-without-a-graphics-api
 
