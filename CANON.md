@@ -323,6 +323,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec every-adapter-shares-one-type-of-setuniform`](#spec-every-adapter-shares-one-type-of-setuniform) — Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
       - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
     - [`@spec a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) — A program the host calls with its inputs in a context checks neither the shape of a value nor the kind of an array. These programs are the function `compileJSFn` gives, which `precompileJS` ships, the program `precompileWasm` ships, and the routines, grids, stages and draws of `compileJS*` and `compileWasm*`. Their inputs include `ctx.storages` and the attribute arrays of a draw. A value of another shape, or an array of another kind, gives what that target gives. Each component it reads still converts as a typed slot of its kind does.
+    - [`@spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined`](#spec-a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined) — A JS or WASM draw reads an element of an attribute array that the array does not hold, past its end or a hole or `undefined` within it, as a typed slot of the attribute's kind converts `undefined`.
+      - [`@spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan) — A JS or WASM draw reads an element a `float` attribute's array does not hold as NaN.
+      - [`@spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero) — A JS or WASM draw reads an element an `int` or `uint` attribute's array does not hold as 0.
   - [`@spec a-message-puts-the-article-its-sound-takes-before-a-name`](#spec-a-message-puts-the-article-its-sound-takes-before-a-name) — A refusal puts before a name of a type, a class or a kind of value the article its sound takes. Examples are `an int`, `an Int32Array`, `an object`, `an HTMLElement`, `a uint`, `a uvec3`, `a usampler2D`, `a unorm8x4`, `a Uint32Array` and `a URL`. It reads a name that opens with two capitals letter by letter.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
@@ -822,7 +825,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `vec3` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `vec3` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
     - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `float` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `float` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
     - [`@spec a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot`](#spec-a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot) — A JS draw whose vertex stage writes a `vec3` varying at `float: "f64"` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, with an `ivec3` varying, a `uvec3` varying, and a `vec3` varying at `float: "f32"`.
-    - [`@spec a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context`](#spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context) — A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, an object literal of `varyings` and `fragCoord` that gains `uniforms`, `textures` and then `fragDepth`, and that object held `undefined` in `fragDepth`.
+    - [`@spec a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context`](#spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context) — A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, and given it a `fragDepth` that held `undefined`.
     - [`@spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in four other kinds of array: a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
       - [`@bug a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array) — After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw`](#spec-a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw) — A JS draw whose fragment stage samples five `sampler2D` uniforms, whose texel data are a `Float32Array`, a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`, allocates nothing for each fragment.
@@ -843,7 +846,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array) — After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes) — A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
       - [`@bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes`](#bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes) — After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-reentrant-js-draw-draws-what-one-without-it-draws`](#spec-a-reentrant-js-draw-draws-what-one-without-it-draws) — A JS draw compiled with `reentrant` draws the image a draw of the same programs and inputs compiled without it draws. What it allocates is left open.
     - [`@spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts`](#spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts) — A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
+  - [`@spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade`](#spec-a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade) — A JS draw compiled without `reentrant` allocates nothing for itself, and does no work for the elements of the host's attribute arrays its vertices do not use.
+    - [`@spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size`](#spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size) — A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+    - [`@spec a-js-draw-reads-only-the-attribute-elements-of-its-vertices`](#spec-a-js-draw-reads-only-the-attribute-elements-of-its-vertices) — A JS draw from `first`, of `count` vertices, reads each attribute array only at the elements of those vertices.
   - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
   - [`@spec a-js-program-keeps-no-host-input-after-a-call`](#spec-a-js-program-keeps-no-host-input-after-a-call) — A JS grid, compute stage and rasterizer keep none of the inputs a call passes them once the call returns or throws.
@@ -1082,6 +1089,10 @@ The analysis found these places where the code or the documents do not hold the 
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
+
+### Platform behaviour without a fact
+
+1. In the test runner, a JS draw whose rasterizer runs after rasterizers of other attribute slots once sent the shared per-draw function into a loop of Maglev deoptimizations at a keyed access ("unexpected name in keyed access"), so the per-vertex work ran in code V8 had not optimized, which allocates for each float. The rasterizer now keeps its per-vertex work in a function of its own, and reads its own records of slots through a `Map`. No probe outside the test runner reproduced the loop, so no fact states when V8 falls into one, and the scope of [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) to optimized draws assumes V8 does optimize them.
 
 ### Coverage gaps
 
@@ -2954,6 +2965,26 @@ This follows because `run` checks the shape of each parameter it receives, and t
 Derives from: [`axiom-a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs)
 
 This follows because such a program runs once for each pixel or invocation, and a check there would cost every one of those calls. A check in the function `precompileJS` ships would ship with the application too. The adapters are the path that checks. An adapter checks a value once, where the host sets it, so a host that wants the check pays for it once.
+
+#### @spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined
+
+> A JS or WASM draw reads an element of an attribute array that the array does not hold, past its end or a hole or `undefined` within it, as a typed slot of the attribute's kind converts `undefined`.
+
+Derives from: [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs), [`fact-a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it)
+
+This follows because a draw checks nothing of its attribute arrays and converts each component as a typed slot of its kind does, and both targets then read the same value.
+
+##### @spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
+
+> A JS or WASM draw reads an element a `float` attribute's array does not hold as NaN.
+
+This follows because a float slot converts `undefined` with ToNumber, which gives NaN.
+
+##### @spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
+
+> A JS or WASM draw reads an element an `int` or `uint` attribute's array does not hold as 0.
+
+This follows because an integer slot converts `undefined` with ToInt32 or ToUint32, which give 0.
 
 ### @spec a-message-puts-the-article-its-sound-takes-before-a-name
 
@@ -5933,7 +5964,7 @@ This follows because a call that builds a new array or a closure gives the garba
 
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number), [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike), [`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there), [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads), [`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)
 
-This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times. A float stored in a property allocates whenever any object made alike, the host's included, has held something else there, or the place that stores it has seen a second key in any rasterizer, and nothing in the draw rules either out. An element of a typed array takes a float without allocating, but a load from the host's arrays still boxes once its place has seen more than four kinds of array. A stage's own code is the rasterizer's for every draw, so a load in it from a host's uniform or texel data sees every kind of array the host passed it across those draws, and the code that samples a texture is one for all the samplers of a stage. A load from what a stage hands back sees the kinds of slot a stage keeps a vector in, a `Float64Array`, a `Float32Array`, an `Int32Array` and a `Uint32Array`, four, so a fifth kind of slot would make it box. Code V8 has not optimized allocates for every float it computes, so the claim is of the draw once V8 has optimized it.
+This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times. A boolean takes no typed array, because V8 stores `true` and `false` without allocating, and a typed slot would read it back as 1 or 0. A float stored in a property allocates whenever any object made alike, the host's included, has held something else there, or the place that stores it has seen a second key in any rasterizer, and nothing in the draw rules either out. An element of a typed array takes a float without allocating, but a load from the host's arrays still boxes once its place has seen more than four kinds of array. A stage's own code is the rasterizer's for every draw, so a load in it from a host's uniform or texel data sees every kind of array the host passed it across those draws, and the code that samples a texture is one for all the samplers of a stage. A load from what a stage hands back sees the kinds of slot a stage keeps a vector in, a `Float64Array`, a `Float32Array`, an `Int32Array` and a `Uint32Array`, four, so a fifth kind of slot would make it box. Code V8 has not optimized allocates for every float it computes, so the claim is of the draw once V8 has optimized it.
 
 How the rasterizer hands a stage its scalars, and takes back the scalar varyings and depth a stage writes, is left open, inside one limit: it is a channel of the rasterizer's own. A stage the host calls, and the source `compileJSFn` gives and `precompileJS` ships, keep the shape [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot) and [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) give them: a scalar input or varying is a number under its slot. No probe measured another engine, another version of V8, or a build of V8 with pointer compression, as Chromium's is, so the spec claims nothing there.
 
@@ -5947,7 +5978,7 @@ This follows because a vector travels between the rasterizer and the stages in t
 
 > A JS draw whose vertex stage reads a `float` attribute holding fractions allocates nothing for each vertex.
 
-This follows because the rasterizer hands the vertex stage the attribute's value for each vertex through a typed array, as it hands a vector.
+This follows because a float attribute reaches the vertex stage once for each vertex, and a float is the value V8 boxes wherever it can.
 
 #### @spec a-js-draw-allocates-nothing-for-an-int-attribute
 
@@ -5955,7 +5986,7 @@ This follows because the rasterizer hands the vertex stage the attribute's value
 
 Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
 
-This follows because every `int` is a small integer in this V8, which a property stores without allocating.
+This follows because every `int` is a small integer in this V8, which V8 holds without boxing.
 
 #### @spec a-js-draw-allocates-nothing-for-a-uint-attribute-no-small-integer-holds
 
@@ -5969,7 +6000,7 @@ This follows because such a value is a float to V8, not a small integer, and so 
 
 > A JS draw at `float: "f64"` whose vertex stage writes a `float` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
 
-This follows because the vertex stage hands the varying back, and the rasterizer hands its interpolated value to the fragment stage, through typed arrays, never through a property.
+This follows because a float varying passes from the vertex stage to the draw once for each vertex, and from the draw to the fragment stage once for each fragment.
 
 #### @spec a-js-draw-allocates-nothing-for-a-float-varying-at-f32
 
@@ -5983,7 +6014,7 @@ This follows because a value rounded to 32 bits is still a float to V8, and trav
 
 Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
 
-This follows because every `int` is a small integer in this V8, which a property stores without allocating.
+This follows because every `int` is a small integer in this V8, which V8 holds without boxing.
 
 #### @spec a-js-draw-allocates-nothing-for-a-bool-varying
 
@@ -6037,7 +6068,7 @@ This follows because an object the host keys by a slot is made alike with any ob
 
 Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
 
-This follows because every rasterizer runs the same code, so a load from the host's vector attribute arrays at one place in it sees every kind any of them was given, and boxes what it reads once it has seen more than four.
+This follows because every rasterizer runs the same code, so whatever reads the host's vector attribute arrays sees every kind any of them was given, and a load that has seen more than four boxes what it reads.
 
 #### @spec a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array
 
@@ -6045,9 +6076,7 @@ This follows because every rasterizer runs the same code, so a load from the hos
 
 Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
 
-This follows because the rasterizer loads a scalar attribute at a place of its own, which sees every kind of array a scalar attribute of any rasterizer was given.
-
-Today a test of this leaf shows nothing: the rasterizer stores the attribute into a property, which allocates 16 bytes a vertex whatever the load does ([`spec-a-js-draw-allocates-nothing-for-a-float-attribute`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute)), and a boxed load adds no box of its own. It can fail only once that store is gone.
+This follows because every rasterizer runs the same code, so whatever reads a scalar attribute's array sees every kind of array a scalar attribute of any rasterizer was given.
 
 #### @spec a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot
 
@@ -6059,11 +6088,11 @@ This follows because the rasterizer loads each vector a vertex stage hands back 
 
 #### @spec a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context
 
-> A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, an object literal of `varyings` and `fragCoord` that gains `uniforms`, `textures` and then `fragDepth`, and that object held `undefined` in `fragDepth`.
+> A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, and given it a `fragDepth` that held `undefined`.
 
 Derives from: [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike)
 
-This follows because a host object made that way is made alike with the context, so a draw that stored each fragment's interpolated depth in the context's `fragDepth` would allocate once the host's object had held `undefined` there.
+This follows because a host object made that way is made alike with the context, so a draw that stored each fragment's depth in a property of the context would allocate once the host's object had held `undefined` there.
 
 #### @spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds
 
@@ -6205,11 +6234,39 @@ This follows because the stage reads the uniform by its slot at one place in its
 
 Issue: #316
 
+#### @spec a-reentrant-js-draw-draws-what-one-without-it-draws
+
+> A JS draw compiled with `reentrant` draws the image a draw of the same programs and inputs compiled without it draws. What it allocates is left open.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+
+This follows because a reentrant stage declares its slots and its result object inside itself, so each call has its own, which the parent's claim does not cover. Whether V8 removes those allocations depends on what it inlines: a reentrant draw of a `vec3` varying allocated about 80 KB a 16×16 draw in one run, and less under the load of the whole test suite. So the draw claims only that it draws the same image.
+
 #### @spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
 
 > A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
 
 This follows because the clip runs once for each triangle it cuts, not once for each vertex or fragment the draw shades, and the vertices it adds have no place the draw made for them before.
+
+### @spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade
+
+> A JS draw compiled without `reentrant` allocates nothing for itself, and does no work for the elements of the host's attribute arrays its vertices do not use.
+
+Derives from: [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment)
+
+This follows because a draw runs every frame, so what it costs for itself it costs every frame, and an application may keep vertices in one large array and draw a part of it.
+
+#### @spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size
+
+> A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+
+This follows because the vertices, the depth buffer and the image a draw needs are kept from the draws before it, and made again only when a draw needs more of them.
+
+#### @spec a-js-draw-reads-only-the-attribute-elements-of-its-vertices
+
+> A JS draw from `first`, of `count` vertices, reads each attribute array only at the elements of those vertices.
+
+This follows because a draw of a part of a large array would otherwise cost as much as a draw of all of it.
 
 ### @spec a-js-grid-allocates-nothing-per-pixel
 

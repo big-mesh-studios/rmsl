@@ -1722,9 +1722,6 @@ describe("what a JS draw allocates for the scalars it passes its stages", () => 
   });
 
   /**
-   * Today this fails through the store of the attribute into a property, which
-   * allocates whatever the load does; once that is gone, only the load could.
-   *
    * @canon spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array
    */
   it("allocates nothing per vertex for a float attribute after draws from four other kinds of array", async () => {
@@ -1777,8 +1774,9 @@ describe("what a JS draw allocates for the scalars it passes its stages", () => 
    * @canon spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context
    */
   it("allocates nothing per fragment after the host made an object as the rasterizer makes its fragment context", async () => {
-    // Made as the rasterizer makes its fragment context: a literal, then uniforms and textures, then the depth.
-    const alike: Record<string, unknown> = { varyings: {}, fragCoord: null };
+    // Made as the rasterizer makes its fragment context, a literal that gains uniforms and textures for each draw,
+    // then given the depth a draw that stored it in a property would add.
+    const alike: Record<string, unknown> = { varyings: {}, fragCoord: null, depthSlot: null };
     alike.uniforms = {};
     alike.textures = undefined;
     alike.fragDepth = undefined;
@@ -1803,6 +1801,29 @@ describe("what a JS draw allocates for the scalars it passes its stages", () => 
   });
 
   /**
+   * @canon spec-a-reentrant-js-draw-draws-what-one-without-it-draws
+   */
+  it("draws with reentrant the image it draws without it", () => {
+    const position = attribute("vec3");
+    const c = attribute("float");
+    const v = varying("float");
+    const build = (reentrant: boolean) =>
+      compileJS(
+        () =>
+          Fn(() => {
+            v.assign(c.mul(0.5));
+            builtinPosition().assign(vec4(position, 1));
+          })(),
+        () => Fn(() => vec4(v, v.mul(2), 0, 1))(),
+        { reentrant },
+      );
+    const ctx = { attributes: { [position.name]: quad(), [c.name]: fractions() } };
+    const own = Array.from(build(true).draw(ctx, options));
+    expect(own).toEqual(Array.from(build(false).draw(ctx, options)));
+    expect(own.some((x) => x > 0 && x < 1)).toBe(true);
+  });
+
+  /**
    * @canon spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
    */
   it("allocates for a triangle a near-plane clip cuts, and nothing for each fragment of it", async () => {
@@ -1818,6 +1839,104 @@ describe("what a JS draw allocates for the scalars it passes its stages", () => 
     const large = await allocatedBy(() => raster.draw(ctx, { width: 64, height: 64 }), 2000, 200);
     // Sixteen times the fragments: a box for each would add about 60 KB, where what the clip makes varies by a few hundred bytes.
     expect(large - small).toBeLessThan(1024);
+  });
+});
+
+describe("an attribute element the host's array does not hold", () => {
+  /**
+   * What a 1 by 1 draw of a triangle covering it shows for an attribute of
+   * `type` whose array is `values`, read at every vertex: red when the
+   * attribute reads `expected`, and black otherwise.
+   */
+  function drawsAs(compileRaster: typeof compileJS, type: "float" | "int", values: ArrayLike<number>, count: number) {
+    const position = attribute("vec3");
+    const c = attribute(type);
+    const v = varying(type);
+    const raster = compileRaster(
+      () =>
+        Fn(() => {
+          v.assign(c as any);
+          builtinPosition().assign(vec4(position, 1));
+        })() as any,
+      () =>
+        Fn(() => {
+          // NaN is the one value that is not equal to itself.
+          const hit = type === "float" ? (v as any).notEqual(v) : (v as any).equal(int(0));
+          return vec4(select(hit, float(1), float(0)), 0, 0, 1);
+        })() as any,
+    );
+    const positions = Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+    const out = raster.draw(
+      { attributes: { [position.name]: positions, [c.name]: values as any } },
+      {
+        width: 1,
+        height: 1,
+        count,
+      },
+    ) as ArrayLike<number>;
+    return out[0];
+  }
+
+  /** The arrays that hold no element for any of three vertices: one that ends before them, one of holes, and one of undefined. */
+  const lacking = (empty: () => ArrayLike<number>) =>
+    [empty(), new Array(3), [undefined, undefined, undefined]] as any[];
+
+  /**
+   * @canon spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
+   */
+  it.each(rasterizers)("%s: reads a float attribute element its array lacks as NaN", (_, compileRaster) => {
+    for (const values of lacking(() => new Float32Array(0))) expect(drawsAs(compileRaster, "float", values, 3)).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
+   */
+  it.each(rasterizers)("%s: reads an int attribute element its array lacks as 0", (_, compileRaster) => {
+    for (const values of lacking(() => new Int32Array(0))) expect(drawsAs(compileRaster, "int", values, 3)).toBe(1);
+  });
+});
+
+describe("what a JS draw costs for itself", () => {
+  const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size
+   */
+  it("allocates nothing per draw once it has drawn at that size or a larger one", async () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const ctx = { attributes: { [position.name]: quad() } };
+    const large = { width: 32, height: 32 };
+    const small = { width: 16, height: 16 };
+    raster.draw(ctx, large);
+    let k = 0;
+    // Each draw alternates between the two sizes, which the buffers the larger one made both hold.
+    expect(await allocatedBy(() => raster.draw(ctx, k++ % 2 ? large : small), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-reads-only-the-attribute-elements-of-its-vertices
+   */
+  it("reads each attribute array only at the elements of the vertices it draws", () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const read = new Set<number>();
+    // Ten vertices of three components; the draw takes the three from the fourth.
+    const values = Float64Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? 0 : i % 2 ? 1 : -1));
+    const counted = new Proxy(values, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) read.add(Number(key));
+        return Reflect.get(target, key, target === receiver ? receiver : target);
+      },
+    });
+    raster.draw({ attributes: { [position.name]: counted } }, { width: 4, height: 4, first: 3, count: 3 });
+    expect([...read].sort((a, b) => a - b)).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17]);
   });
 });
 
