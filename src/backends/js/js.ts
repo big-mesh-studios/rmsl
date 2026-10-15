@@ -2640,15 +2640,17 @@ export type CompileJSOptions = CompileFnOptions & {
    * `"f32"`, which rounds every float value to 32 bits as a GPU holds it.
    */
   float?: "f64" | "f32";
-  /**
-   * Internal to rmsl: the program is a stage of the JS rasterizer. It reads
-   * each scalar attribute and varying as the element of an array of one
-   * element, hands each scalar varying other than a `bool` back in such an
-   * array under its slot, and reads and writes its depth in the array
-   * `ctx.depthSlot`.
-   */
-  rasterized?: boolean;
 };
+
+/**
+ * The options of a program rmsl compiles for its own use, which no exported
+ * function takes: those of {@link CompileJSOptions}, and whether the program
+ * is a stage of the JS rasterizer. Such a stage reads each scalar attribute
+ * and varying as the element of an array of one element, hands each scalar
+ * varying other than a `bool` back in such an array under its slot, and reads
+ * and writes its depth in the array `ctx.depthSlot`.
+ */
+export type CompileJSProgramOptions = CompileJSOptions & { rasterized?: boolean };
 
 /**
  * Compile an Fn to JavaScript: a self-contained expression that evaluates to
@@ -2668,7 +2670,7 @@ export type CompileJSOptions = CompileFnOptions & {
 function compileJSFnDetailed(
   origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSOptions,
+  options: CompileJSProgramOptions,
 ): {
   source: string;
   resultType: ShaderType | undefined;
@@ -2996,7 +2998,7 @@ function ownedCopy(value: unknown, type: string | undefined, float32: boolean): 
 export function compileJSProgram(
   origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSOptions,
+  options: CompileJSProgramOptions,
 ): JsProgram {
   const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(origin, fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
@@ -3097,7 +3099,7 @@ export function compileJSProgram(
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind" | "rasterized">;
+export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind">;
 
 /**
  * Compiles an `Fn` as a vertex stage: a function that returns the position and
