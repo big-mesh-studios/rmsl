@@ -138,8 +138,16 @@ same faces it shows unmirrored.
 ### WebGLRenderer
 
 `new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`
-(multisampling, default `false` as in three.js), `depth`, `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
-`preserveState`.
+(multisampling, default `false` as in three.js), `depth`, `precision`
+(`"highp" | "mediump" | "lowp"`, default `"highp"`), and `preserveState`.
+
+A canvas has one WebGL2 context for its life, and the first call that makes it
+decides its multisampling. A renderer made on a canvas that already has a
+context draws with that context's samples, whatever `antialias` asks, as in
+three.js. So a renderer with `antialias: true` made after
+`createGlsl(...).attach(canvas)` draws with the single sample `createGlsl` asked
+for, and `createGlsl` attached to the canvas of a renderer made with
+`antialias: true` inherits its multisampling.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
 state the application left. Before a frame it sets the colour mask, blend

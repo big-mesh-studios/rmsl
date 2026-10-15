@@ -39,8 +39,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
   - [`@spec every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) — Every target shades a pixel by its centre alone, with one sample, so a pixel that an edge of a triangle crosses takes the colour of the triangle or none.
     - [`@spec the-glsl-adapter-draws-with-one-sample`](#spec-the-glsl-adapter-draws-with-one-sample) — `createGlsl` asks its WebGL 2 context for no multisampling, so it shades a pixel whole or not at all, as WebGPU does.
+    - [`@spec webgl-renderer-draws-with-one-sample-by-default`](#spec-webgl-renderer-draws-with-one-sample-by-default) — `WebGLRenderer` asks its WebGL 2 context for no multisampling when its `antialias` option is not true, as three.js's `WebGLRenderer` does.
+    - [`@exception webgl-renderer-multisamples-when-antialias-is-true`](#exception-webgl-renderer-multisamples-when-antialias-is-true) — `WebGLRenderer` given `antialias: true` asks its WebGL 2 context for multisampling, so a pixel an edge crosses takes part of the triangle's colour.
     - [`@exception a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#exception-a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — On GLSL, a pixel centre that lies exactly on a horizontal edge belongs to the triangle above that edge. WebGPU and the CPU rasterizers give it to the triangle below.
     - [`@exception the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has`](#exception-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has) — `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
+    - [`@exception webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has`](#exception-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has) — `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context, and with its samples, whatever its `antialias` option asks. It neither warns nor refuses, as three.js's `WebGLRenderer` does neither.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
     - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite as a 32-bit float, such as `float(1).div(0)`, `float(-1).sqrt()` or `float(1e30).mul(1e30)`, is refused with one error on every target. The same operation on a run-time value gives its result.
@@ -526,7 +529,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-number-given-to-an-effect-compiles-as-a-literal`](#spec-a-number-given-to-an-effect-compiles-as-a-literal) — A number given as a parameter of an effect compiles as a literal in the effect's code.
     - [`@spec a-node-given-to-an-effect-is-read-as-given`](#spec-a-node-given-to-an-effect-is-read-as-given) — An effect reads a node the caller passes as a parameter, so a uniform can drive that parameter.
   - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
-    - [`@spec webgl-renderer-draws-without-multisampling-unless-asked`](#spec-webgl-renderer-draws-without-multisampling-unless-asked) — `WebGLRenderer` asks its WebGL 2 context for no multisampling unless its `antialias` option is true, as three.js's `WebGLRenderer` does.
     - [`@exception an-object-added-to-itself-is-refused`](#exception-an-object-added-to-itself-is-refused) — `Object3D.add` refuses an object added to itself with a `UsageError`, where three.js logs an error and adds nothing.
     - [`@spec a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant) — `WebGLRenderer` and `WebGPURenderer` draw a mesh whose geometry lacks an attribute its material reads, as TSL does. The attribute reads (0, 0, 0, 1), cut to its width, at every vertex, and the renderer warns. Where TSL bakes that constant into the shader as a literal, rmsl keeps one shader and feeds the attribute the constant. WebGL feeds it from the value the context keeps at the location, and WebGPU from a buffer of that value that every vertex reads.
       - [`@spec a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks`](#spec-a-scene-renderer-warns-once-of-an-attribute-its-geometry-lacks) — The renderer warns `Vertex attribute "<name>" not found on geometry.`, as TSL words it, once for each attribute of each geometry, not at every frame.
@@ -879,7 +881,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 - [`@fact webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — WebGL 2 on Chromium shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades as WebGPU does.
 - [`@fact a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default) — A WebGL 2 context multisamples its drawing buffer unless `getContext` is given `antialias: false`. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
-- [`@fact three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default) — three.js's `WebGLRenderer` and its WebGPU `Renderer` take an `antialias` option that is false by default, and draw with one sample then.
+- [`@fact get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has) — `canvas.getContext("webgl2", attributes)` on a canvas that already has a WebGL 2 context returns that context, and ignores the attributes it is given. A context keeps the attributes it was made with for its life.
+- [`@fact three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default) — three.js's `WebGLRenderer` and its WebGPU `Renderer` take an `antialias` option that is false by default, and draw with one sample then. With `antialias: true` they multisample.
+- [`@fact three-js-webgl-renderer-draws-with-the-context-a-canvas-has`](#fact-three-js-webgl-renderer-draws-with-the-context-a-canvas-has) — three.js's `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context and its samples, whatever its `antialias` option asks, and neither warns nor throws.
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
@@ -1193,7 +1197,7 @@ The axiom decides between defined behaviour and the native freedom of each langu
 
 > Every target shades a pixel by its centre alone, with one sample, so a pixel that an edge of a triangle crosses takes the colour of the triangle or none.
 
-Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default)
+Derives from: [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default)
 
 This follows because WebGPU and the CPU rasterizers test the centre of a pixel alone. A multisampled WebGL 2 context gives a pixel an edge crosses a part of the triangle's colour, so a draw would differ there on GLSL. Issue #300 settled this.
 
@@ -1204,6 +1208,22 @@ This follows because WebGPU and the CPU rasterizers test the centre of a pixel a
 Derives from: [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default)
 
 This follows because a WebGL 2 context multisamples unless asked not to, and WebGPU draws with one sample.
+
+#### @spec webgl-renderer-draws-with-one-sample-by-default
+
+> `WebGLRenderer` asks its WebGL 2 context for no multisampling when its `antialias` option is not true, as three.js's `WebGLRenderer` does.
+
+Derives from: [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js), [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default)
+
+This follows because three.js draws with one sample unless asked, so following three.js and drawing as every other target agree. `WebGPURenderer`, which has no `antialias` option, draws a scene with one sample too.
+
+#### @exception webgl-renderer-multisamples-when-antialias-is-true
+
+> `WebGLRenderer` given `antialias: true` asks its WebGL 2 context for multisampling, so a pixel an edge crosses takes part of the triangle's colour.
+
+Derives from: [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default), [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
+
+three.js's `WebGLRenderer` multisamples when its `antialias` option is true, and a three.js scene ports by changing its import. The application asks for the departure by name.
 
 #### @exception a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
 
@@ -1217,9 +1237,17 @@ GL counts window rows from the bottom, so its own rule gives such a pixel to the
 
 > `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context, and with its multisampling when it has some.
 
-Derives from: [`fact-a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
+Derives from: [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
 
-`getContext` gives back the context a canvas already has, whatever attributes it is asked for, and a context keeps its multisampling for its life. Refusing such a canvas would stop `createGlsl` from drawing beside a `WebGLRenderer` made with `antialias: true`.
+A context keeps the multisampling it was made with for its life. Refusing such a canvas would stop `createGlsl` from drawing beside a `WebGLRenderer` made with `antialias: true`.
+
+#### @exception webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
+
+> `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context, and with its samples, whatever its `antialias` option asks. It neither warns nor refuses, as three.js's `WebGLRenderer` does neither.
+
+Derives from: [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has), [`fact-three-js-webgl-renderer-draws-with-the-context-a-canvas-has`](#fact-three-js-webgl-renderer-draws-with-the-context-a-canvas-has), [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
+
+`createGlsl(...).attach(canvas)` before `new WebGLRenderer(canvas, { antialias: true })` gives the renderer the single-sampled context of the adapter. Refusing the canvas would stop the two drawing on one canvas in that order, and a warning would depart from three.js, which takes the context as it is. The application owns the canvas, and reads what it got from `renderer.gl.getContextAttributes()`.
 
 ### @spec folding-gives-the-run-time-result
 
@@ -4161,14 +4189,6 @@ Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-j
 
 This follows because TSL is the shading language of three.js, and its users bring three.js scenes with their shaders.
 
-#### @spec webgl-renderer-draws-without-multisampling-unless-asked
-
-> `WebGLRenderer` asks its WebGL 2 context for no multisampling unless its `antialias` option is true, as three.js's `WebGLRenderer` does.
-
-Derives from: [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js), [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default)
-
-This follows because a three.js scene ports by changing its import, and three.js draws without multisampling unless asked. With the default, it draws a scene with one sample, as `WebGPURenderer`, which has no `antialias` option, draws it.
-
 #### @exception an-object-added-to-itself-is-refused
 
 > `Object3D.add` refuses an object added to itself with a `UsageError`, where three.js logs an error and adds nothing.
@@ -6369,11 +6389,23 @@ On Chromium, WebGL 2 on SwiftShader and on Metal draws without multisampling int
 
 WebGL 2 inherits the `antialias` attribute of WebGL 1, whose default is true (WebGL 1.0, "WebGLContextAttributes"). The WebGPU specification makes `GPUMultisampleState.count` 1 by default. On Chromium, WebGL 2 on SwiftShader and on Metal shades a rectangle from x 0.5 to 2.5 on a 4×4 target with alpha 128 in columns 0 and 2, where its edges cross the pixel centres, and 255 in column 1. WebGPU on Metal shades columns 0 and 1 at 255.
 
+## @fact get-context-gives-back-the-context-a-canvas-has
+
+> `canvas.getContext("webgl2", attributes)` on a canvas that already has a WebGL 2 context returns that context, and ignores the attributes it is given. A context keeps the attributes it was made with for its life.
+
+The HTML specification returns the existing context of a canvas from `getContext`, whatever the attributes. On Chromium, a canvas whose context was made with `antialias: false` and asked again with `antialias: true` gives a context whose `getContextAttributes().antialias` is false.
+
 ## @fact three-js-renderers-draw-without-multisampling-by-default
 
-> three.js's `WebGLRenderer` and its WebGPU `Renderer` take an `antialias` option that is false by default, and draw with one sample then.
+> three.js's `WebGLRenderer` and its WebGPU `Renderer` take an `antialias` option that is false by default, and draw with one sample then. With `antialias: true` they multisample.
 
-This is how three.js behaves, read from its source (`WebGLRenderer` and `renderers/common/Renderer.js`, three.js r186).
+On Chromium, three.js r186 run in the page: `new WebGLRenderer({ canvas })` gives a drawing buffer with `SAMPLES` 0, and `antialias: true` gives 4. `WebGPURenderer` on its WebGPU backend reports `samples` 0 by default and 4 with `antialias: true`.
+
+## @fact three-js-webgl-renderer-draws-with-the-context-a-canvas-has
+
+> three.js's `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context and its samples, whatever its `antialias` option asks, and neither warns nor throws.
+
+On Chromium, three.js r186 run in the page: a `WebGLRenderer` with `antialias: true` on a canvas whose context was made with `antialias: false` gets a context whose `getContextAttributes().antialias` is false, and logs nothing. A `WebGLRenderer` with no `antialias` on a canvas whose context was made with `antialias: true` gets a drawing buffer with `SAMPLES` 4.
 
 ## @fact a-three-js-renderer-draws-its-scene-graph
 

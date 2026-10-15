@@ -269,23 +269,112 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
 };
 `;
 
-describe("the multisampling WebGLRenderer asks for", () => {
+/**
+ * The number of samples of the drawing buffer a `WebGLRenderer` draws into,
+ * made with each `antialias`, on a fresh canvas and on a canvas that already
+ * has a context: one made by `getContext` with or without multisampling, and
+ * one made by `createGlsl`.
+ */
+const ENTRY_RENDERER_SAMPLES = `
+import { WebGLRenderer } from "../scene";
+import { Fn, attribute, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+const samples = (renderer) => {
+  const gl = renderer.gl;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return gl.getParameter(gl.SAMPLES);
+};
+const withContext = (antialias) => {
+  const canvas = document.createElement("canvas");
+  canvas.getContext("webgl2", { antialias });
+  return canvas;
+};
+globalThis.__rmslRendererSamples = () => {
+  const attached = document.createElement("canvas");
+  const pos = attribute("vec2");
+  createGlsl(Fn(() => vec4(pos, 0, 1))(), Fn(() => vec4(1, 0, 0, 1))()).attach(attached);
+  const canvas = () => document.createElement("canvas");
+  return {
+    byDefault: samples(new WebGLRenderer(canvas())),
+    antialiasFalse: samples(new WebGLRenderer(canvas(), { antialias: false })),
+    antialiasTrue: samples(new WebGLRenderer(canvas(), { antialias: true })),
+    antialiasTrueOnASingleSampledContext: samples(new WebGLRenderer(withContext(false), { antialias: true })),
+    antialiasTrueAfterCreateGlsl: samples(new WebGLRenderer(attached, { antialias: true })),
+    byDefaultOnAMultisampledContext: samples(new WebGLRenderer(withContext(true))),
+  };
+};
+`;
+
+describe("the multisampling WebGLRenderer draws with", () => {
+  /** The `antialias` attribute a `WebGLRenderer` made with `options` asks `getContext` for. */
+  const asked = (options?: { antialias?: boolean }) => {
+    const canvas: any = { width: 4, height: 4 };
+    let attributes: WebGLContextAttributes | undefined;
+    const { gl } = stubGl(canvas);
+    canvas.getContext = (_kind: string, given: WebGLContextAttributes) => ((attributes = given), gl);
+    new WebGLRenderer(canvas, options);
+    return attributes?.antialias;
+  };
+  let drawing: Promise<Record<string, number>> | undefined;
+  /** What `ENTRY_RENDERER_SAMPLES` returns, bundled and run once for every test. */
+  const samples = () =>
+    (drawing ??= runInGpuPage(ENTRY_RENDERER_SAMPLES, "__rmslRendererSamples", new URL(".", import.meta.url).pathname));
+
   /**
-   * @canon spec-webgl-renderer-draws-without-multisampling-unless-asked
+   * @canon spec-webgl-renderer-draws-with-one-sample-by-default
    */
   it("asks for none unless antialias is true", () => {
-    const asked = (options?: { antialias?: boolean }) => {
-      const canvas: any = { width: 4, height: 4 };
-      let attributes: WebGLContextAttributes | undefined;
-      const { gl } = stubGl(canvas);
-      canvas.getContext = (_kind: string, given: WebGLContextAttributes) => ((attributes = given), gl);
-      new WebGLRenderer(canvas, options);
-      return attributes?.antialias;
-    };
     expect(asked()).toBe(false);
     expect(asked({ antialias: false })).toBe(false);
+  });
+
+  /**
+   * @canon spec-webgl-renderer-draws-with-one-sample-by-default
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws into a buffer of one sample unless antialias is true, on a real driver",
+    async () => {
+      const { byDefault, antialiasFalse } = await samples();
+      expect(byDefault).toBe(0);
+      expect(antialiasFalse).toBe(0);
+    },
+    60_000,
+  );
+
+  /**
+   * @canon exception-webgl-renderer-multisamples-when-antialias-is-true
+   */
+  it("asks for multisampling when antialias is true", () => {
     expect(asked({ antialias: true })).toBe(true);
   });
+
+  /**
+   * @canon exception-webgl-renderer-multisamples-when-antialias-is-true
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws into a multisampled buffer when antialias is true, on a real driver",
+    async () => {
+      expect((await samples()).antialiasTrue).toBeGreaterThan(1);
+    },
+    60_000,
+  );
+
+  /**
+   * `createGlsl` attached first leaves the canvas a context of one sample,
+   * which a later `antialias: true` cannot change.
+   *
+   * @canon exception-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws with the samples of a context the canvas already has, whatever antialias asks",
+    async () => {
+      const result = await samples();
+      expect(result.antialiasTrueOnASingleSampledContext).toBe(0);
+      expect(result.antialiasTrueAfterCreateGlsl).toBe(0);
+      expect(result.byDefaultOnAMultisampledContext).toBeGreaterThan(1);
+    },
+    60_000,
+  );
 });
 
 describe("the values a scene renderer uploads", () => {
