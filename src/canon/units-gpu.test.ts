@@ -844,6 +844,8 @@ const CASES = {
   tinyWOffCentre: [...FRONT, 5e-7, 2.5e-7, 0, 1e-6],
   smallerW: [...FRONT, 0, 0, 0, 1e-30],
   tinyWWithOneBehind: [-1, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 0, 0, 1e-6],
+  onTheOppositeEdge: [-1, 0.0625, 0.5, 1, 1, 0.0625, 0.5, 1, 0, 0, 0, 0],
+  tinyWOnTheOppositeEdge: [-1, 0.0625, 0.5, 1, 1, 0.0625, 0.5, 1, 0, 0, 0, 1e-6],
 };
 const pixels = (canvas) => {
   const flat = document.createElement("canvas");

@@ -73,11 +73,13 @@ depth 0 and 1 drops. A pixel then:
 1. fails early when its depth is farther than the stored one, unless the
    fragment function writes its own depth;
 2. has the varying blob interpolated, perspective-correct, into the
-   fragment function's varying-input address (vertex `i` weighed by its
-   barycentric times the other two vertices' `w`, over the sum of the
-   weights, so a vertex at `w = 0` takes all the weight), its centre written to the
+   fragment function's varying-input address, its centre written to the
    `fragCoord` address, the discard flag cleared, and the interpolated depth
-   written to the fragment depth address;
+   written to the fragment depth address. Vertex `i` weighs its barycentric
+   times the least `w` of the triangle over its own `w`, over the sum of the
+   weights, which keeps every weight within 1 at any scale of `w`. When the
+   inverse of that least `w` is not finite, as at `vec4(0)`, its vertex takes
+   all the weight, on the edge opposite it too;
 3. runs the fragment function;
 4. is dropped when the function discarded, or when the depth it wrote,
    clamped to 0 to 1, is farther than the stored one;

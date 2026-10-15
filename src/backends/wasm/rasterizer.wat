@@ -259,6 +259,14 @@
   (func $ndc (param $c f64) (param $w f64) (result f64)
     (select (f64.const 0) (f64.div (local.get $c) (local.get $w)) (f64.eq (local.get $w) (f64.const 0))))
 
+  ;; The perspective weight of a vertex at $w for each unit of its barycentric, times the
+  ;; least w, $wNear. When the inverse of $wNear is not $finite, it is 1 for the vertex
+  ;; of that w, which $isNear says, and 0 for the others.
+  (func $nearWeight (param $finite i32) (param $wNear f64) (param $w f64) (param $isNear i32) (result f64)
+    (if (result f64) (local.get $finite)
+      (then (f64.div (local.get $wNear) (local.get $w)))
+      (else (f64.convert_i32_u (local.get $isNear)))))
+
   (func $screenX (param $clippedPositionsOutBase i32) (param $widthF f64) (param $vertexIndex i32) (result f64)
     (f64.mul
       (f64.add
@@ -292,7 +300,7 @@
     (param $varyingDescBase i32) (param $varyingDescCount i32)
     (param $clippedVaryingsOutBase i32) (param $varyingBytes i32)
     (param $t0 i32) (param $t1 i32) (param $t2 i32)
-    (param $b0 f64) (param $ww0 f64) (param $b1 f64) (param $ww1 f64) (param $b2 f64) (param $ww2 f64) (param $weights f64)
+    (param $p0 f64) (param $p1 f64) (param $p2 f64) (param $weights f64)
     (local $d i32) (local $entry i32) (local $recordOffset i32) (local $fragmentDestAddress i32)
     (local $numComponents i32) (local $c i32)
     (local.set $d (i32.const 0))
@@ -322,11 +330,11 @@
               (f64.div
                 (f64.add
                   (f64.add
-                    (f64.mul (f64.mul (local.get $b0) (local.get $ww0))
+                    (f64.mul (local.get $p0)
                       (call $varyingComponentAt (local.get $clippedVaryingsOutBase) (local.get $varyingBytes) (local.get $t0) (local.get $recordOffset) (local.get $c)))
-                    (f64.mul (f64.mul (local.get $b1) (local.get $ww1))
+                    (f64.mul (local.get $p1)
                       (call $varyingComponentAt (local.get $clippedVaryingsOutBase) (local.get $varyingBytes) (local.get $t1) (local.get $recordOffset) (local.get $c))))
-                  (f64.mul (f64.mul (local.get $b2) (local.get $ww2))
+                  (f64.mul (local.get $p2)
                     (call $varyingComponentAt (local.get $clippedVaryingsOutBase) (local.get $varyingBytes) (local.get $t2) (local.get $recordOffset) (local.get $c))))
                 (local.get $weights)))
             (local.set $c (i32.add (local.get $c) (i32.const 1)))
@@ -355,13 +363,13 @@
     (local $outCount i32) (local $clippedVertexCount i32)
     (local $s0x f64) (local $s0y f64) (local $s1x f64) (local $s1y f64) (local $s2x f64) (local $s2y f64)
     (local $w0 f64) (local $w1 f64) (local $w2 f64)
-    (local $ww0 f64) (local $ww1 f64) (local $ww2 f64)
+    (local $r0 f64) (local $r1 f64) (local $r2 f64) (local $near i32) (local $wNear f64) (local $finite i32)
     (local $depth0 f64) (local $depth1 f64) (local $depth2 f64)
     (local $area f64)
     (local $minX i32) (local $maxX i32) (local $minY i32) (local $maxY i32)
     (local $x i32) (local $y i32) (local $px f64) (local $py f64) (local $pixelIndex i32)
     (local $e0 f64) (local $e1 f64) (local $e2 f64)
-    (local $b0 f64) (local $b1 f64) (local $b2 f64) (local $weights f64)
+    (local $b0 f64) (local $b1 f64) (local $b2 f64) (local $p0 f64) (local $p1 f64) (local $p2 f64) (local $weights f64)
     (local $pixelDepth f64) (local $depthAddr i32) (local $fragDepth f64)
     (local $wind f64) (local $owns0 i32) (local $owns1 i32) (local $owns2 i32)
     (local $nearest f64) (local $farthest f64) (local $crossesDepthRange i32)
@@ -448,11 +456,22 @@
               (local.set $w0 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 3)))
               (local.set $w1 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 3)))
               (local.set $w2 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 3)))
-              ;; Perspective weighs vertex i by its barycentric over its w; times the product of the
-              ;; three w that is its barycentric by the other two, which stays finite as a w reaches 0.
-              (local.set $ww0 (f64.mul (local.get $w1) (local.get $w2)))
-              (local.set $ww1 (f64.mul (local.get $w0) (local.get $w2)))
-              (local.set $ww2 (f64.mul (local.get $w0) (local.get $w1)))
+              ;; Perspective weighs vertex i by its barycentric over its w, here times the least w, so
+              ;; no weight overflows or underflows at any scale. A least w whose inverse is not
+              ;; finite, as at vec4(0), takes all the weight.
+              (local.set $near (i32.const 0))
+              (local.set $wNear (local.get $w0))
+              (if (f64.lt (local.get $w1) (local.get $wNear))
+                (then (local.set $near (i32.const 1)) (local.set $wNear (local.get $w1))))
+              (if (f64.lt (local.get $w2) (local.get $wNear))
+                (then (local.set $near (i32.const 2)) (local.set $wNear (local.get $w2))))
+              (local.set $finite
+                (i32.and
+                  (f64.gt (f64.div (f64.const 1) (local.get $wNear)) (f64.const 0))
+                  (f64.lt (f64.div (f64.const 1) (local.get $wNear)) (f64.const inf))))
+              (local.set $r0 (call $nearWeight (local.get $finite) (local.get $wNear) (local.get $w0) (i32.eq (local.get $near) (i32.const 0))))
+              (local.set $r1 (call $nearWeight (local.get $finite) (local.get $wNear) (local.get $w1) (i32.eq (local.get $near) (i32.const 1))))
+              (local.set $r2 (call $nearWeight (local.get $finite) (local.get $wNear) (local.get $w2) (i32.eq (local.get $near) (i32.const 2))))
               (local.set $depth0 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
               (local.set $depth1 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
               (local.set $depth2 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
@@ -512,10 +531,17 @@
                           (local.set $b0 (f64.div (local.get $e0) (local.get $area)))
                           (local.set $b1 (f64.div (local.get $e1) (local.get $area)))
                           (local.set $b2 (f64.div (local.get $e2) (local.get $area)))
-                          (local.set $weights
-                            (f64.add
-                              (f64.add (f64.mul (local.get $b0) (local.get $ww0)) (f64.mul (local.get $b1) (local.get $ww1)))
-                              (f64.mul (local.get $b2) (local.get $ww2))))
+                          (local.set $p0 (f64.mul (local.get $b0) (local.get $r0)))
+                          (local.set $p1 (f64.mul (local.get $b1) (local.get $r1)))
+                          (local.set $p2 (f64.mul (local.get $b2) (local.get $r2)))
+                          (local.set $weights (f64.add (f64.add (local.get $p0) (local.get $p1)) (local.get $p2)))
+                          ;; On the edge opposite the vertex that takes all the weight, that vertex's barycentric is 0 too.
+                          (if (f64.eq (local.get $weights) (f64.const 0))
+                            (then
+                              (local.set $p0 (f64.convert_i32_u (i32.eq (local.get $near) (i32.const 0))))
+                              (local.set $p1 (f64.convert_i32_u (i32.eq (local.get $near) (i32.const 1))))
+                              (local.set $p2 (f64.convert_i32_u (i32.eq (local.get $near) (i32.const 2))))
+                              (local.set $weights (f64.const 1))))
                           (local.set $pixelDepth
                             (f64.add
                               (f64.add (f64.mul (local.get $b0) (local.get $depth0)) (f64.mul (local.get $b1) (local.get $depth1)))
@@ -533,7 +559,7 @@
                               (local.get $varyingDescBase) (local.get $varyingDescCount)
                               (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
                               (local.get $t) (local.get $t1) (local.get $t2)
-                              (local.get $b0) (local.get $ww0) (local.get $b1) (local.get $ww1) (local.get $b2) (local.get $ww2) (local.get $weights))
+                              (local.get $p0) (local.get $p1) (local.get $p2) (local.get $weights))
                             (if (local.get $readsFragCoord)
                               (then
                                 (f64.store (local.get $fragCoordAddress) (local.get $px))

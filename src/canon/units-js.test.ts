@@ -1804,6 +1804,39 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The top edge lies on the centres of row 7, where the barycentric of the
+   * `vec4(0)` vertex is 0. Chromium's WebGPU on Metal lights that row blue.
+   *
+   * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+   */
+  it.each(rasterizers)(
+    "%s: gives a fragment on the edge opposite a vertex at vec4(0) that vertex's varyings",
+    (_, compileRaster) => {
+      expect(pattern(drawColoured(compileRaster, [-1, 0.0625, 0.5, 1, 1, 0.0625, 0.5, 1, 0, 0, 0, 0]))).toEqual([
+        ...Array(7).fill("................"),
+        "BBBBBBBBBBBBBBBB",
+        ...Array(8).fill("................"),
+      ]);
+    },
+  );
+
+  /**
+   * The product of two of these w underflows to 0 or overflows to infinity
+   * as a 64-bit float, where their inverse is finite.
+   *
+   * @canon spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+   */
+  it.each(rasterizers)("%s: weighs the vertices of a triangle alike at any scale of their w", (_, compileRaster) => {
+    const at = (w: number) => Array.from(drawColoured(compileRaster, [w, 0, 0, w, 0, w, 0, w, -w, -w, 0, w]));
+    const unit = at(1);
+    expect(unit.filter((value, i) => i % 4 === 3 && value === 1).length).toBeGreaterThan(50);
+    for (const w of [1e-170, 1e155]) {
+      const image = at(w);
+      image.forEach((value, i) => expect(value).toBeCloseTo(unit[i]!, 12));
+    }
+  });
+
+  /**
    * Chromium's WebGPU on Metal gives these pixels these depths.
    *
    * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings

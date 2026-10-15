@@ -279,11 +279,24 @@ export function compileJSRasterizer(
     const minY = Math.max(0, Math.floor(Math.min(s0y, s1y, s2y)));
     const maxY = Math.min(height - 1, Math.ceil(Math.max(s0y, s1y, s2y)));
 
-    // Perspective weighs vertex i by its barycentric over its w; times the product of the
-    // three w that is its barycentric by the other two, which stays finite as a w reaches 0.
-    const ww0 = w1 * w2,
-      ww1 = w0 * w2,
-      ww2 = w0 * w1;
+    // Perspective weighs vertex i by its barycentric over its w, here times the least w, so
+    // no weight overflows or underflows at any scale. A least w whose inverse is not
+    // finite, as at vec4(0), takes all the weight.
+    let near = 0,
+      wNear = w0;
+    if (w1 < wNear) {
+      near = 1;
+      wNear = w1;
+    }
+    if (w2 < wNear) {
+      near = 2;
+      wNear = w2;
+    }
+    const inverse = 1 / wNear;
+    const finite = inverse > 0 && inverse < Infinity;
+    const r0 = finite ? wNear / w0 : near === 0 ? 1 : 0,
+      r1 = finite ? wNear / w1 : near === 1 ? 1 : 0,
+      r2 = finite ? wNear / w2 : near === 2 ? 1 : 0;
     // NDC depth (z/w) is affine in screen space, like x/w and y/w above,
     // so it interpolates with plain barycentric weights — no invW needed.
     const depth0 = ndc(v0.position[2]!, w0),
@@ -323,10 +336,18 @@ export function compileJSRasterizer(
         if (!writesDepth && pixelDepth > depths[pixelIndex]!) continue;
 
         // Perspective-correct: each vertex's varying by its weight, over the sum of the weights.
-        const p0 = b0 * ww0,
-          p1 = b1 * ww1,
-          p2 = b2 * ww2,
-          perspective = 1 / (p0 + p1 + p2);
+        let p0 = b0 * r0,
+          p1 = b1 * r1,
+          p2 = b2 * r2,
+          sum = p0 + p1 + p2;
+        // On the edge opposite the vertex that takes all the weight, that vertex's barycentric is 0 too.
+        if (sum === 0) {
+          p0 = near === 0 ? 1 : 0;
+          p1 = near === 1 ? 1 : 0;
+          p2 = near === 2 ? 1 : 0;
+          sum = 1;
+        }
+        const perspective = 1 / sum;
         for (let k = 0; k < slots.length; k++) {
           const a = v0.varyings[k]!,
             b = v1.varyings[k]!,

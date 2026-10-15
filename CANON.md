@@ -748,8 +748,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) — The rasterizer clips a triangle with a vertex near or behind the eye to WebGPU's clip volume, and draws the part inside it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A CPU rasterizer draws a vertex at or near `vec4(0)` as WebGPU draws it.
         - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w. A triangle with a vertex whose w is 1e-5 or less is clipped to that volume, plane by plane.
-        - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+        - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
         - [`@exception a-cpu-rasterizer-clips-a-triangle-from-vec4-0-to-a-vertex-outside-the-clip-volume`](#exception-a-cpu-rasterizer-clips-a-triangle-from-vec4-0-to-a-vertex-outside-the-clip-volume) — On JS and WASM, a triangle with a vertex at `vec4(0)` and a vertex outside the clip volume draws the part of it inside that volume. Chromium's WebGPU draws other pixels along its edges, and a sliver where that part has no area.
+      - [`@spec a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale`](#spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale) — A CPU rasterizer weighs each vertex of a triangle in perspective by its barycentric over its w, for any w a 64-bit float holds. Positions whose four components all scale by one factor give the same fragments, however large or small that factor.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
@@ -1017,6 +1018,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — Chromium's WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
 - [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 - [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
+- [`@fact webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space) — WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
 - [`@fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings. WebGL 2 on Chromium places it the same way.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
@@ -5522,7 +5524,7 @@ This follows because WebGPU clips only what lies outside its clip volume. A cut 
 
 ###### @spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
 
-> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
 
 This follows because Chromium's WebGPU draws such a vertex there, with its varyings and that depth.
 
@@ -5533,6 +5535,14 @@ This follows because Chromium's WebGPU draws such a vertex there, with its varyi
 Derives from: [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
 
 A CPU target clips such a triangle as it clips any other. WebGPU leaves the result of dividing `vec4(0)` by its w open, and the pixels it draws otherwise come from that. A triangle from `vec4(0)` to a vertex in front and a vertex behind the eye keeps only an edge, which draws nothing on JS and WASM.
+
+##### @spec a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+
+> A CPU rasterizer weighs each vertex of a triangle in perspective by its barycentric over its w, for any w a 64-bit float holds. Positions whose four components all scale by one factor give the same fragments, however large or small that factor.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because WebGPU's interpolation depends only on the ratios of the three w, and a CPU target computes positions in 64 bits, where a w of `1e-170` or `1e155` is an ordinary number. The rasterizer takes each weight times the least w of the triangle, so each lies from 0 to 1, where a product of two w would underflow or overflow.
 
 ##### @spec a-rasterizer-keeps-the-closer-fragment
 
@@ -7208,13 +7218,19 @@ This is the top-left rule that Direct3D specifies. Chromium's WebGPU on Metal dr
 
 This is a fact of the WebGPU specification, section Fragment Processing.
 
+## @fact webgpu-interpolates-a-varying-linearly-in-clip-space
+
+> WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
+
+This is a fact of the WebGPU specification, section Primitive Clipping: "The value is linearly interpolated in clip space, producing perspective-correct values." The weights depend only on the ratios of the three w, so scaling every component of the three positions by one factor changes no fragment.
+
 ## @fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre
 
 > A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings. WebGL 2 on Chromium places it the same way.
 
 The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w (WebGPU, "Primitive Clipping"). `vec4(0)` lies on each bound.
 
-On a 16×16 target, Chromium's WebGPU on Metal draws a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)` as the triangle from `(-1, -1)` and `(1, -1)` to the centre. That is 64 pixels. The depth runs linearly on the screen from 0.5 at the base to 0 at the centre. Give each vertex a colour of its own as a varying, and every pixel takes the colour of the `vec4(0)` vertex. WebGPU draws a vertex with a w of `1e-6` inside the volume where its x, y and z over w place it. A triangle from `(-1, -1, 0.5, 1)` to `(1, -1, 0.5, -1)`, behind the eye, and `(0, 0, 0, 1e-6)` draws the 64 pixels of the triangle from `(-1, -1)` and `(1, -1)` to the centre, which its part inside the volume covers.
+On a 16×16 target, Chromium's WebGPU on Metal draws a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)` as the triangle from `(-1, -1)` and `(1, -1)` to the centre. That is 64 pixels. The depth runs linearly on the screen from 0.5 at the base to 0 at the centre. Give each vertex a colour of its own as a varying, and every pixel takes the colour of the `vec4(0)` vertex. A triangle from `(-1, 0.0625, 0.5, 1)` and `(1, 0.0625, 0.5, 1)` to `vec4(0)` has its top edge on the centres of row 7, and WebGPU lights all 16 of them in the colour of the `vec4(0)` vertex too. With a w of `1e-6` in place of 0, that row blends the colours of the other two vertices. WebGPU draws a vertex with a w of `1e-6` inside the volume where its x, y and z over w place it. A triangle from `(-1, -1, 0.5, 1)` to `(1, -1, 0.5, -1)`, behind the eye, and `(0, 0, 0, 1e-6)` draws the 64 pixels of the triangle from `(-1, -1)` and `(1, -1)` to the centre, which its part inside the volume covers.
 
 A vertex at `(0.3, 0.2, 0, 0)` lies outside the volume and is clipped away. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(0.3, 0.2, 0, 0)` lights a band from `(-1, -1)` towards the top right, a few pixels wider than the part of it inside the volume. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and to `(1, -1, 0.5, -1)`, which lies behind the eye, lights 15 pixels. They lie one to three in a row along the edge from the centre to `(-1, -1)`, in the colour of the `vec4(0)` vertex. WebGL 2, drawing with one sample, lights the same 64 pixels for the first triangle.
 
