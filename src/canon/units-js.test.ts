@@ -91,6 +91,12 @@ afterAll(async () => {
 
 const none = { name: "main", params: [] };
 
+/**
+ * How long a test that calls {@link allocatedBy} may take. Its warming runs for
+ * several seconds alone, and longer while other workers load the machine.
+ */
+const ALLOCATION_TIMEOUT = 60_000;
+
 /** One inspector session for the file: connecting one deoptimizes the code it finds running. */
 let profiler: Session | undefined;
 
@@ -1312,7 +1318,7 @@ describe("the element-wise operations of a JS function", () => {
   });
 });
 
-describe("the scalars and inputs of a JS function", () => {
+describe("the scalars and inputs of a JS function", { timeout: ALLOCATION_TIMEOUT }, () => {
   /**
    * @canon spec-a-js-function-keeps-a-scalar-in-a-local
    */
@@ -1561,7 +1567,7 @@ describe("the scalars and inputs of a JS function", () => {
   });
 });
 
-describe("what a JS draw allocates for the scalars it passes its stages", () => {
+describe("what a JS draw allocates for the scalars it passes its stages", { timeout: ALLOCATION_TIMEOUT }, () => {
   /** Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw. */
   const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
   /** Six fractions, one for each vertex of the quad. */
@@ -2153,7 +2159,7 @@ describe("the options a host passes a JS compile", () => {
   });
 });
 
-describe("what a JS draw costs for itself", () => {
+describe("what a JS draw costs for itself", { timeout: ALLOCATION_TIMEOUT }, () => {
   const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
 
   /**
@@ -2197,7 +2203,7 @@ describe("what a JS draw costs for itself", () => {
   });
 });
 
-describe("what a JS draw allocates for the kinds of array the host passes", () => {
+describe("what a JS draw allocates for the kinds of array the host passes", { timeout: ALLOCATION_TIMEOUT }, () => {
   /** Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw. */
   const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
   const options = { width: 16, height: 16 };
