@@ -23,7 +23,7 @@ const TARGETS = ["glsl", "wgsl", "js", "wasm"] as const;
  * the fragment stage reads `read(flag)` true and black where it reads false.
  */
 const BOOL_ATTRIBUTE = `
-import { Fn, attributeRaw, bool, builtinPosition, bvec2, float, vec4 } from "../rmsl";
+import { Fn, attributeRaw, bool, builtinPosition, bvec2, float, uint, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
@@ -81,6 +81,7 @@ globalThis.__rmslBoolLogic = async () => ({
   vectorEqual: await drawFlag("bvec2", Int32Array.of(...each([-1, 7]).flat()), (f) => f.equal(bvec2(true, true)).all()),
   vectorAll: await drawFlag("bvec2", Int32Array.of(...each([2, 4]).flat()), (f) => f.all()),
   componentAnd: await drawFlag("bvec2", Uint32Array.of(...each([2, 4]).flat()), (f) => f.x.and(f.y)),
+  toUint: await drawFlag("bool", Int32Array.of(...each(2)), (f) => f.convert("uint").equal(uint(1))),
 });
 // The same, read in the body of an Fn with a layout, which only GLSL, JS and WASM let read an attribute.
 globalThis.__rmslBoolLayoutFn = async () => ({
@@ -95,6 +96,7 @@ globalThis.__rmslBoolLayoutFn = async () => ({
 globalThis.__rmslBoolFragmentLogic = async () => ({
   and: await drawFragmentFlag("bool", Int32Array.of(...each(2)), (f) => f.and(bool(true))),
   vectorEqual: await drawFragmentFlag("bvec2", Int32Array.of(...each([-1, 7]).flat()), (f) => f.equal(bvec2(true, true)).all()),
+  toUint: await drawFragmentFlag("bool", Int32Array.of(...each(2)), (f) => f.convert("uint").equal(uint(1))),
 });
 // The first vertex holds false, and the other two true.
 globalThis.__rmslBoolFragment = async () => drawFragmentFlag("bool", Int32Array.of(0, 1, 1), (f) => f);
@@ -240,6 +242,7 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
           vectorEqual: GREEN,
           vectorAll: GREEN,
           componentAnd: GREEN,
+          toUint: GREEN,
         });
       },
       120_000,
@@ -267,7 +270,7 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
     it.skipIf(target === "wgsl" && !WEBGPU)(
       `reads an integer other than 1 as true in the fragment stage on ${target}`,
       async () => {
-        expect(await run(target, "__rmslBoolFragmentLogic")).toEqual({ and: GREEN, vectorEqual: GREEN });
+        expect(await run(target, "__rmslBoolFragmentLogic")).toEqual({ and: GREEN, vectorEqual: GREEN, toUint: GREEN });
       },
       120_000,
     );
@@ -277,7 +280,7 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
    * @canon exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex
    */
   it("reads an integer other than 1 as true in the fragment stage on glsl", async () => {
-    expect(await run("glsl", "__rmslBoolFragmentLogic")).toEqual({ and: GREEN, vectorEqual: GREEN });
+    expect(await run("glsl", "__rmslBoolFragmentLogic")).toEqual({ and: GREEN, vectorEqual: GREEN, toUint: GREEN });
   }, 120_000);
 
   for (const target of ["glsl", "wgsl"]) {

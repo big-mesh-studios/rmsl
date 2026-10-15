@@ -536,20 +536,35 @@ export function prepareRoots<T extends Node<ShaderType>>(
  * component against zero. No GPU language takes a boolean vertex input, so
  * every target declares the unsigned type and is given unsigned integers.
  * The new node keeps the declared type in `declaredType`, which a refusal names.
+ * The varying {@link linkStages} makes to carry such an attribute takes the
+ * unsigned integer as it is, since the fragment stage compares it with zero.
  */
 function lowerBooleanAttributes<T>(roots: T, intoCalls: boolean): T {
+  const reads = new Map<any, Node<ShaderType>>();
+  const unsignedRead = (n: any, carrier: ShaderType) => {
+    let read = reads.get(n);
+    if (read === undefined) {
+      read = node({
+        _t: carrier,
+        type: "attribute",
+        value: { ...n.value, shaderType: carrier, declaredType: n.value.shaderType },
+        name: n.name,
+      }) as Node<ShaderType>;
+      reads.set(n, read);
+    }
+    return read;
+  };
   const replaced = new Map<any, any>();
   someNode(roots, (n) => {
-    if (n.type !== "attribute" || replaced.has(n)) return;
-    const carrier = unsignedCarrierOf(n.value.shaderType);
-    if (carrier === undefined) return;
-    const read = node({
-      _t: carrier,
-      type: "attribute",
-      value: { ...n.value, shaderType: carrier, declaredType: n.value.shaderType },
-      name: n.name,
-    }) as Node<ShaderType>;
-    replaced.set(n, read.convert(n.value.shaderType));
+    if (n.type === "attribute") {
+      const carrier = unsignedCarrierOf(n.value.shaderType);
+      if (carrier !== undefined && !replaced.has(n)) replaced.set(n, unsignedRead(n, carrier).convert(n.value.shaderType));
+    } else if (n.type === "assign" && n.params[0]?.value?.carries !== undefined) {
+      const [, value] = n.params;
+      const attribute = value.type === "construct" ? value.params[0] : undefined;
+      const carrier = attribute?.type === "attribute" ? unsignedCarrierOf(attribute.value.shaderType) : undefined;
+      if (carrier !== undefined && carrier === value._t) replaced.set(value, unsignedRead(attribute, carrier));
+    }
   });
   return substituteNodes(roots, replaced, intoCalls);
 }
@@ -604,7 +619,7 @@ export function linkStages<V, F>(
   const assignments: BaseNode<ShaderType>[] = [];
   for (const n of reads) {
     const { slot, shaderType } = n.value;
-    // No GPU language passes a boolean between stages, so a bool attribute travels as the unsigned integer it converts to, which is flat.
+    // No GPU language passes a boolean between stages, so a bool attribute travels in an unsigned varying, which is flat.
     const carrierType = unsignedCarrierOf(shaderType);
     let carrier = varyings.get(slot);
     if (!carrier) {
