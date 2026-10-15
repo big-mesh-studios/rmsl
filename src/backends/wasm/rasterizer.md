@@ -69,11 +69,10 @@ another: `w + x`, `w - x`, `w + y`, `w - y`, `z`, `w - z`, each kept where it
 is at least 0), and draws only when the polygon left, at most 9 vertices,
 has a vertex at `vec4(0)`, which lies at the centre and gives it an area.
 Cut vertices lerp both the clip-space position and the whole varying blob
-linearly, from the vertex of the edge inside the plane, so a `w` far smaller
-than the other vertex's keeps its digits. A cut vertex whose four components
-are all no more than `2^-48` of the largest sum it took, a component of the
-inside vertex and its step towards the other added by size, is rounding
-alone, and becomes `vec4(0)`. One whose `w` alone is 0 keeps its other
+linearly, from the vertex the polygon reaches first. A cut vertex whose four
+components are all no more than `2^-48` of the largest sum it took, a
+component of the vertex it starts from and its step towards the other added
+by size, is rounding alone, and becomes `vec4(0)`. One whose `w` alone is 0 keeps its other
 components for the next plane to cut. The polygon lives in
 `clipScratchBase`, two halves of 9 vertex slots each that the planes take
 turns writing, and is fan-triangulated from its vertex at `vec4(0)` into

@@ -135,8 +135,8 @@ function copyComponents(from: Float64Array, to: Float64Array): void {
 }
 
 /**
- * Writes the vertex where plane `plane` cuts the edge from `a`, inside it, to
- * `b`, outside it, into `out`. The cut takes the plane rather than its
+ * Writes the vertex where plane `plane` cuts the edge from `a` to `b`, one
+ * inside it and the other outside, into `out`. The cut takes the plane rather than its
  * fraction, as a float passed to a call V8 does not inline is boxed.
  *
  * A cut vertex whose four components all lie within the rounding of the cut
@@ -314,11 +314,7 @@ export function compileJSRasterizer(
         const db = planeDistance(b.position, plane);
         // Rounding can make a cut polygon slightly concave; it keeps 9 vertices at most, the slots of a half.
         if (da >= 0 && out < 9) copyVertex(a, scratch[dst + out++]!);
-        // A cut runs from the vertex inside, so a w far smaller than the other's keeps its digits.
-        if (da >= 0 !== db >= 0 && out < 9) {
-          if (da >= 0) cutVertex(a, b, plane, scratch[dst + out++]!);
-          else cutVertex(b, a, plane, scratch[dst + out++]!);
-        }
+        if (da >= 0 !== db >= 0 && out < 9) cutVertex(a, b, plane, scratch[dst + out++]!);
       }
       src = dst;
       count = out;

@@ -629,18 +629,10 @@
             (local.set $out (i32.add (local.get $out) (i32.const 1)))))
         (if (i32.and (i32.ne (f64.ge (local.get $da) (f64.const 0)) (f64.ge (local.get $db) (f64.const 0))) (i32.lt_s (local.get $out) (i32.const 9)))
           (then
-            ;; A cut runs from the vertex inside, so a w far smaller than the other's keeps its digits.
-            (if (f64.ge (local.get $da) (f64.const 0))
-              (then
-                (call $lerpToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
-                  (local.get $a) (local.get $b)
-                  (f64.div (local.get $da) (f64.sub (local.get $da) (local.get $db)))
-                  (i32.add (local.get $dst) (local.get $out))))
-              (else
-                (call $lerpToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
-                  (local.get $b) (local.get $a)
-                  (f64.div (local.get $db) (f64.sub (local.get $db) (local.get $da)))
-                  (i32.add (local.get $dst) (local.get $out)))))
+            (call $lerpToScratch (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $varyingDescBase) (local.get $varyingDescCount)
+              (local.get $a) (local.get $b)
+              (f64.div (local.get $da) (f64.sub (local.get $da) (local.get $db)))
+              (i32.add (local.get $dst) (local.get $out)))
             (local.set $out (i32.add (local.get $out) (i32.const 1)))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $continue)))
