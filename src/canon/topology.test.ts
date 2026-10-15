@@ -3,7 +3,7 @@ import { attribute, builtinPosition, Fn, uniform, varying, vec4, vertexIndex } f
 import { UsageError } from "../errors";
 import { compileJS, createJs } from "../js";
 import { compileWasm, createWasm } from "../wasm";
-import { TriangleAssembly } from "../backends/assemble";
+import { createDrawAssembly } from "../backends/assemble";
 import { RASTERIZE_PARAMS } from "../backends/wasm/rasterizer";
 import type { BackendOrigin } from "../errors";
 
@@ -618,10 +618,10 @@ describe("the tables a CPU draw assembles its triangles in", () => {
    * @canon spec-a-js-draw-without-indices-keeps-no-vertex-table
    */
   it("keeps no table of the vertices of a draw without indices", () => {
-    const assembly = new TriangleAssembly();
-    assembly.assemble(ORIGIN, undefined, 0, 6, "triangle-strip", 6);
+    const assembly = createDrawAssembly(ORIGIN, { slots: ["position"], widths: [4] });
+    assembly.draw({ position: new Float64Array(24) }, undefined, { topology: "triangle-strip" });
     expect(assembly.triangleCount).toBe(4);
-    expect((assembly as unknown as { slotOfVertex: Int32Array }).slotOfVertex.length).toBe(0);
+    expect(assembly.slotTableLength).toBe(0);
   });
 
   /**

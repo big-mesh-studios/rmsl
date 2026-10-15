@@ -102,114 +102,132 @@ export interface DrawAttributes {
 }
 
 /**
- * Refuses a draw's options that WebGPU would refuse, and makes the vertices
- * and triangles it draws in `assembly`. The attributes are those the host
- * passed, which hold every slot `read` names.
+ * The vertices a draw shades and the triangles it makes of them, in tables a
+ * routine keeps across draws. Each vertex the draw names once, whatever the
+ * number of indices that name it, has a slot; each triangle is three slots,
+ * wound as WebGPU winds it, its first slot the one that gives its flat varyings.
  */
-export function assembleDraw(
-  assembly: TriangleAssembly,
-  origin: Origin,
-  attributes: Readonly<Record<string, ArrayLike<number>>>,
-  read: DrawAttributes,
-  index: CpuIndexArray | undefined,
-  request: DrawRequest,
-): void {
-  checkOption(origin, "topology", request.topology);
-  checkOption(origin, "cullMode", request.cullMode);
-  checkOption(origin, "frontFace", request.frontFace);
-  const first = request.first === undefined ? 0 : drawRange(origin, "first", request.first);
-  const count = request.count === undefined ? undefined : drawRange(origin, "count", request.count);
-  let held = 0;
-  for (let a = 0; a < read.slots.length; a++) {
-    held = Math.max(held, Math.floor(attributes[read.slots[a]!]!.length / read.widths[a]!));
-  }
-  if (index) {
-    assembly.assemble(origin, index, first, count, request.topology, held);
-    return;
-  }
-  const n = count ?? Math.max(0, inferredCount(attributes, read) - first);
-  // A draw without indices reads every vertex it names from each attribute, as WebGPU requires them all to be there.
-  for (let a = 0; a < read.slots.length; a++) {
-    const slot = read.slots[a]!;
-    const holds = Math.floor(attributes[slot]!.length / read.widths[a]!);
-    if (first + n > holds) {
-      throw new UsageError(
-        "attribute-range",
-        `${origin.caller}: draw() reads ${n} vertices from vertex ${first}, and the attribute "${slot}" holds ${holds}`,
-        origin,
-      );
-    }
-  }
-  assembly.assemble(origin, undefined, first, n, request.topology, held);
+export interface DrawAssembly {
+  /** The vertex, counted from the start of the attributes, that each slot shades. */
+  readonly vertexOfSlot: Uint32Array;
+  /** The slots that the draw shades. */
+  readonly slotCount: number;
+  /** Three slots for each triangle. */
+  readonly triangles: Int32Array;
+  /** The triangles the draw makes. */
+  readonly triangleCount: number;
+  /** Whether the triangles are a list of the slots in order, which a draw need not read from `triangles`. */
+  readonly inOrder: boolean;
+  /** The length of the table that maps a vertex to its slot, which a draw without indices leaves at 0. */
+  readonly slotTableLength: number;
+  /**
+   * Refuses a draw's options that WebGPU would refuse, and makes the vertices
+   * and triangles it draws. The attributes are those the host passed, which
+   * hold every slot the routine reads.
+   */
+  draw(
+    attributes: Readonly<Record<string, ArrayLike<number>>>,
+    index: CpuIndexArray | undefined,
+    request: DrawRequest,
+  ): void;
 }
 
-/** Refuses a value of the draw option `option` that is not one the option takes. */
-function checkOption(origin: Origin, option: keyof typeof OPTION_VALUES, value: string | undefined): void {
-  if (value === undefined) return;
-  const values: readonly string[] = OPTION_VALUES[option];
-  if (values.includes(value)) return;
-  throw new UsageError(
-    "unknown-draw-option",
-    `${origin.caller}: draw() takes no ${option} "${String(value)}"; it takes ${values.map((v) => `"${v}"`).join(", ")}`,
-    origin,
-  );
-}
+/**
+ * The {@link DrawAssembly} of one routine, which reads the attributes `read`
+ * names. Each routine makes its own, so that the engine optimizes its code
+ * for that routine's inputs alone: code that one routine's attributes, indices
+ * and options all reach would see the shapes of every routine's, and be
+ * thrown away whenever an earlier routine's objects are collected.
+ */
+export function createDrawAssembly(origin: Origin, read: DrawAttributes): DrawAssembly {
+  let vertexOfSlot = new Uint32Array(0);
+  let slotCount = 0;
+  let triangles = new Int32Array(0);
+  let triangleCount = 0;
+  let inOrder = false;
+  /** The slot of each vertex below the dense limit, or -1, reset after each draw by indices. */
+  let slotOfVertex = new Int32Array(0);
+  /** The slot of each vertex at or past the dense limit, made for the draw that names it. */
+  const sparse = new Map<number, number>();
 
-/** `value` as the `first` or `count` of a draw: its fraction dropped, refused when it is not a whole number WebGPU takes. */
-function drawRange(origin: Origin, name: "first" | "count", value: number): number {
-  const whole = Math.trunc(value);
-  if (!(whole >= 0 && whole <= LARGEST_RANGE)) {
+  /** Refuses a value of the draw option `option` that is not one the option takes. */
+  function checkOption(option: keyof typeof OPTION_VALUES, value: string | undefined): void {
+    if (value === undefined) return;
+    const values: readonly string[] = OPTION_VALUES[option];
+    if (values.includes(value)) return;
     throw new UsageError(
-      "draw-range",
-      `${origin.caller}: draw() takes a ${name} from 0 to ${LARGEST_RANGE}, not ${value}`,
+      "unknown-draw-option",
+      `${origin.caller}: draw() takes no ${option} "${String(value)}"; it takes ${values.map((v) => `"${v}"`).join(", ")}`,
       origin,
     );
   }
-  return whole;
-}
 
-/**
- * The vertices the first attribute the program reads holds, in the order the
- * host passed them. An attribute the program does not read counts for nothing,
- * as a WebGPU draw reads no buffer its shader does not declare.
- */
-function inferredCount(attributes: Readonly<Record<string, ArrayLike<number>>>, read: DrawAttributes): number {
-  for (const slot in attributes) {
-    const a = read.slots.indexOf(slot);
-    if (a >= 0) return Math.floor(attributes[slot]!.length / read.widths[a]!);
+  /** `value` as the `first` or `count` of a draw: its fraction dropped, refused when it is not a whole number WebGPU takes. */
+  function drawRange(name: "first" | "count", value: number): number {
+    const whole = Math.trunc(value);
+    if (!(whole >= 0 && whole <= LARGEST_RANGE)) {
+      throw new UsageError(
+        "draw-range",
+        `${origin.caller}: draw() takes a ${name} from 0 to ${LARGEST_RANGE}, not ${value}`,
+        origin,
+      );
+    }
+    return whole;
   }
-  return 0;
-}
 
-/**
- * The vertices a draw shades and the triangles it makes of them, in buffers
- * kept across draws. Each vertex the draw names once, whatever the number of
- * indices that name it, has a slot; each triangle is three slots, wound as
- * WebGPU winds it, its first slot the one that gives its flat varyings.
- */
-export class TriangleAssembly {
-  /** The vertex, counted from the start of the attributes, that each slot shades. */
-  vertexOfSlot = new Uint32Array(0);
-  /** The slots that the draw shades. */
-  slotCount = 0;
-  /** Three slots for each triangle. */
-  triangles = new Int32Array(0);
-  /** The triangles the draw makes. */
-  triangleCount = 0;
-  /** Whether the triangles are a list of the slots in order, which a draw need not read from `triangles`. */
-  inOrder = false;
-  /** The slot of each vertex below the dense limit, or -1, reset after each draw by indices. */
-  private slotOfVertex = new Int32Array(0);
-  /** The slot of each vertex at or past the dense limit, made for the draw that names it. */
-  private sparse = new Map<number, number>();
+  /**
+   * The vertices the first attribute the program reads holds, in the order the
+   * host passed them. An attribute the program does not read counts for nothing,
+   * as a WebGPU draw reads no buffer its shader does not declare.
+   */
+  function inferredCount(attributes: Readonly<Record<string, ArrayLike<number>>>): number {
+    for (const slot in attributes) {
+      const a = read.slots.indexOf(slot);
+      if (a >= 0) return Math.floor(attributes[slot]!.length / read.widths[a]!);
+    }
+    return 0;
+  }
+
+  function newSlot(vertex: number): number {
+    vertexOfSlot[slotCount] = vertex;
+    return slotCount++;
+  }
+
+  function slotOf(vertex: number, dense: number): number {
+    if (vertex < dense) {
+      const known = slotOfVertex[vertex]!;
+      if (known >= 0) return known;
+      return (slotOfVertex[vertex] = newSlot(vertex));
+    }
+    const known = sparse.get(vertex);
+    if (known !== undefined) return known;
+    const slot = newSlot(vertex);
+    sparse.set(vertex, slot);
+    return slot;
+  }
+
+  function addTriangle(s0: number, s1: number, s2: number): void {
+    const t = triangleCount++ * 3;
+    triangles[t] = s0;
+    triangles[t + 1] = s1;
+    triangles[t + 2] = s2;
+  }
+
+  /** Clears the dense slots a draw by indices set, so the next draw starts from none. */
+  function resetSlots(dense: number): void {
+    for (let s = 0; s < slotCount; s++) {
+      const vertex = vertexOfSlot[s]!;
+      if (vertex < dense) slotOfVertex[vertex] = -1;
+    }
+    if (sparse.size > 0) sparse.clear();
+  }
 
   /**
    * Makes the slots and triangles of a draw of `count` vertices from `first`,
    * by `index` when it is given, and refuses an index range past its end.
    * `vertices` is the number of vertices the longest attribute holds.
    */
-  assemble(
-    origin: Origin,
+  function assemble(
     index: CpuIndexArray | undefined,
     first: number,
     count: number | undefined,
@@ -228,12 +246,12 @@ export class TriangleAssembly {
     }
     const n = index ? (count ?? length - first) : (count ?? 0);
     const strip = topology === "triangle-strip";
-    this.slotCount = 0;
-    this.triangleCount = 0;
-    this.inOrder = !index && !strip;
+    slotCount = 0;
+    triangleCount = 0;
+    inOrder = !index && !strip;
     if (n <= 0) return;
-    if (this.vertexOfSlot.length < n) this.vertexOfSlot = new Uint32Array(n);
-    if (this.triangles.length < n * 3) this.triangles = new Int32Array(n * 3);
+    if (vertexOfSlot.length < n) vertexOfSlot = new Uint32Array(n);
+    if (triangles.length < n * 3) triangles = new Int32Array(n * 3);
     const restart = index instanceof Uint16Array ? 0xffff : 0xffffffff;
     let dense = 0;
     if (index) {
@@ -244,7 +262,7 @@ export class TriangleAssembly {
         if (!(strip && vertex === restart) && vertex > largest) largest = vertex;
       }
       dense = Math.max(vertices, Math.min(largest + 1, DENSE_VERTICES));
-      if (this.slotOfVertex.length < dense) this.slotOfVertex = new Int32Array(dense).fill(-1);
+      if (slotOfVertex.length < dense) slotOfVertex = new Int32Array(dense).fill(-1);
     }
     // The slots of the two vertices before this one: strip vertices k and k + 1 of triangle k, or the list's triangle so far.
     let a = -1;
@@ -256,12 +274,12 @@ export class TriangleAssembly {
         run = 0;
         continue;
       }
-      const slot = index ? this.slotOf(vertex, dense) : this.newSlot(vertex);
+      const slot = index ? slotOf(vertex, dense) : newSlot(vertex);
       if (run >= 2) {
-        if (!strip) this.addTriangle(a, b, slot);
+        if (!strip) addTriangle(a, b, slot);
         // An odd strip triangle winds in reverse. Its first vertex is the strip's vertex k, as WebGPU's implementations take it.
-        else if (run % 2 === 0) this.addTriangle(a, b, slot);
-        else this.addTriangle(a, slot, b);
+        else if (run % 2 === 0) addTriangle(a, b, slot);
+        else addTriangle(a, slot, b);
       }
       if (strip) {
         a = b;
@@ -275,40 +293,62 @@ export class TriangleAssembly {
         run++;
       }
     }
-    if (index) this.resetSlots(dense);
+    if (index) resetSlots(dense);
   }
 
-  private newSlot(vertex: number): number {
-    this.vertexOfSlot[this.slotCount] = vertex;
-    return this.slotCount++;
-  }
-
-  private slotOf(vertex: number, dense: number): number {
-    if (vertex < dense) {
-      const known = this.slotOfVertex[vertex]!;
-      if (known >= 0) return known;
-      return (this.slotOfVertex[vertex] = this.newSlot(vertex));
+  function draw(
+    attributes: Readonly<Record<string, ArrayLike<number>>>,
+    index: CpuIndexArray | undefined,
+    request: DrawRequest,
+  ): void {
+    checkOption("topology", request.topology);
+    checkOption("cullMode", request.cullMode);
+    checkOption("frontFace", request.frontFace);
+    const first = request.first === undefined ? 0 : drawRange("first", request.first);
+    const count = request.count === undefined ? undefined : drawRange("count", request.count);
+    let held = 0;
+    for (let a = 0; a < read.slots.length; a++) {
+      held = Math.max(held, Math.floor(attributes[read.slots[a]!]!.length / read.widths[a]!));
     }
-    const known = this.sparse.get(vertex);
-    if (known !== undefined) return known;
-    const slot = this.newSlot(vertex);
-    this.sparse.set(vertex, slot);
-    return slot;
-  }
-
-  private addTriangle(s0: number, s1: number, s2: number): void {
-    const t = this.triangleCount++ * 3;
-    this.triangles[t] = s0;
-    this.triangles[t + 1] = s1;
-    this.triangles[t + 2] = s2;
-  }
-
-  /** Clears the dense slots this draw set, so the next draw starts from none. */
-  private resetSlots(dense: number): void {
-    for (let s = 0; s < this.slotCount; s++) {
-      const vertex = this.vertexOfSlot[s]!;
-      if (vertex < dense) this.slotOfVertex[vertex] = -1;
+    if (index) {
+      assemble(index, first, count, request.topology, held);
+      return;
     }
-    if (this.sparse.size > 0) this.sparse.clear();
+    const n = count ?? Math.max(0, inferredCount(attributes) - first);
+    // Each attribute holds every vertex up to the end of a draw without indices, of no vertex too, as WebGPU requires.
+    for (let a = 0; a < read.slots.length; a++) {
+      const slot = read.slots[a]!;
+      const holds = Math.floor(attributes[slot]!.length / read.widths[a]!);
+      if (first + n > holds) {
+        throw new UsageError(
+          "attribute-range",
+          `${origin.caller}: draw() reads ${n} vertices from vertex ${first}, and the attribute "${slot}" holds ${holds}`,
+          origin,
+        );
+      }
+    }
+    assemble(undefined, first, n, request.topology, held);
   }
+
+  return {
+    get vertexOfSlot() {
+      return vertexOfSlot;
+    },
+    get slotCount() {
+      return slotCount;
+    },
+    get triangles() {
+      return triangles;
+    },
+    get triangleCount() {
+      return triangleCount;
+    },
+    get inOrder() {
+      return inOrder;
+    },
+    get slotTableLength() {
+      return slotOfVertex.length;
+    },
+    draw,
+  };
 }

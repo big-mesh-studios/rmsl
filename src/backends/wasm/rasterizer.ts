@@ -12,14 +12,7 @@ import {
   WasmParam,
 } from "./wasm";
 import { linkStages } from "../shared";
-import {
-  assembleDraw,
-  CpuIndexArray,
-  cullSign,
-  DrawAssemblyOptions,
-  DrawAttributes,
-  TriangleAssembly,
-} from "../assemble";
+import { createDrawAssembly, CpuIndexArray, cullSign, DrawAssemblyOptions, DrawAttributes } from "../assemble";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -442,9 +435,6 @@ export function compileWasmRasterizer(
   let imageWidth = 0;
   let imageHeight = 0;
 
-  /** The vertices each draw shades and the triangles it makes of them. */
-  const assembly = new TriangleAssembly();
-
   /** The bytes of the image and depth buffers of `pixels` pixels together. */
   function frameBytes(pixels: number): number {
     return pixels * (VEC4_BYTES + 8);
@@ -456,11 +446,13 @@ export function compileWasmRasterizer(
     slots: hostAttributes.map((a) => a.slot),
     widths: hostAttributes.map((a) => a.componentCount),
   };
+  /** The vertices each draw shades and the triangles it makes of them. */
+  const assembly = createDrawAssembly(origin, read);
 
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
     for (const slot of read.slots) if (!ctx.attributes[slot]) throw missingAttributeError(origin, slot);
-    assembleDraw(assembly, origin, ctx.attributes, read, ctx.index, options);
+    assembly.draw(ctx.attributes, ctx.index, options);
     /** The vertices the vertex pass shades: one for each the draw names. */
     const vertexCount = assembly.slotCount;
     const triangleCount = assembly.triangleCount;

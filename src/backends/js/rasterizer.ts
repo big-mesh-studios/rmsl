@@ -3,14 +3,7 @@ import { Node, ShaderType, componentCountOf, componentKindOf, type ScalarKind } 
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
-import {
-  assembleDraw,
-  CpuIndexArray,
-  cullSign,
-  DrawAssemblyOptions,
-  DrawAttributes,
-  TriangleAssembly,
-} from "../assemble";
+import { createDrawAssembly, CpuIndexArray, cullSign, DrawAssemblyOptions, DrawAttributes } from "../assemble";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -218,7 +211,7 @@ export function compileJSRasterizer(
   /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
   const vertices: ClipVertex[] = [];
   /** The vertices each draw shades and the triangles it makes of them. */
-  const assembly = new TriangleAssembly();
+  const assembly = createDrawAssembly(origin, read);
   /** The sign of the screen area of a triangle the draw being made culls, or 0. */
   let cull = 0;
 
@@ -378,7 +371,7 @@ export function compileJSRasterizer(
       const slot = attributeSlots[a]!;
       if (!attributes[slot]) throw missingAttributeError(origin, slot);
     }
-    assembleDraw(assembly, origin, attributes, read, ctx.index, options);
+    assembly.draw(attributes, ctx.index, options);
 
     // vertex pass: once for each vertex the draw names
     for (let i = 0; i < assembly.slotCount; i++) {
