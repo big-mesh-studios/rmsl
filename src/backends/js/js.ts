@@ -2856,7 +2856,8 @@ export function compileJSFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): string {
-  return compileJSFnDetailed(COMPILE_JS_FN, fn, options).source;
+  // A host passes the options of its own, never those only rmsl's own stages take, however it built them.
+  return compileJSFnDetailed(COMPILE_JS_FN, fn, { ...options, rasterized: false }).source;
 }
 
 /** A JS program: what the stages and the grid take what they give from, and the call that skips the copy of `run`. */
@@ -3109,7 +3110,7 @@ export function compileJSVertex<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions & { float?: W },
 ): VertexStage<W> {
-  const program = compileJSProgram(COMPILE_JS_VERTEX, fn, { ...options, stage: "vertex" });
+  const program = compileJSProgram(COMPILE_JS_VERTEX, fn, { ...options, stage: "vertex", rasterized: false });
   return (ctx) => toVertexResult(program.run(ctx)) as VertexResult<W>;
 }
 
@@ -3130,7 +3131,7 @@ export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): FragmentStage {
-  const program = compileJSProgram(COMPILE_JS_FRAGMENT, fn, { ...options, stage: "fragment" });
+  const program = compileJSProgram(COMPILE_JS_FRAGMENT, fn, { ...options, stage: "fragment", rasterized: false });
   return (ctx) => toFragmentResult(program.run(ctx));
 }
 
@@ -3143,7 +3144,7 @@ export function compileJSCompute(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): ComputeStage {
-  const program = compileJSProgram(COMPILE_JS_COMPUTE, fn, { ...options, stage: "compute" });
+  const program = compileJSProgram(COMPILE_JS_COMPUTE, fn, { ...options, stage: "compute", rasterized: false });
   return Object.assign((ctx: CpuShaderContext, count: number) => program.compute(ctx, count), {
     storageTypes: program.storageTypes ?? {},
   });
@@ -3154,7 +3155,7 @@ export function compileJSGrid<A extends ShaderType, W extends FloatWidth = "f64"
   fn: (...args: any[]) => Node<A>,
   options: CompileJSStageOptions & { float?: W },
 ): CpuGrid<A, W> {
-  const program = compileJSProgram(COMPILE_JS_GRID, fn, { ...options, kind: "grid" });
+  const program = compileJSProgram(COMPILE_JS_GRID, fn, { ...options, kind: "grid", rasterized: false });
   return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A, W>;
 }
 
@@ -3176,6 +3177,6 @@ export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): CpuRoutine {
-  const program = compileJSProgram(COMPILE_JS_ROUTINE, fn, { ...options, kind: "routine" });
+  const program = compileJSProgram(COMPILE_JS_ROUTINE, fn, { ...options, kind: "routine", rasterized: false });
   return (ctx) => program.run(ctx) as never;
 }

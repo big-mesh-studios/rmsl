@@ -1915,6 +1915,28 @@ describe("an attribute element the host's array does not hold", () => {
   });
 });
 
+describe("the options a host passes a JS compile", () => {
+  /**
+   * An option only the rasterizer's own stages take changes nothing when a host
+   * passes it, however it built its options.
+   *
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
+   */
+  it("reads a scalar attribute as a number whatever else the options hold", () => {
+    const c = attribute("float");
+    const options = { name: "vtx", params: [], stage: "vertex" as const, rasterized: true };
+    const build = () => Fn(() => builtinPosition().assign(vec4(c, 0, 0, 1)))();
+    const ctx = { attributes: { [c.name]: 0.25 } };
+    const source = new Function(compileJSFn(build, options))() as (ctx: object) => { position: ArrayLike<number> };
+    expect(source(ctx).position[0]).toBe(0.25);
+    expect(compileJSVertex(build, options)(ctx as any).position[0]).toBe(0.25);
+    const shade = varying("float");
+    const fragmentOptions = { ...options, stage: "fragment" as const };
+    const fragment = compileJSFragment(() => Fn(() => vec4(shade, 0, 0, 1))(), fragmentOptions);
+    expect((fragment({ varyings: { [shade.name]: 0.5 } }) as any).value[0]).toBe(0.5);
+  });
+});
+
 describe("what a JS draw costs for itself", () => {
   const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
 
