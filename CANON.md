@@ -37,16 +37,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
 - [`@term precompile`](#term-precompile) — Running rmsl at build time, so that the application ships the compiled code instead of rmsl.
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
-  - [`@spec every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) — Every target shades a pixel of a triangle by its centre alone, with one sample, so a pixel that an edge of the triangle crosses takes the colour of the triangle or none. This holds wherever rmsl decides the number of samples. On a WebGL 2 context that a canvas already has, the context decides it.
+  - [`@spec every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) — Every target draws with one sample, so it shades a pixel of a triangle by its centre alone, and a pixel that an edge of the triangle crosses takes the colour of the triangle or none. This holds wherever rmsl decides the number of samples. On a WebGL 2 context that a canvas already has, the context decides it.
     - [`@spec the-glsl-adapter-asks-for-one-sample`](#spec-the-glsl-adapter-asks-for-one-sample) — `createGlsl` asks for a WebGL 2 context with no multisampling, and draws with the context the canvas gives it.
-      - [`@spec the-glsl-adapter-makes-its-context-with-one-sample`](#spec-the-glsl-adapter-makes-its-context-with-one-sample) — `createGlsl` attached to a canvas that has no context yet makes a WebGL 2 context with no multisampling, so it shades a pixel whole or not at all, whether it draws triangles, lines or points.
+      - [`@spec the-glsl-adapter-makes-its-context-with-one-sample`](#spec-the-glsl-adapter-makes-its-context-with-one-sample) — `createGlsl` attached to a canvas that has no context yet makes a WebGL 2 context with no multisampling, so it shades a pixel whole or not at all, whether it draws triangles or lines.
       - [`@spec the-glsl-adapter-draws-with-the-context-a-canvas-has`](#spec-the-glsl-adapter-draws-with-the-context-a-canvas-has) — `createGlsl` attached to a canvas that already has a WebGL 2 context draws with that context as it was made: with its samples, multisampled when it multisamples, and with its other attributes, such as `alpha`.
     - [`@spec the-wgsl-adapter-draws-with-one-sample`](#spec-the-wgsl-adapter-draws-with-one-sample) — `createWgsl` draws with one sample, whatever its topology, so it shades a pixel whole or not at all.
     - [`@spec a-cpu-rasterizer-shades-a-pixel-whole-or-not-at-all`](#spec-a-cpu-rasterizer-shades-a-pixel-whole-or-not-at-all) — The JS and WASM rasterizers of `createJs` and `createWasm` test the centre of a pixel alone, so they shade a pixel whole or not at all.
     - [`@spec webgl-renderer-draws-with-one-sample-by-default`](#spec-webgl-renderer-draws-with-one-sample-by-default) — `WebGLRenderer` asks its WebGL 2 context for no multisampling when its `antialias` option is not true, as three.js's `WebGLRenderer` does.
     - [`@spec webgl-renderer-draws-into-a-render-target-with-one-sample`](#spec-webgl-renderer-draws-into-a-render-target-with-one-sample) — `WebGLRenderer` draws into a `WebGLRenderTarget` with one sample, whatever its `antialias` option asks.
     - [`@spec webgpu-renderer-draws-with-one-sample`](#spec-webgpu-renderer-draws-with-one-sample) — `WebGPURenderer` draws a scene with one sample, onto its canvas and into a render target.
-    - [`@exception webgl-renderer-multisamples-when-antialias-is-true`](#exception-webgl-renderer-multisamples-when-antialias-is-true) — `WebGLRenderer` given `antialias: true` asks its WebGL 2 context for multisampling. Where the implementation grants it, a pixel of the canvas that an edge crosses takes part of the triangle's colour.
+    - [`@exception webgl-renderer-multisamples-when-antialias-is-true`](#exception-webgl-renderer-multisamples-when-antialias-is-true) — `WebGLRenderer` given `antialias: true` and made on a canvas that has no context yet asks for a WebGL 2 context with multisampling. Where the implementation grants it, a pixel of the canvas that an edge crosses takes part of the triangle's colour.
     - [`@spec webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has`](#spec-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has) — `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context, and with its samples, whatever its `antialias` option asks. It neither warns nor refuses, as three.js's `WebGLRenderer` does neither.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
@@ -887,7 +887,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 - [`@fact opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation`](#fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation) — OpenGL ES 3.0 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, and leaves to the implementation which.
-- [`@fact webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — Chromium's WebGL 2 on SwiftShader and on Metal shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades by the top-left rule.
+- [`@fact webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — Chromium's WebGL 2 on SwiftShader and on Metal on an Apple M1 shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades by the top-left rule.
 - [`@fact a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default) — A WebGL 2 context asks for multisampling unless `getContext` is given `antialias: false`, which gives it none. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
 - [`@fact get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has) — `canvas.getContext("webgl2", attributes)` on a canvas that already has a WebGL 2 context returns that context, and ignores the attributes it is given. A context keeps the attributes it was made with for its life.
 - [`@fact three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default) — three.js's `WebGLRenderer` takes an `antialias` option that is false by default, draws with one sample then, and multisamples with `antialias: true`. Its WebGPU `Renderer` takes the same option, and sets its `samples` to 0 by default and to 4 with `antialias: true`.
@@ -1030,8 +1030,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-inverts-only-a-square-matrix`](#fact-glsl-inverts-only-a-square-matrix) — GLSL's `inverse` takes a square matrix only.
 - [`@fact wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer) — WGSL's `round` takes a value halfway between two integers to the even one.
 - [`@fact webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded) — WebGPU stores a float into an 8-bit normalised channel by clamping it to 0 to 1 and rounding it to the nearest byte.
-- [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — Chromium's WebGPU on Metal gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
-- [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU on Metal shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+- [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — Chromium's WebGPU on Metal on an Apple M1 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+- [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU on Metal on an Apple M1 shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 - [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
@@ -1063,14 +1063,15 @@ The analysis found these places where the code or the documents do not hold the 
 
 ### Choices waiting
 
-1. Which pixels a line or a point shades. `createGlsl` draws lines and points through its `mode`, and `createWgsl` through its `topology`, but the CPU targets draw only triangles, and no unit says which pixels a line or a point covers on the two GPU targets or whether they agree. [`spec-every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) holds one sample for them and leaves the rest here. The options: state the GPU targets' rules as exceptions under a program-level spec once a probe measures them, at the cost of a probe per primitive and per driver; or scope lines and points out of the one-program axiom, at the cost of a program that draws them meaning something else on each GPU target. A first look through the tests of `createGlsl` and `createWgsl` on Chromium found that the two lines they draw shade different pixels on WebGL 2 on SwiftShader, on WebGL 2 on Metal and on WebGPU on Metal, and that a GLSL point has no defined size, since the vertex stage never writes `gl_PointSize`: SwiftShader fills the 4×4 canvas and Metal draws nothing. Recommendation: give a GLSL point the size 1 WebGPU gives every point, then probe lines per driver and state them as exceptions. No issue yet.
+1. Which pixels a line or a point shades. `createGlsl` draws lines and points through its `mode`, and `createWgsl` through its `topology`, but the CPU targets draw only triangles, and no unit says which pixels a line or a point covers on the two GPU targets or whether they agree. [`spec-every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) holds one sample for them and leaves the rest here. The options: state the GPU targets' rules as exceptions under a program-level spec once a probe measures them, at the cost of a probe per primitive and per driver; or scope lines and points out of the one-program axiom, at the cost of a program that draws them meaning something else on each GPU target. A first look through the tests of `createGlsl` and `createWgsl` on Chromium found that the two lines they draw shade different pixels on WebGL 2 on SwiftShader, on WebGL 2 on Metal and on WebGPU on Metal, and that a GLSL point has no defined size, since the vertex stage never writes `gl_PointSize`: SwiftShader fills the 4×4 canvas and Metal draws nothing. Recommendation: give a GLSL point the size 1 WebGPU gives every point, then probe lines per driver and state them as exceptions. Until then, the GLSL leaf of the spec claims triangles and lines only. A discuss issue will be filed.
+2. Whether `createGlsl` adopts every attribute of a WebGL 2 context a canvas already has, or refuses the ones that change its pixels against the other targets, such as `alpha: false` or an sRGB drawing buffer. [`spec-the-glsl-adapter-draws-with-the-context-a-canvas-has`](#spec-the-glsl-adapter-draws-with-the-context-a-canvas-has) states today's behaviour, adopting every attribute, and links here. The options: adopt every attribute, at the cost of a draw whose alpha or colour encoding differs from `createWgsl`'s on the same program, decided by whoever made the context; or refuse such a context with a usage error, at the cost of a page that made its own context with those attributes no longer drawing with `createGlsl` on that canvas. Copying through a framebuffer of one sample is no third option, since it cannot give a drawing buffer without alpha an alpha channel. Recommendation: keep adopting, as for the samples, and say so in the documentation, since the application made the context and asked for those attributes. A discuss issue will be filed.
 
 ### Coverage gaps
 
 These units hold a claim that no test checks yet.
 
 1. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
-2. [`exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver): its test checks the pixels only on the driver that was measured, Chromium's WebGPU on Metal. Another driver passes it whatever it shades.
+2. [`exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver): its test checks the pixels only on the driver that was measured, Chromium's WebGPU on Metal on an Apple M1, and is skipped on any other.
 
 ## Terms
 
@@ -1208,7 +1209,7 @@ The axiom decides between defined behaviour and the native freedom of each langu
 
 ### @spec every-target-shades-a-pixel-by-its-centre-alone
 
-> Every target shades a pixel of a triangle by its centre alone, with one sample, so a pixel that an edge of the triangle crosses takes the colour of the triangle or none. This holds wherever rmsl decides the number of samples. On a WebGL 2 context that a canvas already has, the context decides it.
+> Every target draws with one sample, so it shades a pixel of a triangle by its centre alone, and a pixel that an edge of the triangle crosses takes the colour of the triangle or none. This holds wherever rmsl decides the number of samples. On a WebGL 2 context that a canvas already has, the context decides it.
 
 Derives from: [`fact-a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default), [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has)
 
@@ -1216,7 +1217,7 @@ This follows because WebGPU and the CPU rasterizers test the centre of a pixel a
 
 A context keeps the attributes it was made with, so rmsl cannot choose the samples of a context that something else made first. The owner of the design picks that `createGlsl` draws with such a context rather than refuse it or copy through one sample, so that it shares a canvas with a `WebGLRenderer` made with `antialias: true`. The claim therefore stops where the context decides.
 
-The CPU targets draw only triangles. Which pixels a line or a point shades is an [open question](#open-questions). The GPU adapters' leaves below hold one sample for every primitive they draw, because the number of samples belongs to the context or the pipeline, not to the primitive.
+The CPU targets draw only triangles. Which pixels a line or a point shades is an [open question](#open-questions). The one sample holds for every primitive a GPU adapter draws, because the number of samples belongs to the context or the pipeline, not to the primitive. The leaves below claim each primitive their tests check.
 
 #### @spec the-glsl-adapter-asks-for-one-sample
 
@@ -1228,9 +1229,9 @@ This follows because a WebGL 2 context asks for multisampling unless told not to
 
 ##### @spec the-glsl-adapter-makes-its-context-with-one-sample
 
-> `createGlsl` attached to a canvas that has no context yet makes a WebGL 2 context with no multisampling, so it shades a pixel whole or not at all, whether it draws triangles, lines or points.
+> `createGlsl` attached to a canvas that has no context yet makes a WebGL 2 context with no multisampling, so it shades a pixel whole or not at all, whether it draws triangles or lines.
 
-This follows because `getContext` honours the attributes it is given when it makes a context, and `antialias: false` gives a drawing buffer with no antialiasing. The samples belong to the drawing buffer, so every primitive drawn into it has one.
+This follows because `getContext` honours the attributes it is given when it makes a context, and `antialias: false` gives a drawing buffer with no antialiasing. The samples belong to the drawing buffer, so every primitive drawn into it has one. A GLSL point has no defined size, since the vertex stage writes no `gl_PointSize`, so this leaf leaves points to the [open question](#open-questions).
 
 ##### @spec the-glsl-adapter-draws-with-the-context-a-canvas-has
 
@@ -1238,11 +1239,11 @@ This follows because `getContext` honours the attributes it is given when it mak
 
 Derives from: [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has), [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas)
 
-The owner of the design picks this, so that `createGlsl` shares a canvas with a `WebGLRenderer` made with `antialias: true`, as three.js's `WebGLRenderer` shares the context a canvas has.
+For the samples, the owner of the design picks this, so that `createGlsl` shares a canvas with a `WebGLRenderer` made with `antialias: true`, as three.js's `WebGLRenderer` shares the context a canvas has.
 
 The pick turns down two routes. The first is refusing a canvas whose `SAMPLES` is greater than 0, which stops that sharing. The second is resolving the canvas into a single-sampled framebuffer with `blitFramebuffer`, drawing there, and copying the result back with a full-screen quad. That costs a resolve and a full-screen copy on every draw. OpenGL ES 3.0 (section 4.3.3) also refuses a resolve between a multisampled buffer and one of another format, so the framebuffer would have to take the format of the drawing buffer, whatever `alpha` and `drawingBufferStorage` made it.
 
-The pick covers every attribute, not only the samples. `getContext` hands back the context with all the attributes it was made with. Refusing a context made with `alpha: false` would stop the same sharing. A copy through one sample cannot give a drawing buffer that has no alpha channel one.
+For the other attributes, this is how `createGlsl` behaves today, and the choice is an [open question](#open-questions). `getContext` hands back the context with all the attributes it was made with, so `createGlsl` draws without alpha on a context made with `alpha: false`, and through an sRGB drawing buffer on one `drawingBufferStorage` made so. rmsl's `WebGLRenderer` takes no `alpha` option, so only the application's own `getContext` makes such a context, and the sharing above does not reach it. A copy through one sample cannot give a drawing buffer that has no alpha channel one, so the choice is between adopting and refusing.
 
 #### @spec the-wgsl-adapter-draws-with-one-sample
 
@@ -1284,7 +1285,7 @@ This follows because its pipelines set no `multisample.count`, and three.js's We
 
 #### @exception webgl-renderer-multisamples-when-antialias-is-true
 
-> `WebGLRenderer` given `antialias: true` asks its WebGL 2 context for multisampling. Where the implementation grants it, a pixel of the canvas that an edge crosses takes part of the triangle's colour.
+> `WebGLRenderer` given `antialias: true` and made on a canvas that has no context yet asks for a WebGL 2 context with multisampling. Where the implementation grants it, a pixel of the canvas that an edge crosses takes part of the triangle's colour.
 
 Derives from: [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default), [`fact-a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default), [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
 
@@ -2062,7 +2063,7 @@ This follows because WGSL's `round` takes a half to the even integer, and a CPU 
 
 Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once), [`fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge)
 
-This follows because the WebGPU specification leaves open which triangle shades a pixel centre on an edge, so rmsl picks a rule: the top-left rule, which Direct3D specifies and Chromium's WebGPU on Metal follows. The CPU targets hold it. On each GPU target the driver decides, and an exception says so.
+This follows because the WebGPU specification leaves open which triangle shades a pixel centre on an edge, so rmsl picks a rule: the top-left rule, which Direct3D specifies and Chromium's WebGPU on Metal on an Apple M1 follows. The CPU targets hold it. On each GPU target the driver decides, and an exception says so.
 
 ##### @spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge
 
@@ -2076,7 +2077,7 @@ This follows because a CPU target holds the rule rmsl picks where WebGPU leaves 
 
 Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once), [`fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge)
 
-The WebGPU specification leaves such a pixel undefined, and a shader cannot choose the rule. The driver measured, Chromium's WebGPU on Metal, follows the top-left rule on horizontal, vertical and sloped edges, in both windings, and gives each centre on a shared edge to exactly one triangle. Other drivers, such as Dawn on Vulkan or on Direct3D 12, are unmeasured.
+The WebGPU specification leaves such a pixel undefined, and a shader cannot choose the rule. The driver measured, Chromium's WebGPU on Metal on an Apple M1, follows the top-left rule on horizontal, vertical and sloped edges, in both windings, and gives each centre on a shared edge to exactly one triangle. Other drivers and GPUs, such as Dawn on Vulkan or on Direct3D 12, or other Apple GPUs, are unmeasured.
 
 ##### @exception a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver
 
@@ -2084,7 +2085,7 @@ The WebGPU specification leaves such a pixel undefined, and a shader cannot choo
 
 Derives from: [`fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation`](#fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation), [`fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above)
 
-GLSL draws through WebGL 2, which takes its rule from OpenGL ES, and a shader cannot choose the rule. The drivers measured, Chromium's WebGL 2 on SwiftShader and on Metal, follow the top-left rule on every edge but a horizontal one, and give a centre on a horizontal edge to the triangle above. Other drivers, such as ANGLE on Direct3D 11 or on Vulkan, are unmeasured. Drawing the image upside down and copying it back flipped would give the top-left rule only on a driver whose rule mirrors it, and would overwrite what other adapters drew on the canvas, which [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) allows.
+GLSL draws through WebGL 2, which takes its rule from OpenGL ES, and a shader cannot choose the rule. The drivers measured, Chromium's WebGL 2 on SwiftShader and on Metal on an Apple M1, follow the top-left rule on every edge but a horizontal one, and give a centre on a horizontal edge to the triangle above. Other drivers, such as ANGLE on Direct3D 11 or on Vulkan, are unmeasured. Drawing the image upside down and copying it back flipped would give the top-left rule only on a driver whose rule mirrors it, and would overwrite what other adapters drew on the canvas, which [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) allows.
 
 ### @spec the-test-suite-holds-every-target-to-the-program
 
@@ -6456,7 +6457,7 @@ OpenGL ES 3.0, section 3.6.1, requires that exactly one of two polygons on eithe
 
 ## @fact webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
 
-> Chromium's WebGL 2 on SwiftShader and on Metal shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades by the top-left rule.
+> Chromium's WebGL 2 on SwiftShader and on Metal on an Apple M1 shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades by the top-left rule.
 
 On Chromium 149, WebGL 2 through ANGLE on SwiftShader and through ANGLE on Metal (Apple M1) draws without multisampling into a 4×4 target. A rectangle from y 0.5 to 2.5, in pixels from the top, shades rows 1 and 2, in both windings. WebGPU on Metal shades rows 0 and 1. A rectangle from x 0.5 to 2.5 shades columns 0 and 1 on both. Pairs of triangles that share an edge of slope 1, -1, 1/2 or 2 through pixel centres shade the same pixels on both, in both windings, and every pair that covers the target together shades each pixel once. The probe is `probes/single-sample/pixel-centre-on-an-edge.ts`, with its result and environment beside it.
 
@@ -7335,13 +7336,13 @@ Chromium's WebGPU writes the values -1, 0, 0.001, 0.3, 0.5, 0.7, 0.999, 1, 1.5 a
 
 ## @fact webgpu-shades-a-pixel-on-a-shared-edge-once
 
-> Chromium's WebGPU on Metal gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+> Chromium's WebGPU on Metal on an Apple M1 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
 
 The WebGPU specification leaves such a pixel undefined; OpenGL ES 3.0, section 3.6.1, gives it to exactly one triangle, and Chromium's WebGPU does the same. Chromium's WebGPU draws a 4×4 square as two triangles split on a diagonal through four pixel centres. Each adds 0.25 by blending. Every pixel gets the byte 64, in either triangle order and with either winding, so none was shaded twice. On Chromium 149 on an Apple M1, pairs that share an edge of slope 1, -1, 1/2 or 2, or a vertical or horizontal edge, through pixel centres shade each pixel once too (`probes/single-sample/pixel-centre-on-an-edge.ts`).
 
 ## @fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge
 
-> Chromium's WebGPU on Metal shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+> Chromium's WebGPU on Metal on an Apple M1 shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 
 This is the top-left rule that Direct3D specifies. Chromium's WebGPU on Metal draws into a 4×4 target, in both windings. A rectangle from x 0.5 to 2.5, in pixels, shades columns 0 and 1. A rectangle from y 0.5 to 2.5 shades rows 0 and 1. A triangle with its left edge at x 0.5 and its top edge at y 0.5 shades all 16 pixels. A triangle with its right edge at x 2.5 and its bottom edge at y 2.5 shades four pixels, those of columns 0 and 1 in rows 0 and 1. Measured on Chromium 149 on an Apple M1, with edges of slope 1, -1, 1/2 and 2 too, by `probes/single-sample/pixel-centre-on-an-edge.ts`. Other drivers are unmeasured.
 
