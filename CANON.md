@@ -805,7 +805,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced. A variable or a slot named by text that is no identifier, or a slot named by a keyword or a built-in of GLSL or WGSL, or by a name with the prefix `gl_` or two underscores in a row, is one such case, and every target refuses it again as it compiles, so a graph built by hand is refused alike.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. The depth is `undefined` in a stage that neither reads nor writes one, and in a stage that reads or writes one, a call that does not write it gives the depth its context holds ([`exception-a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own)). With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
-  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of typed array the host passes its attributes in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
+  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
     - [`@spec a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying`](#spec-a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying) — A JS draw whose vertex stage reads a `vec3` attribute and writes a `vec3` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
     - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute) — A JS draw whose vertex stage reads a `float` attribute holding fractions allocates nothing for each vertex.
     - [`@spec a-js-draw-allocates-nothing-for-an-int-attribute`](#spec-a-js-draw-allocates-nothing-for-an-int-attribute) — A JS draw whose vertex stage reads an `int` attribute allocates nothing for each vertex.
@@ -823,6 +823,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `float` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `float` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
     - [`@spec a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot`](#spec-a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot) — A JS draw whose vertex stage writes a `vec3` varying at `float: "f64"` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, with an `ivec3` varying, a `uvec3` varying, and a `vec3` varying at `float: "f32"`.
     - [`@spec a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context`](#spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context) — A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, an object literal of `varyings` and `fragCoord` that gains `uniforms`, `textures` and then `fragDepth`, and that object held `undefined` in `fragDepth`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in four other kinds of array: a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array) — After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw`](#spec-a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw) — A JS draw whose fragment stage samples five `sampler2D` uniforms, whose texel data are a `Float32Array`, a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`, allocates nothing for each fragment.
+      - [`@bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw`](#bug-a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw) — Each texel the stage reads is boxed into a new heap number: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array) — A JS draw whose fragment stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+      - [`@bug a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 12.4 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array) — A JS draw whose fragment stage reads a `mat3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+      - [`@bug a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 37 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array) — A JS draw whose fragment stage reads an element of a `vec4` uniform array, whose elements are given as `Float64Array`s, allocates nothing for each fragment after draws of the same rasterizer that gave its elements as `Float32Array`s, plain arrays, `Int32Array`s and `Uint8Array`s.
+      - [`@bug a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts`](#spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts) — A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
   - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
@@ -5909,11 +5919,11 @@ This follows because a call that builds a new array or a closure gives the garba
 
 ### @spec a-js-draw-allocates-nothing-per-vertex-or-fragment
 
-> In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of typed array the host passes its attributes in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
+> In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
 
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number), [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike), [`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there), [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads), [`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)
 
-This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times. A float stored in a property allocates whenever any object made alike, the host's included, has held something else there, or the place that stores it has seen a second key in any rasterizer, and nothing in the draw rules either out. An element of a typed array takes a float without allocating, but a load from the host's arrays still boxes once its place has seen more than four kinds of array. A load from what a stage hands back sees the kinds of slot a stage keeps a vector in, a `Float64Array`, a `Float32Array`, an `Int32Array` and a `Uint32Array`, four, so a fifth kind of slot would make it box. Code V8 has not optimized allocates for every float it computes, so the claim is of the draw once V8 has optimized it.
+This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times. A float stored in a property allocates whenever any object made alike, the host's included, has held something else there, or the place that stores it has seen a second key in any rasterizer, and nothing in the draw rules either out. An element of a typed array takes a float without allocating, but a load from the host's arrays still boxes once its place has seen more than four kinds of array. A stage's own code is the rasterizer's for every draw, so a load in it from a host's uniform or texel data sees every kind of array the host passed it across those draws, and the code that samples a texture is one for all the samplers of a stage. A load from what a stage hands back sees the kinds of slot a stage keeps a vector in, a `Float64Array`, a `Float32Array`, an `Int32Array` and a `Uint32Array`, four, so a fifth kind of slot would make it box. Code V8 has not optimized allocates for every float it computes, so the claim is of the draw once V8 has optimized it.
 
 How the rasterizer hands a stage its scalars, and takes back the scalar varyings and depth a stage writes, is left open, inside one limit: it is a channel of the rasterizer's own. A stage the host calls, and the source `compileJSFn` gives and `precompileJS` ships, keep the shape [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot) and [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) give them: a scalar input or varying is a number under its slot. No probe measured another engine, another version of V8, or a build of V8 with pointer compression, as Chromium's is, so the spec claims nothing there.
 
@@ -6027,6 +6037,8 @@ Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fa
 
 This follows because the rasterizer loads a scalar attribute at a place of its own, which sees every kind of array a scalar attribute of any rasterizer was given.
 
+Today a test of this leaf shows nothing: the rasterizer stores the attribute into a property, which allocates 16 bytes a vertex whatever the load does ([`spec-a-js-draw-allocates-nothing-for-a-float-attribute`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute)), and a boxed load adds no box of its own. It can fail only once that store is gone.
+
 #### @spec a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot
 
 > A JS draw whose vertex stage writes a `vec3` varying at `float: "f64"` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, with an `ivec3` varying, a `uvec3` varying, and a `vec3` varying at `float: "f32"`.
@@ -6042,6 +6054,76 @@ This follows because the rasterizer loads each vector a vertex stage hands back 
 Derives from: [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike)
 
 This follows because a host object made that way is made alike with the context, so a draw that stored each fragment's interpolated depth in the context's `fragDepth` would allocate once the host's object had held `undefined` there.
+
+#### @spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose fragment stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in four other kinds of array: a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage loads texel data at the same places in its code on every draw, so those places see every kind of array the host gave any of its samplers.
+
+##### @bug a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array
+
+> After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #312
+
+#### @spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw
+
+> A JS draw whose fragment stage samples five `sampler2D` uniforms, whose texel data are a `Float32Array`, a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`, allocates nothing for each fragment.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because one helper of the stage samples every one of its samplers, so its loads see the kinds of all of their texel data in a single draw.
+
+##### @bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw
+
+> Each texel the stage reads is boxed into a new heap number: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #312
+
+#### @spec a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array
+
+> A JS draw whose fragment stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage copies the uniform into a slot at one place in its code on every draw, so that place sees every kind of array the host gave the uniform.
+
+##### @bug a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads: about 12.4 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #313
+
+#### @spec a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array
+
+> A JS draw whose fragment stage reads a `mat3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage copies a matrix uniform into a slot as it copies a vector one, at one place in its code on every draw.
+
+##### @bug a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads: about 37 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #313
+
+#### @spec a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array
+
+> A JS draw whose fragment stage reads an element of a `vec4` uniform array, whose elements are given as `Float64Array`s, allocates nothing for each fragment after draws of the same rasterizer that gave its elements as `Float32Array`s, plain arrays, `Int32Array`s and `Uint8Array`s.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage copies an element it reads into a slot at one place in its code on every draw, so that place sees every kind of array the host gave the elements.
+
+##### @bug a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #313
 
 #### @spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
 
