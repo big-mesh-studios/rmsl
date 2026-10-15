@@ -239,7 +239,10 @@ if (isMainThread) {
       break;
     }
     case "float attribute, after another rasterizer drew from a vec3 attribute": {
-      drawOther("vec3", Float64Array.from({ length: 18 }, (_, i) => 0.05 * i - 0.4));
+      drawOther(
+        "vec3",
+        Float64Array.from({ length: 18 }, (_, i) => 0.05 * i - 0.4),
+      );
       const c = attribute("float");
       const v = varying("vec3");
       attributes[c.name] = fractions;
