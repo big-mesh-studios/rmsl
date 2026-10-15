@@ -4,6 +4,7 @@ import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, miss
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
 import { createDrawAssembly, CpuIndexArray, cullSign, DrawAssemblyOptions, DrawAttributes } from "../assemble";
+import { attributeKindOf } from "../vertex-format";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -73,6 +74,9 @@ interface ClipVertex {
 /** The target of a rasterizer between draws. */
 const NO_TARGET = new Float64Array(0);
 
+/** The inputs a rasterizer's contexts hold between draws: none. */
+const NO_INPUTS: Pick<JsRasterContext, "uniforms" | "textures"> = Object.freeze({});
+
 /**
  * Whether an edge running `(dx, dy)`, in a triangle wound so that its inside
  * lies where every edge function is positive, owns the pixel centres on it:
@@ -90,6 +94,24 @@ function ownsEdge(dx: number, dy: number): boolean {
  */
 function attributeComponent(kind: ScalarKind, value: number): number {
   return kind === "int" ? value | 0 : kind === "uint" ? value >>> 0 : value;
+}
+
+/**
+ * Which of the reads in {@link compileJSRasterizer}'s loop over vertices reads
+ * `array`: one for each kind of typed array, and one for any other array. Each
+ * read is a place of its own in the code, so each sees one kind of array and
+ * V8 keeps it from boxing what it reads, however many kinds the host passes.
+ */
+function readerOf(array: ArrayLike<number>): number {
+  if (array instanceof Float64Array) return 0;
+  if (array instanceof Float32Array) return 1;
+  if (array instanceof Int32Array) return 2;
+  if (array instanceof Uint32Array) return 3;
+  if (array instanceof Int16Array) return 4;
+  if (array instanceof Uint16Array) return 5;
+  if (array instanceof Int8Array) return 6;
+  if (array instanceof Uint8Array) return 7;
+  return 8;
 }
 
 /** A vertex with room for a position and varyings of these widths. */
@@ -174,25 +196,37 @@ export function compileJSRasterizer(
     float: options.float,
   };
   const linked = linkStages(origin, vertexFn(), fragmentFn(), true);
-  const vertexStage = compileJSProgram(origin, () => linked.vertex, { ...stageOptions, name: "vtx", stage: "vertex" });
+  const vertexStage = compileJSProgram(origin, () => linked.vertex, {
+    ...stageOptions,
+    name: "vtx",
+    stage: "vertex",
+    rasterized: true,
+  });
   const fragmentStage = compileJSProgram(origin, () => linked.fragment, {
     ...stageOptions,
     name: "frag",
     stage: "fragment",
+    rasterized: true,
   });
   const writesDepth = fragmentStage.writesDepth;
 
   /** The attribute slots the vertex stage reads, as its program declares them. */
   const attributeSlots = Object.keys(vertexStage.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(vertexStage.attributeTypes[slot]!));
-  const attributeKinds = attributeSlots.map((slot) => componentKindOf(vertexStage.attributeTypes[slot]!));
+  // A bool attribute reaches the vertex stage as the unsigned integers it is lowered to.
+  const attributeKinds = attributeSlots.map((slot) => attributeKindOf(vertexStage.attributeTypes[slot]!));
   /** The attributes the vertex stage reads, as a draw checks and assembles them. */
   const read: DrawAttributes = { slots: attributeSlots, widths: attributeWidths };
-  /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */
-  const vertexAttributes: Record<string, number | Float64Array | undefined> = {};
-  attributeSlots.forEach((slot, i) => {
-    vertexAttributes[slot] = attributeWidths[i]! > 1 ? new Float64Array(attributeWidths[i]!) : 0;
-  });
+  /**
+   * The value of each attribute for the vertex being shaded, in the order of the
+   * slots: an array of its own filled for each vertex, a scalar as one element.
+   */
+  const attributeArrays = attributeWidths.map((w) => new Float64Array(w));
+  /** The same arrays under their slots, as the vertex stage reads them; the loop over vertices reads the list. */
+  const vertexAttributes = Object.fromEntries(attributeSlots.map((slot, i) => [slot, attributeArrays[i]!]));
+  /** The host's array of each attribute during a draw, and how {@link readerOf} reads it. */
+  const hostArrays: ArrayLike<number>[] = attributeSlots.map(() => NO_TARGET);
+  const hostReaders = attributeSlots.map(() => 0);
   const vertexCtx: CpuShaderContext = { attributes: vertexAttributes };
 
   /** The varying slots the vertex stage writes, and their widths, as its program declares them. */
@@ -200,14 +234,20 @@ export function compileJSRasterizer(
   const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
   /** Whether each varying is an integer one, which a fragment reads flat, as its triangle's first vertex wrote it. */
   const varyingFlat = varyingSlots.map((slot) => componentKindOf(vertexStage.varyingTypes[slot]!) !== "float");
-  /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
+  /** The varyings of the fragment being shaded, each in an array of its own filled for each fragment, a scalar as one element. */
   const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
-  const fragmentVaryings: Record<string, number | Float64Array> = {};
+  const fragmentVaryings: Record<string, Float64Array> = {};
   varyingSlots.forEach((slot, k) => {
-    fragmentVaryings[slot] = varyingWidths[k]! > 1 ? fragmentArrays[k]! : 0;
+    fragmentVaryings[slot] = fragmentArrays[k]!;
   });
   const fragCoord = new Float64Array(2);
-  const fragmentCtx: CpuShaderContext = { varyings: fragmentVaryings, fragCoord };
+  /** The depth of the fragment being shaded, which the stage reads and may write over. */
+  const depthSlot = new Float64Array(1);
+  const fragmentCtx: CpuShaderContext & { depthSlot: Float64Array } = {
+    varyings: fragmentVaryings,
+    fragCoord,
+    depthSlot,
+  };
   /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
   const vertices: ClipVertex[] = [];
   /** The vertices each draw shades and the triangles it makes of them. */
@@ -319,18 +359,16 @@ export function compileJSRasterizer(
             out = fragmentArrays[k]!;
           if (varyingFlat[k]) out.set(first.varyings[k]!);
           else for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
-          if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
         }
         fragCoord[0] = px;
         fragCoord[1] = py;
-        fragmentCtx.fragDepth = pixelDepth;
+        depthSlot[0] = pixelDepth;
 
         const raw = fragmentStage.runInPlace(fragmentCtx);
         // A fragment that discards leaves the pixel and its depth as they were.
         if (raw === null) continue;
-        const written = isResultObject(raw) ? raw.fragDepth : undefined;
-        // A written depth is clamped to the depth range, as WebGPU clamps it.
-        const depth = typeof written === "number" ? Math.min(Math.max(written, 0), 1) : pixelDepth;
+        // A written depth is clamped to the depth range, as WebGPU clamps it. A path that writes none keeps the fragment's own.
+        const depth = writesDepth ? Math.min(Math.max(depthSlot[0]!, 0), 1) : pixelDepth;
         if (writesDepth && depth > depths[pixelIndex]!) continue;
         depths[pixelIndex] = depth;
         // A fragment that writes no colour leaves the pixel as it was.
@@ -359,8 +397,77 @@ export function compileJSRasterizer(
       return drawShaded(ctx, options);
     } finally {
       // The contexts are kept for the next draw, so they let go of this one's inputs.
-      shareInputs({});
+      shareInputs(NO_INPUTS);
+      hostArrays.fill(NO_TARGET);
       target = NO_TARGET;
+    }
+  }
+
+  /**
+   * Runs the vertex stage for each of the first `slotCount` slots, on the
+   * vertex `vertexOfSlot` gives it, and keeps each one's position and varyings.
+   * A function of its own, so the per-draw work before it, which reads the
+   * host's objects by many names, cannot deoptimize the work it does for each
+   * vertex.
+   */
+  function shadeVertices(vertexOfSlot: Uint32Array, slotCount: number): void {
+    for (let i = 0; i < slotCount; i++) {
+      const v = vertexOfSlot[i]!;
+      for (let a = 0; a < attributeSlots.length; a++) {
+        const host = hostArrays[a]!;
+        const reader = hostReaders[a]!;
+        const w = attributeWidths[a]!;
+        const kind = attributeKinds[a]!;
+        const into = attributeArrays[a]!;
+        // A vertex past the end of an attribute reads it as zero.
+        if ((v + 1) * w > host.length) {
+          into.fill(0);
+          continue;
+        }
+        for (let k = 0, index = v * w; k < w; k++, index++) {
+          switch (reader) {
+            case 0:
+              into[k] = attributeComponent(kind, (host as Float64Array)[index]!);
+              break;
+            case 1:
+              into[k] = attributeComponent(kind, (host as Float32Array)[index]!);
+              break;
+            case 2:
+              into[k] = attributeComponent(kind, (host as Int32Array)[index]!);
+              break;
+            case 3:
+              into[k] = attributeComponent(kind, (host as Uint32Array)[index]!);
+              break;
+            case 4:
+              into[k] = attributeComponent(kind, (host as Int16Array)[index]!);
+              break;
+            case 5:
+              into[k] = attributeComponent(kind, (host as Uint16Array)[index]!);
+              break;
+            case 6:
+              into[k] = attributeComponent(kind, (host as Int8Array)[index]!);
+              break;
+            case 7:
+              into[k] = attributeComponent(kind, (host as Uint8Array)[index]!);
+              break;
+            default:
+              into[k] = attributeComponent(kind, host[index]!);
+          }
+        }
+      }
+      vertexCtx.vertexIndex = v;
+      const raw = vertexStage.runInPlace(vertexCtx);
+      const position = vertexPosition(raw);
+      const varyings = isResultObject(raw) ? raw.varyings : undefined;
+      const vertex = (vertices[i] ??= makeVertex(varyingWidths));
+      for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;
+      for (let k = 0; k < varyingSlots.length; k++) {
+        // The stage hands back a bool as true or false, and any other varying in an array, a scalar as one element.
+        const value = varyings![varyingSlots[k]!];
+        const into = vertex.varyings[k]!;
+        if (typeof value === "boolean") into[0] = value ? 1 : 0;
+        else for (let c = 0; c < into.length; c++) into[c] = (value as ArrayLike<number>)[c]!;
+      }
     }
   }
 
@@ -373,38 +480,13 @@ export function compileJSRasterizer(
     }
     assembly.draw(attributes, ctx.index, options);
 
-    // vertex pass: once for each vertex the draw names
-    for (let i = 0; i < assembly.slotCount; i++) {
-      const v = assembly.vertexOfSlot[i]!;
-      for (let a = 0; a < attributeSlots.length; a++) {
-        const slot = attributeSlots[a]!;
-        const buffer = attributes[slot]!;
-        const w = attributeWidths[a]!;
-        const kind = attributeKinds[a]!;
-        // A vertex past the end of an attribute reads it as zero.
-        const past = (v + 1) * w > buffer.length;
-        if (w === 1) vertexAttributes[slot] = past ? 0 : attributeComponent(kind, buffer[v]!);
-        else {
-          let into = vertexAttributes[slot];
-          if (!(into instanceof Float64Array)) into = vertexAttributes[slot] = new Float64Array(w);
-          for (let k = 0; k < w; k++) into[k] = past ? 0 : attributeComponent(kind, buffer[v * w + k]!);
-        }
-      }
-      vertexCtx.vertexIndex = v;
-      const raw = vertexStage.runInPlace(vertexCtx);
-      const position = vertexPosition(raw);
-      const varyings = isResultObject(raw) ? raw.varyings : undefined;
-      const vertex = (vertices[i] ??= makeVertex(varyingWidths));
-      for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;
-      for (let k = 0; k < varyingSlots.length; k++) {
-        // The stage gives 0 for a varying this vertex does not write, and a bool as true or false.
-        const value = varyings![varyingSlots[k]!];
-        const into = vertex.varyings[k]!;
-        if (typeof value === "number") into[0] = value;
-        else if (typeof value === "boolean") into[0] = value ? 1 : 0;
-        else for (let c = 0; c < into.length; c++) into[c] = (value as ArrayLike<number>)[c]!;
-      }
+    for (let a = 0; a < attributeSlots.length; a++) {
+      const host = attributes[attributeSlots[a]!]!;
+      hostArrays[a] = host;
+      hostReaders[a] = readerOf(host);
     }
+
+    shadeVertices(assembly.vertexOfSlot, assembly.slotCount);
 
     const pixelCount = width * height;
     if (!depthBuffer || depthBuffer.length < pixelCount) {

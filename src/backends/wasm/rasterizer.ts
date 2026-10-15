@@ -628,7 +628,8 @@ export function compileWasmRasterizer(
   }
 
   const attributeTypes = Object.fromEntries(
-    attrParams.filter((p) => p.slot !== VERTEX_INDEX_SLOT).map((p) => [p.slot, p.shaderType]),
+    // A bool attribute is reported by the type the program declares, not the unsigned one it is read as.
+    attrParams.filter((p) => p.slot !== VERTEX_INDEX_SLOT).map((p) => [p.slot, p.declaredType ?? p.shaderType]),
   );
   return { draw, attributeTypes };
 }

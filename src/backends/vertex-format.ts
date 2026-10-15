@@ -5,10 +5,10 @@ import { MATRIX_DIMENSIONS, type StorageBufferAttribute, componentKindOf } from 
 /** The kind of the components a vertex attribute reads. */
 export type AttributeKind = "float" | "int" | "uint";
 
-/** The kind of the components an attribute of the RMSL type `type` reads. GLSL has no boolean attribute, so a `bool` reads floats. */
+/** The kind of the components an attribute of the RMSL type `type` reads. No GPU language takes a boolean vertex input, so a `bool` reads unsigned integers. */
 export function attributeKindOf(type: string): AttributeKind {
   const kind = componentKindOf(type);
-  return kind === "bool" ? "float" : kind;
+  return kind === "bool" ? "uint" : kind;
 }
 
 /** The bytes of one vertex attribute: its array, its components a vertex, whether they scale on the way in, and a format it declares. */
@@ -155,9 +155,23 @@ export function attributeShape(type: string): { columns: number; kind: Attribute
 export function vertexFormatOf(origin: Origin, attr: VertexSource, type: string): VertexFormat {
   const { columns, kind } = attributeShape(type);
   const count = attr.itemSize / columns;
-  const named = attr.format ?? formatName(origin, attr, count);
+  const boolean = componentKindOf(type) === "bool";
+  const anotherKind = (format?: string) =>
+    new UsageError(
+      "vertex-format-of-another-kind",
+      `${withArticle(type)} attribute takes an Int32Array or a Uint32Array in a sint32 or uint32 format, ` +
+        `not ${withArticle(arrayTypeName(attr.array))}${format ? ` in the format ${format}` : ""}.`,
+      origin,
+    );
+  // A boolean takes only the two 32-bit integer arrays, so any other is refused before a format is looked for it.
+  if (boolean && !(attr.array instanceof Int32Array || attr.array instanceof Uint32Array))
+    throw anotherKind(attr.format);
+  const declared = attr.format ?? formatName(origin, attr, count);
+  // A boolean reads a signed 32-bit integer's bits as unsigned, which are zero exactly where the integer is.
+  const named = boolean && declared.startsWith("sint32") ? (`u${declared.slice(1)}` as VertexFormat) : declared;
   const format = VERTEX_FORMATS[named];
-  if (format === undefined) throw new UsageError("unknown-vertex-format", `no vertex format "${named}"`, origin);
+  if (format === undefined) throw new UsageError("unknown-vertex-format", `no vertex format "${declared}"`, origin);
+  if (boolean && (format.kind !== "uint" || format.bytes !== 4)) throw anotherKind(declared);
   if (format.kind !== kind) {
     throw new UsageError(
       "vertex-format-of-another-kind",
@@ -230,6 +244,7 @@ export function assertHostArray(
 ): void {
   const kind = attributeKindOf(type);
   if (data instanceof HOST_ARRAY[kind]) return;
+  if (componentKindOf(type) === "bool" && data instanceof Int32Array) return;
   if (float64 && kind === "float" && data instanceof Float64Array) return;
   throw hostArrayError(origin, what, slot, type, data, float64);
 }
@@ -244,7 +259,10 @@ function hostArrayError(
   float64: boolean,
 ): Error {
   const kind = attributeKindOf(type);
-  const takes = `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
+  const takes =
+    componentKindOf(type) === "bool"
+      ? "Int32Array or a Uint32Array"
+      : `${HOST_ARRAY[kind].name}${float64 && kind === "float" ? " or a Float64Array" : ""}`;
   return new UsageError(
     "host-array-of-another-kind",
     `the ${type} ${what}${slot === undefined ? "" : ` "${slot}"`} takes ${withArticle(takes)}, not ${withArticle(arrayTypeName(data))}. ` +
