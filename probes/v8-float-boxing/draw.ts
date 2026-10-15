@@ -42,6 +42,7 @@ const cases = [
   "linear-filtered sampler, after draws of it with texel data of 4 other kinds",
   "textureLoad, after draws of it with texel data of 4 other kinds",
   "float uniform, after draws given uniforms objects of 5 shapes",
+  "float attribute, after another rasterizer drew from a vec3 attribute",
 ] as const;
 
 /** Objects a case makes before its draw, kept alive for the whole of it. */
@@ -235,6 +236,18 @@ if (isMainThread) {
           : type === "mat3"
             ? vec4(u.mul((rmsl as any).vec3(0.5, 0.25, 1)), 1)
             : vec4(u.mul(0.37), 1);
+      break;
+    }
+    case "float attribute, after another rasterizer drew from a vec3 attribute": {
+      drawOther("vec3", Float64Array.from({ length: 18 }, (_, i) => 0.05 * i - 0.4));
+      const c = attribute("float");
+      const v = varying("vec3");
+      attributes[c.name] = fractions;
+      vertex = () => {
+        v.assign(vec4(c.mul(0.5), 0, 0, 0).xyz);
+        place();
+      };
+      fragment = () => vec4(v, 1);
       break;
     }
     case "float attribute, after draws from 4 kinds of host array": {
