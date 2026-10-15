@@ -5,26 +5,11 @@ import { watModuleSource } from "../vite/wat-module";
 import { gpuPage, webgpuPage } from "./gpu";
 
 /**
- * A `readPixel(canvas, x, y)` for an entry to read its result with, through a
- * 2D canvas rather than copying the WebGPU texture: the drawing surface is
- * `bgra8unorm` in one browser and `rgba8unorm` in another, and `getImageData`
- * is in the same channel order either way.
- */
-export const READ_PIXEL = `
-const readPixel = (canvas, x, y) => {
-  const flat = document.createElement("canvas");
-  flat.width = canvas.width;
-  flat.height = canvas.height;
-  const context = flat.getContext("2d");
-  context.drawImage(canvas, 0, 0);
-  const [r, g, b, a] = context.getImageData(x, y, 1, 1).data;
-  return { r, g, b, a };
-};
-`;
-
-/**
- * A helper for an entry: `readImage(canvas)` gives the red, green, blue and
- * alpha bytes of every pixel of a canvas, read as `readPixel` reads one.
+ * A `readImage(canvas)` for an entry to read its result with: the red, green,
+ * blue and alpha bytes of every pixel, read through a 2D canvas rather than by
+ * copying the WebGPU texture. The drawing surface is `bgra8unorm` in one
+ * browser and `rgba8unorm` in another, and `getImageData` is in the same
+ * channel order either way.
  */
 export const READ_IMAGE = `
 const readImage = (canvas) => {
@@ -34,6 +19,18 @@ const readImage = (canvas) => {
   const context = flat.getContext("2d");
   context.drawImage(canvas, 0, 0);
   return context.getImageData(0, 0, canvas.width, canvas.height).data;
+};
+`;
+
+/**
+ * A `readPixel(canvas, x, y)` for an entry to read the colour of one pixel
+ * with, as `readImage` reads it. It brings `readImage` along.
+ */
+export const READ_PIXEL = `${READ_IMAGE}
+const readPixel = (canvas, x, y) => {
+  const offset = (y * canvas.width + x) * 4;
+  const [r, g, b, a] = readImage(canvas).slice(offset, offset + 4);
+  return { r, g, b, a };
 };
 `;
 
