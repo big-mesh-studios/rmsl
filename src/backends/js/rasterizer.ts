@@ -4,6 +4,7 @@ import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, miss
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
+import { lineSign, makeLines, pointSign, prepareLines } from "./lines";
 
 /**
  * How many times the rounding of a cut a vertex's components may be and still
@@ -11,8 +12,11 @@ import { compileJSProgram, CompileJSOptions } from "./js";
  */
 const CUT_ROUNDING = 2 ** -48;
 
-/** The w above which every vertex of a triangle lets it skip the clip — see rasterizer.md's clip pass (`rasterizer.wat` uses the same 1e-5). */
-const W_CLIP_EPS = 1e-5;
+/**
+ * The least w of a vertex of the polygon a clip leaves whose projection bounds the pixels to test:
+ * a smaller one, so near the eye, could lie anywhere on the target by the rounding of its cut.
+ */
+const BOUNDED_W = 2 ** -24;
 
 /**
  * Options shared by both stages of a {@link compileJS} pair — the same
@@ -103,6 +107,17 @@ function makeVertex(widths: readonly number[]): ClipVertex {
   return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
 }
 
+/** Whether a position is `vec4(0)`, each component 0 or -0. */
+function isOrigin(p: Float64Array): boolean {
+  return p[0] === 0 && p[1] === 0 && p[2] === 0 && p[3] === 0;
+}
+
+/** Whether a position lies in WebGPU's clip volume: x and y from -w to w, and z from 0 to w. */
+function insideClipVolume(p: Float64Array): boolean {
+  const w = p[3]!;
+  return Math.abs(p[0]!) <= w && Math.abs(p[1]!) <= w && p[2]! >= 0 && p[2]! <= w;
+}
+
 /** A clip coordinate over `w`, the coordinate of normalized device space; 0 for a vertex at `vec4(0)`, as WebGPU places it. */
 function ndc(c: number, w: number): number {
   return w === 0 ? 0 : c / w;
@@ -121,24 +136,15 @@ function copyComponents(from: Float64Array, to: Float64Array): void {
 
 /**
  * Writes the vertex where plane `plane` cuts the edge from `a`, inside it, to
- * `b`, outside it, into `out`. A varying `flat` marks is copied from `first`,
- * the first vertex of the triangle being clipped, as no value lies between
- * two integers. The cut takes the plane rather than its fraction, as a float
- * passed to a call V8 does not inline is boxed.
+ * `b`, outside it, into `out`. The cut takes the plane rather than its
+ * fraction, as a float passed to a call V8 does not inline is boxed.
  *
  * A cut vertex whose four components all lie within the rounding of the cut
  * lies within that rounding of `vec4(0)`, and is that point, as its x, y and
  * z over w are rounding alone. One whose w alone is 0, on one plane and
  * outside another, keeps its x, y and z for the next plane to cut.
  */
-function cutVertex(
-  a: ClipVertex,
-  b: ClipVertex,
-  plane: number,
-  flat: readonly boolean[],
-  first: ClipVertex,
-  out: ClipVertex,
-): void {
+function cutVertex(a: ClipVertex, b: ClipVertex, plane: number, out: ClipVertex): void {
   const da = planeDistance(a.position, plane);
   const t = da / (da - planeDistance(b.position, plane));
   let rounding = 0;
@@ -154,67 +160,8 @@ function cutVertex(
     const x = a.varyings[k]!;
     const y = b.varyings[k]!;
     const into = out.varyings[k]!;
-    if (flat[k]) copyComponents(first.varyings[k]!, into);
-    else for (let i = 0; i < x.length; i++) into[i] = x[i]! + (y[i]! - x[i]!) * t;
+    for (let i = 0; i < x.length; i++) into[i] = x[i]! + (y[i]! - x[i]!) * t;
   }
-}
-
-/**
- * Writes the edge functions of the triangle in `scratch[0..2]` on a target of
- * `width` by `height` into `lines`, and whether it owns the pixel centres on
- * each into `owns`, and gives whether it could. The function of the edge
- * opposite vertex `e` is the line through the other two vertices in
- * homogeneous coordinates, `(x, y, w)`, the cross product of the two, turned
- * into screen space. It is exactly 0 for a pixel centre the projections of
- * those vertices place on the edge, wherever a clip cuts it, and positive
- * inside the part of the triangle in front of the eye. Each vertex is first
- * scaled by a power of two that brings its largest of x, y and w near 1,
- * which moves neither its projection nor a bit of the products, at any scale
- * of w. A triangle whose three vertices lie in one plane with the eye, as one
- * at `vec4(0)` does, or with a vertex of no size, has none. `points` holds the
- * scaled vertices, four components each.
- */
-function measureEdges(
-  scratch: readonly ClipVertex[],
-  width: number,
-  height: number,
-  points: Float64Array,
-  lines: Float64Array,
-  owns: Uint8Array,
-): boolean {
-  for (let k = 0; k < 3; k++) {
-    const p = scratch[k]!.position;
-    const size = Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[3]!));
-    if (!(size >= 2 ** -500 && size <= 2 ** 500)) return false;
-    const scale = 2 ** -Math.floor(Math.log2(size));
-    points[4 * k] = p[0]! * scale;
-    points[4 * k + 1] = p[1]! * scale;
-    points[4 * k + 2] = p[2]! * scale;
-    points[4 * k + 3] = p[3]! * scale;
-  }
-  // The line through vertices 1 and 2, taken at vertex 0, is the determinant of the three.
-  const det =
-    (points[5]! * points[11]! - points[7]! * points[9]!) * points[0]! +
-    (points[7]! * points[8]! - points[4]! * points[11]!) * points[1]! +
-    (points[4]! * points[9]! - points[5]! * points[8]!) * points[3]!;
-  if (!(det > 0 || det < 0)) return false;
-  const sign = det > 0 ? 1 : -1;
-  for (let e = 0; e < 3; e++) {
-    const i = 4 * ((e + 1) % 3),
-      j = 4 * ((e + 2) % 3);
-    const a = points[i + 1]! * points[j + 3]! - points[i + 3]! * points[j + 1]!,
-      b = points[i + 3]! * points[j]! - points[i]! * points[j + 3]!,
-      c = points[i]! * points[j + 1]! - points[i + 1]! * points[j]!;
-    // a * ndcX + b * ndcY + c, where ndcX = 2x / width - 1 and ndcY = 1 - 2y / height.
-    const ax = ((2 * a) / width) * sign,
-      by = ((-2 * b) / height) * sign;
-    lines[3 * e] = ax;
-    lines[3 * e + 1] = by;
-    lines[3 * e + 2] = (c - a + b) * sign;
-    if (ax === 0 && by === 0) return false;
-    owns[e] = ax > 0 || (ax === 0 && by > 0) ? 1 : 0;
-  }
-  return true;
 }
 
 /**
@@ -340,29 +287,21 @@ export function compileJSRasterizer(
    * as `rasterizer.wat`'s clip scratch does: a clipped polygon has 9 at most.
    */
   const scratch = Array.from({ length: 18 }, () => makeVertex(varyingWidths));
-  /**
-   * The edge functions of the triangle being clipped, in screen space, three
-   * numbers for each edge `e`: `lines[3e] * x + lines[3e + 1] * y + lines[3e + 2]`
-   * is positive inside, and 0 exactly on the edge as its vertices place it.
-   */
-  const lines = new Float64Array(9);
-  /** The vertices of the triangle being clipped, scaled; see {@link measureEdges}. */
-  const points = new Float64Array(12);
-  /** Whether the triangle being clipped owns the pixel centres on each of its edges, by the top-left rule. */
-  const linesOwn = new Uint8Array(3);
+  /** The lines of the triangle being drawn, and the exact sign of each at a pixel; see `lines.ts`. */
+  const lines = makeLines();
+  /** The weight of each vertex of the fragment being shaded, their sum, and its depth. */
+  const fragment = new Float64Array(5);
+  /** Where in `scratch` the polygon the last clip left starts. */
+  let clipped = 0;
+  /** The pixels a triangle drawn by its lines tests: the least and greatest x, then y. */
+  const box = new Int32Array(4);
 
   /**
-   * Clips the triangle `v0`, `v1`, `v2` to WebGPU's clip volume, one plane after
-   * another (Sutherland-Hodgman), in `scratch`, and rasterizes the fan of
-   * triangles the polygon left makes, in the order `rasterizer.wat`'s clip pass
-   * makes them. The first vertex of the polygon is `v0` or a vertex the clip
-   * cut, which holds the flat varyings of `v0`.
+   * Clips the triangle in `scratch[0..2]` to WebGPU's clip volume, one plane after another
+   * (Sutherland-Hodgman), in the order `rasterizer.wat`'s clip pass takes them, and gives how many
+   * vertices the polygon left has; it starts at `scratch[clipped]`.
    */
-  function clipAndRasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
-    copyVertex(v0, scratch[0]!);
-    copyVertex(v1, scratch[1]!);
-    copyVertex(v2, scratch[2]!);
-    const measured = measureEdges(scratch, targetWidth, targetHeight, points, lines, linesOwn);
+  function clip(): number {
     let src = 0;
     let count = 3;
     for (let plane = 0; plane < 6 && count >= 3; plane++) {
@@ -377,30 +316,77 @@ export function compileJSRasterizer(
         if (da >= 0 && out < 9) copyVertex(a, scratch[dst + out++]!);
         // A cut runs from the vertex inside, so a w far smaller than the other's keeps its digits.
         if (da >= 0 !== db >= 0 && out < 9) {
-          if (da >= 0) cutVertex(a, b, plane, varyingFlat, v0, scratch[dst + out++]!);
-          else cutVertex(b, a, plane, varyingFlat, v0, scratch[dst + out++]!);
+          if (da >= 0) cutVertex(a, b, plane, scratch[dst + out++]!);
+          else cutVertex(b, a, plane, scratch[dst + out++]!);
         }
       }
       src = dst;
       count = out;
     }
-    for (let i = 1; i + 1 < count; i++) {
-      // The edge opposite the first vertex lies on the polygon's edge; the one opposite the
-      // second does for the last triangle, and the one opposite the third for the first.
-      const outer = measured ? 1 | (i + 2 === count ? 2 : 0) | (i === 1 ? 4 : 0) : 0;
-      rasterize(scratch[src]!, scratch[src + i]!, scratch[src + i + 1]!, outer);
-    }
+    clipped = src;
+    return count;
   }
 
   /**
-   * Rasterizes one triangle, already clipped to the clip volume when it needed it, into `target`.
-   * Its first vertex gives the flat varyings. Bit `k` of `outer` marks its edge opposite vertex
-   * `k` as an edge of the polygon the clip left, in a fan cut from a triangle whose edges are
-   * measured in `lines`. Then that triangle's edge functions and depth decide which pixels
-   * the polygon covers, which no rounding of a cut moves, and the fan's own edges only part
-   * the polygon's pixels between its triangles.
+   * Draws one triangle of the draw. One whose vertices do not lie in one plane with the eye is tested pixel by pixel against its
+   * own lines, and so is one with a vertex at `vec4(0)` and the other two in the clip volume, that
+   * vertex at the centre. Any other is clipped, and draws only through a vertex at `vec4(0)`.
    */
-  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, outer: number): void {
+  function drawTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+    const a = v0.position,
+      b = v1.position,
+      c = v2.position;
+    const zeros = (isOrigin(a) ? 1 : 0) + (isOrigin(b) ? 1 : 0) + (isOrigin(c) ? 1 : 0);
+    let centre = -1;
+    if (zeros === 1) {
+      centre = isOrigin(a) ? 0 : isOrigin(b) ? 1 : 2;
+      const inside =
+        (centre === 0 || insideClipVolume(a)) &&
+        (centre === 1 || insideClipVolume(b)) &&
+        (centre === 2 || insideClipVolume(c));
+      if (!inside) centre = -1;
+    }
+    if (zeros === 0 || centre !== -1) {
+      const orientation = prepareLines(lines, a, b, c, centre);
+      if (orientation !== 0) {
+        rasterizeByLines(v0, v1, v2, centre, orientation);
+        return;
+      }
+      if (centre !== -1) return;
+    }
+    clipAndRasterize(v0, v1, v2);
+  }
+
+  /**
+   * Clips a triangle whose vertices lie in one plane with the eye, and rasterizes the fan of
+   * triangles the polygon left makes from a vertex of it at `vec4(0)`, which lies at the centre and
+   * gives the polygon an area. Without one, the polygon lies on a line and covers nothing. The
+   * triangle's first vertex gives the flat varyings.
+   */
+  function clipAndRasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+    copyVertex(v0, scratch[0]!);
+    copyVertex(v1, scratch[1]!);
+    copyVertex(v2, scratch[2]!);
+    const count = clip();
+    const src = clipped;
+    let origin = -1;
+    for (let i = 0; i < count; i++) if (origin === -1 && isOrigin(scratch[src + i]!.position)) origin = i;
+    if (origin === -1) return;
+    for (let i = 1; i + 1 < count; i++)
+      rasterize(
+        scratch[src + origin]!,
+        scratch[src + ((origin + i) % count)]!,
+        scratch[src + ((origin + i + 1) % count)]!,
+        v0,
+      );
+  }
+
+  /**
+   * Rasterizes a triangle of the fan of a clipped polygon by its vertices' projections. Its first
+   * vertex, at `vec4(0)`, lies at the centre and gives every fragment its varyings, and `first`
+   * gives the flat ones.
+   */
+  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, first: ClipVertex): void {
     const width = targetWidth;
     const height = targetHeight;
     const w0 = v0.position[3]!,
@@ -429,38 +415,17 @@ export function compileJSRasterizer(
     const minY = Math.max(0, Math.floor(Math.min(s0y, s1y, s2y)));
     const maxY = Math.min(height - 1, Math.ceil(Math.max(s0y, s1y, s2y)));
 
-    // Perspective weighs vertex i by its barycentric over its w, here times the least w, so
-    // no weight overflows or underflows at any scale. A least w whose inverse is not
-    // finite, as at vec4(0), takes all the weight.
-    let near = 0,
-      wNear = w0;
-    if (w1 < wNear) {
-      near = 1;
-      wNear = w1;
-    }
-    if (w2 < wNear) {
-      near = 2;
-      wNear = w2;
-    }
-    const inverse = 1 / wNear;
-    const finite = inverse > 0 && inverse < Infinity;
-    const r0 = finite ? wNear / w0 : near === 0 ? 1 : 0,
-      r1 = finite ? wNear / w1 : near === 1 ? 1 : 0,
-      r2 = finite ? wNear / w2 : near === 2 ? 1 : 0;
     // NDC depth (z/w) is affine in screen space, like x/w and y/w above,
     // so it interpolates with plain barycentric weights — no invW needed.
     const depth0 = ndc(v0.position[2]!, w0),
       depth1 = ndc(v1.position[2]!, w1),
       depth2 = ndc(v2.position[2]!, w2);
-    const slots = varyingSlots;
-    const depths = depthBuffer!;
     // A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
     // pixel outside it, which is what clipping there drops, as depth over w is affine in
     // screen space; one inside it draws every pixel, whatever the rounding of its depth.
     const nearest = Math.min(depth0, depth1, depth2);
     const farthest = Math.max(depth0, depth1, depth2);
-    const measured = outer !== 0;
-    if (!measured && (farthest < 0 || nearest > 1)) return;
+    if (farthest < 0 || nearest > 1) return;
     const crossesDepthRange = nearest < 0 || farthest > 1;
 
     for (let y = minY; y <= maxY; y++) {
@@ -470,83 +435,178 @@ export function compileJSRasterizer(
         const e0 = (s1x - px) * (s2y - py) - (s1y - py) * (s2x - px);
         const e1 = (s2x - px) * (s0y - py) - (s2y - py) * (s0x - px);
         const e2 = (s0x - px) * (s1y - py) - (s0y - py) * (s1x - px);
-        // An edge of the polygon passes here; the measured triangle's own edges test the pixel below.
-        const f0 = outer & 1 ? 1 : e0 * wind,
-          f1 = outer & 2 ? 1 : e1 * wind,
-          f2 = outer & 4 ? 1 : e2 * wind;
+        const f0 = e0 * wind,
+          f1 = e1 * wind,
+          f2 = e2 * wind;
         if (f0 < 0 || f1 < 0 || f2 < 0) continue;
         if ((f0 === 0 && !owns0) || (f1 === 0 && !owns1) || (f2 === 0 && !owns2)) continue;
-        // The functions of the edges of the triangle this one was cut from, which no rounding of a cut moves.
-        const l0 = measured ? lines[0]! * px + lines[1]! * py + lines[2]! : 0,
-          l1 = measured ? lines[3]! * px + lines[4]! * py + lines[5]! : 0,
-          l2 = measured ? lines[6]! * px + lines[7]! * py + lines[8]! : 0;
-        if (
-          measured &&
-          !(
-            (l0 > 0 || (l0 === 0 && linesOwn[0])) &&
-            (l1 > 0 || (l1 === 0 && linesOwn[1])) &&
-            (l2 > 0 || (l2 === 0 && linesOwn[2]))
-          )
-        )
-          continue;
 
         const b0 = e0 / area,
           b1 = e1 / area,
           b2 = e2 / area;
-        // Its z over its w, from its vertices weighted by the functions of the edges opposite them.
-        const pixelDepth = measured
-          ? (l0 * points[2]! + l1 * points[6]! + l2 * points[10]!) /
-            (l0 * points[3]! + l1 * points[7]! + l2 * points[11]!)
-          : b0 * depth0 + b1 * depth1 + b2 * depth2;
+        const pixelDepth = b0 * depth0 + b1 * depth1 + b2 * depth2;
+        if (crossesDepthRange && !(pixelDepth >= 0 && pixelDepth <= 1)) continue;
 
-        if ((measured || crossesDepthRange) && !(pixelDepth >= 0 && pixelDepth <= 1)) continue;
-        const pixelIndex = y * width + x;
-        // LEQUAL depth test: closer-or-equal wins. A stage that writes its depth is tested once it has run.
-        if (!writesDepth && pixelDepth > depths[pixelIndex]!) continue;
-
-        // Perspective-correct: each vertex's varying by its weight, over the sum of the weights.
-        let p0 = b0 * r0,
-          p1 = b1 * r1,
-          p2 = b2 * r2,
-          sum = p0 + p1 + p2;
-        // On the edge opposite the vertex that takes all the weight, that vertex's barycentric is 0 too.
-        if (sum === 0) {
-          p0 = near === 0 ? 1 : 0;
-          p1 = near === 1 ? 1 : 0;
-          p2 = near === 2 ? 1 : 0;
-          sum = 1;
-        }
-        const perspective = 1 / sum;
-        for (let k = 0; k < slots.length; k++) {
-          const a = v0.varyings[k]!,
-            b = v1.varyings[k]!,
-            c = v2.varyings[k]!,
-            out = fragmentArrays[k]!;
-          if (varyingFlat[k]) out.set(a);
-          else for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
-          if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
-        }
-        fragCoord[0] = px;
-        fragCoord[1] = py;
-        fragmentCtx.fragDepth = pixelDepth;
-
-        const raw = fragmentStage.runInPlace(fragmentCtx);
-        // A fragment that discards leaves the pixel and its depth as they were.
-        if (raw === null) continue;
-        const written = isResultObject(raw) ? raw.fragDepth : undefined;
-        // A written depth is clamped to the depth range, as WebGPU clamps it.
-        const depth = typeof written === "number" ? Math.min(Math.max(written, 0), 1) : pixelDepth;
-        if (writesDepth && depth > depths[pixelIndex]!) continue;
-        depths[pixelIndex] = depth;
-        // A fragment that writes no colour leaves the pixel as it was.
-        const color = ArrayBuffer.isView(raw)
-          ? (raw as Float64Array)
-          : ((isResultObject(raw) ? raw.value : undefined) as Float64Array);
-        if (!color) continue;
-        const base = pixelIndex * 4;
-        for (let c = 0; c < 4; c++) target[base + c] = color[c] ?? 0;
+        // Perspective weighs a vertex by the inverse of its w, so the one at vec4(0) takes all of it.
+        fragment[0] = 1;
+        fragment[1] = 0;
+        fragment[2] = 0;
+        fragment[3] = 1;
+        fragment[4] = pixelDepth;
+        shade(x, y, v0, v1, v2, first);
       }
     }
+  }
+
+  /**
+   * Rasterizes a triangle by its own lines, which {@link prepareLines} has measured: a pixel is
+   * covered where each line's exact sign puts its centre inside, or on an edge the triangle owns,
+   * and where the point there lies at a depth from 0 to 1. The weight of each
+   * vertex is its line there, scaled; one at `centre` takes all of it. The pixels tested are those
+   * of the projections of the vertices, or of the polygon the clip leaves of a triangle with a
+   * vertex at or behind the eye.
+   */
+  function rasterizeByLines(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, centre: number, orientation: number): void {
+    const width = targetWidth;
+    const height = targetHeight;
+    const points = lines.points;
+    box[0] = 0;
+    box[1] = width - 1;
+    box[2] = 0;
+    box[3] = height - 1;
+    if (points[3]! > 0 && points[7]! > 0 && points[11]! > 0) {
+      let left = Infinity,
+        right = -Infinity,
+        top = Infinity,
+        bottom = -Infinity;
+      for (let k = 0; k < 3; k++) {
+        const sx = ((points[4 * k]! / points[4 * k + 3]!) * 0.5 + 0.5) * width;
+        const sy = (1 - ((points[4 * k + 1]! / points[4 * k + 3]!) * 0.5 + 0.5)) * height;
+        left = Math.min(left, sx);
+        right = Math.max(right, sx);
+        top = Math.min(top, sy);
+        bottom = Math.max(bottom, sy);
+      }
+      box[0] = Math.max(0, Math.floor(left));
+      box[1] = Math.min(width - 1, Math.ceil(right));
+      box[2] = Math.max(0, Math.floor(top));
+      box[3] = Math.min(height - 1, Math.ceil(bottom));
+    } else {
+      for (let k = 0; k < 3; k++) for (let c = 0; c < 4; c++) scratch[k]!.position[c] = points[4 * k + c]!;
+      const count = clip();
+      if (count < 3) return;
+      let left = Infinity,
+        right = -Infinity,
+        top = Infinity,
+        bottom = -Infinity,
+        bounded = true;
+      for (let i = 0; i < count; i++) {
+        const p = scratch[clipped + i]!.position;
+        if (!(p[3]! >= BOUNDED_W)) bounded = false;
+        const sx = ((p[0]! / p[3]!) * 0.5 + 0.5) * width;
+        const sy = (1 - ((p[1]! / p[3]!) * 0.5 + 0.5)) * height;
+        left = Math.min(left, sx);
+        right = Math.max(right, sx);
+        top = Math.min(top, sy);
+        bottom = Math.max(bottom, sy);
+      }
+      // The rounding of a cut moves a vertex by far less than half a pixel, which the floor and ceiling take in.
+      if (bounded) {
+        box[0] = Math.max(0, Math.floor(left));
+        box[1] = Math.min(width - 1, Math.ceil(right));
+        box[2] = Math.max(0, Math.floor(top));
+        box[3] = Math.min(height - 1, Math.ceil(bottom));
+      }
+    }
+    const minX = box[0]!,
+      maxX = box[1]!,
+      minY = box[2]!,
+      maxY = box[3]!;
+    const owns = lines.owns;
+    const values = lines.values;
+    const ratios = lines.ratios;
+    const whole = width * height;
+    for (let y = minY; y <= maxY; y++) {
+      const Y = (height - 2 * y - 1) * width;
+      for (let x = minX; x <= maxX; x++) {
+        const X = (2 * x + 1 - width) * height;
+        const s0 = lineSign(lines, 0, X, Y, whole) * orientation;
+        if (s0 < 0 || (s0 === 0 && owns[0] === 0)) continue;
+        const s1 = lineSign(lines, 1, X, Y, whole) * orientation;
+        if (s1 < 0 || (s1 === 0 && owns[1] === 0)) continue;
+        const s2 = lineSign(lines, 2, X, Y, whole) * orientation;
+        if (s2 < 0 || (s2 === 0 && owns[2] === 0)) continue;
+        // At a depth from 0 to 1: z >= 0 and w - z >= 0. Inside the three lines, w is the
+        // triangle's sign times W, so the point lies in front of the eye.
+        if (pointSign(lines, 2, X, Y, whole) * orientation < 0) continue;
+        if (pointSign(lines, -1, X, Y, whole) * orientation < 0) continue;
+        const l0 = values[0]!,
+          l1 = values[1]!,
+          l2 = values[2]!;
+        fragment[4] =
+          (points[2]! * l0 + points[6]! * l1 + points[10]! * l2) /
+          (points[3]! * l0 + points[7]! * l1 + points[11]! * l2);
+        if (centre !== -1) {
+          fragment[0] = centre === 0 ? 1 : 0;
+          fragment[1] = centre === 1 ? 1 : 0;
+          fragment[2] = centre === 2 ? 1 : 0;
+        } else {
+          // A line that is 0 there has a value of 0, so the mask only picks the ratios.
+          const mask = (s0 !== 0 ? 1 : 0) | (s1 !== 0 ? 2 : 0) | (s2 !== 0 ? 4 : 0);
+          fragment[0] = ratios[mask * 3]! * Math.abs(l0);
+          fragment[1] = ratios[mask * 3 + 1]! * Math.abs(l1);
+          fragment[2] = ratios[mask * 3 + 2]! * Math.abs(l2);
+        }
+        fragment[3] = fragment[0]! + fragment[1]! + fragment[2]!;
+        shade(x, y, v0, v1, v2, v0);
+      }
+    }
+  }
+
+  /**
+   * Shades the fragment at pixel `(x, y)` of a triangle of `v0`, `v1` and `v2`, by the weights,
+   * their sum and the depth in `fragment`: tests its depth, interpolates its varyings, runs the
+   * fragment stage and writes what it gives. `first`, the triangle's first vertex, gives the flat varyings.
+   */
+  function shade(x: number, y: number, v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, first: ClipVertex): void {
+    const depths = depthBuffer!;
+    const pixelIndex = y * targetWidth + x;
+    const pixelDepth = fragment[4]!;
+    // LEQUAL depth test: closer-or-equal wins. A stage that writes its depth is tested once it has run.
+    if (!writesDepth && pixelDepth > depths[pixelIndex]!) return;
+    const p0 = fragment[0]!,
+      p1 = fragment[1]!,
+      p2 = fragment[2]!,
+      sum = fragment[3]!;
+    const slots = varyingSlots;
+    for (let k = 0; k < slots.length; k++) {
+      const a = v0.varyings[k]!,
+        b = v1.varyings[k]!,
+        c = v2.varyings[k]!,
+        out = fragmentArrays[k]!;
+      if (varyingFlat[k]) out.set(first.varyings[k]!);
+      else for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) / sum;
+      if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
+    }
+    fragCoord[0] = x + 0.5;
+    fragCoord[1] = y + 0.5;
+    fragmentCtx.fragDepth = pixelDepth;
+
+    const raw = fragmentStage.runInPlace(fragmentCtx);
+    // A fragment that discards leaves the pixel and its depth as they were.
+    if (raw === null) return;
+    const written = isResultObject(raw) ? raw.fragDepth : undefined;
+    // A written depth is clamped to the depth range, as WebGPU clamps it.
+    const depth = typeof written === "number" ? Math.min(Math.max(written, 0), 1) : pixelDepth;
+    if (writesDepth && depth > depths[pixelIndex]!) return;
+    depths[pixelIndex] = depth;
+    // A fragment that writes no colour leaves the pixel as it was.
+    const color = ArrayBuffer.isView(raw)
+      ? (raw as Float64Array)
+      : ((isResultObject(raw) ? raw.value : undefined) as Float64Array);
+    if (!color) return;
+    const base = pixelIndex * 4;
+    for (let c = 0; c < 4; c++) target[base + c] = color[c] ?? 0;
   }
 
   /**
@@ -649,15 +709,7 @@ export function compileJSRasterizer(
     targetWidth = width;
     targetHeight = height;
     for (let t = 0; t + 2 < vertexCount; t += 3) {
-      const v0 = vertices[t]!,
-        v1 = vertices[t + 1]!,
-        v2 = vertices[t + 2]!;
-      // A triangle wholly in front of the eye is rasterized as it is; only one with a vertex near or behind it is clipped.
-      if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
-        rasterize(v0, v1, v2, 0);
-        continue;
-      }
-      clipAndRasterize(v0, v1, v2);
+      drawTriangle(vertices[t]!, vertices[t + 1]!, vertices[t + 2]!);
     }
 
     return result;

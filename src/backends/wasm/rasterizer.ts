@@ -65,10 +65,10 @@ const VEC4_BYTES = 32;
 
 /**
  * The bytes `rasterizer.wat` keeps after the 18 vertex slots of its clip
- * scratch: the edge functions of the triangle being clipped, whether each
- * edge owns its pixel centres, whether it has them, and its scaled vertices.
+ * scratch: the lines of the triangle being drawn, the room to sum a line's
+ * value exactly, and the weights and depth of the fragment being shaded.
  */
-const CLIP_EDGE_BYTES = 184;
+export const LINES_BYTES = 6744;
 
 /**
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
@@ -478,8 +478,8 @@ export function compileWasmRasterizer(
     const varyingDescBase = cursor;
     cursor = align8(cursor + varyingLayout.length * VARYING_DESC_BYTES);
     const clipScratchBase = cursor;
-    // 18 vertex slots, then the edge functions of the triangle being clipped.
-    cursor = align8(cursor + 18 * (VEC4_BYTES + varyingBytes) + CLIP_EDGE_BYTES);
+    // 18 vertex slots, then the lines of the triangle being drawn.
+    cursor = align8(cursor + 18 * (VEC4_BYTES + varyingBytes) + LINES_BYTES);
     // Each triangle is clipped and rasterized before the next: clipping to the six planes of
     // the clip volume leaves a polygon of at most 9 vertices, a fan of 7 triangles.
     const maxClippedVertices = 21;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmFn } from "../../wasm";
 import { compileJS, compileJSRoutine } from "../../js";
-import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
+import { LINES_BYTES, instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 
 /** Clears a depth buffer so the first triangle over any pixel always passes the depth test. */
@@ -849,11 +849,11 @@ function drawOnModule(positions: number[][], width: number, height: number, colo
   const positionsOutBase = 4096;
   const outputBase = 16384;
   const clipScratchBase = 24576;
-  // 18 vertex slots of 32 bytes with no varyings, then 184 bytes of the clipped triangle's edges.
-  const scratchEnd = clipScratchBase + 18 * 32 + 184;
-  const clippedPositionsOutBase = 28672;
+  // 18 vertex slots of 32 bytes with no varyings, then the lines of the triangle being drawn.
+  const scratchEnd = clipScratchBase + 18 * 32 + LINES_BYTES;
+  const clippedPositionsOutBase = 32768;
   const clippedEnd = clippedPositionsOutBase + 21 * 32;
-  const clippedVaryingsOutBase = 32768;
+  const clippedVaryingsOutBase = 36864;
   const depthBufferBase = 40960;
   positions.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
   const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
@@ -1115,8 +1115,8 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
       const outputBase = 16384;
       const attrDescBase = 3072;
       const clipScratchBase = 24576;
-      const clippedPositionsOutBase = 28672;
-      const clippedVaryingsOutBase = 32768;
+      const clippedPositionsOutBase = 32768;
+      const clippedVaryingsOutBase = 36864;
       const depthBufferBase = 40960;
 
       const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;

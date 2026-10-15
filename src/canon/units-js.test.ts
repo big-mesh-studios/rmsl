@@ -2029,6 +2029,27 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The green and the blue vertex share a w of `1e-310`, whose inverse is not
+   * finite, and the red one has a w of 1. Each fragment weighs green and blue
+   * alike by their barycentrics, as it does for a w of `1e-300`, and red by
+   * next to nothing.
+   *
+   * @canon spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+   */
+  it.each(rasterizers)("%s: weighs two vertices of one subnormal w alike", (_, compileRaster) => {
+    const at = (w: number) => drawColoured(compileRaster, [-1, -1, 0.5, 1, w, 0, 0, w, 0, w, 0, w]);
+    const subnormal = at(1e-310),
+      normal = at(1e-300);
+    let blended = 0;
+    for (let p = 0; p < 256; p++) {
+      if (subnormal[p * 4 + 3] !== 1) continue;
+      if (subnormal[p * 4 + 1]! > 0.1 && subnormal[p * 4 + 2]! > 0.1) blended++;
+      for (let c = 0; c < 3; c++) expect(subnormal[p * 4 + c]).toBeCloseTo(normal[p * 4 + c]!, 12);
+    }
+    expect(blended).toBeGreaterThan(10);
+  });
+
+  /**
    * Without rounding, the clip leaves the first triangle only the point
    * `vec4(0)`, and the rounding of its cuts left vertices of rounding alone,
    * which drew 14 pixels. The cut next to a vertex at w `1e-20` lands where
@@ -2206,9 +2227,14 @@ describe("the fragments a CPU rasterizer draws", () => {
   /**
    * @canon exception-a-cpu-rasterizer-clips-a-triangle-through-vec4-0-to-the-clip-volume
    */
-  it.each(rasterizers)("%s: clips a triangle from vec4(0) to a vertex outside the clip volume", (_, compileRaster) => {
+  it.each(rasterizers)("%s: clips a triangle through vec4(0) to the clip volume", (_, compileRaster) => {
     const behind = drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1]);
     expect(Array.from(behind).some((value) => value !== 0)).toBe(false);
+    // The third vertex is minus the first, behind the eye, so the edge between them passes through vec4(0).
+    const throughOrigin = drawColoured(compileRaster, [...FRONT, 1, 1, -0.5, -1]);
+    expect(pattern(throughOrigin).map((row) => row.replace(/[^.]/g, "#"))).toEqual(
+      TO_THE_CENTRE.map((row) => row.replace(/[^.]/g, "#")),
+    );
     expect(pattern(drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, 0, 0, 1e-6]))).toEqual([
       ...Array(8).fill("................"),
       ".......RR.......",
@@ -2220,6 +2246,69 @@ describe("the fragments a CPU rasterizer draws", () => {
       ".RRRRRRRRRRRRRR.",
       "RRRRRRRRRRRRRRRR",
     ]);
+  });
+
+  /**
+   * The third vertex is minus half the first, of many digits, behind the eye,
+   * so the edge between them passes through `vec4(0)`, and the clip cuts it
+   * there only to the rounding of the cut. That cut is `vec4(0)`, at the
+   * centre, so the polygon draws: a sliver from the first vertex to the
+   * centre, as the three vertices lie in one plane with the eye.
+   *
+   * @canon spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: takes a cut of rounding alone for vec4(0)", (_, compileRaster) => {
+    const first = [-0.4482960833570337, 0.48807180501628217, 0.357696311303447, 0.5117047531530261];
+    const second = [-0.19300884943737617, -0.06898303548713157, 0.24507044595658695, 1.0214452685322613];
+    const image = drawColoured(compileRaster, [...first, ...second, ...first.map((c) => c * -0.5)]);
+    expect(pattern(image).map((row) => row.replace(/[^.]/g, "#"))).toEqual([
+      "................",
+      "................",
+      "..#.............",
+      "...#............",
+      "....#...........",
+      "....##..........",
+      ".....##.........",
+      "......##........",
+      "......##........",
+      ".......#........",
+      "........#.......",
+      "........#.......",
+      ...Array(4).fill("................"),
+    ]);
+  });
+
+  /**
+   * The first vertex lies outside the clip volume, so the polygon the clip
+   * leaves starts at a vertex it cuts, and its fan starts at the vertex at
+   * `vec4(0)`, the second.
+   *
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it.each(rasterizers)("%s: gives a triangle through vec4(0) its first vertex's integer", (_, compileRaster) => {
+    const pos = attribute("vec4");
+    const id = attribute("int");
+    const k = varying("int");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          k.assign(id);
+          builtinPosition().assign(pos);
+        })() as any,
+      () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+    );
+    const image = routine.draw(
+      {
+        attributes: {
+          [pos.name]: Float64Array.of(0.85, -0.075, 0, 1.25e-6, 0, 0, 0, 0, -0.25, -0.625, 0.125, 0.875),
+          [id.name]: Int32Array.of(5, 2, 7),
+        },
+      },
+      { width: 16, height: 16 },
+    );
+    const reds = Array.from(image).filter((_, i) => i % 4 === 0 && image[i + 3] === 1);
+    expect(reds.length).toBeGreaterThan(0);
+    expect(new Set(reds)).toEqual(new Set([5]));
   });
 
   /**

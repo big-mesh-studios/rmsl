@@ -21,7 +21,7 @@ the largest maximum a 32-bit memory has, because a shared memory links only
 against an import declared shared, and against one whose maximum is at least
 its own. `compileWat` builds both modules from the one `.wat`.
 
-`rasterize()` does three passes over one shared `env.memory`:
+`rasterize()` does two passes over one shared `env.memory`:
 
 ## Passes
 
@@ -34,77 +34,64 @@ that slot, calls it, then byte-copies its written `vec4` position (and one
 shared varying blob, `varyingBytes` long) out to
 `positionsOutBase`/`varyingsOutBase`.
 
-### 2. Clip pass
+### 2. Triangle pass
 
-The clip and triangle passes run one original (non-indexed) triangle at
-a time: each is clipped, and the triangles it leaves are rasterized before
-the next is clipped. A triangle whose vertices all have
-`w > 1e-5` passes through unchanged, as the triangle pass bounds it by the
-viewport and the depth range itself. Any other is clipped to WebGPU's clip
-volume (Sutherland-Hodgman, one plane after another: `w + x`, `w - x`,
-`w + y`, `w - y`, `z`, `w - z`, each kept where it is at least 0), and the
-polygon left, at most 9 vertices, is fan-triangulated from its first vertex.
+Each original (non-indexed) triangle is drawn before the next, one of two
+ways, as `rasterizer.ts` in the JS backend draws it.
+
+**By its lines.** A triangle whose vertices do not lie in one plane with the
+eye is tested pixel by pixel against its own lines. Each vertex is scaled by
+a power of two that brings its largest component from 1 to 2, and a
+component smaller than `2^-300` of that is taken as 0. The line opposite
+vertex `e` is the cross product of the other two in homogeneous `(x, y, w)`,
+kept as four exact terms for each coefficient (Dekker's product). A pixel
+centre `(x + 0.5, y + 0.5)` has the ray `X = (2x + 1 - width) * height`,
+`Y = (height - 2y - 1) * width`, `W = width * height`, whole numbers an f64
+holds exactly. A line's value there is decided by a float filter, and within
+its bound of rounding by summing its terms exactly as an expansion of floats
+(Shewchuk's adaptive predicates), so a centre exactly on an edge goes by the
+top-left rule at any size of target and any scale of the positions. The
+point's `z` and `w - z`, each the sum over the vertices of that component
+times the vertex's line, are decided the same way, so a centre exactly at
+depth 0 or 1 is drawn. The depth is their ratio, and each vertex weighs its
+line there times its scale over the greatest scale among the vertices whose
+lines are not 0. A triangle with a vertex at `vec4(0)` and the other two in
+the clip volume is drawn the same way, with that vertex at the centre at
+depth 0, and all the weight. The pixels tested are those of the vertices'
+projections when every `w` is above 0; otherwise those of the polygon the
+clip leaves of the scaled vertices (below), or the whole target when a
+vertex of that polygon has a `w` below `2^-24`, whose projection the rounding
+of its cut could move by more than half a pixel.
+
+**By the clip.** Any other triangle lies in one plane with the eye. It is
+clipped to WebGPU's clip volume (Sutherland-Hodgman, one plane after
+another: `w + x`, `w - x`, `w + y`, `w - y`, `z`, `w - z`, each kept where it
+is at least 0), and draws only when the polygon left, at most 9 vertices,
+has a vertex at `vec4(0)`, which lies at the centre and gives it an area.
 Cut vertices lerp both the clip-space position and the whole varying blob
-linearly (not perspective-corrected — correct for clip space, pre-divide),
-from the vertex of the edge inside the plane, so a `w` far smaller than the
-other vertex's keeps its digits. A cut vertex whose four components are all
-no more than `2^-48` of the largest sum it took, a component of the inside
-vertex and its step towards the other added by size, is rounding alone, and
-becomes `vec4(0)`, which it lies within that rounding of. One whose `w` alone
-is 0 lies on one plane and outside another, and keeps its other components
-for the next plane to cut. Cut vertices
-copy each flat varying from the triangle's first vertex, as no value
-lies between two integers. A plane copies each vertex it keeps, and starts
-its polygon with the first vertex it was given or with the vertex it cuts
-next to it, so the first vertex of the polygon, which every triangle of the
-fan starts at, holds the flat varyings of the triangle's first vertex. The
-polygon lives in `clipScratchBase`, two halves of 9 vertex slots each that
-the planes take turns writing. `rasterizer.ts` in the JS backend clips the
-same way, into 18 vertices it makes once. A plane keeps 9 vertices at most, as rounding
-can make a cut polygon slightly concave. The fan lands in
-`clippedPositionsOutBase`/`clippedVaryingsOutBase`, room for 7 triangles,
-whatever the draw's vertex count.
+linearly, from the vertex of the edge inside the plane, so a `w` far smaller
+than the other vertex's keeps its digits. A cut vertex whose four components
+are all no more than `2^-48` of the largest sum it took, a component of the
+inside vertex and its step towards the other added by size, is rounding
+alone, and becomes `vec4(0)`. One whose `w` alone is 0 keeps its other
+components for the next plane to cut. The polygon lives in
+`clipScratchBase`, two halves of 9 vertex slots each that the planes take
+turns writing, and is fan-triangulated from its vertex at `vec4(0)` into
+`clippedPositionsOutBase`/`clippedVaryingsOutBase`, room for 7 triangles.
+Each triangle of the fan is rasterized by its projections, with `vec4(0)` at
+the centre at depth 0. Perspective weighs a vertex by the inverse of its
+`w`, so every fragment takes the varyings of the vertex at `vec4(0)`, on the
+edge opposite it too, and the flat ones of the triangle's first vertex.
 
-### 3. Triangle pass
-
-For each clipped triangle: perspective divide and screen-space mapping
-(a vertex at `vec4(0)` lands at the centre, at depth 0, as WebGPU draws
-it), a
-degenerate-area skip, a clamped bounding box, and per pixel in that box an
-edge-function coverage test. A pixel centre that lies on an edge belongs to
-the triangle whose edge, wound so its inside is positive, runs up the
-screen (a left edge) or right along it (a top edge), by WebGPU's top-left
-rule, so a pixel on an edge two triangles share is shaded once.
-
-A triangle the clip cut is first measured, unless its vertices lie in one
-plane with the eye, as one at `vec4(0)` does: each of its edges becomes the
-line through its two vertices in homogeneous `(x, y, w)`, turned into a
-function of the screen that is positive inside and exactly 0 at a pixel
-centre the vertices' projections place on the edge. Each vertex is first
-scaled by a power of two that brings its largest of `x`, `y` and `w` near 1.
-A pixel of the fan of such a triangle is covered when it lies inside all
-three of those functions, a centre on one by the top-left rule, and its
-depth, `z/w` from the vertices weighted by those functions, lies from 0 to 1;
-the edges of the fan itself test only the edges inside the polygon, which
-part its pixels between the fan's triangles. So the rounding of a cut decides
-no pixel centre on an edge.
-
-A covered pixel's depth is NDC `z/w`, interpolated with the plain
-barycentric weights screen coordinates use, since it is affine in screen
-space. A triangle wholly outside depth 0 to 1 draws nothing, and one that
-crosses that range drops each pixel outside it, which is what clipping at
-depth 0 and 1 drops. A pixel then:
+A covered pixel then:
 
 1. fails early when its depth is farther than the stored one, unless the
    fragment function writes its own depth;
-2. has the varying blob interpolated, perspective-correct, into the
-   fragment function's varying-input address, its centre written to the
-   `fragCoord` address, the discard flag cleared, and the interpolated depth
-   written to the fragment depth address. Vertex `i` weighs its barycentric
-   times the least `w` of the triangle over its own `w`, over the sum of the
-   weights, which keeps every weight within 1 at any scale of `w`. When the
-   inverse of that least `w` is not finite, as at `vec4(0)`, its vertex takes
-   all the weight, on the edge opposite it too;
+2. has the varying blob interpolated, each vertex by its weight over the sum
+   of the weights, and each flat varying copied from the triangle's first
+   vertex, into the fragment function's varying-input address, its
+   centre written to the `fragCoord` address, the discard flag cleared, and
+   the interpolated depth written to the fragment depth address;
 3. runs the fragment function;
 4. is dropped when the function discarded, or when the depth it wrote,
    clamped to 0 to 1, is farther than the stored one;
@@ -127,9 +114,9 @@ way, via `VaryingDescriptor`/`writeVaryingDescriptors` — each entry is
 `[recordOffset, vertexSrcAddress, fragmentDestAddress, sizeBytes, flat]`,
 since a varying (unlike an attribute) has two addresses to reconcile, one
 per stage, matched by the shared node's slot name. A `flat` varying is
-copied from the triangle's first vertex wherever the others interpolate,
-in the clip pass and per pixel alike: a pixel takes it from the first
-vertex of the triangle it lies in.
+copied from the triangle's first vertex wherever the others interpolate: a
+pixel takes it from the first vertex of the original triangle it lies in,
+clipped or not.
 
 ## Scope (v1)
 
@@ -141,7 +128,7 @@ vertex of the triangle it lies in.
 - No index buffer, no antialiasing.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
-- A triangle wholly in front of the eye is not clipped: depth 0 to 1 is
-  held per pixel, and the per-pixel bbox clamp handles screen bounds. Only
-  a triangle with a vertex at `w <= 1e-5` is clipped, to the whole clip
-  volume.
+- A triangle drawn by its lines is not clipped: its lines, depth 0 to 1
+  and the target's bounds are held per pixel, and the clip only bounds the
+  pixels of one with a vertex at or behind the eye. Only a triangle in one
+  plane with the eye is drawn by the polygon the clip leaves.
