@@ -489,6 +489,7 @@ describe("a sweep of indexed, stripped and culled draws on the CPU rasterizers",
    * @canon spec-a-cpu-draw-culling-front-draws-only-back-facing-triangles
    * @canon spec-a-cpu-draw-with-front-face-cw-takes-a-clockwise-triangle-as-front-facing
    * @canon spec-a-cpu-strip-triangle-faces-by-its-own-winding
+   * @canon spec-a-cpu-triangle-through-vec4-0-faces-as-the-part-it-draws-winds
    */
   it("draws the triangles an indexed or stripped draw makes, culled by the winding of their clipped part", () => {
     const next = random(400);
