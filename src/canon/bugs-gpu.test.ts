@@ -90,15 +90,16 @@ globalThis.__rmslBoolVectorFragment = async () =>
 `;
 
 /**
- * A plane whose geometry lacks the `bvec4` attribute its material reads,
- * drawn green where the attribute reads (false, false, false, true) and black
- * otherwise, by `WebGLRenderer` or, given `"webgpu"`, by `WebGPURenderer`.
+ * A plane drawn by `WebGLRenderer` or, given `"webgpu"`, by `WebGPURenderer`,
+ * green where its material reads `holds(flag)` true of a boolean attribute
+ * `flag` of `type`, and black where it reads it false. Each case gives the
+ * geometry an array for `flag`, or none.
  */
-const SCENE_MISSING_BOOL = `
-import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial } from "../scene";
+const SCENE_BOOL = `
+import { WebGLRenderer, WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, BufferAttribute } from "../scene";
 import { float, vec4 } from "../rmsl";
 ${READ_PIXEL}
-globalThis.__rmslMissingBool = async (backend) => {
+const draw = async (backend, type, array, holds) => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
@@ -108,14 +109,14 @@ globalThis.__rmslMissingBool = async (backend) => {
     renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
     const material = new MeshBasicMaterial();
     material.vertexNode = (b) => {
-      const f = b.attribute("missing", "bvec4");
-      const holds = f.w.and(f.x.not()).and(f.y.not()).and(f.z.not());
-      b.varying("colour", "vec4").assign(vec4(0, holds.select(float(1), float(0)), 0, 1));
+      b.varying("colour", "vec4").assign(vec4(0, holds(b.attribute("flag", type)).select(float(1), float(0)), 0, 1));
       return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
     };
     material.fragmentNode = (b) => b.varying("colour", "vec4");
+    const geometry = new PlaneGeometry(2, 2);
+    if (array) geometry.setAttribute("flag", new BufferAttribute(array, array.length / 4));
     const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+    scene.add(new Mesh(geometry, material));
     const camera = new PerspectiveCamera(90, 1, 0.1, 100);
     camera.position.set(0, 0, 0.5);
     camera.lookAt(0, 0, 0);
@@ -133,7 +134,32 @@ globalThis.__rmslMissingBool = async (backend) => {
     return { error: error.message };
   }
 };
+const each = (values) => [0, 1, 2, 3].flatMap(() => values);
+globalThis.__rmslSceneBool = async (backend) => ({
+  int32: await draw(backend, "bool", Int32Array.of(...each([-1])), (f) => f),
+  uint32: await draw(backend, "bvec2", Uint32Array.of(...each([0, 2 ** 32 - 1])), (f) => f.x.not().and(f.y)),
+});
+globalThis.__rmslSceneMissingBool = async (backend) => ({
+  bool: await draw(backend, "bool", null, (f) => f.not()),
+  bvec2: await draw(backend, "bvec2", null, (f) => f.x.not().and(f.y.not())),
+  bvec3: await draw(backend, "bvec3", null, (f) => f.x.not().and(f.y.not()).and(f.z.not())),
+  bvec4: await draw(backend, "bvec4", null, (f) => f.w.and(f.x.not()).and(f.y.not()).and(f.z.not())),
+});
 `;
+
+/** Runs an entry of {@link SCENE_BOOL} on `backend`, in the page that backend draws in. */
+const runScene = (backend: "webgl" | "webgpu", entry: string) =>
+  backend === "webgpu"
+    ? runInWebGpuPage(
+        `${SCENE_BOOL}\nglobalThis.__rmslSceneOnWebGpu = () => globalThis.${entry}("webgpu");`,
+        "__rmslSceneOnWebGpu",
+        import.meta.dirname,
+      )
+    : runInGpuPage(
+        `${SCENE_BOOL}\nglobalThis.__rmslSceneOnWebGl = () => globalThis.${entry}("webgl");`,
+        "__rmslSceneOnWebGl",
+        import.meta.dirname,
+      );
 
 const GREEN = { r: 0, g: 255, b: 0, a: 255 };
 const BLACK = { r: 0, g: 0, b: 0, a: 255 };
@@ -306,35 +332,36 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
     120_000,
   );
 
-  /**
-   * @canon spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
-   * @canon bug-a-scene-renderer-declares-a-bool-attribute-its-geometry-lacks-as-a-boolean-input
-   */
-  it.fails(
-    "gives a bvec4 attribute its geometry lacks true only in w on WebGL",
-    async () => {
-      expect(await runInGpuPage(SCENE_MISSING_BOOL, "__rmslMissingBool", import.meta.dirname)).toEqual(GREEN);
-    },
-    120_000,
-  );
+  for (const backend of ["webgl", "webgpu"] as const) {
+    /**
+     * @canon spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
+     * @canon bug-a-scene-renderer-declares-a-bool-attribute-its-geometry-lacks-as-a-boolean-input
+     */
+    it.skipIf(backend === "webgpu" && !WEBGPU).fails(
+      `gives a bool attribute its geometry lacks true only in w on ${backend}`,
+      async () => {
+        expect(await runScene(backend, "__rmslSceneMissingBool")).toEqual({
+          bool: GREEN,
+          bvec2: GREEN,
+          bvec3: GREEN,
+          bvec4: GREEN,
+        });
+      },
+      120_000,
+    );
 
-  /**
-   * @canon spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
-   * @canon bug-a-scene-renderer-declares-a-bool-attribute-its-geometry-lacks-as-a-boolean-input
-   */
-  it.skipIf(!WEBGPU).fails(
-    "gives a bvec4 attribute its geometry lacks true only in w on WebGPU",
-    async () => {
-      expect(
-        await runInWebGpuPage(
-          `${SCENE_MISSING_BOOL}\nglobalThis.__rmslMissingBoolOnWebGpu = () => globalThis.__rmslMissingBool("webgpu");`,
-          "__rmslMissingBoolOnWebGpu",
-          import.meta.dirname,
-        ),
-      ).toEqual(GREEN);
-    },
-    120_000,
-  );
+    /**
+     * @canon spec-a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers
+     * @canon bug-a-scene-renderer-reads-a-bool-attribute-as-a-float-attribute
+     */
+    it.skipIf(backend === "webgpu" && !WEBGPU).fails(
+      `draws a bool attribute from an Int32Array or a Uint32Array on ${backend}`,
+      async () => {
+        expect(await runScene(backend, "__rmslSceneBool")).toEqual({ int32: GREEN, uint32: GREEN });
+      },
+      120_000,
+    );
+  }
 });
 
 /** An adapter on `target` over a vertex stage that reads the `bool` attribute `flag`. */

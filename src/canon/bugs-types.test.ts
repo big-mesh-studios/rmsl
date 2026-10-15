@@ -41,7 +41,10 @@ describe("the type of setAttribute for a bool attribute", () => {
       const adapters = ["GlslAdapter", "WgslAdapter", "JsAdapter", "WasmAdapter"];
       const call = (array: string) =>
         adapters
-          .map((adapter) => `declare const a${adapter}: ${adapter};\na${adapter}.setAttribute(flag, new ${array}(3));`)
+          .map(
+            (adapter) =>
+              `declare const a${adapter}: ${adapter};\na${adapter}.setAttribute(flag, new ${array}(3));\na${adapter}.setAttribute(flags, new ${array}(9));`,
+          )
           .join("\n");
       const header = `import { attribute } from "../rmsl";
 import type { GlslAdapter } from "../glsl";
@@ -49,10 +52,11 @@ import type { WgslAdapter } from "../wgsl";
 import type { JsAdapter } from "../js";
 import type { WasmAdapter } from "../wasm";
 const flag = attribute("bool");
+const flags = attribute("bvec3");
 `;
       expect(typeErrors(header + call("Int32Array"))).toEqual([]);
       expect(typeErrors(header + call("Uint32Array"))).toEqual([]);
-      expect(typeErrors(header + call("Float32Array"))).toHaveLength(4);
+      expect(typeErrors(header + call("Float32Array"))).toHaveLength(8);
     },
     60_000,
   );
