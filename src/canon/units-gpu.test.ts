@@ -1035,7 +1035,7 @@ describe("a pixel an edge of a triangle crosses", () => {
   );
 
   /**
-   * @canon spec-a-wgsl-target-shades-a-pixel-centre-on-a-top-or-left-edge
+   * @canon exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver
    */
   it.skipIf(!GPU_ENABLED || !WEBGPU)(
     "on a top or a left edge, horizontal, vertical or sloped, is shaded on createWgsl",
@@ -1106,7 +1106,7 @@ describe("a pixel an edge of a triangle crosses", () => {
    * The rectangle's edges cross the centres of columns 0 and 2, which take a
    * part of the colour. How large a part depends on the sample pattern.
    *
-   * @canon spec-the-glsl-adapter-draws-with-the-samples-of-a-context-the-canvas-has
+   * @canon spec-the-glsl-adapter-draws-with-the-context-a-canvas-has
    */
   it.skipIf(!GPU_ENABLED)(
     "takes part of the colour on createGlsl attached to a canvas whose context multisamples",

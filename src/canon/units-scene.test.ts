@@ -363,7 +363,7 @@ describe("the multisampling WebGLRenderer draws with", () => {
    * `createGlsl` attached first leaves the canvas a context of one sample,
    * which a later `antialias: true` cannot change.
    *
-   * @canon exception-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
+   * @canon spec-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
    */
   it.skipIf(!GPU_ENABLED)(
     "draws with the samples of a context the canvas already has, whatever antialias asks",
