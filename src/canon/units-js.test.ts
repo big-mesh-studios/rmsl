@@ -1843,25 +1843,28 @@ describe("what a JS draw allocates for the scalars it passes its stages", () => 
 });
 
 describe("an attribute element the host's array does not hold", () => {
+  type AttributeType = "float" | "int" | "uint" | "vec3" | "ivec3" | "uvec3";
   /**
    * What a 1 by 1 draw of a triangle covering it shows for an attribute of
-   * `type` whose array is `values`, read at every vertex: red when the
-   * attribute reads `expected`, and black otherwise.
+   * `type` whose array is `values`, read at every vertex: red when its first
+   * component reads NaN for a float type and 0 for an integer one, and black otherwise.
    */
-  function drawsAs(compileRaster: typeof compileJS, type: "float" | "int", values: ArrayLike<number>, count: number) {
+  function drawsAs(compileRaster: typeof compileJS, type: AttributeType, values: ArrayLike<number>) {
     const position = attribute("vec3");
     const c = attribute(type);
-    const v = varying(type);
+    const scalar = type.startsWith("u") ? "uint" : type.startsWith("i") || type === "int" ? "int" : "float";
+    const v = varying(scalar);
     const raster = compileRaster(
       () =>
         Fn(() => {
-          v.assign(c as any);
+          v.assign(type.length > 4 ? (c as any).x : (c as any));
           builtinPosition().assign(vec4(position, 1));
         })() as any,
       () =>
         Fn(() => {
           // NaN is the one value that is not equal to itself.
-          const hit = type === "float" ? (v as any).notEqual(v) : (v as any).equal(int(0));
+          const hit =
+            scalar === "float" ? (v as any).notEqual(v) : (v as any).equal(scalar === "uint" ? uint(0) : int(0));
           return vec4(select(hit, float(1), float(0)), 0, 0, 1);
         })() as any,
     );
@@ -1871,28 +1874,44 @@ describe("an attribute element the host's array does not hold", () => {
       {
         width: 1,
         height: 1,
-        count,
+        count: 3,
       },
     ) as ArrayLike<number>;
     return out[0];
   }
 
-  /** The arrays that hold no element for any of three vertices: one that ends before them, one of holes, and one of undefined. */
-  const lacking = (empty: () => ArrayLike<number>) =>
-    [empty(), new Array(3), [undefined, undefined, undefined]] as any[];
+  /** The arrays that hold no element for any of three vertices of `width` components: one that ends before them, one of holes, and one of undefined. */
+  const lacking = (empty: () => ArrayLike<number>, width: number) =>
+    [empty(), new Array(3 * width), Array.from({ length: 3 * width }, () => undefined)] as any[];
 
   /**
    * @canon spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
    */
   it.each(rasterizers)("%s: reads a float attribute element its array lacks as NaN", (_, compileRaster) => {
-    for (const values of lacking(() => new Float32Array(0))) expect(drawsAs(compileRaster, "float", values, 3)).toBe(1);
+    for (const values of lacking(() => new Float32Array(0), 1)) expect(drawsAs(compileRaster, "float", values)).toBe(1);
   });
 
   /**
    * @canon spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
    */
-  it.each(rasterizers)("%s: reads an int attribute element its array lacks as 0", (_, compileRaster) => {
-    for (const values of lacking(() => new Int32Array(0))) expect(drawsAs(compileRaster, "int", values, 3)).toBe(1);
+  it.each(rasterizers)("%s: reads an int or uint attribute element its array lacks as 0", (_, compileRaster) => {
+    for (const values of lacking(() => new Int32Array(0), 1)) expect(drawsAs(compileRaster, "int", values)).toBe(1);
+    for (const values of lacking(() => new Uint32Array(0), 1)) expect(drawsAs(compileRaster, "uint", values)).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan
+   */
+  it.each(rasterizers)("%s: reads a vec3 attribute component its array lacks as NaN", (_, compileRaster) => {
+    for (const values of lacking(() => new Float32Array(0), 3)) expect(drawsAs(compileRaster, "vec3", values)).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero
+   */
+  it.each(rasterizers)("%s: reads an ivec3 or uvec3 attribute component its array lacks as 0", (_, compileRaster) => {
+    for (const values of lacking(() => new Int32Array(0), 3)) expect(drawsAs(compileRaster, "ivec3", values)).toBe(1);
+    for (const values of lacking(() => new Uint32Array(0), 3)) expect(drawsAs(compileRaster, "uvec3", values)).toBe(1);
   });
 });
 
