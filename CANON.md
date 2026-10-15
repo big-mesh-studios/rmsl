@@ -939,8 +939,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes) — A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
       - [`@bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes`](#bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes) — After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-a-triangle-it-clips`](#spec-a-js-draw-allocates-nothing-for-a-triangle-it-clips) — A JS draw allocates nothing for a triangle it clips to the clip volume: for the polygon the clip leaves, for the fan it draws of it, or for each fragment of it.
-  - [`@spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade`](#spec-a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade) — A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, when no triangle crosses the near plane. It does no work for the elements of the host's attribute arrays its vertices do not use.
-    - [`@spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size`](#spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size) — A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+  - [`@spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade`](#spec-a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade) — A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, whether the clip cuts its triangles or not. It does no work for the elements of the host's attribute arrays its vertices do not use.
+    - [`@spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size`](#spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size) — A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, whether the clip cuts its triangles or not.
     - [`@spec a-js-draw-reads-only-the-attribute-elements-of-its-vertices`](#spec-a-js-draw-reads-only-the-attribute-elements-of-its-vertices) — A JS draw from `first`, of `count` vertices, reads each attribute array only at the elements of those vertices.
   - [`@spec a-js-draw-assembles-its-triangles-in-tables-it-keeps`](#spec-a-js-draw-assembles-its-triangles-in-tables-it-keeps) — A draw of the JS rasterizer assembles its triangles in tables the routine keeps. It grows a table only for a draw that needs more than an earlier draw did. A draw by indices allocates nothing on a call whose tables fit, with an attribute or none. A draw without indices keeps no table of the vertices it names.
     - [`@spec a-js-indexed-draw-allocates-nothing-once-its-tables-fit`](#spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit) — A draw of the JS rasterizer by indices allocates nothing on a call whose indices and vertices fit the tables an earlier call grew. This holds for a program that reads an attribute and for one that reads none. An index past the end of every attribute and past 1048575 takes an entry in a map, made for that call.
@@ -6996,7 +6996,7 @@ This follows because the clip writes its polygon into vertices the rasterizer ma
 
 ### @spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade
 
-> A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, when no triangle crosses the near plane. It does no work for the elements of the host's attribute arrays its vertices do not use.
+> A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, whether the clip cuts its triangles or not. It does no work for the elements of the host's attribute arrays its vertices do not use.
 
 Derives from: [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment)
 
@@ -7004,7 +7004,7 @@ This follows because a draw runs every frame, so what it costs for itself it cos
 
 #### @spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size
 
-> A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+> A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, whether the clip cuts its triangles or not.
 
 This follows because the vertices, the depth buffer and the image a draw needs are kept from the draws before it, and made again only when a draw needs more of them.
 
