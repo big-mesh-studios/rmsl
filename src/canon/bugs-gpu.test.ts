@@ -240,6 +240,7 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
    * @canon spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
    * @canon exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
    * @canon bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
+   * @canon bug-an-adapter-declares-a-bool-attribute-as-a-boolean-input
    */
   it.skipIf(!WEBGPU).fails(
     "reads a bool attribute of the first vertex in the fragment stage on wgsl",
@@ -255,7 +256,9 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
    * refuses the integer one.
    *
    * @canon spec-a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex
+   * @canon exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
    * @canon bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
+   * @canon bug-an-adapter-declares-a-bool-attribute-as-a-boolean-input
    */
   it.skipIf(!WEBGPU).fails(
     "reads each component of a boolean vector attribute of the first vertex in the fragment stage on wgsl",
@@ -290,7 +293,9 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
    * (true, false) for the vector, which reads black.
    *
    * @canon exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex
+   * @canon exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
    * @canon bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
+   * @canon bug-an-adapter-declares-a-bool-attribute-as-a-boolean-input
    */
   it.fails(
     "reads a bool attribute of the last vertex in the fragment stage on glsl",

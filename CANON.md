@@ -98,13 +98,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
     - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value as that varying passes it: interpolated for a float attribute, and flat for an integer or `bool` one, as [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) states.
+      - [`@bug an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying`](#bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying) — `createGlsl` declares the varying that carries a `bool` attribute to the fragment stage `out bool`, which the driver refuses. `createWgsl` declares it `@location(n)` of type `bool`, which the device refuses, and draws nothing, with no error.
       - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the value of each attribute it reads, through a varying of its own that the vertex stage writes once for each vertex.
       - [`@spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once`](#spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once) — Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
       - [`@spec a-fragment-stage-compiled-alone-refuses-an-attribute`](#spec-a-fragment-stage-compiled-alone-refuses-an-attribute) — `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
       - [`@spec a-fragment-attribute-with-no-vertex-root-is-refused`](#spec-a-fragment-attribute-with-no-vertex-root-is-refused) — A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
       - [`@exception a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying`](#exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying) — Where TSL passes a `bool` or `bvecN` attribute that the fragment stage reads in a `bool` varying, which neither of its backends compiles, rmsl passes it in a flat `uint` or `uvecN` varying. The fragment stage tests each component against zero, and reads the boolean of the vertex an integer varying takes its value from.
       - [`@spec a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex`](#spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex) — On WGSL, JS and WASM, a fragment reads a `bool` attribute as the first vertex of its triangle holds it.
-        - [`@bug an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying`](#bug-an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying) — `createGlsl` declares the varying that carries a `bool` attribute to the fragment stage `out bool`, which the driver refuses. `createWgsl` declares it `@location(n)` of type `bool`, which the device refuses, and draws nothing, with no error.
       - [`@spec a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex`](#spec-a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex) — On WGSL, JS and WASM, a fragment reads each component of a `bvecN` attribute as the first vertex of its triangle holds it.
       - [`@exception a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex`](#exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex) — On GLSL, a fragment reads a `bool` or `bvecN` attribute as the last vertex of its triangle holds it.
       - [`@exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects`](#exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects) — A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
@@ -1600,6 +1600,12 @@ Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-att
 
 This follows because a TSL shader reads an attribute in its fragment stage without passing it on. It ports to rmsl by changing its import. Only a call that takes both stages sees what the fragment stage reads and the vertex stage that writes it.
 
+##### @bug an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
+
+> `createGlsl` declares the varying that carries a `bool` attribute to the fragment stage `out bool`, which the driver refuses. `createWgsl` declares it `@location(n)` of type `bool`, which the device refuses, and draws nothing, with no error.
+
+Issue: #291
+
 ##### @spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
 
 > `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the value of each attribute it reads, through a varying of its own that the vertex stage writes once for each vertex.
@@ -1633,12 +1639,6 @@ This follows because the CPU targets give the fragment stage the attribute, and 
 > On WGSL, JS and WASM, a fragment reads a `bool` attribute as the first vertex of its triangle holds it.
 
 Derives from: [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex)
-
-###### @bug an-adapter-passes-a-bool-attribute-to-the-fragment-stage-in-a-boolean-varying
-
-> `createGlsl` declares the varying that carries a `bool` attribute to the fragment stage `out bool`, which the driver refuses. `createWgsl` declares it `@location(n)` of type `bool`, which the device refuses, and draws nothing, with no error.
-
-Issue: #291
 
 ##### @spec a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex
 
