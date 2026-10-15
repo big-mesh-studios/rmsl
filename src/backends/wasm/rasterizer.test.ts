@@ -741,9 +741,9 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
   });
 });
 
-describe("WASM backend: generic rasterizer module — near-plane clipping", () => {
+describe("WASM backend: generic rasterizer module — clipping to the clip volume", () => {
   /**
-   * @canon spec-a-rasterizer-clips-at-the-near-plane
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
   it("clips a triangle with one vertex behind the eye into two triangles, matching an independent JS clip+raster reference", () => {
     let posAttr!: AttributeNode<"vec3">;
@@ -905,7 +905,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
     expect(Array.from(actual)).toEqual(Array.from(expected));
   });
   /**
-   * @canon spec-a-rasterizer-clips-at-the-near-plane
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
   it("culls a triangle entirely behind the eye", () => {
     let posAttr!: AttributeNode<"vec3">;
