@@ -2196,13 +2196,16 @@ describe("what a JS draw allocates for the kinds of array the host passes", () =
 });
 
 describe("what a JS program keeps after a call", () => {
-  /** Whether the object `call` is given is collected once the call returns and nothing else holds it. */
-  async function collectedAfter(call: (input: object) => void): Promise<boolean> {
+  /** Whether the object `call` is given, which `make` makes, is collected once the call returns and nothing else holds it. */
+  async function collectedAfter<T extends object>(
+    call: (input: T) => void,
+    make: () => T = () => ({}) as T,
+  ): Promise<boolean> {
     setFlagsFromString("--expose-gc");
     const gc = runInNewContext("gc") as () => void;
     let ref!: WeakRef<object>;
     (() => {
-      const input = {};
+      const input = make();
       ref = new WeakRef(input);
       call(input);
     })();
@@ -2236,6 +2239,13 @@ describe("what a JS program keeps after a call", () => {
     const attributes = { [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0) };
     expect(
       await collectedAfter((uniforms) => raster.draw({ attributes, uniforms } as any, { width: 2, height: 2 })),
+    ).toBe(true);
+    // The draw reads the host's attribute arrays in place, so it must let go of them too.
+    expect(
+      await collectedAfter(
+        (positions) => raster.draw({ attributes: { [position.name]: positions } }, { width: 2, height: 2 }),
+        () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0),
+      ),
     ).toBe(true);
   });
 });
