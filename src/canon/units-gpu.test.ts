@@ -1738,13 +1738,17 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   /**
    * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
    */
-  it.each([
-    ["createGlsl", () => glslValueType("glslUnsetStorage")],
-    ["createWgsl", () => wgslValueType("wgslUnsetStorage")],
-  ])(
-    "reads a storage buffer the host never set as its array in a render stage on %s",
-    async (_, drawn) => {
-      expect(await drawn()).toEqual(GREEN);
+  it("reads a storage buffer the host never set as its array in a render stage on createGlsl", async () => {
+    expect(await glslValueType("glslUnsetStorage")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-storage-buffer-the-host-never-sets-starts-as-its-array
+   */
+  it.skipIf(!WEBGPU)(
+    "reads a storage buffer the host never set as its array in a render stage on createWgsl",
+    async () => {
+      expect(await wgslValueType("wgslUnsetStorage")).toEqual(GREEN);
     },
     120_000,
   );

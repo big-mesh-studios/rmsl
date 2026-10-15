@@ -1106,11 +1106,15 @@ describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon spec-a-material-reads-any-sampler-type
    */
-  it("reads the second row of a three-texel-wide R8UI texture on WebGL", async () => {
-    const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
-    expect(result.error).toBe(0);
-    expect(result.r).toBe(40);
-  }, 60_000);
+  it.skipIf(!GPU_ENABLED)(
+    "reads the second row of a three-texel-wide R8UI texture on WebGL",
+    async () => {
+      const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
+      expect(result.error).toBe(0);
+      expect(result.r).toBe(40);
+    },
+    60_000,
+  );
 
   /**
    * @canon spec-a-change-raises-a-version-every-renderer-reads
