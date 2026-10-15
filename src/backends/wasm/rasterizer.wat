@@ -115,15 +115,15 @@
   ;; Writes the vertex a fraction $t of the way from scratch slot $a to slot $b
   ;; into slot $to. A flat varying is copied from $firstVaryings, the varyings
   ;; of the first vertex of the triangle being clipped, as no value lies between two.
-  ;; A w within 2^-48 of the largest sum the cut takes, a component of $a and its step
-  ;; added by size, is rounding alone: the cut lies in the clip volume, within that
-  ;; rounding of vec4(0), and is that point.
+  ;; A position whose four components all lie within 2^-48 of the largest sum the cut
+  ;; takes, a component of $a and its step added by size, is rounding alone and is
+  ;; vec4(0). One whose w alone is 0 keeps its x, y and z for the next plane to cut.
   (func $lerpToScratch
     (param $clipScratchBase i32) (param $varyingBytes i32) (param $varyingDescBase i32) (param $varyingDescCount i32)
     (param $a i32) (param $b i32) (param $t f64) (param $firstVaryings i32) (param $to i32)
     (local $c i32) (local $aAddr i32) (local $bAddr i32) (local $toAddr i32)
     (local $d i32) (local $entry i32) (local $recordOffset i32) (local $numComponents i32) (local $offset i32)
-    (local $step f64) (local $rounding f64)
+    (local $step f64) (local $rounding f64) (local $size f64)
     (local.set $aAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $a)))
     (local.set $bAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $b)))
     (local.set $toAddr (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $to)))
@@ -141,10 +141,11 @@
         (local.set $rounding
           (f64.max (local.get $rounding)
             (f64.add (f64.abs (f64.load (i32.add (local.get $aAddr) (local.get $offset)))) (f64.abs (local.get $step)))))
+        (local.set $size
+          (f64.max (local.get $size) (f64.abs (f64.load (i32.add (local.get $toAddr) (local.get $offset))))))
         (local.set $c (i32.add (local.get $c) (i32.const 1)))
         (br $posContinue)))
-    (if (f64.le (f64.abs (f64.load (i32.add (local.get $toAddr) (i32.const 24))))
-          (f64.mul (local.get $rounding) (f64.const 0x1p-48)))
+    (if (f64.le (local.get $size) (f64.mul (local.get $rounding) (f64.const 0x1p-48)))
       (then
         (f64.store (local.get $toAddr) (f64.const 0))
         (f64.store (i32.add (local.get $toAddr) (i32.const 8)) (f64.const 0))

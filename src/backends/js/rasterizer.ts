@@ -6,8 +6,8 @@ import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /**
- * How many times the rounding of a cut a vertex's w may be and still be taken
- * for 0: 16 units in the last place, `2 ** -48`, as `rasterizer.wat` takes it.
+ * How many times the rounding of a cut a vertex's components may be and still
+ * be taken for 0: 16 units in the last place, `2 ** -48`, as `rasterizer.wat` takes it.
  */
 const CUT_ROUNDING = 2 ** -48;
 
@@ -126,9 +126,10 @@ function copyComponents(from: Float64Array, to: Float64Array): void {
  * two integers. The cut takes the plane rather than its fraction, as a float
  * passed to a call V8 does not inline is boxed.
  *
- * A cut vertex lies in the clip volume, where x, y and z are no larger than
- * w. One whose w is within the rounding of the cut lies within that rounding
- * of `vec4(0)`, and is that point, as its x, y and z over w are rounding alone.
+ * A cut vertex whose four components all lie within the rounding of the cut
+ * lies within that rounding of `vec4(0)`, and is that point, as its x, y and
+ * z over w are rounding alone. One whose w alone is 0, on one plane and
+ * outside another, keeps its x, y and z for the next plane to cut.
  */
 function cutVertex(
   a: ClipVertex,
@@ -141,12 +142,14 @@ function cutVertex(
   const da = planeDistance(a.position, plane);
   const t = da / (da - planeDistance(b.position, plane));
   let rounding = 0;
+  let size = 0;
   for (let i = 0; i < 4; i++) {
     const step = (b.position[i]! - a.position[i]!) * t;
     out.position[i] = a.position[i]! + step;
     rounding = Math.max(rounding, Math.abs(a.position[i]!) + Math.abs(step));
+    size = Math.max(size, Math.abs(out.position[i]!));
   }
-  if (Math.abs(out.position[3]!) <= rounding * CUT_ROUNDING) for (let i = 0; i < 4; i++) out.position[i] = 0;
+  if (size <= rounding * CUT_ROUNDING) for (let i = 0; i < 4; i++) out.position[i] = 0;
   for (let k = 0; k < a.varyings.length; k++) {
     const x = a.varyings[k]!;
     const y = b.varyings[k]!;

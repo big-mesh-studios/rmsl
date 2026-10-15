@@ -47,10 +47,12 @@ polygon left, at most 9 vertices, is fan-triangulated from its first vertex.
 Cut vertices lerp both the clip-space position and the whole varying blob
 linearly (not perspective-corrected — correct for clip space, pre-divide),
 from the vertex of the edge inside the plane, so a `w` far smaller than the
-other vertex's keeps its digits. A cut vertex whose `w` is no more than
-`2^-48` of the largest sum it took, a component of the inside vertex and its
-step towards the other added by size, is rounding alone, and
-becomes `vec4(0)`, which the cut lies within that rounding of. Cut vertices
+other vertex's keeps its digits. A cut vertex whose four components are all
+no more than `2^-48` of the largest sum it took, a component of the inside
+vertex and its step towards the other added by size, is rounding alone, and
+becomes `vec4(0)`, which it lies within that rounding of. One whose `w` alone
+is 0 lies on one plane and outside another, and keeps its other components
+for the next plane to cut. Cut vertices
 copy each flat varying from the triangle's first vertex, as no value
 lies between two integers. A plane copies each vertex it keeps, and starts
 its polygon with the first vertex it was given or with the vertex it cuts

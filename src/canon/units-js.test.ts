@@ -2049,6 +2049,46 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The edge from the first vertex towards the second, behind the eye, runs
+   * up the column of pixel centres at x 8.5. The clip cuts it at w + x = 0
+   * first, at the point `(0, 0.5, 0.5, 0)`, whose w is 0 but whose y is not:
+   * a vertex on one plane and outside another, which the next plane cuts
+   * again. Each pattern is what Chromium's WebGPU on Metal lights.
+   *
+   * @canon spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: keeps a cut vertex whose w alone is 0 for the next plane", (_, compileRaster) => {
+    /** The rows of the pixels a draw lights, `#` for one and `.` for none. */
+    const lit = (positions: number[]) => {
+      const image = drawColoured(compileRaster, positions);
+      return Array.from({ length: 16 }, (_, y) =>
+        Array.from({ length: 16 }, (_, x) => (image[(y * 16 + x) * 4 + 3] ? "#" : ".")).join(""),
+      );
+    };
+    expect(lit([0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, 0.5, 0.5, 0.5, 1])).toEqual([
+      "............#...",
+      "...........##...",
+      "..........##....",
+      ".........###....",
+      "........####....",
+      "........###.....",
+      "........##......",
+      "........#.......",
+      ...Array(8).fill("................"),
+    ]);
+    expect(lit([0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, -0.5, 0.5, 0.5, 1])).toEqual([
+      "...##...........",
+      "...###..........",
+      "...####.........",
+      "....####........",
+      ".....###........",
+      "......##........",
+      ".......#........",
+      ...Array(9).fill("................"),
+    ]);
+  });
+
+  /**
    * Chromium's WebGPU on Metal gives these pixels these depths.
    *
    * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
