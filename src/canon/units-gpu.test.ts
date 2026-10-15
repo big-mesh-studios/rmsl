@@ -832,6 +832,7 @@ describe("a path of a vertex stage that writes no position", () => {
  */
 const ZERO_W = `
 import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
 import { createWasm } from "../wasm";
@@ -887,6 +888,12 @@ const drawEach = async (create, settle) => {
   return drawn;
 };
 globalThis.__rmslZeroWJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+// The canvas's context is made first with one sample, which createGlsl then takes, as WebGL gives a canvas one context.
+globalThis.__rmslZeroWGlsl = () =>
+  drawEach((vertex, fragment) => {
+    const adapter = createGlsl(vertex, fragment);
+    return { ...adapter, attach: (canvas) => (canvas.getContext("webgl2", { antialias: false }), adapter.attach(canvas)) };
+  });
 globalThis.__rmslZeroWWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
 globalThis.__rmslZeroWWgsl = () =>
   drawEach(
@@ -896,6 +903,32 @@ globalThis.__rmslZeroWWgsl = () =>
 `;
 
 describe("a triangle with a vertex at or near vec4(0)", () => {
+  /**
+   * WebGL 2 on SwiftShader, the browser the GLSL tests use, lights nothing on
+   * the edge opposite `vec4(0)`, where WebGPU lights a row in the colour of
+   * that vertex. A pixel well inside the triangle from the base to the centre
+   * takes a blend of the three colours, where WebGPU gives it pure blue.
+   * `createGlsl` draws here on a canvas whose context has one sample, as
+   * WebGPU does.
+   *
+   * @canon exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws on GLSL no fragment on the edge opposite vec4(0), and on SwiftShader blends the varyings",
+    async () => {
+      const drawn: Record<string, string[]> = await runInGpuPage(
+        ZERO_W,
+        "__rmslZeroWGlsl",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(drawn.onTheOppositeEdge!.flatMap((row) => row.split(" ")).every((pixel) => pixel === "0,0,0")).toBe(true);
+      const inside = drawn.origin![13]!.split(" ")[7]!.split(",").map(Number);
+      expect(inside[2]).toBeGreaterThan(0);
+      expect(inside[0]! + inside[1]!).toBeGreaterThan(20);
+    },
+    120_000,
+  );
+
   /**
    * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
    * @canon spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
