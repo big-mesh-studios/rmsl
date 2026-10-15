@@ -3,6 +3,7 @@ import { NodeError, ProgramError, UsageError } from "../errors";
 import { Session } from "node:inspector/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
+import { Worker } from "node:worker_threads";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -1483,6 +1484,130 @@ describe("the scalars and inputs of a JS function", () => {
     expect(Array.from(raster.draw(ctx, options)).some((value) => value !== 0)).toBe(true);
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
   });
+});
+
+/**
+ * The source of a worker that compiles a rasterizer for each letter of
+ * `order` from the built library, and draws each 6000 times, one after
+ * another, as an application that draws several programs does: `A` draws two
+ * triangles that cover the target, `B` a triangle behind the eye and one at
+ * `vec4(0)`, which the clip cuts, and `C` reads an integer attribute into a
+ * flat varying. It posts the bytes the last draws allocate a draw, by V8's
+ * sampling heap profiler. A worker has an isolate of its own, so nothing the
+ * process ran before decides what V8 has made of the code all rasterizers share.
+ */
+const DRAW_IN_ORDER = `
+const { workerData, parentPort } = require("node:worker_threads");
+const { Session } = require("node:inspector/promises");
+(async () => {
+  const { compileJS } = await import(workerData.js);
+  const { Fn, attribute, builtinPosition, varying, vec4 } = await import(workerData.rmsl);
+  const options = { width: 16, height: 16, clear: true, clearDepth: true };
+  const make = {
+    A: () => {
+      const position = attribute("vec3");
+      const colour = attribute("vec3");
+      const shade = varying("vec3");
+      const raster = compileJS(
+        () => Fn(() => { shade.assign(colour.mul(0.5)); builtinPosition().assign(vec4(position, 1)); })(),
+        () => Fn(() => vec4(shade, 1))(),
+      );
+      const ctx = { attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0),
+        [colour.name]: Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 0, 1),
+      } };
+      return () => raster.draw(ctx, options);
+    },
+    B: () => {
+      const position = attribute("vec4");
+      const shade = varying("vec3");
+      const raster = compileJS(
+        () => Fn(() => { shade.assign(position.xyz); builtinPosition().assign(position); })(),
+        () => Fn(() => vec4(shade, 1))(),
+      );
+      const ctx = { attributes: {
+        [position.name]: Float64Array.of(-2, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 2, 0.5, 1, -1, -1, 0.5, 1, 1, -1, 0.5, 1, 0, 0, 0, 0),
+      } };
+      return () => raster.draw(ctx, options);
+    },
+    C: () => {
+      const position = attribute("vec4");
+      const id = attribute("int");
+      const k = varying("int");
+      const raster = compileJS(
+        () => Fn(() => { k.assign(id); builtinPosition().assign(position); })(),
+        () => Fn(() => vec4(k.toFloat(), 0, 0, 1))(),
+      );
+      const ctx = { attributes: {
+        [position.name]: Float64Array.of(-2, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 2, 0.5, 1),
+        [id.name]: Int32Array.of(1, 2, 3),
+      } };
+      return () => raster.draw(ctx, options);
+    },
+  };
+  const session = new Session();
+  session.connect();
+  await session.post("HeapProfiler.enable");
+  let draw;
+  for (const letter of workerData.order) {
+    draw = make[letter]();
+    for (let k = 0; k < 6000; k++) draw();
+  }
+  let least = Infinity;
+  for (let round = 0; round < 2; round++) {
+    await session.post("HeapProfiler.startSampling", {
+      samplingInterval: 128,
+      includeObjectsCollectedByMajorGC: true,
+      includeObjectsCollectedByMinorGC: true,
+    });
+    for (let k = 0; k < 200; k++) draw();
+    const { profile } = await session.post("HeapProfiler.stopSampling");
+    let allocated = 0;
+    const walk = (node) => {
+      const url = node.callFrame.url;
+      if (url === "" || url.includes("/dist/")) allocated += node.selfSize;
+      for (const child of node.children) walk(child);
+    };
+    walk(profile.head);
+    least = Math.min(least, allocated / 200);
+  }
+  parentPort.postMessage(least);
+})().catch((error) => parentPort.postMessage(String(error)));
+`;
+
+/** The bytes a draw of the last rasterizer of `order` allocates, in a worker of its own; see {@link DRAW_IN_ORDER}. */
+function allocatedAfterDrawing(order: string): Promise<number> {
+  const worker = new Worker(DRAW_IN_ORDER, {
+    eval: true,
+    workerData: {
+      order,
+      js: new URL("../../dist/js.js", import.meta.url).href,
+      rmsl: new URL("../../dist/rmsl.js", import.meta.url).href,
+    },
+  });
+  return new Promise<number>((resolve, reject) => {
+    worker.once("message", (value) => (typeof value === "number" ? resolve(value) : reject(new Error(value))));
+    worker.once("error", reject);
+  }).finally(() => worker.terminate());
+}
+
+describe("a JS draw after other rasterizers", () => {
+  /**
+   * Every rasterizer `compileJS` makes runs the same functions, which V8
+   * optimizes for the slots and inputs of the ones it has drawn. `AB`, a
+   * rasterizer drawn after one of other slots, allocated 450 to 1,100 bytes a
+   * draw; the other orders hold that no order brings that back.
+   *
+   * @canon spec-a-js-draw-allocates-nothing-whatever-drew-before-it
+   */
+  it.each(["AB", "BA", "AA", "AC", "CA", "ACB"])(
+    "allocates nothing per draw of the last rasterizer of %s",
+    async (order) => {
+      // A draw calls a stage hundreds of times, and an object is 16 bytes at the least.
+      expect(await allocatedAfterDrawing(order)).toBeLessThan(64);
+    },
+    60_000,
+  );
 });
 
 describe("what a JS program keeps after a call", () => {

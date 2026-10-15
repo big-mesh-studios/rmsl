@@ -76,6 +76,9 @@ interface ClipVertex {
 /** The target of a rasterizer between draws. */
 const NO_TARGET = new Float64Array(0);
 
+/** The inputs both stages share between draws: none, in one object, so a draw makes none. */
+const NO_INPUTS: Pick<JsRasterContext, "uniforms" | "textures"> = {};
+
 /**
  * Whether an edge running `(dx, dy)`, in a triangle wound so that its inside
  * lies where every edge function is positive, owns the pixel centres on it:
@@ -224,8 +227,14 @@ export function compileJSRasterizer(
   const attributeSlots = Object.keys(vertexStage.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(vertexStage.attributeTypes[slot]!));
   const attributeKinds = attributeSlots.map((slot) => componentKindOf(vertexStage.attributeTypes[slot]!));
-  const widths: Record<string, number> = {};
-  attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
+  /**
+   * The width of each attribute slot the vertex stage reads, by slot. A draw
+   * looks up the host's slots in a map rather than an object: every
+   * rasterizer runs one copy of the code below, and V8 deoptimizes a keyed
+   * load in a `for-in` loop each time it meets slot names other than those it
+   * was optimized for.
+   */
+  const widths = new Map(attributeSlots.map((slot, i) => [slot, attributeWidths[i]!]));
   /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */
   const vertexAttributes: Record<string, number | Float64Array | undefined> = {};
   attributeSlots.forEach((slot, i) => {
@@ -455,7 +464,7 @@ export function compileJSRasterizer(
       return drawShaded(ctx, options);
     } finally {
       // The contexts are kept for the next draw, so they let go of this one's inputs.
-      shareInputs({});
+      shareInputs(NO_INPUTS);
       target = NO_TARGET;
     }
   }
@@ -472,11 +481,11 @@ export function compileJSRasterizer(
     // draw reads no buffer its shader does not declare.
     let firstSlot: string | undefined;
     for (const slot in attributes) {
-      if (widths[slot] === undefined) continue;
+      if (!widths.has(slot)) continue;
       firstSlot = slot;
       break;
     }
-    const inferredCount = firstSlot ? Math.floor(attributes[firstSlot]!.length / widths[firstSlot]!) - first : 0;
+    const inferredCount = firstSlot ? Math.floor(attributes[firstSlot]!.length / widths.get(firstSlot)!) - first : 0;
     const vertexCount = options.count ?? inferredCount;
 
     // vertex pass
