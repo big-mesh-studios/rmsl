@@ -1,0 +1,431 @@
+# WebGPU — Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36
+# adapter: {"vendor":"apple","architecture":"metal-3","device":"","description":""}
+
+## ndc-ccw triangle cull=none front=ccw
+  centre: id=10 vi=0 front
+  whole image: {"nothing":712,"id=10 vi=0 front":312}
+
+## ndc-ccw triangle cull=none front=cw
+  centre: id=10 vi=0 back
+  whole image: {"nothing":712,"id=10 vi=0 back":312}
+
+## ndc-ccw triangle cull=back front=ccw
+  centre: id=10 vi=0 front
+  whole image: {"nothing":712,"id=10 vi=0 front":312}
+
+## ndc-ccw triangle cull=back front=cw
+  centre: nothing
+  whole image: {"nothing":1024}
+
+## ndc-ccw triangle cull=front front=ccw
+  centre: nothing
+  whole image: {"nothing":1024}
+
+## ndc-ccw triangle cull=front front=cw
+  centre: id=10 vi=0 back
+  whole image: {"nothing":712,"id=10 vi=0 back":312}
+
+## ndc-cw triangle cull=none front=ccw
+  centre: id=10 vi=0 back
+  whole image: {"nothing":712,"id=10 vi=0 back":312}
+
+## ndc-cw triangle cull=none front=cw
+  centre: id=10 vi=0 front
+  whole image: {"nothing":712,"id=10 vi=0 front":312}
+
+## ndc-cw triangle cull=back front=ccw
+  centre: nothing
+  whole image: {"nothing":1024}
+
+## ndc-cw triangle cull=back front=cw
+  centre: id=10 vi=0 front
+  whole image: {"nothing":712,"id=10 vi=0 front":312}
+
+## ndc-cw triangle cull=front front=ccw
+  centre: id=10 vi=0 back
+  whole image: {"nothing":712,"id=10 vi=0 back":312}
+
+## ndc-cw triangle cull=front front=cw
+  centre: nothing
+  whole image: {"nothing":1024}
+
+## strip n=3 first=ccw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 front
+  whole image: {"nothing":676,"id=10 vi=0 front":348}
+
+## strip n=3 first=ccw cull=none front=cw
+  strip triangle 0: id=10 vi=0 back
+  whole image: {"nothing":676,"id=10 vi=0 back":348}
+
+## strip n=3 first=ccw cull=back front=ccw
+  strip triangle 0: id=10 vi=0 front
+  whole image: {"nothing":676,"id=10 vi=0 front":348}
+
+## strip n=3 first=ccw cull=back front=cw
+  strip triangle 0: nothing
+  whole image: {"nothing":1024}
+
+## strip n=3 first=ccw cull=front front=ccw
+  strip triangle 0: nothing
+  whole image: {"nothing":1024}
+
+## strip n=3 first=ccw cull=front front=cw
+  strip triangle 0: id=10 vi=0 back
+  whole image: {"nothing":676,"id=10 vi=0 back":348}
+
+## strip n=3 first=cw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 back
+  whole image: {"nothing":676,"id=10 vi=0 back":348}
+
+## strip n=3 first=cw cull=none front=cw
+  strip triangle 0: id=10 vi=0 front
+  whole image: {"nothing":676,"id=10 vi=0 front":348}
+
+## strip n=3 first=cw cull=back front=ccw
+  strip triangle 0: nothing
+  whole image: {"nothing":1024}
+
+## strip n=3 first=cw cull=back front=cw
+  strip triangle 0: id=10 vi=0 front
+  whole image: {"nothing":676,"id=10 vi=0 front":348}
+
+## strip n=3 first=cw cull=front front=ccw
+  strip triangle 0: id=10 vi=0 back
+  whole image: {"nothing":676,"id=10 vi=0 back":348}
+
+## strip n=3 first=cw cull=front front=cw
+  strip triangle 0: nothing
+  whole image: {"nothing":1024}
+
+## strip n=4 first=ccw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  whole image: {"nothing":568,"id=10 vi=0 front":228,"id=11 vi=1 front":228}
+
+## strip n=4 first=ccw cull=none front=cw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  whole image: {"nothing":568,"id=10 vi=0 back":228,"id=11 vi=1 back":228}
+
+## strip n=4 first=ccw cull=back front=ccw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  whole image: {"nothing":568,"id=10 vi=0 front":228,"id=11 vi=1 front":228}
+
+## strip n=4 first=ccw cull=back front=cw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  whole image: {"nothing":1024}
+
+## strip n=4 first=ccw cull=front front=ccw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  whole image: {"nothing":1024}
+
+## strip n=4 first=ccw cull=front front=cw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  whole image: {"nothing":568,"id=10 vi=0 back":228,"id=11 vi=1 back":228}
+
+## strip n=4 first=cw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  whole image: {"nothing":568,"id=10 vi=0 back":228,"id=11 vi=1 back":228}
+
+## strip n=4 first=cw cull=none front=cw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  whole image: {"nothing":568,"id=10 vi=0 front":228,"id=11 vi=1 front":228}
+
+## strip n=4 first=cw cull=back front=ccw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  whole image: {"nothing":1024}
+
+## strip n=4 first=cw cull=back front=cw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  whole image: {"nothing":568,"id=10 vi=0 front":228,"id=11 vi=1 front":228}
+
+## strip n=4 first=cw cull=front front=ccw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  whole image: {"nothing":568,"id=10 vi=0 back":228,"id=11 vi=1 back":228}
+
+## strip n=4 first=cw cull=front front=cw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  whole image: {"nothing":1024}
+
+## strip n=5 first=ccw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  whole image: {"nothing":504,"id=10 vi=0 front":174,"id=11 vi=1 front":172,"id=12 vi=2 front":174}
+
+## strip n=5 first=ccw cull=none front=cw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  whole image: {"nothing":504,"id=10 vi=0 back":174,"id=11 vi=1 back":172,"id=12 vi=2 back":174}
+
+## strip n=5 first=ccw cull=back front=ccw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  whole image: {"nothing":504,"id=10 vi=0 front":174,"id=11 vi=1 front":172,"id=12 vi=2 front":174}
+
+## strip n=5 first=ccw cull=back front=cw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  whole image: {"nothing":1024}
+
+## strip n=5 first=ccw cull=front front=ccw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  whole image: {"nothing":1024}
+
+## strip n=5 first=ccw cull=front front=cw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  whole image: {"nothing":504,"id=10 vi=0 back":174,"id=11 vi=1 back":172,"id=12 vi=2 back":174}
+
+## strip n=5 first=cw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  whole image: {"nothing":504,"id=10 vi=0 back":174,"id=11 vi=1 back":172,"id=12 vi=2 back":174}
+
+## strip n=5 first=cw cull=none front=cw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  whole image: {"nothing":504,"id=10 vi=0 front":174,"id=11 vi=1 front":172,"id=12 vi=2 front":174}
+
+## strip n=5 first=cw cull=back front=ccw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  whole image: {"nothing":1024}
+
+## strip n=5 first=cw cull=back front=cw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  whole image: {"nothing":504,"id=10 vi=0 front":174,"id=11 vi=1 front":172,"id=12 vi=2 front":174}
+
+## strip n=5 first=cw cull=front front=ccw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  whole image: {"nothing":504,"id=10 vi=0 back":174,"id=11 vi=1 back":172,"id=12 vi=2 back":174}
+
+## strip n=5 first=cw cull=front front=cw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  whole image: {"nothing":1024}
+
+## strip n=6 first=ccw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  strip triangle 3: id=13 vi=3 front
+  whole image: {"nothing":472,"id=10 vi=0 front":138,"id=11 vi=1 front":138,"id=12 vi=2 front":138,"id=13 vi=3 front":138}
+
+## strip n=6 first=ccw cull=none front=cw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  strip triangle 3: id=13 vi=3 back
+  whole image: {"nothing":472,"id=10 vi=0 back":138,"id=11 vi=1 back":138,"id=12 vi=2 back":138,"id=13 vi=3 back":138}
+
+## strip n=6 first=ccw cull=back front=ccw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  strip triangle 3: id=13 vi=3 front
+  whole image: {"nothing":472,"id=10 vi=0 front":138,"id=11 vi=1 front":138,"id=12 vi=2 front":138,"id=13 vi=3 front":138}
+
+## strip n=6 first=ccw cull=back front=cw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  strip triangle 3: nothing
+  whole image: {"nothing":1024}
+
+## strip n=6 first=ccw cull=front front=ccw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  strip triangle 3: nothing
+  whole image: {"nothing":1024}
+
+## strip n=6 first=ccw cull=front front=cw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  strip triangle 3: id=13 vi=3 back
+  whole image: {"nothing":472,"id=10 vi=0 back":138,"id=11 vi=1 back":138,"id=12 vi=2 back":138,"id=13 vi=3 back":138}
+
+## strip n=6 first=cw cull=none front=ccw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  strip triangle 3: id=13 vi=3 back
+  whole image: {"nothing":472,"id=10 vi=0 back":138,"id=11 vi=1 back":138,"id=12 vi=2 back":138,"id=13 vi=3 back":138}
+
+## strip n=6 first=cw cull=none front=cw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  strip triangle 3: id=13 vi=3 front
+  whole image: {"nothing":472,"id=10 vi=0 front":138,"id=11 vi=1 front":138,"id=12 vi=2 front":138,"id=13 vi=3 front":138}
+
+## strip n=6 first=cw cull=back front=ccw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  strip triangle 3: nothing
+  whole image: {"nothing":1024}
+
+## strip n=6 first=cw cull=back front=cw
+  strip triangle 0: id=10 vi=0 front
+  strip triangle 1: id=11 vi=1 front
+  strip triangle 2: id=12 vi=2 front
+  strip triangle 3: id=13 vi=3 front
+  whole image: {"nothing":472,"id=10 vi=0 front":138,"id=11 vi=1 front":138,"id=12 vi=2 front":138,"id=13 vi=3 front":138}
+
+## strip n=6 first=cw cull=front front=ccw
+  strip triangle 0: id=10 vi=0 back
+  strip triangle 1: id=11 vi=1 back
+  strip triangle 2: id=12 vi=2 back
+  strip triangle 3: id=13 vi=3 back
+  whole image: {"nothing":472,"id=10 vi=0 back":138,"id=11 vi=1 back":138,"id=12 vi=2 back":138,"id=13 vi=3 back":138}
+
+## strip n=6 first=cw cull=front front=cw
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  strip triangle 3: nothing
+  whole image: {"nothing":1024}
+
+## strip count=2
+  strip triangle 0: nothing
+  strip triangle 1: nothing
+  strip triangle 2: nothing
+  strip triangle 3: nothing
+  whole image: {"nothing":1024}
+
+## list count=4
+  triangle 0,1,2: id=10 vi=0 front
+  triangle 3,4,5: nothing
+  triangle 2,3,4: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## list count=5
+  triangle 0,1,2: id=10 vi=0 front
+  triangle 3,4,5: nothing
+  triangle 2,3,4: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint16 restart after 4
+  0,1,2: id=10 vi=0 front
+  1,2,3: id=11 vi=1 front
+  2,3,4 (spans the restart): nothing
+  3,4,5 (spans the restart): nothing
+  4,5,6: id=14 vi=4 front
+  5,6,7: id=15 vi=5 front
+  whole image: {"nothing":630,"id=10 vi=0 front":99,"id=11 vi=1 front":98,"id=14 vi=4 front":98,"id=15 vi=5 front":99}
+
+## indexed strip uint16 restart after 3, cull none
+  0,1,2: id=10 vi=0 front
+  1,2,3 (spans the restart): nothing
+  3,4,5: id=13 vi=3 back
+  4,5,6: id=14 vi=4 back
+  whole image: {"nothing":728,"id=10 vi=0 front":99,"id=13 vi=3 back":99,"id=14 vi=4 back":98}
+
+## indexed strip uint32 restart after 4
+  0,1,2: id=10 vi=0 front
+  1,2,3: id=11 vi=1 front
+  2,3,4 (spans the restart): nothing
+  3,4,5 (spans the restart): nothing
+  4,5,6: id=14 vi=4 front
+  5,6,7: id=15 vi=5 front
+  whole image: {"nothing":630,"id=10 vi=0 front":99,"id=11 vi=1 front":98,"id=14 vi=4 front":98,"id=15 vi=5 front":99}
+
+## indexed strip uint32 restart after 3, cull none
+  0,1,2: id=10 vi=0 front
+  1,2,3 (spans the restart): nothing
+  3,4,5: id=13 vi=3 back
+  4,5,6: id=14 vi=4 back
+  whole image: {"nothing":728,"id=10 vi=0 front":99,"id=13 vi=3 back":99,"id=14 vi=4 back":98}
+
+## indexed list reusing vertices
+  0,1,2: id=10 vi=0 front
+  2,1,3: id=12 vi=2 front
+  5,6,7: id=15 vi=5 back
+  3,4,5 (not named): nothing
+  whole image: {"nothing":728,"id=10 vi=0 front":99,"id=12 vi=2 front":98,"id=15 vi=5 back":99}
+
+## indexed list firstIndex=3 baseVertex=2
+  5,6,7: id=15 vi=5 back
+  3,4,5: nothing
+  0,1,2: nothing
+  whole image: {"nothing":925,"id=15 vi=5 back":99}
+
+## indexed list uint16 with its largest value
+  0,1,2: id=10 vi=0 front
+  3,4,5: id=15 vi=5 back
+  2,3,4: nothing
+  whole image: {"nothing":712,"id=15 vi=255 back":36,"id=10 vi=0 front":138,"id=15 vi=5 back":138}
+
+## indexed list uint32 with its largest value
+  0,1,2: id=10 vi=0 front
+  3,4,5: id=15 vi=5 back
+  2,3,4: nothing
+  whole image: {"nothing":712,"id=15 vi=255 back":36,"id=10 vi=0 front":138,"id=15 vi=5 back":138}
+
+## indexed list with index 6 first in a triangle
+  3,4,5: nothing
+  whole image: {"nothing":919,"id=15 vi=6 front":105}
+
+## indexed list with index 6 past 6 vertices
+  0,1,2: id=10 vi=0 front
+  3,4,5: nothing
+  whole image: {"nothing":800,"id=13 vi=3 back":86,"id=10 vi=0 front":138}
+
+## indexed list with index 1000 first in a triangle
+  3,4,5: nothing
+  whole image: {"nothing":919,"id=15 vi=232 front":105}
+
+## indexed list with index 1000 past 6 vertices
+  0,1,2: id=10 vi=0 front
+  3,4,5: nothing
+  whole image: {"nothing":800,"id=13 vi=3 back":86,"id=10 vi=0 front":138}
+
+## near-plane triangle cull=none
+  inside the clipped polygon: id=10 vi=0 front
+  row above: id=10 vi=0 front
+  whole image: {"id=10 vi=0 front":704,"nothing":320}
+
+## near-plane triangle cull=back
+  inside the clipped polygon: id=10 vi=0 front
+  row above: id=10 vi=0 front
+  whole image: {"id=10 vi=0 front":704,"nothing":320}
+
+## near-plane triangle cull=front
+  inside the clipped polygon: nothing
+  row above: nothing
+  whole image: {"nothing":1024}
+
+## overlapping triangles indexed 0,1,2,3,4,5
+  centre: id=13 vi=3 front
+  whole image: {"nothing":712,"id=13 vi=3 front":312}
+
+## overlapping triangles indexed 3,4,5,0,1,2
+  centre: id=10 vi=0 front
+  whole image: {"nothing":712,"id=10 vi=0 front":312}
