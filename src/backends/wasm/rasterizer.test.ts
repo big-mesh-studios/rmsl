@@ -771,33 +771,37 @@ function clipToVolume(poly: number[][]): number[][] {
   return poly;
 }
 
-/** An independent rasterization of the fan of `poly` in one colour, by the top-left rule. */
-function rasterizeFan(poly: number[][], width: number, height: number, color: number[]): Float64Array {
+/**
+ * An independent rasterization of a triangle of clip positions in one colour,
+ * with no clip: a pixel centre is drawn where the point of the triangle it
+ * shows lies in front of the eye, at a depth from 0 to 1, and inside each
+ * edge, the line through two vertices in homogeneous `(x, y, w)`, a centre on
+ * an edge by the top-left rule. Its numbers are exact for positions of a few
+ * binary digits.
+ */
+function rasterizeExactly(positions: number[][], width: number, height: number, color: number[]): Float64Array {
   const out = new Float64Array(width * height * 4);
-  const screen = (p: number[]) => [((p[0]! / p[3]!) * 0.5 + 0.5) * width, (1 - ((p[1]! / p[3]!) * 0.5 + 0.5)) * height];
-  for (let i = 1; i + 1 < poly.length; i++) {
-    const s0 = screen(poly[0]!);
-    const s1 = screen(poly[i]!);
-    const s2 = screen(poly[i + 1]!);
-    const area = (s1[0]! - s0[0]!) * (s2[1]! - s0[1]!) - (s1[1]! - s0[1]!) * (s2[0]! - s0[0]!);
-    if (area === 0) continue;
-    const wind = area > 0 ? 1 : -1;
-    // A centre on an edge belongs to the triangle whose left edge, running up, or top edge, running right, it is.
-    const owns = (a: number[], b: number[]) => {
-      const dy = (b[1]! - a[1]!) * wind;
-      return dy < 0 || (dy === 0 && (b[0]! - a[0]!) * wind > 0);
-    };
-    const inside = (e: number, a: number[], b: number[]) => e * wind > 0 || (e === 0 && owns(a, b));
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const px = x + 0.5;
-        const py = y + 0.5;
-        const e0 = (s1[0]! - px) * (s2[1]! - py) - (s1[1]! - py) * (s2[0]! - px);
-        const e1 = (s2[0]! - px) * (s0[1]! - py) - (s2[1]! - py) * (s0[0]! - px);
-        const e2 = (s0[0]! - px) * (s1[1]! - py) - (s0[1]! - py) * (s1[0]! - px);
-        if (!inside(e0, s1, s2) || !inside(e1, s2, s0) || !inside(e2, s0, s1)) continue;
-        out.set(color, (y * width + x) * 4);
-      }
+  const lines = [0, 1, 2].map((e) => {
+    const i = positions[(e + 1) % 3]!;
+    const j = positions[(e + 2) % 3]!;
+    return [i[1]! * j[3]! - i[3]! * j[1]!, i[3]! * j[0]! - i[0]! * j[3]!, i[0]! * j[1]! - i[1]! * j[0]!];
+  });
+  const [a0, b0, c0] = lines[0]!;
+  const p0 = positions[0]!;
+  const sign = Math.sign(a0! * p0[0]! + b0! * p0[1]! + c0! * p0[3]!);
+  // A centre on an edge is the triangle's when the edge runs up the screen, or right along it, by WebGPU's rule.
+  const owns = lines.map(([a, b]) => a! * sign > 0 || (a! * sign === 0 && -b! * sign > 0));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const X = (2 * x + 1) / width - 1;
+      const Y = 1 - (2 * y + 1) / height;
+      const weights = lines.map(([a, b, c]) => (a! * X + b! * Y + c!) * sign);
+      if (!weights.every((weight, e) => weight > 0 || (weight === 0 && owns[e]))) continue;
+      const sum = weights[0]! + weights[1]! + weights[2]!;
+      const z = weights.reduce((total, weight, e) => total + weight * positions[e]![2]!, 0);
+      const w = weights.reduce((total, weight, e) => total + weight * positions[e]![3]!, 0);
+      if (!(sum > 0) || z / w < 0 || z / w > 1) continue;
+      out.set(color, (y * width + x) * 4);
     }
   }
   return out;
@@ -845,7 +849,8 @@ function drawOnModule(positions: number[][], width: number, height: number, colo
   const positionsOutBase = 4096;
   const outputBase = 16384;
   const clipScratchBase = 24576;
-  const scratchEnd = clipScratchBase + 18 * 32;
+  // 18 vertex slots of 32 bytes with no varyings, then 184 bytes of the clipped triangle's edges.
+  const scratchEnd = clipScratchBase + 18 * 32 + 184;
   const clippedPositionsOutBase = 28672;
   const clippedEnd = clippedPositionsOutBase + 21 * 32;
   const clippedVaryingsOutBase = 32768;
@@ -895,7 +900,7 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
   /**
    * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
-  it("clips a triangle with one vertex behind the eye into the fan of its polygon, matching an independent JS clip+raster reference", () => {
+  it("clips a triangle with one vertex behind the eye into the fan of its polygon, matching an independent rasterization with no clip", () => {
     const positions = [
       [-1, -1, -1, -1],
       [1, -1, 2, 2],
@@ -903,7 +908,7 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
     ];
     const polygon = clipToVolume(positions);
     expect(polygon.length).toBe(5); // two planes cut off the vertex behind the eye: a pentagon
-    const expected = Array.from(rasterizeFan(polygon, 8, 8, [9, 8, 7, 6]));
+    const expected = Array.from(rasterizeExactly(positions, 8, 8, [9, 8, 7, 6]));
     expect(expected.some((v) => v !== 0)).toBe(true);
     expect(drawOnModule(positions, 8, 8, [9, 8, 7, 6]).image).toEqual(expected);
   });
@@ -923,7 +928,7 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
     ];
     const polygon = clipToVolume(positions);
     expect(polygon.length).toBe(9);
-    const expected = Array.from(rasterizeFan(polygon, 16, 16, [9, 8, 7, 6]));
+    const expected = Array.from(rasterizeExactly(positions, 16, 16, [9, 8, 7, 6]));
     expect(expected.some((v) => v !== 0)).toBe(true);
     const { image, canaries } = drawOnModule(positions, 16, 16, [9, 8, 7, 6]);
     expect(image).toEqual(expected);

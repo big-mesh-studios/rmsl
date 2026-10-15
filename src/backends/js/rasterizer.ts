@@ -160,6 +160,64 @@ function cutVertex(
 }
 
 /**
+ * Writes the edge functions of the triangle in `scratch[0..2]` on a target of
+ * `width` by `height` into `lines`, and whether it owns the pixel centres on
+ * each into `owns`, and gives whether it could. The function of the edge
+ * opposite vertex `e` is the line through the other two vertices in
+ * homogeneous coordinates, `(x, y, w)`, the cross product of the two, turned
+ * into screen space. It is exactly 0 for a pixel centre the projections of
+ * those vertices place on the edge, wherever a clip cuts it, and positive
+ * inside the part of the triangle in front of the eye. Each vertex is first
+ * scaled by a power of two that brings its largest of x, y and w near 1,
+ * which moves neither its projection nor a bit of the products, at any scale
+ * of w. A triangle whose three vertices lie in one plane with the eye, as one
+ * at `vec4(0)` does, or with a vertex of no size, has none. `points` holds the
+ * scaled vertices, four components each.
+ */
+function measureEdges(
+  scratch: readonly ClipVertex[],
+  width: number,
+  height: number,
+  points: Float64Array,
+  lines: Float64Array,
+  owns: Uint8Array,
+): boolean {
+  for (let k = 0; k < 3; k++) {
+    const p = scratch[k]!.position;
+    const size = Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[3]!));
+    if (!(size >= 2 ** -500 && size <= 2 ** 500)) return false;
+    const scale = 2 ** -Math.floor(Math.log2(size));
+    points[4 * k] = p[0]! * scale;
+    points[4 * k + 1] = p[1]! * scale;
+    points[4 * k + 2] = p[2]! * scale;
+    points[4 * k + 3] = p[3]! * scale;
+  }
+  // The line through vertices 1 and 2, taken at vertex 0, is the determinant of the three.
+  const det =
+    (points[5]! * points[11]! - points[7]! * points[9]!) * points[0]! +
+    (points[7]! * points[8]! - points[4]! * points[11]!) * points[1]! +
+    (points[4]! * points[9]! - points[5]! * points[8]!) * points[3]!;
+  if (!(det > 0 || det < 0)) return false;
+  const sign = det > 0 ? 1 : -1;
+  for (let e = 0; e < 3; e++) {
+    const i = 4 * ((e + 1) % 3),
+      j = 4 * ((e + 2) % 3);
+    const a = points[i + 1]! * points[j + 3]! - points[i + 3]! * points[j + 1]!,
+      b = points[i + 3]! * points[j]! - points[i]! * points[j + 3]!,
+      c = points[i]! * points[j + 1]! - points[i + 1]! * points[j]!;
+    // a * ndcX + b * ndcY + c, where ndcX = 2x / width - 1 and ndcY = 1 - 2y / height.
+    const ax = ((2 * a) / width) * sign,
+      by = ((-2 * b) / height) * sign;
+    lines[3 * e] = ax;
+    lines[3 * e + 1] = by;
+    lines[3 * e + 2] = (c - a + b) * sign;
+    if (ax === 0 && by === 0) return false;
+    owns[e] = ax > 0 || (ax === 0 && by > 0) ? 1 : 0;
+  }
+  return true;
+}
+
+/**
  * How far a clip position lies inside plane `plane` of WebGPU's clip volume,
  * negative outside it: `w + x`, `w - x`, `w + y`, `w - y`, `z` and `w - z`,
  * in that order, as `rasterizer.wat`'s `$planeDistance` takes them.
@@ -282,6 +340,16 @@ export function compileJSRasterizer(
    * as `rasterizer.wat`'s clip scratch does: a clipped polygon has 9 at most.
    */
   const scratch = Array.from({ length: 18 }, () => makeVertex(varyingWidths));
+  /**
+   * The edge functions of the triangle being clipped, in screen space, three
+   * numbers for each edge `e`: `lines[3e] * x + lines[3e + 1] * y + lines[3e + 2]`
+   * is positive inside, and 0 exactly on the edge as its vertices place it.
+   */
+  const lines = new Float64Array(9);
+  /** The vertices of the triangle being clipped, scaled; see {@link measureEdges}. */
+  const points = new Float64Array(12);
+  /** Whether the triangle being clipped owns the pixel centres on each of its edges, by the top-left rule. */
+  const linesOwn = new Uint8Array(3);
 
   /**
    * Clips the triangle `v0`, `v1`, `v2` to WebGPU's clip volume, one plane after
@@ -294,6 +362,7 @@ export function compileJSRasterizer(
     copyVertex(v0, scratch[0]!);
     copyVertex(v1, scratch[1]!);
     copyVertex(v2, scratch[2]!);
+    const measured = measureEdges(scratch, targetWidth, targetHeight, points, lines, linesOwn);
     let src = 0;
     let count = 3;
     for (let plane = 0; plane < 6 && count >= 3; plane++) {
@@ -315,14 +384,23 @@ export function compileJSRasterizer(
       src = dst;
       count = out;
     }
-    for (let i = 1; i + 1 < count; i++) rasterize(scratch[src]!, scratch[src + i]!, scratch[src + i + 1]!);
+    for (let i = 1; i + 1 < count; i++) {
+      // The edge opposite the first vertex lies on the polygon's edge; the one opposite the
+      // second does for the last triangle, and the one opposite the third for the first.
+      const outer = measured ? 1 | (i + 2 === count ? 2 : 0) | (i === 1 ? 4 : 0) : 0;
+      rasterize(scratch[src]!, scratch[src + i]!, scratch[src + i + 1]!, outer);
+    }
   }
 
   /**
    * Rasterizes one triangle, already clipped to the clip volume when it needed it, into `target`.
-   * Its first vertex gives the flat varyings.
+   * Its first vertex gives the flat varyings. Bit `k` of `outer` marks its edge opposite vertex
+   * `k` as an edge of the polygon the clip left, in a fan cut from a triangle whose edges are
+   * measured in `lines`. Then that triangle's edge functions and depth decide which pixels
+   * the polygon covers, which no rounding of a cut moves, and the fan's own edges only part
+   * the polygon's pixels between its triangles.
    */
-  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, outer: number): void {
     const width = targetWidth;
     const height = targetHeight;
     const w0 = v0.position[3]!,
@@ -381,7 +459,8 @@ export function compileJSRasterizer(
     // screen space; one inside it draws every pixel, whatever the rounding of its depth.
     const nearest = Math.min(depth0, depth1, depth2);
     const farthest = Math.max(depth0, depth1, depth2);
-    if (farthest < 0 || nearest > 1) return;
+    const measured = outer !== 0;
+    if (!measured && (farthest < 0 || nearest > 1)) return;
     const crossesDepthRange = nearest < 0 || farthest > 1;
 
     for (let y = minY; y <= maxY; y++) {
@@ -391,18 +470,36 @@ export function compileJSRasterizer(
         const e0 = (s1x - px) * (s2y - py) - (s1y - py) * (s2x - px);
         const e1 = (s2x - px) * (s0y - py) - (s2y - py) * (s0x - px);
         const e2 = (s0x - px) * (s1y - py) - (s0y - py) * (s1x - px);
-        const f0 = e0 * wind,
-          f1 = e1 * wind,
-          f2 = e2 * wind;
+        // An edge of the polygon passes here; the measured triangle's own edges test the pixel below.
+        const f0 = outer & 1 ? 1 : e0 * wind,
+          f1 = outer & 2 ? 1 : e1 * wind,
+          f2 = outer & 4 ? 1 : e2 * wind;
         if (f0 < 0 || f1 < 0 || f2 < 0) continue;
         if ((f0 === 0 && !owns0) || (f1 === 0 && !owns1) || (f2 === 0 && !owns2)) continue;
+        // The functions of the edges of the triangle this one was cut from, which no rounding of a cut moves.
+        const l0 = measured ? lines[0]! * px + lines[1]! * py + lines[2]! : 0,
+          l1 = measured ? lines[3]! * px + lines[4]! * py + lines[5]! : 0,
+          l2 = measured ? lines[6]! * px + lines[7]! * py + lines[8]! : 0;
+        if (
+          measured &&
+          !(
+            (l0 > 0 || (l0 === 0 && linesOwn[0])) &&
+            (l1 > 0 || (l1 === 0 && linesOwn[1])) &&
+            (l2 > 0 || (l2 === 0 && linesOwn[2]))
+          )
+        )
+          continue;
 
         const b0 = e0 / area,
           b1 = e1 / area,
           b2 = e2 / area;
-        const pixelDepth = b0 * depth0 + b1 * depth1 + b2 * depth2;
+        // Its z over its w, from its vertices weighted by the functions of the edges opposite them.
+        const pixelDepth = measured
+          ? (l0 * points[2]! + l1 * points[6]! + l2 * points[10]!) /
+            (l0 * points[3]! + l1 * points[7]! + l2 * points[11]!)
+          : b0 * depth0 + b1 * depth1 + b2 * depth2;
 
-        if (crossesDepthRange && (pixelDepth < 0 || pixelDepth > 1)) continue;
+        if ((measured || crossesDepthRange) && !(pixelDepth >= 0 && pixelDepth <= 1)) continue;
         const pixelIndex = y * width + x;
         // LEQUAL depth test: closer-or-equal wins. A stage that writes its depth is tested once it has run.
         if (!writesDepth && pixelDepth > depths[pixelIndex]!) continue;
@@ -557,7 +654,7 @@ export function compileJSRasterizer(
         v2 = vertices[t + 2]!;
       // A triangle wholly in front of the eye is rasterized as it is; only one with a vertex near or behind it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
-        rasterize(v0, v1, v2);
+        rasterize(v0, v1, v2, 0);
         continue;
       }
       clipAndRasterize(v0, v1, v2);

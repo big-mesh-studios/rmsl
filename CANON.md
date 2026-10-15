@@ -760,6 +760,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
+      - [`@spec a-pixel-centre-on-an-edge-the-clip-cuts-goes-by-its-triangle`](#spec-a-pixel-centre-on-an-edge-the-clip-cuts-goes-by-its-triangle) — A pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0 or 1, is decided by the top-left rule and the depth range applied to the triangle as its own vertices place it, not as the vertices the clip makes place it.
+        - [`@spec a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it`](#spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it) — A CPU rasterizer tests each pixel of a triangle it clips against the triangle's own edges, the line through two vertices in homogeneous x, y and w, and takes its depth from them too. The polygon the clip leaves only bounds the pixels and parts them between the triangles of its fan.
+        - [`@exception a-gpu-target-decides-a-pixel-centre-on-a-clipped-edge-by-its-precision`](#exception-a-gpu-target-decides-a-pixel-centre-on-a-clipped-edge-by-its-precision) — On WGSL and GLSL, a pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0, is decided by the precision of the driver's clip, and some go the other way.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
@@ -1023,6 +1026,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
 - [`@fact webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space) — WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
 - [`@fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings. WebGL 2 on Chromium places it the same way.
+- [`@fact webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision) — WebGPU leaves open whether a pixel centre on an edge of a polygon is drawn: "If a pixel center is on the edge of the polygon, whether or not it's included is not defined. Note: this becomes a subject of precision for the rasterizer." Chromium's WebGPU on Metal decides most such centres of a triangle it clips by the top-left rule, applied to the triangle as its vertices place it, and some the other way.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
@@ -5613,6 +5617,26 @@ Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target
 
 This follows because Chromium's WebGPU decides a pixel centre on an edge by the top-left rule, and a CPU target gives what WebGPU gives.
 
+##### @spec a-pixel-centre-on-an-edge-the-clip-cuts-goes-by-its-triangle
+
+> A pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0 or 1, is decided by the top-left rule and the depth range applied to the triangle as its own vertices place it, not as the vertices the clip makes place it.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision), [`spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge), [`fact-webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range)
+
+This follows because WebGPU leaves such a centre open, so rmsl picks one rule for it, the rule it applies to every other edge. A vertex the clip makes lies on its edge only to the rounding of the cut, which would decide such a centre by chance.
+
+###### @spec a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
+
+> A CPU rasterizer tests each pixel of a triangle it clips against the triangle's own edges, the line through two vertices in homogeneous x, y and w, and takes its depth from them too. The polygon the clip leaves only bounds the pixels and parts them between the triangles of its fan.
+
+This follows because the line through two vertices, as products of their coordinates, is zero at a pixel centre that their projections place on it, wherever a clip cuts the edge. Each vertex is first scaled by a power of two that brings its largest of x, y and w near 1, which moves neither its projection nor the zero of a product. A triangle whose vertices lie in one plane with the eye, as one with a vertex at `vec4(0)` does, has no such lines, and is tested by the triangles of its fan.
+
+###### @exception a-gpu-target-decides-a-pixel-centre-on-a-clipped-edge-by-its-precision
+
+> On WGSL and GLSL, a pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0, is decided by the precision of the driver's clip, and some go the other way.
+
+Derives from: [`fact-webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision)
+
 ##### @spec a-rasterizer-clips-outside-the-depth-range
 
 > The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
@@ -7258,6 +7282,12 @@ The clip volume holds the points whose x and y lie from −w to w, and whose z l
 On a 16×16 target, Chromium's WebGPU on Metal draws a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)` as the triangle from `(-1, -1)` and `(1, -1)` to the centre. That is 64 pixels. The depth runs linearly on the screen from 0.5 at the base to 0 at the centre. Give each vertex a colour of its own as a varying, and every pixel takes the colour of the `vec4(0)` vertex. A triangle from `(-1, 0.0625, 0.5, 1)` and `(1, 0.0625, 0.5, 1)` to `vec4(0)` has its top edge on the centres of row 7, and WebGPU lights all 16 of them in the colour of the `vec4(0)` vertex too. With a w of `1e-6` in place of 0, that row blends the colours of the other two vertices. WebGPU draws a vertex with a w of `1e-6` inside the volume where its x, y and z over w place it. A triangle from `(-1, -1, 0.5, 1)` to `(1, -1, 0.5, -1)`, behind the eye, and `(0, 0, 0, 1e-6)` draws the 64 pixels of the triangle from `(-1, -1)` and `(1, -1)` to the centre, which its part inside the volume covers.
 
 A vertex at `(0.3, 0.2, 0, 0)` lies outside the volume and is clipped away. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(0.3, 0.2, 0, 0)` lights a band from `(-1, -1)` towards the top right, a few pixels wider than the part of it inside the volume. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and to `(1, -1, 0.5, -1)`, which lies behind the eye, lights 15 pixels. They lie one to three in a row along the edge from the centre to `(-1, -1)`, in the colour of the `vec4(0)` vertex. WebGL 2, drawing with one sample, lights the same 64 pixels for the first triangle.
+
+## @fact webgpu-leaves-a-pixel-centre-on-a-clipped-edge-to-its-precision
+
+> WebGPU leaves open whether a pixel centre on an edge of a polygon is drawn: "If a pixel center is on the edge of the polygon, whether or not it's included is not defined. Note: this becomes a subject of precision for the rasterizer." Chromium's WebGPU on Metal decides most such centres of a triangle it clips by the top-left rule, applied to the triangle as its vertices place it, and some the other way.
+
+This is a fact of the WebGPU specification, section Polygon Rasterization, and of Chromium's WebGPU on Metal. Of 48 triangles on a 16×16 target, each with a vertex behind the eye and pixel centres exactly on an edge towards it, it lit what the top-left rule lights in 39. In the other 9 it differed in one to eight pixels, each of them a centre at depth exactly 0. The triangle from `(0.5625, 0.0625, 0.5, 1)` to `(-1.875, 0.625, -1, -2)`, behind the eye, and `(0.75, 0.25, 0.5, 1)` lights the centres from (5, 0) to (11, 6), on its edge towards the eye, as the rule does, and also (12, 1) and (13, 4), on its other edge towards the eye, which the rule leaves out.
 
 ## @fact webgpu-clips-a-triangle-outside-the-depth-range
 

@@ -970,6 +970,109 @@ globalThis.__rmslNineWgsl = () =>
   );
 `;
 
+/**
+ * One entry of a GPU page for each adapter. Each draws triangles with a vertex
+ * behind the eye and pixel centres exactly on an edge the clip cuts, or at
+ * depth exactly 0, on a 16×16 canvas, and returns the pixels each lights: a
+ * row of `#` and `.` for each row of pixels.
+ */
+const CLIPPED_EDGES = `
+import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const CASES = {
+  upTheLeft: [0.5625, 0.0625, 0.5, 1, -1.875, 0.625, -1, -2, 0.75, 0.25, 0.5, 1],
+  atDepthZero: [0.40625, -0.28125, -1.25, -0.5, -0.75, 0.75, 0.5, 1, 0.4375, -0.1875, 0.5, 1],
+  wide: [0.1875, -0.0625, 0.5, 1, 0.9375, 0.8125, -0.5, -1, -0.25, -0.75, 0.5, 1],
+  downTheRight: [-0.0625, -0.1875, 0.5, 1, 0.875, -1.125, -1, -2, 0.25, -0.25, 0.5, 1],
+  behindACorner: [-1, -1, -0.5, -1, 1, -1, 1, 2, -1, 1, 1, 2],
+  rightOfAColumn: [0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, 0.5, 0.5, 0.5, 1],
+  leftOfAColumn: [0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, -0.5, 0.5, 0.5, 1],
+};
+const lit = (canvas) => {
+  const flat = document.createElement("canvas");
+  flat.width = canvas.width;
+  flat.height = canvas.height;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rows = [];
+  for (let y = 0; y < canvas.height; y++) {
+    let row = "";
+    for (let x = 0; x < canvas.width; x++) row += data[(y * canvas.width + x) * 4 + 3] ? "#" : ".";
+    rows.push(row);
+  }
+  return rows;
+};
+const drawEach = async (create, settle) => {
+  const drawn = {};
+  for (const [name, positions] of Object.entries(CASES)) {
+    const position = attribute("vec4");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const vertex = Fn(() => {
+      shade.assign(colour);
+      return vec4(position);
+    })();
+    const fragment = Fn(() => vec4(shade, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, Float32Array.from(positions));
+    adapter.setAttribute(colour, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    drawn[name] = lit(canvas);
+  }
+  return drawn;
+};
+globalThis.__rmslClippedEdgesJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslClippedEdgesWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslClippedEdgesWgsl = () =>
+  drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+describe("a pixel centre on an edge the clip cuts", () => {
+  /** The pixels, as `x,y`, where one draw's rows light what the other's do not. */
+  const differences = (a: string[], b: string[]) =>
+    a.flatMap((row, y) => [...row].flatMap((pixel, x) => (pixel === b[y]![x] ? [] : [`${x},${y}`])));
+
+  /**
+   * Chromium's WebGPU on Metal lights the same pixels as JS and WASM for
+   * these triangles, but for a few centres on such an edge, or at depth
+   * exactly 0, which its precision puts on the other side.
+   *
+   * @canon spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
+   * @canon exception-a-gpu-target-decides-a-pixel-centre-on-a-clipped-edge-by-its-precision
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "lights the same pixels on JS and WASM, and on WebGPU but for some centres its precision decides",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const webgpu: Record<string, string[]> = await runInWebGpuPage(CLIPPED_EDGES, "__rmslClippedEdgesWgsl", dir);
+      const js: Record<string, string[]> = await runInGpuPage(CLIPPED_EDGES, "__rmslClippedEdgesJs", dir);
+      expect(await runInGpuPage(CLIPPED_EDGES, "__rmslClippedEdgesWasm", dir)).toEqual(js);
+      const differ = Object.fromEntries(Object.keys(js).map((name) => [name, differences(js[name]!, webgpu[name]!)]));
+      expect(differ).toEqual({
+        upTheLeft: ["12,1", "13,4"],
+        atDepthZero: ["4,3"],
+        wide: [],
+        downTheRight: [],
+        behindACorner: ["2,4"],
+        rightOfAColumn: [],
+        leftOfAColumn: [],
+      });
+    },
+    120_000,
+  );
+});
+
 describe("a triangle every plane of the clip volume cuts", () => {
   /**
    * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume

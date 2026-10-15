@@ -54,6 +54,116 @@
       (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $slot))
       (i32.const 32)))
 
+  ;; ---- the edges of a clipped triangle, after the 18 slots of the clip scratch: its edge
+  ;; functions at +0, 3 f64 an edge; whether each edge owns its centres at +72, an i32 each;
+  ;; whether they are measured at +84; its vertices, scaled, at +88, 32 bytes each ----
+  (func $clipEdgesBase (param $clipScratchBase i32) (param $varyingBytes i32) (result i32)
+    (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (i32.const 18)))
+
+  ;; Writes the x, y, z and w at $from, scaled by a power of two that brings the largest of
+  ;; x, y and w near 1, to $to, and gives whether that largest lies from 2^-500 to 2^500.
+  (func $scalePoint (param $from i32) (param $to i32) (result i32)
+    (local $size f64) (local $scale f64)
+    (local.set $size
+      (f64.max (f64.max (f64.abs (f64.load (local.get $from))) (f64.abs (f64.load offset=8 (local.get $from))))
+        (f64.abs (f64.load offset=24 (local.get $from)))))
+    (if (i32.eqz (i32.and (f64.ge (local.get $size) (f64.const 0x1p-500)) (f64.le (local.get $size) (f64.const 0x1p500))))
+      (then (return (i32.const 0))))
+    ;; 2 to the power of minus the exponent of $size: a biased exponent e becomes 2046 - e.
+    (local.set $scale
+      (f64.reinterpret_i64
+        (i64.shl
+          (i64.sub (i64.const 2046) (i64.and (i64.shr_u (i64.reinterpret_f64 (local.get $size)) (i64.const 52)) (i64.const 0x7ff)))
+          (i64.const 52))))
+    (f64.store (local.get $to) (f64.mul (f64.load (local.get $from)) (local.get $scale)))
+    (f64.store offset=8 (local.get $to) (f64.mul (f64.load offset=8 (local.get $from)) (local.get $scale)))
+    (f64.store offset=16 (local.get $to) (f64.mul (f64.load offset=16 (local.get $from)) (local.get $scale)))
+    (f64.store offset=24 (local.get $to) (f64.mul (f64.load offset=24 (local.get $from)) (local.get $scale)))
+    (i32.const 1))
+
+  ;; Writes the function of edge $e, the line through the scaled vertices at $i and $j in
+  ;; homogeneous (x, y, w), in screen space and turned by $sign to be positive inside, and
+  ;; whether the edge owns its centres; gives 0 when the line has no direction.
+  (func $measureEdge (param $edges i32) (param $i i32) (param $j i32) (param $e i32)
+    (param $widthF f64) (param $heightF f64) (param $sign f64) (result i32)
+    (local $a f64) (local $b f64) (local $c f64) (local $ax f64) (local $by f64) (local $at i32)
+    (local.set $a (f64.sub
+      (f64.mul (f64.load offset=8 (local.get $i)) (f64.load offset=24 (local.get $j)))
+      (f64.mul (f64.load offset=24 (local.get $i)) (f64.load offset=8 (local.get $j)))))
+    (local.set $b (f64.sub
+      (f64.mul (f64.load offset=24 (local.get $i)) (f64.load (local.get $j)))
+      (f64.mul (f64.load (local.get $i)) (f64.load offset=24 (local.get $j)))))
+    (local.set $c (f64.sub
+      (f64.mul (f64.load (local.get $i)) (f64.load offset=8 (local.get $j)))
+      (f64.mul (f64.load offset=8 (local.get $i)) (f64.load (local.get $j)))))
+    ;; a * ndcX + b * ndcY + c, where ndcX = 2x / width - 1 and ndcY = 1 - 2y / height.
+    (local.set $ax (f64.mul (f64.div (f64.mul (f64.const 2) (local.get $a)) (local.get $widthF)) (local.get $sign)))
+    (local.set $by (f64.mul (f64.div (f64.mul (f64.const -2) (local.get $b)) (local.get $heightF)) (local.get $sign)))
+    (local.set $at (i32.add (local.get $edges) (i32.mul (local.get $e) (i32.const 24))))
+    (f64.store (local.get $at) (local.get $ax))
+    (f64.store offset=8 (local.get $at) (local.get $by))
+    (f64.store offset=16 (local.get $at)
+      (f64.mul (f64.add (f64.sub (local.get $c) (local.get $a)) (local.get $b)) (local.get $sign)))
+    (i32.store offset=72 (i32.add (local.get $edges) (i32.mul (local.get $e) (i32.const 4)))
+      (i32.or (f64.gt (local.get $ax) (f64.const 0))
+        (i32.and (f64.eq (local.get $ax) (f64.const 0)) (f64.gt (local.get $by) (f64.const 0)))))
+    (i32.eqz (i32.and (f64.eq (local.get $ax) (f64.const 0)) (f64.eq (local.get $by) (f64.const 0)))))
+
+  ;; Measures the edges of the triangle in scratch slots 0 to 2, as rasterizer.ts's
+  ;; measureEdges does, and writes whether it could at +84. A triangle whose vertices lie in
+  ;; one plane with the eye, as one at vec4(0) does, or with a vertex of no size, has none.
+  (func $measureEdges (param $clipScratchBase i32) (param $varyingBytes i32) (param $widthF f64) (param $heightF f64)
+    (local $edges i32) (local $p0 i32) (local $p1 i32) (local $p2 i32) (local $det f64) (local $sign f64) (local $ok i32)
+    (local.set $edges (call $clipEdgesBase (local.get $clipScratchBase) (local.get $varyingBytes)))
+    (local.set $p0 (i32.add (local.get $edges) (i32.const 88)))
+    (local.set $p1 (i32.add (local.get $edges) (i32.const 120)))
+    (local.set $p2 (i32.add (local.get $edges) (i32.const 152)))
+    (local.set $ok
+      (i32.and
+        (i32.and
+          (call $scalePoint (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (i32.const 0)) (local.get $p0))
+          (call $scalePoint (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (i32.const 1)) (local.get $p1)))
+        (call $scalePoint (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (i32.const 2)) (local.get $p2))))
+    (if (local.get $ok)
+      (then
+        ;; The line through vertices 1 and 2, taken at vertex 0, is the determinant of the three.
+        (local.set $det
+          (f64.add
+            (f64.add
+              (f64.mul
+                (f64.sub
+                  (f64.mul (f64.load offset=8 (local.get $p1)) (f64.load offset=24 (local.get $p2)))
+                  (f64.mul (f64.load offset=24 (local.get $p1)) (f64.load offset=8 (local.get $p2))))
+                (f64.load (local.get $p0)))
+              (f64.mul
+                (f64.sub
+                  (f64.mul (f64.load offset=24 (local.get $p1)) (f64.load (local.get $p2)))
+                  (f64.mul (f64.load (local.get $p1)) (f64.load offset=24 (local.get $p2))))
+                (f64.load offset=8 (local.get $p0))))
+            (f64.mul
+              (f64.sub
+                (f64.mul (f64.load (local.get $p1)) (f64.load offset=8 (local.get $p2)))
+                (f64.mul (f64.load offset=8 (local.get $p1)) (f64.load (local.get $p2))))
+              (f64.load offset=24 (local.get $p0)))))
+        (local.set $ok (i32.or (f64.gt (local.get $det) (f64.const 0)) (f64.lt (local.get $det) (f64.const 0))))))
+    (if (local.get $ok)
+      (then
+        (local.set $sign (select (f64.const 1) (f64.const -1) (f64.gt (local.get $det) (f64.const 0))))
+        (local.set $ok (call $measureEdge (local.get $edges) (local.get $p1) (local.get $p2) (i32.const 0) (local.get $widthF) (local.get $heightF) (local.get $sign)))))
+    (if (local.get $ok)
+      (then (local.set $ok (call $measureEdge (local.get $edges) (local.get $p2) (local.get $p0) (i32.const 1) (local.get $widthF) (local.get $heightF) (local.get $sign)))))
+    (if (local.get $ok)
+      (then (local.set $ok (call $measureEdge (local.get $edges) (local.get $p0) (local.get $p1) (i32.const 2) (local.get $widthF) (local.get $heightF) (local.get $sign)))))
+    (i32.store offset=84 (local.get $edges) (local.get $ok)))
+
+  ;; The function of measured edge $e at the pixel centre ($px, $py).
+  (func $lineAt (param $edges i32) (param $e i32) (param $px f64) (param $py f64) (result f64)
+    (local $at i32)
+    (local.set $at (i32.add (local.get $edges) (i32.mul (local.get $e) (i32.const 24))))
+    (f64.add
+      (f64.add (f64.mul (f64.load (local.get $at)) (local.get $px)) (f64.mul (f64.load offset=8 (local.get $at)) (local.get $py)))
+      (f64.load offset=16 (local.get $at))))
+
   ;; ---- vertex pass ----
   (func $copyAttributesIn
     (param $attrSrcBase i32) (param $attrStrideBytes i32)
@@ -398,6 +508,7 @@
     (local $wind f64) (local $owns0 i32) (local $owns1 i32) (local $owns2 i32)
     (local $nearest f64) (local $farthest f64) (local $crossesDepthRange i32)
     (local $src i32) (local $plane i32) (local $tri i32) (local $tri1 i32) (local $tri2 i32)
+    (local $edges i32) (local $measured i32) (local $outer i32) (local $l0 f64) (local $l1 f64) (local $l2 f64)
 
     (local.set $widthF (f64.convert_i32_s (local.get $width)))
     (local.set $heightF (f64.convert_i32_s (local.get $height)))
@@ -434,6 +545,8 @@
         (local.set $clippedVertexCount (i32.const 0))
         (local.set $outCount (i32.const 3))
         (local.set $src (i32.const 0))
+        (local.set $edges (call $clipEdgesBase (local.get $clipScratchBase) (local.get $varyingBytes)))
+        (i32.store offset=84 (local.get $edges) (i32.const 0))
         (if (i32.eqz
               (i32.and
                 (i32.and
@@ -441,6 +554,7 @@
                   (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $tri1) (i32.const 3)) (f64.const 1e-5)))
                 (f64.gt (call $posComponentAt (local.get $positionsOutBase) (local.get $tri2) (i32.const 3)) (f64.const 1e-5))))
           (then
+            (call $measureEdges (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $widthF) (local.get $heightF))
             (local.set $plane (i32.const 0))
             (block $planeBreak
               (loop $planeContinue
@@ -471,6 +585,16 @@
             (br_if $triBreak (i32.ge_s (local.get $t2) (local.get $clippedVertexCount)))
 
             (block $skipDegenerate
+              ;; The edge opposite the first vertex lies on the polygon's edge; the one opposite the
+              ;; second does for the last triangle of the fan, and the one opposite the third for the first.
+              (local.set $measured (i32.load offset=84 (local.get $edges)))
+              (local.set $outer
+                (select
+                  (i32.or (i32.or (i32.const 1)
+                    (select (i32.const 2) (i32.const 0) (i32.eq (i32.add (i32.div_s (local.get $t) (i32.const 3)) (i32.const 3)) (local.get $outCount))))
+                    (select (i32.const 4) (i32.const 0) (i32.eqz (local.get $t))))
+                  (i32.const 0)
+                  (local.get $measured)))
               (local.set $s0x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t)))
               (local.set $s0y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t)))
               (local.set $s1x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t1)))
@@ -510,7 +634,8 @@
               (local.set $nearest (f64.min (f64.min (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
               (local.set $farthest (f64.max (f64.max (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
               (br_if $skipDegenerate
-                (i32.or (f64.lt (local.get $farthest) (f64.const 0)) (f64.gt (local.get $nearest) (f64.const 1))))
+                (i32.and (i32.eqz (local.get $measured))
+                  (i32.or (f64.lt (local.get $farthest) (f64.const 0)) (f64.gt (local.get $nearest) (f64.const 1)))))
               (local.set $crossesDepthRange
                 (i32.or (f64.lt (local.get $nearest) (f64.const 0)) (f64.gt (local.get $farthest) (f64.const 1))))
               ;; Each edge function, times $wind, is positive inside whichever way the triangle winds.
@@ -544,13 +669,27 @@
                       (local.set $e0 (call $edgeFn (local.get $s1x) (local.get $s1y) (local.get $s2x) (local.get $s2y) (local.get $px) (local.get $py)))
                       (local.set $e1 (call $edgeFn (local.get $s2x) (local.get $s2y) (local.get $s0x) (local.get $s0y) (local.get $px) (local.get $py)))
                       (local.set $e2 (call $edgeFn (local.get $s0x) (local.get $s0y) (local.get $s1x) (local.get $s1y) (local.get $px) (local.get $py)))
-                      ;; covered when the pixel centre is inside all three edges
+                      ;; The functions of the edges of the measured triangle this one was cut from.
+                      (if (local.get $measured)
+                        (then
+                          (local.set $l0 (call $lineAt (local.get $edges) (i32.const 0) (local.get $px) (local.get $py)))
+                          (local.set $l1 (call $lineAt (local.get $edges) (i32.const 1) (local.get $px) (local.get $py)))
+                          (local.set $l2 (call $lineAt (local.get $edges) (i32.const 2) (local.get $px) (local.get $py)))))
+                      ;; covered when the pixel centre is inside all three edges, an edge of the
+                      ;; polygon passing, and, for a measured triangle, inside all three of its edges
                       (if
                         (i32.and
                           (i32.and
-                            (call $insideEdge (f64.mul (local.get $e0) (local.get $wind)) (local.get $owns0))
-                            (call $insideEdge (f64.mul (local.get $e1) (local.get $wind)) (local.get $owns1)))
-                          (call $insideEdge (f64.mul (local.get $e2) (local.get $wind)) (local.get $owns2)))
+                            (i32.and
+                              (call $insideEdge (select (f64.const 1) (f64.mul (local.get $e0) (local.get $wind)) (i32.and (local.get $outer) (i32.const 1))) (local.get $owns0))
+                              (call $insideEdge (select (f64.const 1) (f64.mul (local.get $e1) (local.get $wind)) (i32.and (local.get $outer) (i32.const 2))) (local.get $owns1)))
+                            (call $insideEdge (select (f64.const 1) (f64.mul (local.get $e2) (local.get $wind)) (i32.and (local.get $outer) (i32.const 4))) (local.get $owns2)))
+                          (i32.or (i32.eqz (local.get $measured))
+                            (i32.and
+                              (i32.and
+                                (call $insideEdge (local.get $l0) (i32.load offset=72 (local.get $edges)))
+                                (call $insideEdge (local.get $l1) (i32.load offset=76 (local.get $edges))))
+                              (call $insideEdge (local.get $l2) (i32.load offset=80 (local.get $edges))))))
                         (then
                           (local.set $b0 (f64.div (local.get $e0) (local.get $area)))
                           (local.set $b1 (f64.div (local.get $e1) (local.get $area)))
@@ -566,15 +705,26 @@
                               (local.set $p1 (f64.convert_i32_u (i32.eq (local.get $near) (i32.const 1))))
                               (local.set $p2 (f64.convert_i32_u (i32.eq (local.get $near) (i32.const 2))))
                               (local.set $weights (f64.const 1))))
+                          ;; A measured triangle's z over w, from its vertices weighted by the functions of the edges opposite them.
                           (local.set $pixelDepth
-                            (f64.add
-                              (f64.add (f64.mul (local.get $b0) (local.get $depth0)) (f64.mul (local.get $b1) (local.get $depth1)))
-                              (f64.mul (local.get $b2) (local.get $depth2))))
+                            (if (result f64) (local.get $measured)
+                              (then
+                                (f64.div
+                                  (f64.add
+                                    (f64.add (f64.mul (local.get $l0) (f64.load offset=104 (local.get $edges))) (f64.mul (local.get $l1) (f64.load offset=136 (local.get $edges))))
+                                    (f64.mul (local.get $l2) (f64.load offset=168 (local.get $edges))))
+                                  (f64.add
+                                    (f64.add (f64.mul (local.get $l0) (f64.load offset=112 (local.get $edges))) (f64.mul (local.get $l1) (f64.load offset=144 (local.get $edges))))
+                                    (f64.mul (local.get $l2) (f64.load offset=176 (local.get $edges))))))
+                              (else
+                                (f64.add
+                                  (f64.add (f64.mul (local.get $b0) (local.get $depth0)) (f64.mul (local.get $b1) (local.get $depth1)))
+                                  (f64.mul (local.get $b2) (local.get $depth2))))))
                           (local.set $depthAddr (i32.add (local.get $depthBufferBase) (i32.mul (local.get $pixelIndex) (i32.const 8))))
                           (block $skipPixel
                             (br_if $skipPixel
-                              (i32.and (local.get $crossesDepthRange)
-                                (i32.or (f64.lt (local.get $pixelDepth) (f64.const 0)) (f64.gt (local.get $pixelDepth) (f64.const 1)))))
+                              (i32.and (i32.or (local.get $measured) (local.get $crossesDepthRange))
+                                (i32.eqz (i32.and (f64.ge (local.get $pixelDepth) (f64.const 0)) (f64.le (local.get $pixelDepth) (f64.const 1))))))
                             ;; LEQUAL depth test; a stage that writes its depth is tested once it has run.
                             (br_if $skipPixel
                               (i32.and (i32.eqz (local.get $writesDepth))

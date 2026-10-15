@@ -76,6 +76,19 @@ the triangle whose edge, wound so its inside is positive, runs up the
 screen (a left edge) or right along it (a top edge), by WebGPU's top-left
 rule, so a pixel on an edge two triangles share is shaded once.
 
+A triangle the clip cut is first measured, unless its vertices lie in one
+plane with the eye, as one at `vec4(0)` does: each of its edges becomes the
+line through its two vertices in homogeneous `(x, y, w)`, turned into a
+function of the screen that is positive inside and exactly 0 at a pixel
+centre the vertices' projections place on the edge. Each vertex is first
+scaled by a power of two that brings its largest of `x`, `y` and `w` near 1.
+A pixel of the fan of such a triangle is covered when it lies inside all
+three of those functions, a centre on one by the top-left rule, and its
+depth, `z/w` from the vertices weighted by those functions, lies from 0 to 1;
+the edges of the fan itself test only the edges inside the polygon, which
+part its pixels between the fan's triangles. So the rounding of a cut decides
+no pixel centre on an edge.
+
 A covered pixel's depth is NDC `z/w`, interpolated with the plain
 barycentric weights screen coordinates use, since it is affine in screen
 space. A triangle wholly outside depth 0 to 1 draws nothing, and one that

@@ -2089,6 +2089,66 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * Each triangle has a vertex behind the eye and pixel centres exactly on an
+   * edge the clip cuts: in the first, on the edge from the first vertex
+   * towards the second, which runs up its left side, from (5, 0) to (11, 6);
+   * in the second, at depth exactly 0, on the near plane. Each pattern is the
+   * top-left rule and the depth range applied to the triangle as its own
+   * vertices place it. The third is a triangle Chromium's WebGPU on Metal
+   * lights alike.
+   *
+   * @canon spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
+   */
+  it.each(rasterizers)(
+    "%s: decides a pixel centre on an edge the clip cuts as its triangle places it",
+    (_, compileRaster) => {
+      /** The rows of the pixels a draw lights, `#` for one and `.` for none. */
+      const lit = (positions: number[]) => {
+        const image = drawColoured(compileRaster, positions);
+        return Array.from({ length: 16 }, (_, y) =>
+          Array.from({ length: 16 }, (_, x) => (image[(y * 16 + x) * 4 + 3] ? "#" : ".")).join(""),
+        );
+      };
+      expect(lit([0.5625, 0.0625, 0.5, 1, -1.875, 0.625, -1, -2, 0.75, 0.25, 0.5, 1])).toEqual([
+        ".....#######....",
+        "......######....",
+        ".......######...",
+        "........#####...",
+        ".........####...",
+        "..........####..",
+        "...........##...",
+        ...Array(9).fill("................"),
+      ]);
+      expect(lit([0.40625, -0.28125, -1.25, -0.5, -0.75, 0.75, 0.5, 1, 0.4375, -0.1875, 0.5, 1])).toEqual([
+        ...Array(3).fill("................"),
+        "....#...........",
+        ".....#..........",
+        "......#.........",
+        "................",
+        ".........#......",
+        "..........#.....",
+        "...........#....",
+        ...Array(6).fill("................"),
+      ]);
+      expect(lit([0.1875, -0.0625, 0.5, 1, 0.9375, 0.8125, -0.5, -1, -0.25, -0.75, 0.5, 1])).toEqual([
+        ...Array(4).fill("................"),
+        "...............#",
+        "..............##",
+        "............####",
+        "...........#####",
+        ".........#######",
+        ".........#######",
+        "........########",
+        "........########",
+        ".......#########",
+        "......#####.....",
+        "................",
+        "................",
+      ]);
+    },
+  );
+
+  /**
    * Chromium's WebGPU on Metal gives these pixels these depths.
    *
    * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
