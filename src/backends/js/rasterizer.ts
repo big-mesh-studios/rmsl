@@ -99,16 +99,38 @@ function ndc(c: number, w: number): number {
   return w === 0 ? 0 : c / w;
 }
 
-/** The vertex a fraction `t` of the way from `a` to `b`. */
-function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
-  const out = makeVertex(a.varyings.map((v) => v.length));
+/** Copies the position and varyings of `from` into `to`. */
+function copyVertex(from: ClipVertex, to: ClipVertex): void {
+  for (let i = 0; i < 4; i++) to.position[i] = from.position[i]!;
+  for (let k = 0; k < from.varyings.length; k++) copyComponents(from.varyings[k]!, to.varyings[k]!);
+}
+
+/** Copies the components of `from` into `to`, element by element, where `set` can allocate. */
+function copyComponents(from: Float64Array, to: Float64Array): void {
+  for (let i = 0; i < from.length; i++) to[i] = from[i]!;
+}
+
+/**
+ * Writes the vertex a fraction `t` of the way from `a` to `b` into `out`. A
+ * varying `flat` marks is copied from `first`, the first vertex of the
+ * triangle being clipped, as no value lies between two integers.
+ */
+function lerpVertex(
+  a: ClipVertex,
+  b: ClipVertex,
+  t: number,
+  flat: readonly boolean[],
+  first: ClipVertex,
+  out: ClipVertex,
+): void {
   for (let i = 0; i < 4; i++) out.position[i] = a.position[i]! + (b.position[i]! - a.position[i]!) * t;
   for (let k = 0; k < a.varyings.length; k++) {
     const x = a.varyings[k]!;
     const y = b.varyings[k]!;
-    for (let i = 0; i < x.length; i++) out.varyings[k]![i] = x[i]! + (y[i]! - x[i]!) * t;
+    const into = out.varyings[k]!;
+    if (flat[k]) copyComponents(first.varyings[k]!, into);
+    else for (let i = 0; i < x.length; i++) into[i] = x[i]! + (y[i]! - x[i]!) * t;
   }
-  return out;
 }
 
 /**
@@ -134,30 +156,6 @@ function planeDistance(p: Float64Array, plane: number): number {
   }
 }
 
-/**
- * Clips one triangle to WebGPU's clip volume, one plane after another
- * (Sutherland-Hodgman), and appends the fan of triangles the clipped polygon
- * makes to `out`, in the order `rasterizer.wat`'s `$rasterize` clip pass
- * makes them.
- */
-function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipVertex[][]): void {
-  let poly: ClipVertex[] = [v0, v1, v2];
-  for (let plane = 0; plane < 6 && poly.length >= 3; plane++) {
-    const next: ClipVertex[] = [];
-    for (let i = 0; i < poly.length; i++) {
-      const a = poly[i]!;
-      const b = poly[(i + 1) % poly.length]!;
-      const da = planeDistance(a.position, plane);
-      const db = planeDistance(b.position, plane);
-      // Rounding can make a cut polygon slightly concave; it keeps 9 vertices at most, as the WASM scratch does.
-      if (da >= 0 && next.length < 9) next.push(a);
-      if (da >= 0 !== db >= 0 && next.length < 9) next.push(lerpVertex(a, b, da / (da - db)));
-    }
-    poly = next;
-  }
-  for (let i = 1; i + 1 < poly.length; i++) out.push([poly[0]!, poly[i]!, poly[i + 1]!]);
-}
-
 // === Exported functions ===
 
 const COMPILE_JS: BackendOrigin = { target: "js", caller: "compileJS" };
@@ -167,9 +165,10 @@ const COMPILE_JS: BackendOrigin = { target: "js", caller: "compileJS" };
  * `compileWasm`'s `WasmRasterRoutine` does, in plain JS instead of a
  * shared WASM module — see rasterizer.md for the algorithm both share.
  *
- * A draw allocates nothing for each vertex or fragment: the vertices, the
- * varyings a fragment reads and the context each stage is called with are
- * made once and filled again, and a stage's result is read where it left it.
+ * A draw allocates nothing for each vertex or fragment: the vertices, those a
+ * clip writes, the varyings a fragment reads and the context each stage is
+ * called with are made once and filled again, and a stage's result is read
+ * where it left it.
  */
 export function compileJS(
   vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
@@ -247,10 +246,47 @@ export function compileJSRasterizer(
   let targetHeight = 0;
 
   /**
-   * Rasterizes one triangle, already clipped to the clip volume when it needed it, into `target`.
-   * `first` is the first vertex of the triangle it was clipped from, which gives the flat varyings.
+   * Two halves of 9 vertices, which the planes of a clip take turns writing,
+   * as `rasterizer.wat`'s clip scratch does: a clipped polygon has 9 at most.
    */
-  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, first: ClipVertex): void {
+  const scratch = Array.from({ length: 18 }, () => makeVertex(varyingWidths));
+
+  /**
+   * Clips the triangle `v0`, `v1`, `v2` to WebGPU's clip volume, one plane after
+   * another (Sutherland-Hodgman), in `scratch`, and rasterizes the fan of
+   * triangles the polygon left makes, in the order `rasterizer.wat`'s clip pass
+   * makes them. The first vertex of the polygon is `v0` or a vertex the clip
+   * cut, which holds the flat varyings of `v0`.
+   */
+  function clipAndRasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+    copyVertex(v0, scratch[0]!);
+    copyVertex(v1, scratch[1]!);
+    copyVertex(v2, scratch[2]!);
+    let src = 0;
+    let count = 3;
+    for (let plane = 0; plane < 6 && count >= 3; plane++) {
+      const dst = 9 - src;
+      let out = 0;
+      for (let i = 0; i < count; i++) {
+        const a = scratch[src + i]!;
+        const b = scratch[src + ((i + 1) % count)]!;
+        const da = planeDistance(a.position, plane);
+        const db = planeDistance(b.position, plane);
+        // Rounding can make a cut polygon slightly concave; it keeps 9 vertices at most, the slots of a half.
+        if (da >= 0 && out < 9) copyVertex(a, scratch[dst + out++]!);
+        if (da >= 0 !== db >= 0 && out < 9) lerpVertex(a, b, da / (da - db), varyingFlat, v0, scratch[dst + out++]!);
+      }
+      src = dst;
+      count = out;
+    }
+    for (let i = 1; i + 1 < count; i++) rasterize(scratch[src]!, scratch[src + i]!, scratch[src + i + 1]!);
+  }
+
+  /**
+   * Rasterizes one triangle, already clipped to the clip volume when it needed it, into `target`.
+   * Its first vertex gives the flat varyings.
+   */
+  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
     const width = targetWidth;
     const height = targetHeight;
     const w0 = v0.position[3]!,
@@ -353,7 +389,7 @@ export function compileJSRasterizer(
             b = v1.varyings[k]!,
             c = v2.varyings[k]!,
             out = fragmentArrays[k]!;
-          if (varyingFlat[k]) out.set(first.varyings[k]!);
+          if (varyingFlat[k]) out.set(a);
           else for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
           if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
         }
@@ -485,12 +521,10 @@ export function compileJSRasterizer(
         v2 = vertices[t + 2]!;
       // A triangle wholly in front of the eye is rasterized as it is; only one with a vertex near or behind it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
-        rasterize(v0, v1, v2, v0);
+        rasterize(v0, v1, v2);
         continue;
       }
-      const clipped: ClipVertex[][] = [];
-      clipTriangle(v0, v1, v2, clipped);
-      for (const [c0, c1, c2] of clipped) rasterize(c0!, c1!, c2!, v0);
+      clipAndRasterize(v0, v1, v2);
     }
 
     return result;

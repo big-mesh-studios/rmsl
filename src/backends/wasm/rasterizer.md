@@ -46,9 +46,14 @@ volume (Sutherland-Hodgman, one plane after another: `w + x`, `w - x`,
 polygon left, at most 9 vertices, is fan-triangulated from its first vertex.
 Cut vertices lerp both the clip-space position and the whole varying blob
 linearly (not perspective-corrected — correct for clip space, pre-divide),
-and copy each flat varying from the triangle's first vertex. The polygon
-lives in `clipScratchBase`, two halves of 9 vertex slots each that the
-planes take turns writing. A plane keeps 9 vertices at most, as rounding
+and copy each flat varying from the triangle's first vertex, as no value
+lies between two integers. A plane copies each vertex it keeps, and starts
+its polygon with the first vertex it was given or with the vertex it cuts
+next to it, so the first vertex of the polygon, which every triangle of the
+fan starts at, holds the flat varyings of the triangle's first vertex. The
+polygon lives in `clipScratchBase`, two halves of 9 vertex slots each that
+the planes take turns writing. `rasterizer.ts` in the JS backend clips the
+same way, into 18 vertices it makes once. A plane keeps 9 vertices at most, as rounding
 can make a cut polygon slightly concave. The fan lands in
 `clippedPositionsOutBase`/`clippedVaryingsOutBase`, room for 7 triangles,
 whatever the draw's vertex count.
@@ -103,7 +108,8 @@ way, via `VaryingDescriptor`/`writeVaryingDescriptors` — each entry is
 since a varying (unlike an attribute) has two addresses to reconcile, one
 per stage, matched by the shared node's slot name. A `flat` varying is
 copied from the triangle's first vertex wherever the others interpolate,
-in the clip pass and per pixel alike.
+in the clip pass and per pixel alike: a pixel takes it from the first
+vertex of the triangle it lies in.
 
 ## Scope (v1)
 
