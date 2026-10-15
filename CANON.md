@@ -94,10 +94,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
     - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
-      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
         - [`@spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex`](#spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex) — On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped at the near plane keeps that vertex's value.
         - [`@spec a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k`](#spec-a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k) — On WGSL, JS and WASM, a fragment of an even triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
-        - [`@exception a-wgsl-odd-strip-triangle-takes-its-flat-varyings-from-strip-vertex-k`](#exception-a-wgsl-odd-strip-triangle-takes-its-flat-varyings-from-strip-vertex-k) — On WGSL, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it, where the specification's vertex order puts vertex `k + 1` first.
+        - [`@spec a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k`](#spec-a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k) — On WGSL, JS and WASM, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
       - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
     - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
@@ -772,7 +772,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-cpu-draw-has-no-fan-topology`](#spec-a-cpu-draw-has-no-fan-topology) — The type of a CPU rasterizer draw's `topology` admits no `"triangle-fan"`. The draw checks nothing at run time.
         - [`@spec a-cpu-draw-has-no-point-list-topology`](#spec-a-cpu-draw-has-no-point-list-topology) — The type of a CPU rasterizer draw's `topology` admits no `"point-list"`. The draw checks nothing at run time.
         - [`@spec a-cpu-draw-has-no-line-topology`](#spec-a-cpu-draw-has-no-line-topology) — The type of a CPU rasterizer draw's `topology` admits neither `"line-list"` nor `"line-strip"`. The draw checks nothing at run time.
-        - [`@spec a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices`](#spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices) — Every fragment of an odd triangle of a CPU rasterizer strip reads an integer varying as one and the same vertex of that triangle wrote it.
         - [`@spec a-cpu-strip-triangle-faces-by-its-own-winding`](#spec-a-cpu-strip-triangle-faces-by-its-own-winding) — A CPU rasterizer takes the facing of each triangle of a strip from its own winding, in the order its strip takes its vertices. A strip that folds on screen culls in part. A triangle of zero area decides nothing for the others.
       - [`@spec a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array) — A CPU rasterizer draw given an `index` array in its context takes its vertices in the order of the indices. It takes them as a WebGPU indexed draw does.
         - [`@spec an-indexed-cpu-draw-takes-the-vertex-each-index-names`](#spec-an-indexed-cpu-draw-takes-the-vertex-each-index-names) — Vertex `i` of an indexed CPU rasterizer draw is the vertex its `i`-th index names. Every triangle through a vertex that several indices name takes that vertex's position and varyings.
@@ -1058,7 +1057,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip) — WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them. With no depth test and no blending, a later triangle's fragment replaces an earlier one's on a pixel both cover.
 - [`@fact webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan) — WebGL 2 draws a `TRIANGLE_FAN`, whose every triangle shares the first vertex, beside `TRIANGLES` and `TRIANGLE_STRIP`.
 - [`@fact webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse) — WebGPU makes triangle `k` of a triangle strip, counted from 0, of its vertices `k`, `k + 1` and `k + 2`. An even triangle winds as `k`, `k + 1`, `k + 2` run, and an odd one as `k + 1`, `k`, `k + 2` run, the reverse. WebGPU decides the facing of each triangle from its own winding, as it does for any triangle. A strip that folds on screen has triangles of both facings, and a triangle of zero area decides nothing for the others. A restart counts `k` from 0 again.
-- [`@fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex) — Chromium's WebGPU, on Metal and on its fallback adapter, gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+- [`@fact webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k) — Dawn, in Chromium on Metal and on its fallback adapter, and wgpu, in Deno on Metal, give triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+- [`@fact the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle) — The WebGPU specification composes an odd triangle `k` of a strip with vertex `k + 1` first, and WGSL's `first` sampling, the default of a `flat` value, takes the first vertex of the primitive.
 - [`@fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices) — A WebGPU indexed draw takes its vertices in the order of its indices, from `firstIndex` on. It runs each as the vertex its index names plus `baseVertex`, and its `vertex_index` is that sum. An index is a `uint16` or a `uint32`.
 - [`@fact webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index) — A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. A part of fewer than three indices between two restarts, or before the first or after the last, draws nothing. An indexed list takes that index as the index of a vertex, like any other.
 - [`@fact webgl2-restarts-every-indexed-draw-at-the-largest-index`](#fact-webgl2-restarts-every-indexed-draw-at-the-largest-index) — WebGL 2 ends an indexed draw of any mode at the largest index of its type: 255, 65535 or 4294967295. It starts the draw again at the next index, in a triangle list too.
@@ -1094,18 +1094,14 @@ The analysis found these places where the code or the documents do not hold the 
 
 ### Choices waiting for a ruling
 
-Each choice below has a spec that states what the axioms force, and links here for the rest. The owner of the design rules on each, and the ruling becomes a unit.
+Each choice below that a unit depends on has a spec that states what the axioms force, and links here for the rest. The owner of the design rules on each, and the ruling becomes a unit or leaves the list.
 
-1. **Which vertex gives the flat varyings of an odd strip triangle on a CPU target.** [`spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices`](#spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices) states only that one vertex does. The WebGPU specification lists an odd triangle `k` as `k + 1`, `k`, `k + 2`, and WGSL's `first` sampling takes its first vertex, `k + 1`. Chromium gives vertex `k`, on Metal and on its fallback adapter ([`fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex)), so the WGSL target reads vertex `k` ([`exception-a-wgsl-odd-strip-triangle-takes-its-flat-varyings-from-strip-vertex-k`](#exception-a-wgsl-odd-strip-triangle-takes-its-flat-varyings-from-strip-vertex-k)). The options:
-   1. Vertex `k`, as Chromium gives. The CPU targets then match the GPU a user checks them against, and the WGSL exception becomes the leaf for strips on every target. It costs nothing to compute.
-   2. Vertex `k + 1`, as the specification's text gives. The CPU targets then differ from every implementation probed, and the WGSL exception stays.
-
-   The recommended answer is the first.
-2. **Whether an indexed CPU draw takes a base vertex.** [`spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value`](#spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value) states the case of a draw that names none. WebGPU's `drawIndexed` takes a `baseVertex`, and WebGL 2 has none without an extension. A CPU draw takes no instance count either, as [`spec-a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) states. The options:
+1. **Whether an indexed CPU draw takes a base vertex.** [`spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value`](#spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value) states the case of a draw that names none. WebGPU's `drawIndexed` takes a `baseVertex`, and WebGL 2 has none without an extension. A CPU draw takes no instance count either, as [`spec-a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) states. The options:
    1. No base vertex. Meshes that share one attribute array each need indices offset by the host.
    2. A `baseVertex` option, added to each index before it names a vertex. It costs an addition per index, and a test on each target.
 
    The recommended answer is the first, until a user needs it.
+2. **Whether to report the provoking vertex of an odd strip triangle to gpuweb.** The WebGPU specification puts vertex `k + 1` first in an odd strip triangle ([`fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle)), and every implementation measured gives vertex `k` ([`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k)). No unit depends on the answer.
 
 ### Coverage gaps
 
@@ -1612,9 +1608,9 @@ This follows because both GPU languages refuse an integer varying that is not fl
 
 ##### @spec a-flat-varying-takes-the-first-vertex
 
-> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
 
-This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives. Which vertex is first in an odd triangle of a strip is a question of its own: the exception below gives WGSL's, and the CPU targets' waits for [a ruling](#choices-waiting-for-a-ruling).
+This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives. Every WebGPU implementation measured takes strip vertex `k` as the first of triangle `k`, where the specification's text puts vertex `k + 1` first in an odd triangle, and the owner of the design ruled that the CPU targets take vertex `k` too.
 
 ###### @spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex
 
@@ -1624,15 +1620,15 @@ This follows because WebGPU takes a flat value from the first vertex, and a CPU 
 
 > On WGSL, JS and WASM, a fragment of an even triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
 
-Derives from: [`fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex)
+Derives from: [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k)
 
-###### @exception a-wgsl-odd-strip-triangle-takes-its-flat-varyings-from-strip-vertex-k
+###### @spec a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k
 
-> On WGSL, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it, where the specification's vertex order puts vertex `k + 1` first.
+> On WGSL, JS and WASM, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
 
-Derives from: [`fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex)
+Derives from: [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k), [`fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle)
 
-The WGSL target declares the varying `flat`, and Chromium picks the vertex, on Metal and on its fallback adapter alike.
+This follows because the WGSL target declares the varying `flat` and its driver picks vertex `k`, on every implementation measured. The owner of the design ruled that the CPU targets give what those implementations give, not what the specification's text gives.
 
 ##### @exception a-glsl-flat-varying-takes-the-last-vertex
 
@@ -5746,14 +5742,6 @@ Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-ea
 
 This follows because a CPU rasterizer rasterizes triangles only, and no target fakes a capability it lacks. WebGPU draws lines, so this too is a capability the CPU targets lack.
 
-###### @spec a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices
-
-> Every fragment of an odd triangle of a CPU rasterizer strip reads an integer varying as one and the same vertex of that triangle wrote it.
-
-Derives from: [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat)
-
-This follows because an integer varying is flat, so each fragment of a triangle reads the value one of its vertices wrote. Which vertex that is waits for [a ruling](#choices-waiting-for-a-ruling): the specification's text and what Chromium gives differ there.
-
 ###### @spec a-cpu-strip-triangle-faces-by-its-own-winding
 
 > A CPU rasterizer takes the facing of each triangle of a strip from its own winding, in the order its strip takes its vertices. A strip that folds on screen culls in part. A triangle of zero area decides nothing for the others.
@@ -7531,17 +7519,21 @@ This is a fact of the [OpenGL ES 3.0.6 specification](https://registry.khronos.o
 
 > WebGPU makes triangle `k` of a triangle strip, counted from 0, of its vertices `k`, `k + 1` and `k + 2`. An even triangle winds as `k`, `k + 1`, `k + 2` run, and an odd one as `k + 1`, `k`, `k + 2` run, the reverse. WebGPU decides the facing of each triangle from its own winding, as it does for any triangle. A strip that folds on screen has triangles of both facings, and a triangle of zero area decides nothing for the others. A restart counts `k` from 0 again.
 
-This is a fact of the WebGPU specification. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3), then (vl.2, vl.3, vl.4)". This fact claims only the winding of that order. Chromium takes an odd triangle's flat value from vertex `k`, as [`fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex) states, so its order is `k`, `k + 2`, `k + 1`, which winds the same. A restart splits the indices into "sub-lists", and each assembles from its own start. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides the facing of each polygon from its own area.
+This is a fact of the WebGPU specification. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3), then (vl.2, vl.3, vl.4)". This fact claims only the winding of that order. Chromium takes an odd triangle's flat value from vertex `k`, as [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k) states, so its order is `k`, `k + 2`, `k + 1`, which winds the same. A restart splits the indices into "sub-lists", and each assembles from its own start. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides the facing of each polygon from its own area.
 
 The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws under every `cullMode` and `frontFace`. Zigzag strips of 3 to 6 vertices read one `front_facing` in every triangle. A strip of 5 vertices whose third triangle doubles back reads front-facing in triangles 0 and 1, and back-facing in triangle 2. A cull drops only the triangles of its face. A strip whose first triangle has zero area faces by its second triangle's own winding there. A strip restarted after its first three indices faces the other way after the restart, as its new first triangle winds. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
 
-## @fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex
+## @fact webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k
 
-> Chromium's WebGPU, on Metal and on its fallback adapter, gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+> Dawn, in Chromium on Metal and on its fallback adapter, and wgpu, in Deno on Metal, give triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
 
-The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws strips of 3 to 6 vertices, and a strip that folds. Each vertex writes its own id and its `vertex_index` to flat `u32` varyings. Triangle `k` reads the id and the index of vertex `k`, in an indexed strip after a restart too.
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws strips of 3 to 6 vertices, and a strip that folds. Each vertex writes its own id and its `vertex_index` to flat `u32` varyings. Triangle `k` reads the id and the index of vertex `k`, in an indexed strip after a restart too. The probe `probes/index-strips-culling/wgpu/probe.js`, run by `deno run probes/index-strips-culling/wgpu/run-deno.js`, draws a strip of 5 vertices with distinct ids on wgpu in Deno 2.4.5, on Metal on an Apple M1. Triangles 0, 1 and 2 read the ids of vertices 0, 1 and 2, and a list control reads each triangle's first vertex. Its output is `output-deno.json` beside it.
 
-The WebGPU specification composes triangle 1 as "(vl.2, vl.1, vl.3)". That triangle starts at vertex 2. [WGSL's `first` sampling](https://www.w3.org/TR/WGSL/#interpolation-sampling-first), the default of a `flat` value, takes "the first vertex of the primitive". Chromium gives vertex 1 there.
+## @fact the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle
+
+> The WebGPU specification composes an odd triangle `k` of a strip with vertex `k + 1` first, and WGSL's `first` sampling, the default of a `flat` value, takes the first vertex of the primitive.
+
+This is a fact of the WebGPU specification: [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3)", and [WGSL's `first` sampling](https://www.w3.org/TR/WGSL/#interpolation-sampling-first) takes "the first vertex of the primitive". Every implementation measured in [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k) gives vertex `k` instead.
 
 ## @fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices
 

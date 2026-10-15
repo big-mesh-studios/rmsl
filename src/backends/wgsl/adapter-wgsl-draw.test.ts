@@ -191,7 +191,7 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
   }, 60_000);
 
   /**
-   * @canon exception-a-wgsl-odd-strip-triangle-takes-its-flat-varyings-from-strip-vertex-k
+   * @canon spec-a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k
    */
   it("reads an integer varying of an odd strip triangle as strip vertex k wrote it on WGSL", async () => {
     const { odd } = await run(ENTRY_FLAT_STRIP, "__rmslAdapterFlatStripRun");
