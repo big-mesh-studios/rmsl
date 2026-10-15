@@ -4,7 +4,7 @@ import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, miss
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
-import { depthAt, lineSign, makeLines, pointSign, prepareLines } from "./lines";
+import { depthAt, liesInDepthRange, lineSign, makeLines, pointSign, prepareLines, prepareRow } from "./lines";
 
 /**
  * How many times the rounding of a cut a vertex's components may be and still
@@ -459,7 +459,8 @@ export function compileJSRasterizer(
    * covered where each line's exact sign puts its centre inside, or on an edge the triangle owns,
    * and where the point there lies at a depth from 0 to 1. The weight of each
    * vertex is its line there, scaled; one at `centre` takes all of it. The depth is the
-   * triangle's plane of depth there, which {@link prepareLines} summed exactly once. The pixels tested are those
+   * triangle's plane of depth there, which {@link prepareLines} summed exactly once. A triangle whose
+   * vertices all lie at a depth from 0 to 1 needs no test of depth. The pixels tested are those
    * of the projections of the vertices, or of the polygon the clip leaves of a triangle with a
    * vertex at or behind the eye.
    */
@@ -523,24 +524,34 @@ export function compileJSRasterizer(
     const values = lines.values;
     const ratios = lines.ratios;
     const whole = width * height;
+    const inDepthRange = liesInDepthRange(lines);
+    // Local names for the imported functions: a module runner, as vitest's, may read an import
+    // through a getter at each call, which costs the loop more than the call.
+    const testLine = lineSign,
+      testPoint = pointSign,
+      depthThere = depthAt,
+      row = prepareRow;
     for (let y = minY; y <= maxY; y++) {
       const Y = (height - 2 * y - 1) * width;
+      row(lines, Y, whole);
       for (let x = minX; x <= maxX; x++) {
         const X = (2 * x + 1 - width) * height;
-        const s0 = lineSign(lines, 0, X, Y, whole) * orientation;
+        const s0 = testLine(lines, 0, X, Y, whole) * orientation;
         if (s0 < 0 || (s0 === 0 && owns[0] === 0)) continue;
-        const s1 = lineSign(lines, 1, X, Y, whole) * orientation;
+        const s1 = testLine(lines, 1, X, Y, whole) * orientation;
         if (s1 < 0 || (s1 === 0 && owns[1] === 0)) continue;
-        const s2 = lineSign(lines, 2, X, Y, whole) * orientation;
+        const s2 = testLine(lines, 2, X, Y, whole) * orientation;
         if (s2 < 0 || (s2 === 0 && owns[2] === 0)) continue;
         // At a depth from 0 to 1: z >= 0 and w - z >= 0. Inside the three lines, w is the
         // triangle's sign times W, so the point lies in front of the eye.
-        if (pointSign(lines, 2, X, Y, whole) * orientation < 0) continue;
-        if (pointSign(lines, -1, X, Y, whole) * orientation < 0) continue;
+        if (!inDepthRange) {
+          if (testPoint(lines, 2, X, Y, whole) * orientation < 0) continue;
+          if (testPoint(lines, -1, X, Y, whole) * orientation < 0) continue;
+        }
         const l0 = values[0]!,
           l1 = values[1]!,
           l2 = values[2]!;
-        fragment[4] = depthAt(lines, X, Y, whole);
+        fragment[4] = depthThere(lines, X, Y, whole);
         if (centre !== -1) {
           fragment[0] = centre === 0 ? 1 : 0;
           fragment[1] = centre === 1 ? 1 : 0;

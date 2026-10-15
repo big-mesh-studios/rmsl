@@ -60,10 +60,12 @@
   ;; coefficients as four exact terms at +112, (3e + k) * 32; each coefficient rounded at +400,
   ;; and its size at +472; whether each line owns its centres at +544, an i32 each; the weight
   ;; of each vertex by mask at +560, mask * 24 + e * 8; at the pixel being tested, each line's
-  ;; value at +752 and its bound at +776; the length of each line's expansion at +800 and the
+  ;; value at +752, then 24 bytes unused; the length of each line's expansion at +800 and the
   ;; expansions at +816, 256 bytes each; terms to sum at +1584, and their sum at +4144, 320 f64
   ;; each; the fragment's weights, their sum and its depth at +6704; and the plane of depth at
-  ;; +6744: z's three coefficients along the ray, then the triangle's determinant. ----
+  ;; +6744: z's three coefficients along the ray, then the triangle's determinant; and at +6776,
+  ;; per line, the part of its value and of its terms' sizes that a row of pixels shares, 16 bytes
+  ;; each. ----
   (global $lines (mut i32) (i32.const 0))
   (global $clipScratch (mut i32) (i32.const 0))
   (global $varyingBytes (mut i32) (i32.const 0))
@@ -418,31 +420,41 @@
     (i32.store offset=800 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 2))) (local.get $length))
     (local.get $length))
 
-  ;; Tests line $e at the ray ($X, $Y, $W), as lines.ts's lineSign does: writes its value and bound,
-  ;; and gives its sign, exactly. Where the filter cannot decide, the value is the expansion's float sum.
-  (func $lineSign (param $e i32) (param $X f64) (param $Y f64) (param $W f64) (result i32)
-    (local $l i32) (local $k i32) (local $value f64) (local $size f64) (local $bound f64) (local $length i32) (local $expansion i32)
+;; Writes the part of each line's float value and of its terms' sizes that the row of pixels at
+  ;; $Y shares, as lines.ts's prepareRow does.
+  (func $prepareRow (param $Y f64) (param $W f64)
+    (local $l i32) (local $e i32) (local $k i32)
     (local.set $l (global.get $lines))
-    (local.set $k (i32.add (local.get $l) (i32.mul (local.get $e) (i32.const 24))))
+    (block $done
+      (loop $next
+        (br_if $done (i32.ge_s (local.get $e) (i32.const 3)))
+        (local.set $k (i32.add (local.get $l) (i32.mul (local.get $e) (i32.const 24))))
+        (f64.store offset=6776 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 4)))
+          (f64.add (f64.mul (f64.load offset=408 (local.get $k)) (local.get $Y)) (f64.mul (f64.load offset=416 (local.get $k)) (local.get $W))))
+        (f64.store offset=6784 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 4)))
+          (f64.add (f64.mul (f64.load offset=480 (local.get $k)) (f64.abs (local.get $Y))) (f64.mul (f64.load offset=488 (local.get $k)) (local.get $W))))
+        (local.set $e (i32.add (local.get $e) (i32.const 1)))
+        (br $next))))
+
+  ;; Tests line $e at the ray ($X, $Y, $W), in the row $prepareRow prepared, as lines.ts's lineSign
+  ;; does: writes its value and gives its sign, exactly. The float value is kept when it is more than
+  ;; 2^-16 of its terms' sizes, 2^32 times its bound of rounding; any other is summed exactly, and its
+  ;; value is the expansion's float sum.
+  (func $lineSign (param $e i32) (param $X f64) (param $Y f64) (param $W f64) (result i32)
+    (local $l i32) (local $row i32) (local $value f64) (local $bound f64) (local $length i32) (local $expansion i32)
+    (local.set $l (global.get $lines))
+    (local.set $row (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 4))))
     (local.set $value
-      (f64.add
-        (f64.add (f64.mul (f64.load offset=400 (local.get $k)) (local.get $X)) (f64.mul (f64.load offset=408 (local.get $k)) (local.get $Y)))
-        (f64.mul (f64.load offset=416 (local.get $k)) (local.get $W))))
-    (local.set $size
-      (f64.add
-        (f64.add (f64.mul (f64.load offset=472 (local.get $k)) (f64.abs (local.get $X))) (f64.mul (f64.load offset=480 (local.get $k)) (f64.abs (local.get $Y))))
-        (f64.mul (f64.load offset=488 (local.get $k)) (local.get $W))))
-    (f64.store offset=776 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 3))) (f64.mul (f64.const 0x1p-48) (local.get $size)))
-    ;; A float value is kept only when it is 2^32 times its bound of rounding, so within 2^-32 of itself.
-    (local.set $bound (f64.mul (f64.const 0x1p-16) (local.get $size)))
-    (if (f64.gt (local.get $value) (local.get $bound))
+      (f64.add (f64.mul (f64.load offset=400 (i32.add (local.get $l) (i32.mul (local.get $e) (i32.const 24)))) (local.get $X))
+        (f64.load offset=6776 (local.get $row))))
+    (local.set $bound
+      (f64.mul (f64.const 0x1p-16)
+        (f64.add (f64.mul (f64.load offset=472 (i32.add (local.get $l) (i32.mul (local.get $e) (i32.const 24)))) (f64.abs (local.get $X)))
+          (f64.load offset=6784 (local.get $row)))))
+    (if (i32.or (f64.gt (local.get $value) (local.get $bound)) (f64.lt (local.get $value) (f64.neg (local.get $bound))))
       (then
         (f64.store offset=752 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 3))) (local.get $value))
-        (return (i32.const 1))))
-    (if (f64.lt (local.get $value) (f64.neg (local.get $bound)))
-      (then
-        (f64.store offset=752 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 3))) (local.get $value))
-        (return (i32.const -1))))
+        (return (select (i32.const 1) (i32.const -1) (f64.gt (local.get $value) (f64.const 0))))))
     (local.set $length (call $expandLine (local.get $e) (local.get $X) (local.get $Y) (local.get $W)))
     (local.set $expansion (i32.add (i32.add (local.get $l) (i32.const 816)) (i32.shl (local.get $e) (i32.const 8))))
     (f64.store offset=752 (i32.add (local.get $l) (i32.shl (local.get $e) (i32.const 3)))
@@ -469,12 +481,16 @@
       (f64.add
         (f64.add (f64.mul (local.get $c0) (f64.load offset=752 (local.get $l))) (f64.mul (local.get $c1) (f64.load offset=760 (local.get $l))))
         (f64.mul (local.get $c2) (f64.load offset=768 (local.get $l)))))
-    ;; Each line's bound is three times its rounding and at least 2^-48 of its value, which covers the
-    ;; rounding of this sum too.
+    ;; Each line's bound of rounding is at least 2^-48 of its value too, which covers the rounding of this sum.
     (local.set $bound
       (f64.add
-        (f64.add (f64.mul (local.get $m0) (f64.load offset=776 (local.get $l))) (f64.mul (local.get $m1) (f64.load offset=784 (local.get $l))))
-        (f64.mul (local.get $m2) (f64.load offset=792 (local.get $l)))))
+        (f64.add
+          (f64.mul (local.get $m0) (f64.mul (f64.const 0x1p-48)
+            (f64.add (f64.mul (f64.load offset=472 (local.get $l)) (f64.abs (local.get $X))) (f64.load offset=6784 (local.get $l)))))
+          (f64.mul (local.get $m1) (f64.mul (f64.const 0x1p-48)
+            (f64.add (f64.mul (f64.load offset=496 (local.get $l)) (f64.abs (local.get $X))) (f64.load offset=6800 (local.get $l))))))
+        (f64.mul (local.get $m2) (f64.mul (f64.const 0x1p-48)
+          (f64.add (f64.mul (f64.load offset=520 (local.get $l)) (f64.abs (local.get $X))) (f64.load offset=6816 (local.get $l)))))))
     (if (f64.gt (local.get $value) (local.get $bound)) (then (return (i32.const 1))))
     (if (f64.lt (local.get $value) (f64.neg (local.get $bound))) (then (return (i32.const -1))))
     ;; A bound of 0 leaves every component 0, as a line of a triangle that is not flat is not 0: so is the sum.
@@ -986,7 +1002,7 @@
     (local $left f64) (local $right f64) (local $top f64) (local $bottom f64) (local $sx f64) (local $sy f64) (local $bounded i32)
     (local $minX i32) (local $maxX i32) (local $minY i32) (local $maxY i32) (local $x i32) (local $y i32)
     (local $X f64) (local $Y f64) (local $W f64) (local $s0 i32) (local $s1 i32) (local $s2 i32) (local $mask i32)
-    (local $l0 f64) (local $l1 f64) (local $l2 f64) (local $ratios i32)
+    (local $l0 f64) (local $l1 f64) (local $l2 f64) (local $ratios i32) (local $inDepthRange i32)
     (local.set $l (global.get $lines))
     (local.set $widthF (f64.convert_i32_s (global.get $width)))
     (local.set $heightF (f64.convert_i32_s (global.get $height)))
@@ -1048,11 +1064,27 @@
             (local.set $minY (i32.trunc_sat_f64_s (f64.max (f64.floor (local.get $top)) (f64.const 0))))
             (local.set $maxY (i32.trunc_sat_f64_s (f64.min (f64.ceil (local.get $bottom)) (f64.sub (local.get $heightF) (f64.const 1)))))))))
     (local.set $W (f64.mul (local.get $widthF) (local.get $heightF)))
+    ;; Every vertex at a depth from 0 to 1 in front of the eye, z from 0 to w and w above 0: a point
+    ;; inside the lines is a sum of them with weights of one sign, so it needs no test of depth.
+    (local.set $inDepthRange (i32.const 1))
+    (local.set $k (i32.const 0))
+    (block $rangeDone
+      (loop $nextRange
+        (br_if $rangeDone (i32.ge_s (local.get $k) (i32.const 3)))
+        (local.set $p (i32.add (local.get $l) (i32.shl (local.get $k) (i32.const 5))))
+        (if (i32.eqz
+              (i32.and
+                (i32.and (f64.gt (f64.load offset=24 (local.get $p)) (f64.const 0)) (f64.ge (f64.load offset=16 (local.get $p)) (f64.const 0)))
+                (f64.le (f64.load offset=16 (local.get $p)) (f64.load offset=24 (local.get $p)))))
+          (then (local.set $inDepthRange (i32.const 0))))
+        (local.set $k (i32.add (local.get $k) (i32.const 1)))
+        (br $nextRange)))
     (local.set $y (local.get $minY))
     (block $yBreak
       (loop $yContinue
         (br_if $yBreak (i32.gt_s (local.get $y) (local.get $maxY)))
         (local.set $Y (f64.convert_i32_s (i32.mul (i32.sub (i32.sub (global.get $height) (i32.shl (local.get $y) (i32.const 1))) (i32.const 1)) (global.get $width))))
+        (call $prepareRow (local.get $Y) (local.get $W))
         (local.set $x (local.get $minX))
         (block $xBreak
           (loop $xContinue
@@ -1067,8 +1099,10 @@
               (br_if $skip (i32.or (i32.lt_s (local.get $s2) (i32.const 0)) (i32.and (i32.eqz (local.get $s2)) (i32.eqz (i32.load offset=552 (local.get $l))))))
               ;; At a depth from 0 to 1: z >= 0 and w - z >= 0. Inside the three lines, w is the
               ;; triangle's sign times W, so the point lies in front of the eye.
-              (br_if $skip (i32.lt_s (i32.mul (call $pointSign (i32.const 2) (local.get $X) (local.get $Y) (local.get $W)) (local.get $orientation)) (i32.const 0)))
-              (br_if $skip (i32.lt_s (i32.mul (call $pointSign (i32.const -1) (local.get $X) (local.get $Y) (local.get $W)) (local.get $orientation)) (i32.const 0)))
+              (if (i32.eqz (local.get $inDepthRange))
+                (then
+                  (br_if $skip (i32.lt_s (i32.mul (call $pointSign (i32.const 2) (local.get $X) (local.get $Y) (local.get $W)) (local.get $orientation)) (i32.const 0)))
+                  (br_if $skip (i32.lt_s (i32.mul (call $pointSign (i32.const -1) (local.get $X) (local.get $Y) (local.get $W)) (local.get $orientation)) (i32.const 0)))))
               (local.set $l0 (f64.load offset=752 (local.get $l)))
               (local.set $l1 (f64.load offset=760 (local.get $l)))
               (local.set $l2 (f64.load offset=768 (local.get $l)))

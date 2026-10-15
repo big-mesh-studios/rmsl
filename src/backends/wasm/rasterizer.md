@@ -54,7 +54,10 @@ of floats (Shewchuk's adaptive predicates), whose sign is the line's and whose
 float sum is its value. So a centre exactly on an edge goes by the top-left
 rule at any size of target and any scale of the positions. The point's `z` and
 `w - z`, each the sum over the vertices of that component times the vertex's
-line, are decided the same way, so a centre exactly at depth 0 or 1 is drawn.
+line, are decided the same way, so a centre exactly at depth 0 or 1 is drawn;
+a triangle whose vertices all lie at a depth from 0 to 1 in front of the eye
+needs neither test, as every point inside its lines lies there too. The part
+of each line's value that a row of pixels shares is computed once per row.
 The depth is a plane on the screen, the point's `z` along the ray over the
 triangle's determinant times `W`, its three coefficients each summed exactly
 once per triangle, and held to 0 to 1, where those signs put the point. Each

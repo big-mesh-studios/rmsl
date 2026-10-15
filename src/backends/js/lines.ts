@@ -51,9 +51,10 @@ export interface Lines {
    * `plane[0] X + plane[1] Y + plane[2] W`, and its w is `plane[3] W`, the triangle's determinant times `W`.
    */
   plane: Float64Array;
-  /** At the pixel being tested: each line's value and its bound of rounding. */
+  /** Per line, the part of its value and of its terms' sizes that a row of pixels shares: `2e` and `2e + 1`. */
+  rows: Float64Array;
+  /** At the pixel being tested: each line's value. */
   values: Float64Array;
-  bounds: Float64Array;
   /** The exact expansion of each line's value, and its length. */
   expansions: Float64Array;
   lengths: Int32Array;
@@ -73,8 +74,8 @@ export function makeLines(): Lines {
     owns: new Uint8Array(3),
     ratios: new Float64Array(24),
     plane: new Float64Array(4),
+    rows: new Float64Array(6),
     values: new Float64Array(3),
-    bounds: new Float64Array(3),
     expansions: new Float64Array(3 * EXPANSION),
     lengths: new Int32Array(3),
     pending: new Float64Array(320),
@@ -298,24 +299,34 @@ function expandLine(lines: Lines, e: number, X: number, Y: number, W: number): n
   return length;
 }
 
+/** Writes the part of each line's float value and of its terms' sizes that the row of pixels at `Y` shares. */
+export function prepareRow(lines: Lines, Y: number, W: number): void {
+  const { coefficients: c, sizes: m, rows } = lines;
+  for (let e = 0; e < 3; e++) {
+    rows[2 * e] = c[3 * e + 1]! * Y + c[3 * e + 2]! * W;
+    rows[2 * e + 1] = m[3 * e + 1]! * Math.abs(Y) + m[3 * e + 2]! * W;
+  }
+}
+
 /**
- * Tests line `e` at the ray `(X, Y, W)`: writes its value and bound into `values` and `bounds`, and
- * gives its sign, exactly. Where the filter cannot decide, the value is the float sum of the exact expansion.
+ * Tests line `e` at the ray `(X, Y, W)`, in the row {@link prepareRow} prepared: writes its value into
+ * `values`, and gives its sign, exactly. The float value is kept when it is more than
+ * {@link LINE_FILTER} of its terms' sizes; any other is summed exactly.
  */
 export function lineSign(lines: Lines, e: number, X: number, Y: number, W: number): number {
-  const { coefficients: c, sizes: m, values, bounds, expansions } = lines;
-  const k = 3 * e;
-  const value = c[k]! * X + c[k + 1]! * Y + c[k + 2]! * W;
-  const size = m[k]! * Math.abs(X) + m[k + 1]! * Math.abs(Y) + m[k + 2]! * W;
-  bounds[e] = LINE_ROUNDING * size;
-  if (value > LINE_FILTER * size) {
+  const { coefficients: c, sizes: m, rows, values } = lines;
+  const value = c[3 * e]! * X + rows[2 * e]!;
+  const size = m[3 * e]! * Math.abs(X) + rows[2 * e + 1]!;
+  if (value > LINE_FILTER * size || value < -LINE_FILTER * size) {
     values[e] = value;
-    return 1;
+    return value > 0 ? 1 : -1;
   }
-  if (value < -LINE_FILTER * size) {
-    values[e] = value;
-    return -1;
-  }
+  return exactLineSign(lines, e, X, Y, W);
+}
+
+/** The sign of line `e` at the ray `(X, Y, W)`, summed exactly; writes the float sum of its expansion into `values`. */
+function exactLineSign(lines: Lines, e: number, X: number, Y: number, W: number): number {
+  const { values, expansions } = lines;
   const length = expandLine(lines, e, X, Y, W);
   values[e] = estimateOf(expansions, e * EXPANSION, length);
   return signOf(expansions, e * EXPANSION, length);
@@ -328,12 +339,27 @@ export function depthAt(lines: Lines, X: number, Y: number, W: number): number {
 }
 
 /**
+ * Whether every vertex lies at a depth from 0 to 1 in front of the eye: z from 0 to w, and w above 0.
+ * A point inside the triangle's three lines is then a sum of its vertices with weights of one sign, so
+ * it lies at such a depth too, and needs no {@link pointSign}.
+ */
+export function liesInDepthRange(lines: Lines): boolean {
+  const { points } = lines;
+  for (let k = 0; k < 3; k++) {
+    const z = points[4 * k + 2]!,
+      w = points[4 * k + 3]!;
+    if (!(w > 0 && z >= 0 && z <= w)) return false;
+  }
+  return true;
+}
+
+/**
  * The exact sign, at the ray `(X, Y, W)` whose lines {@link lineSign} has tested, of the point's z
  * (`component` 2) or its w minus its z (-1): each the sum over the vertices of that component times
  * the vertex's line. The same sum of w is the triangle's sign times `W`, so it needs no test.
  */
 export function pointSign(lines: Lines, component: number, X: number, Y: number, W: number): number {
-  const { points, values, bounds, expansions, pending, sum } = lines;
+  const { points, sizes, rows, values, expansions, pending, sum } = lines;
   // Each vertex's component c, and the size of its terms, which for w minus z is |w| + |z|.
   const z = component === -1 ? 2 : component,
     w = component === -1 ? 3 : component,
@@ -345,9 +371,12 @@ export function pointSign(lines: Lines, component: number, X: number, Y: number,
     m1 = Math.abs(points[4 + w]!) + minus * Math.abs(points[4 + z]!),
     m2 = Math.abs(points[8 + w]!) + minus * Math.abs(points[8 + z]!);
   const value = c0 * values[0]! + c1 * values[1]! + c2 * values[2]!;
-  // Each line's bound is three times its rounding and at least 2^-48 of its value, which covers the
-  // rounding of this sum too.
-  const bound = m0 * bounds[0]! + m1 * bounds[1]! + m2 * bounds[2]!;
+  // Each line's bound of rounding is at least 2^-48 of its value too, which covers the rounding of this sum.
+  const absX = Math.abs(X);
+  const bound =
+    m0 * (LINE_ROUNDING * (sizes[0]! * absX + rows[1]!)) +
+    m1 * (LINE_ROUNDING * (sizes[3]! * absX + rows[3]!)) +
+    m2 * (LINE_ROUNDING * (sizes[6]! * absX + rows[5]!));
   if (value > bound) return 1;
   if (value < -bound) return -1;
   // A bound of 0 leaves every component 0, as a line of a triangle that is not flat is not 0: so is the sum.
