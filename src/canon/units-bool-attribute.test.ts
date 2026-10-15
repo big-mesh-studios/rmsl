@@ -3,8 +3,8 @@ import { Fn, attributeRaw, float, vec4 } from "../rmsl";
 import { UsageError } from "../errors";
 import { compileGlsl, createGlsl } from "../glsl";
 import { compileWgsl, createWgsl } from "../wgsl";
-import { createJs } from "../js";
-import { createWasm } from "../wasm";
+import { compileJS, createJs } from "../js";
+import { compileWasm, createWasm } from "../wasm";
 import { vertexFormatOf } from "../backends/vertex-format";
 import { BufferAttribute } from "../scene";
 import { GPU_ENABLED, releaseGpu, webgpuAvailable } from "../testing/gpu";
@@ -534,6 +534,22 @@ describe("a bool attribute's vertex format on a scene renderer", () => {
       "normalized-array-without-format",
     );
     expect(format("bvec4", Int32Array.of(1, 0, 0, 1, 1), 5)).toThrowRmsl(UsageError, "no-vertex-format-for-array");
+  });
+});
+
+describe("a bool attribute in a CPU raster routine", () => {
+  /**
+   * @canon spec-a-cpu-raster-routine-reports-a-bool-attribute-by-its-declared-type
+   */
+  it("is reported by its declared type by compileJS and compileWasm", async () => {
+    const pos = attributeRaw("pos", "vec3");
+    const flag = attributeRaw("flag", "bvec2");
+    const vertex = () => Fn(() => vec4(pos, flag.x.select(float(1), float(0))))();
+    const fragment = () => Fn(() => vec4(0, flag.y.select(float(1), float(0)), 0, 1))();
+    for (const compile of [compileJS, compileWasm]) {
+      const routine = await compile(vertex, fragment);
+      expect(routine.attributeTypes).toEqual({ pos: "vec3", flag: "bvec2" });
+    }
   });
 });
 

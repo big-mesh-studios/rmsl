@@ -3,6 +3,7 @@ import { Node, ShaderType, componentCountOf, componentKindOf, type ScalarKind } 
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
+import { attributeKindOf } from "../vertex-format";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -182,7 +183,8 @@ export function compileJSRasterizer(
   /** The attribute slots the vertex stage reads, as its program declares them. */
   const attributeSlots = Object.keys(vertexStage.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(vertexStage.attributeTypes[slot]!));
-  const attributeKinds = attributeSlots.map((slot) => componentKindOf(vertexStage.attributeTypes[slot]!));
+  // A bool attribute reaches the vertex stage as the unsigned integers it is lowered to.
+  const attributeKinds = attributeSlots.map((slot) => attributeKindOf(vertexStage.attributeTypes[slot]!));
   const widths: Record<string, number> = {};
   attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
   /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */

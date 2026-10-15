@@ -97,9 +97,9 @@ export type WasmParam =
 
       narrow?: boolean;
     }
-  | { kind: "attribute"; slot: string; shaderType: ShaderType }
+  | { kind: "attribute"; slot: string; shaderType: ShaderType; declaredType?: ShaderType }
   | { kind: "invocationIndex"; shaderType: ShaderType }
-  | { kind: "attributeMemory"; slot: string; shaderType: ShaderType; address: number }
+  | { kind: "attributeMemory"; slot: string; shaderType: ShaderType; address: number; declaredType?: ShaderType }
   | { kind: "varying"; slot: string; shaderType: ShaderType }
   | { kind: "varyingMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "fragCoordMemory"; address: number }
@@ -1584,10 +1584,24 @@ export function compileWasmModule(
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             attributeAddress.set(v.slot, addr);
-            memoryParams.push({ kind: "attributeMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+            memoryParams.push({
+              kind: "attributeMemory",
+              slot: v.slot,
+              shaderType: v.shaderType,
+              address: addr,
+              declaredType: (v as { declaredType?: ShaderType }).declaredType,
+            });
           }
         } else {
-          addParam({ kind: "attribute", slot: v.slot, shaderType: v.shaderType }, `attribute:${v.slot}`);
+          addParam(
+            {
+              kind: "attribute",
+              slot: v.slot,
+              shaderType: v.shaderType,
+              declaredType: (v as { declaredType?: ShaderType }).declaredType,
+            },
+            `attribute:${v.slot}`,
+          );
         }
         break;
       }
