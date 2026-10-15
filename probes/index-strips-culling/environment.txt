@@ -3,5 +3,5 @@ os: macOS 15.0
 node: v24.12.0
 playwright: 1.61.1
 date: 2026-10-15
-webgpu.ts: Playwright's full Chromium build (channel "chromium"), WebGPU on the Metal backend of the Apple M1
-webgl2.ts: Playwright's Chromium launched with --use-gl=swiftshader, so WebGL 2 renders through SwiftShader on the CPU
+webgpu.ts: Playwright's full Chromium build (channel "chromium"), twice: WebGPU on the Metal backend of the Apple M1 (default adapter), and on the fallback adapter, SwiftShader, in a second browser launched with --enable-unsafe-swiftshader --enable-unsafe-webgpu
+webgl2.ts: Playwright's Chromium launched with --use-gl=swiftshader, so WebGL 2 renders through ANGLE on Vulkan SwiftShader, as UNMASKED_RENDERER_WEBGL in webgl2.out.txt shows

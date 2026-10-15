@@ -1,5 +1,5 @@
 # WebGL 2 — Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36
-# renderer: WebKit WebGL; WebGL 2.0 (OpenGL ES 3.0 Chromium); MAX_ELEMENT_INDEX 1073741823
+# renderer: WebKit WebGL (ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)); WebGL 2.0 (OpenGL ES 3.0 Chromium); MAX_ELEMENT_INDEX 1073741823
 # context defaults: {"cullFaceEnabled":false,"cullFace":"BACK","frontFace":"CCW"}
 
 ## ndc-ccw triangle cull=none front=ccw
@@ -415,17 +415,62 @@ note: baseVertex 2 not applied: WebGL 2 has none
   3,4,5: nothing
   whole image: {"nothing":811,"id=12 vi=2 front":138,"id=0 vi=232 front":75}
 
-## near-plane triangle cull=none
+## near-plane triangle cull=none front=ccw
   inside the clipped polygon: id=12 vi=2 front
   row above: id=12 vi=2 front
   whole image: {"id=12 vi=2 front":704,"nothing":320}
 
-## near-plane triangle cull=back
+## near-plane triangle cull=none front=cw
+  inside the clipped polygon: id=12 vi=2 back
+  row above: id=12 vi=2 back
+  whole image: {"id=12 vi=2 back":704,"nothing":320}
+
+## near-plane triangle cull=back front=ccw
   inside the clipped polygon: id=12 vi=2 front
   row above: id=12 vi=2 front
   whole image: {"id=12 vi=2 front":704,"nothing":320}
 
-## near-plane triangle cull=front
+## near-plane triangle cull=back front=cw
+  inside the clipped polygon: nothing
+  row above: nothing
+  whole image: {"nothing":1024}
+
+## near-plane triangle cull=front front=ccw
+  inside the clipped polygon: nothing
+  row above: nothing
+  whole image: {"nothing":1024}
+
+## near-plane triangle cull=front front=cw
+  inside the clipped polygon: id=12 vi=2 back
+  row above: id=12 vi=2 back
+  whole image: {"id=12 vi=2 back":704,"nothing":320}
+
+## near-plane triangle mirrored cull=none front=ccw
+  inside the clipped polygon: id=12 vi=2 back
+  row above: id=12 vi=2 back
+  whole image: {"id=12 vi=2 back":704,"nothing":320}
+
+## near-plane triangle mirrored cull=none front=cw
+  inside the clipped polygon: id=12 vi=2 front
+  row above: id=12 vi=2 front
+  whole image: {"id=12 vi=2 front":704,"nothing":320}
+
+## near-plane triangle mirrored cull=back front=ccw
+  inside the clipped polygon: nothing
+  row above: nothing
+  whole image: {"nothing":1024}
+
+## near-plane triangle mirrored cull=back front=cw
+  inside the clipped polygon: id=12 vi=2 front
+  row above: id=12 vi=2 front
+  whole image: {"id=12 vi=2 front":704,"nothing":320}
+
+## near-plane triangle mirrored cull=front front=ccw
+  inside the clipped polygon: id=12 vi=2 back
+  row above: id=12 vi=2 back
+  whole image: {"id=12 vi=2 back":704,"nothing":320}
+
+## near-plane triangle mirrored cull=front front=cw
   inside the clipped polygon: nothing
   row above: nothing
   whole image: {"nothing":1024}
@@ -437,6 +482,172 @@ note: baseVertex 2 not applied: WebGL 2 has none
 ## overlapping triangles indexed 3,4,5,0,1,2
   centre: id=12 vi=2 front
   whole image: {"nothing":712,"id=12 vi=2 front":312}
+
+## folded strip cull=none front=ccw
+  triangle 0: id=12 vi=2 front
+  triangle 1: id=13 vi=3 front
+  triangle 2: id=14 vi=4 back
+  whole image: {"nothing":548,"id=12 vi=2 front":126,"id=14 vi=4 back":70,"id=13 vi=3 front":280}
+
+## strip with a zero-area first triangle cull=none front=ccw
+  triangle 1: id=13 vi=3 front
+  whole image: {"nothing":710,"id=13 vi=3 front":314}
+
+## folded strip cull=none front=cw
+  triangle 0: id=12 vi=2 back
+  triangle 1: id=13 vi=3 back
+  triangle 2: id=14 vi=4 front
+  whole image: {"nothing":548,"id=12 vi=2 back":126,"id=14 vi=4 front":70,"id=13 vi=3 back":280}
+
+## strip with a zero-area first triangle cull=none front=cw
+  triangle 1: id=13 vi=3 back
+  whole image: {"nothing":710,"id=13 vi=3 back":314}
+
+## folded strip cull=back front=ccw
+  triangle 0: id=12 vi=2 front
+  triangle 1: id=13 vi=3 front
+  triangle 2: id=13 vi=3 front
+  whole image: {"nothing":548,"id=12 vi=2 front":135,"id=13 vi=3 front":341}
+
+## strip with a zero-area first triangle cull=back front=ccw
+  triangle 1: id=13 vi=3 front
+  whole image: {"nothing":710,"id=13 vi=3 front":314}
+
+## folded strip cull=back front=cw
+  triangle 0: nothing
+  triangle 1: nothing
+  triangle 2: id=14 vi=4 front
+  whole image: {"nothing":954,"id=14 vi=4 front":70}
+
+## strip with a zero-area first triangle cull=back front=cw
+  triangle 1: nothing
+  whole image: {"nothing":1024}
+
+## folded strip cull=front front=ccw
+  triangle 0: nothing
+  triangle 1: nothing
+  triangle 2: id=14 vi=4 back
+  whole image: {"nothing":954,"id=14 vi=4 back":70}
+
+## strip with a zero-area first triangle cull=front front=ccw
+  triangle 1: nothing
+  whole image: {"nothing":1024}
+
+## folded strip cull=front front=cw
+  triangle 0: id=12 vi=2 back
+  triangle 1: id=13 vi=3 back
+  triangle 2: id=13 vi=3 back
+  whole image: {"nothing":548,"id=12 vi=2 back":135,"id=13 vi=3 back":341}
+
+## strip with a zero-area first triangle cull=front front=cw
+  triangle 1: id=13 vi=3 back
+  whole image: {"nothing":710,"id=13 vi=3 back":314}
+
+## indexed strip uint16 restart first
+  0,1,2: id=12 vi=2 front
+  1,2,3: id=13 vi=3 front
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: nothing
+  whole image: {"nothing":827,"id=12 vi=2 front":99,"id=13 vi=3 front":98}
+
+## indexed strip uint16 two restarts in a row
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: id=15 vi=5 back
+  4,5,6: nothing
+  5,6,7: nothing
+  whole image: {"nothing":826,"id=12 vi=2 front":99,"id=15 vi=5 back":99}
+
+## indexed strip uint16 restart last
+  0,1,2: id=12 vi=2 front
+  1,2,3: id=13 vi=3 front
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: nothing
+  whole image: {"nothing":827,"id=12 vi=2 front":99,"id=13 vi=3 front":98}
+
+## indexed strip uint16 a part of two vertices between restarts
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: id=17 vi=7 back
+  whole image: {"nothing":826,"id=12 vi=2 front":99,"id=17 vi=7 back":99}
+
+## indexed strip uint16 a part of one vertex between restarts
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: id=17 vi=7 back
+  whole image: {"nothing":826,"id=12 vi=2 front":99,"id=17 vi=7 back":99}
+
+## indexed strip uint32 restart first
+  0,1,2: id=12 vi=2 front
+  1,2,3: id=13 vi=3 front
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: nothing
+  whole image: {"nothing":827,"id=12 vi=2 front":99,"id=13 vi=3 front":98}
+
+## indexed strip uint32 two restarts in a row
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: id=15 vi=5 back
+  4,5,6: nothing
+  5,6,7: nothing
+  whole image: {"nothing":826,"id=12 vi=2 front":99,"id=15 vi=5 back":99}
+
+## indexed strip uint32 restart last
+  0,1,2: id=12 vi=2 front
+  1,2,3: id=13 vi=3 front
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: nothing
+  whole image: {"nothing":827,"id=12 vi=2 front":99,"id=13 vi=3 front":98}
+
+## indexed strip uint32 a part of two vertices between restarts
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: id=17 vi=7 back
+  whole image: {"nothing":826,"id=12 vi=2 front":99,"id=17 vi=7 back":99}
+
+## indexed strip uint32 a part of one vertex between restarts
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  4,5,6: nothing
+  5,6,7: id=17 vi=7 back
+  whole image: {"nothing":826,"id=12 vi=2 front":99,"id=17 vi=7 back":99}
+
+## indexed list uint16 through vertex 0xFFFF of 65537
+  centre: nothing
+  whole image: {"nothing":1024}
+
+## indexed list of 6 indices drawn from 0 for 7
+error: INVALID_OPERATION
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed list of 6 indices drawn from 4 for 3
+error: INVALID_OPERATION
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
 
 ## fan n=4 cull=none
   0,1,2: id=12 vi=2 front

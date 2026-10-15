@@ -74,7 +74,11 @@ function inPage(drawCases: DrawCase[], vertexSource: string, fragmentSource: str
     gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
     const ids = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, ids);
-    gl.bufferData(gl.ARRAY_BUFFER, new Uint32Array(Array.from({ length: n }, (_, k) => 10 + k)), gl.STATIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Uint32Array(c.ids ?? Array.from({ length: n }, (_, k) => 10 + k)),
+      gl.STATIC_DRAW,
+    );
     gl.enableVertexAttribArray(1);
     gl.vertexAttribIPointer(1, 1, gl.UNSIGNED_INT, 0, 0);
     if (c.cullMode === "none") gl.disable(gl.CULL_FACE);
@@ -122,6 +126,10 @@ function inPage(drawCases: DrawCase[], vertexSource: string, fragmentSource: str
   }
   return {
     renderer: gl.getParameter(gl.RENDERER),
+    unmaskedRenderer: (() => {
+      const debug = gl.getExtension("WEBGL_debug_renderer_info");
+      return debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : "no WEBGL_debug_renderer_info";
+    })(),
     version: gl.getParameter(gl.VERSION),
     maxElementIndex: gl.getParameter(gl.MAX_ELEMENT_INDEX),
     defaults,
@@ -146,7 +154,9 @@ const out = await page.evaluate(
   ],
 );
 console.log(`# WebGL 2 — ${out.userAgent}`);
-console.log(`# renderer: ${out.renderer}; ${out.version}; MAX_ELEMENT_INDEX ${out.maxElementIndex}`);
+console.log(
+  `# renderer: ${out.renderer} (${out.unmaskedRenderer}); ${out.version}; MAX_ELEMENT_INDEX ${out.maxElementIndex}`,
+);
 console.log(`# context defaults: ${JSON.stringify(out.defaults)}`);
 for (const r of out.results) {
   console.log(`\n## ${r.name}${r.error ? `\nerror: ${r.error}` : ""}${r.note ? `\nnote: ${r.note}` : ""}`);

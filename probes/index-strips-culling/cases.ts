@@ -15,6 +15,8 @@ export interface DrawCase {
   name: string;
   /** Clip-space positions, four numbers per vertex. */
   positions: number[];
+  /** The id of each vertex, `10 + k` unless the case gives its own. */
+  ids?: number[];
   topology: "triangle-list" | "triangle-strip" | "triangle-fan";
   /** Indices, with the array kind that holds them, or none for a draw that is not indexed. */
   index?: { kind: "uint8" | "uint16" | "uint32"; values: number[] };
@@ -259,20 +261,26 @@ export function cases(): DrawCase[] {
 
   // A triangle with a vertex behind the eye: its clipped polygon winds one way, its naive projection the other.
   {
-    const positions = [-0.5, -0.5, 0, 1, 0.5, -0.5, 0, 1, 0, 0.5, 0, -0.5];
-    for (const cullMode of CULLS)
-      out.push({
-        name: `near-plane triangle cull=${cullMode}`,
-        positions,
-        topology: "triangle-list",
-        count: 3,
-        cullMode,
-        frontFace: "ccw",
-        probes: [
-          { name: "inside the clipped polygon", x: 32, y: 10 },
-          { name: "row above", x: 32, y: 8 },
-        ],
-      });
+    // The same triangle with its first two vertices swapped winds the other way, before and after the clip.
+    const geometries = [
+      ["", [-0.5, -0.5, 0, 1, 0.5, -0.5, 0, 1, 0, 0.5, 0, -0.5]],
+      [" mirrored", [0.5, -0.5, 0, 1, -0.5, -0.5, 0, 1, 0, 0.5, 0, -0.5]],
+    ] as const;
+    for (const [label, positions] of geometries)
+      for (const cullMode of CULLS)
+        for (const frontFace of FACES)
+          out.push({
+            name: `near-plane triangle${label} cull=${cullMode} front=${frontFace}`,
+            positions: [...positions],
+            topology: "triangle-list",
+            count: 3,
+            cullMode,
+            frontFace,
+            probes: [
+              { name: "inside the clipped polygon", x: 32, y: 10 },
+              { name: "row above", x: 32, y: 8 },
+            ],
+          });
   }
 
   // Two triangles over the same pixels, in either order: the later one's fragment is the one kept.
@@ -292,6 +300,115 @@ export function cases(): DrawCase[] {
         cullMode: "none",
         frontFace: "ccw",
         probes: [{ name: "centre", ...centroid(positions, 0, 1, 2) }],
+      });
+  }
+
+  // Strips that fold on screen, and a strip whose first triangle has zero area: does each triangle face by its own winding?
+  {
+    const xy = (...c: number[]) => c.flatMap((v, i) => (i % 2 ? [v, 0, 1] : [v]));
+    // Triangle 0 runs counter-clockwise, triangle 1 too, and triangle 2 doubles back and runs clockwise.
+    const folded = xy(-0.9, 0.9, -0.9, -0.9, -0.3, 0.9, 0.6, -0.9, -0.6, 0.9);
+    // The first two vertices coincide, so triangle 0 has zero area; triangle 1 runs counter-clockwise.
+    const flat = xy(-0.9, -0.9, -0.9, -0.9, -0.5, 0.9, 0.5, -0.9);
+    for (const cullMode of CULLS)
+      for (const frontFace of FACES) {
+        out.push({
+          name: `folded strip cull=${cullMode} front=${frontFace}`,
+          positions: folded,
+          topology: "triangle-strip",
+          count: 5,
+          cullMode,
+          frontFace,
+          probes: [
+            { name: "triangle 0", ...centroid(folded, 0, 1, 2) },
+            { name: "triangle 1", ...centroid(folded, 1, 2, 3) },
+            { name: "triangle 2", ...centroid(folded, 2, 3, 4) },
+          ],
+        });
+        out.push({
+          name: `strip with a zero-area first triangle cull=${cullMode} front=${frontFace}`,
+          positions: flat,
+          topology: "triangle-strip",
+          count: 4,
+          cullMode,
+          frontFace,
+          probes: [{ name: "triangle 1", ...centroid(flat, 1, 2, 3) }],
+        });
+      }
+  }
+
+  // The boundaries of a restart: first, twice in a row, last, and around a part of fewer than three vertices.
+  for (const kind of ["uint16", "uint32"] as const) {
+    const R = kind === "uint16" ? 0xffff : 0xffffffff;
+    const positions = zigzag(8);
+    const all = (values: number[]) => ({ values, probes: [] as DrawCase["probes"] });
+    for (const [label, values] of [
+      ["restart first", [R, 0, 1, 2, 3]],
+      ["two restarts in a row", [0, 1, 2, R, R, 3, 4, 5]],
+      ["restart last", [0, 1, 2, 3, R]],
+      ["a part of two vertices between restarts", [0, 1, 2, R, 3, 4, R, 5, 6, 7]],
+      ["a part of one vertex between restarts", [0, 1, 2, R, 3, R, 5, 6, 7]],
+    ] as const) {
+      const { probes } = all([...values]);
+      for (let k = 0; k + 2 < 8; k++)
+        probes.push({ name: `${k},${k + 1},${k + 2}`, ...centroid(positions, k, k + 1, k + 2) });
+      out.push({
+        name: `indexed strip ${kind} ${label}`,
+        positions,
+        topology: "triangle-strip",
+        index: { kind, values: [...values] },
+        count: values.length,
+        cullMode: "none",
+        frontFace: "ccw",
+        probes,
+      });
+    }
+  }
+
+  // A uint16 list through vertex 0xFFFF where 65,537 vertices exist, so that vertex is no index past the buffer.
+  {
+    const n = 65537;
+    const positions: number[] = [];
+    const ids: number[] = [];
+    for (let k = 0; k < n; k++) {
+      positions.push(5, 5, 0, 1);
+      ids.push(k === 0xffff ? 200 : k === 0 ? 50 : k === 1 ? 51 : 0);
+    }
+    positions.splice(0, 8, -0.9, -0.9, 0, 1, 0.9, -0.9, 0, 1);
+    positions.splice(0xffff * 4, 4, 0, 0.9, 0, 1);
+    out.push({
+      name: "indexed list uint16 through vertex 0xFFFF of 65537",
+      positions,
+      ids,
+      topology: "triangle-list",
+      index: { kind: "uint16", values: [0xffff, 0, 1] },
+      count: 3,
+      cullMode: "none",
+      frontFace: "ccw",
+      probes: [{ name: "centre", x: 32, y: 10 }],
+    });
+  }
+
+  // An indexed draw whose first index and count run past the end of its index array.
+  {
+    const positions = zigzag(6);
+    for (const [firstIndex, count] of [
+      [0, 7],
+      [4, 3],
+    ])
+      out.push({
+        name: `indexed list of 6 indices drawn from ${firstIndex} for ${count}`,
+        positions,
+        topology: "triangle-list",
+        index: { kind: "uint16", values: [0, 1, 2, 3, 4, 5] },
+        firstIndex,
+        count,
+        cullMode: "none",
+        frontFace: "ccw",
+        probes: [
+          { name: "0,1,2", ...centroid(positions, 0, 1, 2) },
+          { name: "3,4,5", ...centroid(positions, 3, 4, 5) },
+        ],
       });
   }
 
