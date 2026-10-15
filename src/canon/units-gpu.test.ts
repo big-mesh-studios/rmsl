@@ -912,6 +912,97 @@ describe("a triangle with a vertex at or near vec4(0)", () => {
   );
 });
 
+/**
+ * One entry of a GPU page for each adapter. Each draws a triangle that every
+ * plane of the clip volume cuts, into a polygon of 9 vertices, on a 16×16
+ * canvas: red and green from a colour each vertex has, and blue from an
+ * integer each vertex has, 5 for the first, over 8. It returns a row of
+ * characters for each row of pixels, the red, green and blue bytes of each
+ * pixel joined.
+ */
+const NINE_VERTICES = `
+import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const draw = async (create, settle) => {
+  const position = attribute("vec4");
+  const colour = attribute("vec3");
+  const id = attribute("int");
+  const shade = varying("vec3");
+  const k = varying("int");
+  const vertex = Fn(() => {
+    shade.assign(colour);
+    k.assign(id);
+    return vec4(position);
+  })();
+  const fragment = Fn(() => vec4(shade.x, shade.y, k.toFloat().div(8), 1))();
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const adapter = create(vertex, fragment);
+  await adapter.attach(canvas);
+  adapter.setAttribute(position, Float32Array.of(2.5, 2.25, 1, 2, 0.75, -2, -2, 3.75, -4, -2, 3.75, -0.5));
+  adapter.setAttribute(colour, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+  adapter.setAttribute(id, Int32Array.of(5, 2, 7));
+  adapter.draw({ count: 3 });
+  if (settle) await settle(adapter);
+  const flat = document.createElement("canvas");
+  flat.width = 16;
+  flat.height = 16;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, 16, 16).data;
+  const rows = [];
+  for (let y = 0; y < 16; y++) {
+    const row = [];
+    for (let x = 0; x < 16; x++) row.push(Array.from(data.slice((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)).join(","));
+    rows.push(row.join(" "));
+  }
+  return rows;
+};
+globalThis.__rmslNineJs = () => draw((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslNineWasm = () => draw((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslNineWgsl = () =>
+  draw(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+describe("a triangle every plane of the clip volume cuts", () => {
+  /**
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "draws on JS and WASM what it draws on WebGPU, with the first vertex's flat value",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const bytes = (rows: string[]) =>
+        rows.flatMap((row) => row.split(" ").map((pixel) => pixel.split(",").map(Number)));
+      const webgpu = bytes(await runInWebGpuPage(NINE_VERTICES, "__rmslNineWgsl", dir));
+      const lit = webgpu.filter((pixel) => pixel.some((byte) => byte !== 0));
+      expect(lit.length).toBeGreaterThan(50);
+      expect(new Set(lit.map((pixel) => pixel[2]))).toEqual(new Set([159]));
+      for (const entry of ["__rmslNineJs", "__rmslNineWasm"]) {
+        const cpu = bytes(await runInGpuPage(NINE_VERTICES, entry, dir));
+        // The same pixels lit, each red and green within one step of an 8-bit channel, as 32 and 64 bits round them.
+        expect(cpu.map((pixel) => pixel.some((byte) => byte !== 0))).toEqual(
+          webgpu.map((pixel) => pixel.some((byte) => byte !== 0)),
+        );
+        cpu.forEach((pixel, i) =>
+          pixel.forEach((byte, c) => expect(Math.abs(byte - webgpu[i]![c]!)).toBeLessThanOrEqual(1)),
+        );
+        expect(new Set(cpu.filter((pixel) => pixel.some((byte) => byte !== 0)).map((pixel) => pixel[2]))).toEqual(
+          new Set([159]),
+        );
+      }
+    },
+    120_000,
+  );
+});
+
 describe("setUniform on a sampler slot of createGlsl before attach", () => {
   /**
    * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot

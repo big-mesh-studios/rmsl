@@ -1620,6 +1620,43 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * Each of the six planes of the clip volume cuts this triangle, into a
+   * polygon of 9 vertices, the most a triangle can have, so the clip fills a
+   * half of its scratch and fans out 7 triangles. Chromium's WebGPU on Metal
+   * lights 57 pixels for it.
+   *
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it.each(rasterizers)(
+    "%s: gives every fragment of a triangle the clip cuts into 9 vertices its first vertex's integer",
+    (_, compileRaster) => {
+      const pos = attribute("vec4");
+      const id = attribute("int");
+      const k = varying("int");
+      const routine = compileRaster(
+        () =>
+          Fn(() => {
+            k.assign(id);
+            builtinPosition().assign(pos);
+          })() as any,
+        () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+      );
+      const image = routine.draw(
+        {
+          attributes: {
+            [pos.name]: Float64Array.of(2.5, 2.25, 1, 2, 0.75, -2, -2, 3.75, -4, -2, 3.75, -0.5),
+            [id.name]: Int32Array.of(5, 2, 7),
+          },
+        },
+        { width: 16, height: 16 },
+      );
+      const reds = Array.from(image).filter((_, i) => i % 4 === 0);
+      expect(reds.filter((r) => r !== 0).length).toBe(57);
+      expect(new Set(reds.filter((r) => r !== 0))).toEqual(new Set([5]));
+    },
+  );
+
+  /**
    * The second draw has twice the vertices of the first, so a WASM routine
    * lays out its memory for it differently.
    *
