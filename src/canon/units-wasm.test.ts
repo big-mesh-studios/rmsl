@@ -1516,7 +1516,7 @@ describe("the fragments the WASM rasterizer draws", () => {
   });
 
   /**
-   * @canon spec-a-flat-varying-takes-the-first-vertex
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
    */
   it("passes an int varying from the vertex to the fragment stage on WASM", () => {
     const pos = attribute("vec3");

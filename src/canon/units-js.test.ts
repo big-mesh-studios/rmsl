@@ -1558,7 +1558,7 @@ describe("the fragments a CPU rasterizer draws", () => {
    * triangle the clip makes starts at it, and one whose first two vertices do,
    * so that the clip makes its first vertex between the other two.
    *
-   * @canon spec-a-flat-varying-takes-the-first-vertex
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
    */
   it.each(rasterizers)("%s: reads an integer varying as the triangle's first vertex wrote it", (_, compileRaster) => {
     const pos = attribute("vec3");
