@@ -173,8 +173,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec every-target-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-every-target-shades-a-pixel-centre-on-a-top-or-left-edge) — Every target shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge, whichever way the triangle winds.
       - [`@spec a-wgsl-target-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-wgsl-target-shades-a-pixel-centre-on-a-top-or-left-edge) — `createWgsl` shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge, whether the edge is horizontal, vertical or sloped.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
-      - [`@spec a-glsl-target-shades-a-pixel-centre-on-a-left-edge`](#spec-a-glsl-target-shades-a-pixel-centre-on-a-left-edge) — On GLSL, a pixel centre on an edge that is not horizontal is shaded for the triangle whose left edge it is, and not for the one whose right edge it is, whether the edge is vertical or sloped.
-      - [`@exception a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#exception-a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — On GLSL, a pixel centre that lies exactly on a horizontal edge belongs to the triangle above that edge. WebGPU and the CPU rasterizers give it to the triangle below.
+      - [`@exception a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver) — On GLSL, the driver decides which of two triangles that share an edge shades a pixel centre lying exactly on that edge. Exactly one of them shades it, whichever way they wind.
   - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
     - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
     - [`@spec evaluation-reads-back-every-shape`](#spec-evaluation-reads-back-every-shape) — The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
@@ -884,7 +883,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-writes-a-string-loop-update-as-shader-text`](#fact-tsl-writes-a-string-loop-update-as-shader-text) — TSL's `Loop` writes an `update` given as a string into the loop it emits, after the index's name, as shader text.
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
-- [`@fact webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — WebGL 2 on Chromium shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades as WebGPU does.
+- [`@fact opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation`](#fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation) — OpenGL ES 3.0 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, and leaves to the implementation which.
+- [`@fact webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — Chromium's WebGL 2 on SwiftShader and on Metal shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades as WebGPU does.
 - [`@fact a-webgl-context-multisamples-by-default`](#fact-a-webgl-context-multisamples-by-default) — A WebGL 2 context multisamples its drawing buffer unless `getContext` is given `antialias: false`. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
 - [`@fact get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has) — `canvas.getContext("webgl2", attributes)` on a canvas that already has a WebGL 2 context returns that context, and ignores the attributes it is given. A context keeps the attributes it was made with for its life.
 - [`@fact three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default) — three.js's `WebGLRenderer` and its WebGPU `Renderer` take an `antialias` option that is false by default, and draw with one sample then. With `antialias: true` they multisample.
@@ -2040,21 +2040,13 @@ This follows because `createWgsl` draws through WebGPU, whose rule this is.
 
 This follows because Chromium's WebGPU decides a pixel centre on an edge by the top-left rule, and a CPU target gives what WebGPU gives.
 
-##### @spec a-glsl-target-shades-a-pixel-centre-on-a-left-edge
+##### @exception a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver
 
-> On GLSL, a pixel centre on an edge that is not horizontal is shaded for the triangle whose left edge it is, and not for the one whose right edge it is, whether the edge is vertical or sloped.
+> On GLSL, the driver decides which of two triangles that share an edge shades a pixel centre lying exactly on that edge. Exactly one of them shades it, whichever way they wind.
 
-Derives from: [`fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above)
+Derives from: [`fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation`](#fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation), [`fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above)
 
-This follows because WebGL 2 decides a pixel centre on an edge that is not horizontal as WebGPU does.
-
-##### @exception a-glsl-target-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
-
-> On GLSL, a pixel centre that lies exactly on a horizontal edge belongs to the triangle above that edge. WebGPU and the CPU rasterizers give it to the triangle below.
-
-Derives from: [`fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above)
-
-GL counts window rows from the bottom, so its own rule gives such a pixel to the triangle above it on the screen. A shader cannot change the rule. Drawing the image upside down and copying it back flipped would overwrite what other adapters drew on the canvas, which [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) allows.
+GLSL draws through WebGL 2, which takes its rule from OpenGL ES, and a shader cannot choose the rule. The drivers measured, Chromium's WebGL 2 on SwiftShader and on Metal, follow WebGPU on every edge but a horizontal one, and give a centre on a horizontal edge to the triangle above. Other drivers, such as ANGLE on Direct3D 11 or on Vulkan, are unmeasured. Drawing the image upside down and copying it back flipped would match WebGPU only on a driver whose rule mirrors WebGPU's, and would overwrite what other adapters drew on the canvas, which [`spec-several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) allows.
 
 ### @spec the-test-suite-holds-every-target-to-the-program
 
@@ -6418,11 +6410,17 @@ This is a fact of TSL, in `src/nodes/utils/LoopNode.js` of three.js, not a choic
 
 This is a fact of TSL, in `LoopNode.generate`, not a choice of rmsl.
 
-## @fact webgl-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
+## @fact opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation
 
-> WebGL 2 on Chromium shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades as WebGPU does.
+> OpenGL ES 3.0 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, and leaves to the implementation which.
 
-On Chromium, WebGL 2 on SwiftShader and on Metal draws without multisampling into a 4×4 target. A rectangle from y 0.5 to 2.5, in pixels from the top, shades rows 1 and 2, in both windings. WebGPU on Metal shades rows 0 and 1. A rectangle from x 0.5 to 2.5 shades columns 0 and 1 on both. Pairs of triangles that share an edge of slope 1, -1, 1/2 or 2 through pixel centres shade the same pixels on both, in both windings. OpenGL ES 3.0, section 3.6.1, gives a pixel centre on an edge two triangles share to exactly one of them, and leaves to the implementation which.
+OpenGL ES 3.0, section 3.6.1, requires that exactly one of two polygons on either side of a common edge produces a fragment whose centre lies on that edge, and names no rule that picks it. WebGL 2 inherits this.
+
+## @fact webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above
+
+> Chromium's WebGL 2 on SwiftShader and on Metal shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades as WebGPU does.
+
+On Chromium, WebGL 2 through ANGLE on SwiftShader and through ANGLE on Metal (Apple M1) draws without multisampling into a 4×4 target. A rectangle from y 0.5 to 2.5, in pixels from the top, shades rows 1 and 2, in both windings. WebGPU on Metal shades rows 0 and 1. A rectangle from x 0.5 to 2.5 shades columns 0 and 1 on both. Pairs of triangles that share an edge of slope 1, -1, 1/2 or 2 through pixel centres shade the same pixels on both, in both windings.
 
 ## @fact a-webgl-context-multisamples-by-default
 
