@@ -1573,6 +1573,141 @@ describe("what a JS draw allocates for the kinds of array the host passes", () =
     );
     expect(bytes).toBeLessThan(64);
   });
+
+  /** A draw of a rasterizer from `vertex` and `fragment`, measured with `ctx(first)` after draws with `ctx(other)` of each of `others`. */
+  async function afterOthers<K>(
+    vertex: () => void,
+    fragment: () => any,
+    ctx: (kind: K) => object,
+    first: K,
+    others: readonly K[],
+  ): Promise<number> {
+    const raster = compileJS(
+      () => Fn(() => vertex())(),
+      () => Fn(() => fragment())(),
+    );
+    for (const kind of others) {
+      const c = ctx(kind);
+      for (let k = 0; k < 2000; k++) raster.draw(c as any, options);
+    }
+    const c = ctx(first);
+    return allocatedBy(() => raster.draw(c as any, options), 2000, 200);
+  }
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
+   */
+  it.fails(
+    "allocates nothing per vertex for a vec3 uniform of the vertex stage given in a fifth kind of array",
+    async () => {
+      const position = attribute("vec3");
+      const u = uniform("vec3");
+      const v = varying("vec3");
+      const attributes = { [position.name]: quad() };
+      const bytes = await afterOthers(
+        () => {
+          v.assign(u.mul(0.37));
+          builtinPosition().assign(vec4(position, 1));
+        },
+        () => vec4(v, 1),
+        (kind: (n: number) => ArrayLike<number>) => ({ attributes, uniforms: { [u.name]: kind(3) } }),
+        vectorKinds[0]!,
+        vectorKinds.slice(1),
+      );
+      // Six vertices of three components: a box for each is 288 bytes.
+      expect(bytes).toBeLessThan(64);
+    },
+  );
+
+  /** The context of a draw whose sampler `t` holds texel data of `kind`, with `extra` options of its texture. */
+  const texturedBy =
+    (t: any, attributes: object, extra: object = {}) =>
+    (kind: () => ArrayLike<number>) => ({
+      attributes,
+      textures: { [t.name]: { data: kind(), width: 2, height: 2, ...extra } },
+    });
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array
+   */
+  it.fails(
+    "allocates nothing per vertex for a sampler of the vertex stage given texel data of a fifth kind",
+    async () => {
+      const position = attribute("vec3");
+      const t = uniform("sampler2D");
+      const v = varying("vec4");
+      const bytes = await afterOthers(
+        () => {
+          v.assign(texture(t, position.xy.mul(0.5).add(0.5)));
+          builtinPosition().assign(vec4(position, 1));
+        },
+        () => v,
+        texturedBy(t, { [position.name]: quad() }),
+        texelKinds[0]!,
+        texelKinds.slice(1),
+      );
+      expect(bytes).toBeLessThan(64);
+    },
+  );
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array
+   */
+  it.fails(
+    "allocates nothing per fragment for a linear-filtered sampler given texel data of a fifth kind",
+    async () => {
+      const position = attribute("vec3");
+      const t = uniform("sampler2D");
+      const bytes = await afterOthers(
+        () => builtinPosition().assign(vec4(position, 1)),
+        () => texture(t, fragCoord().xy.mul(0.0625)),
+        texturedBy(t, { [position.name]: quad() }, { magFilter: "linear" }),
+        texelKinds[0]!,
+        texelKinds.slice(1),
+      );
+      expect(bytes).toBeLessThan(64);
+    },
+  );
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a textureLoad given texel data of a fifth kind", async () => {
+    const position = attribute("vec3");
+    const t = uniform("sampler2D");
+    const bytes = await afterOthers(
+      () => builtinPosition().assign(vec4(position, 1)),
+      () => textureLoad(t, ivec2(int(0), int(1))),
+      texturedBy(t, { [position.name]: quad() }),
+      texelKinds[0]!,
+      texelKinds.slice(1),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes
+   */
+  it.fails("allocates nothing per fragment for a float uniform after uniforms objects of five shapes", async () => {
+    const position = attribute("vec3");
+    const f = uniform("float");
+    const attributes = { [position.name]: quad() };
+    // Each uniforms object holds the uniform, after a key of its own in all but the first: five shapes.
+    const shaped = (i: number) => {
+      const uniforms: Record<string, number> = {};
+      if (i > 0) uniforms["extra" + i] = 1;
+      uniforms[f.name] = 0.37;
+      return { attributes, uniforms };
+    };
+    const bytes = await afterOthers(
+      () => builtinPosition().assign(vec4(position, 1)),
+      () => vec4(f, 0, 0, 1),
+      shaped,
+      0,
+      [1, 2, 3, 4],
+    );
+    expect(bytes).toBeLessThan(64);
+  });
 });
 
 describe("what a JS program keeps after a call", () => {
