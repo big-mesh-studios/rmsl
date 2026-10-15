@@ -745,7 +745,7 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
   /**
    * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
-  it("clips a triangle with one vertex behind the eye into two triangles, matching an independent JS clip+raster reference", () => {
+  it("clips a triangle with one vertex behind the eye into the fan of its polygon, matching an independent JS clip+raster reference", () => {
     let posAttr!: AttributeNode<"vec3">;
     const vertexBuild = () =>
       Fn(() => {
@@ -768,21 +768,33 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
       (p) => (jsVertex({ attributes: { [posAttr.name]: p } }) as { position: Float64Array }).position,
     );
 
-    const EPS = 1e-5;
-    const clipAgainstW = (poly: ArrayLike<number>[]): ArrayLike<number>[] => {
-      const out: ArrayLike<number>[] = [];
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        const aIn = a[3] > EPS;
-        const bIn = b[3] > EPS;
-        if (aIn) out.push(a);
-        if (aIn !== bIn) {
-          const t = (EPS - a[3]) / (b[3] - a[3]);
-          out.push(Array.from(a, (av, k) => av + (b[k]! - av) * t));
+    // The clip volume's planes, each kept where it is at least 0: w + x, w - x, w + y, w - y, z and w - z.
+    const planes = [
+      (p: ArrayLike<number>) => p[3] + p[0],
+      (p: ArrayLike<number>) => p[3] - p[0],
+      (p: ArrayLike<number>) => p[3] + p[1],
+      (p: ArrayLike<number>) => p[3] - p[1],
+      (p: ArrayLike<number>) => p[2],
+      (p: ArrayLike<number>) => p[3] - p[2],
+    ];
+    const clipToVolume = (poly: ArrayLike<number>[]): ArrayLike<number>[] => {
+      for (const distance of planes) {
+        const out: ArrayLike<number>[] = [];
+        for (let i = 0; i < poly.length; i++) {
+          const a = poly[i];
+          const b = poly[(i + 1) % poly.length];
+          const da = distance(a);
+          const db = distance(b);
+          if (da >= 0) out.push(a);
+          // A cut runs from the vertex inside.
+          if (da >= 0 !== db >= 0) {
+            const [from, to, t] = da >= 0 ? [a, b, da / (da - db)] : [b, a, db / (db - da)];
+            out.push(Array.from(from, (v, k) => v + (to[k]! - v) * t));
+          }
         }
+        poly = out;
       }
-      return out;
+      return poly;
     };
     const fanTriangulate = (poly: number[][]): [number[], number[], number[]][] => {
       const tris: [number[], number[], number[]][] = [];
@@ -822,8 +834,8 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
     };
 
     const expected = new Float64Array(width * height * 4);
-    const clippedPoly = clipAgainstW(clipSpacePositions).map((vertex) => Array.from(vertex));
-    expect(clippedPoly.length).toBe(4); // one vertex out, two in -> a quad
+    const clippedPoly = clipToVolume(clipSpacePositions).map((vertex) => Array.from(vertex));
+    expect(clippedPoly.length).toBe(5); // two planes cut off the vertex behind the eye: a pentagon
     for (const [a, b, c] of fanTriangulate(clippedPoly)) rasterizeTriangleInto(expected, a, b, c, [9, 8, 7, 6]);
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
 

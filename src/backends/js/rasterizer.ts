@@ -5,6 +5,12 @@ import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from 
 import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
+/**
+ * How many times the rounding of a cut a vertex's w may be and still be taken
+ * for 0: 16 units in the last place, `2 ** -48`, as `rasterizer.wat` takes it.
+ */
+const CUT_ROUNDING = 2 ** -48;
+
 /** The w above which every vertex of a triangle lets it skip the clip — see rasterizer.md's clip pass (`rasterizer.wat` uses the same 1e-5). */
 const W_CLIP_EPS = 1e-5;
 
@@ -111,19 +117,33 @@ function copyComponents(from: Float64Array, to: Float64Array): void {
 }
 
 /**
- * Writes the vertex a fraction `t` of the way from `a` to `b` into `out`. A
- * varying `flat` marks is copied from `first`, the first vertex of the
- * triangle being clipped, as no value lies between two integers.
+ * Writes the vertex where plane `plane` cuts the edge from `a`, inside it, to
+ * `b`, outside it, into `out`. A varying `flat` marks is copied from `first`,
+ * the first vertex of the triangle being clipped, as no value lies between
+ * two integers. The cut takes the plane rather than its fraction, as a float
+ * passed to a call V8 does not inline is boxed.
+ *
+ * A cut vertex lies in the clip volume, where x, y and z are no larger than
+ * w. One whose w is within the rounding of the cut lies within that rounding
+ * of `vec4(0)`, and is that point, as its x, y and z over w are rounding alone.
  */
-function lerpVertex(
+function cutVertex(
   a: ClipVertex,
   b: ClipVertex,
-  t: number,
+  plane: number,
   flat: readonly boolean[],
   first: ClipVertex,
   out: ClipVertex,
 ): void {
-  for (let i = 0; i < 4; i++) out.position[i] = a.position[i]! + (b.position[i]! - a.position[i]!) * t;
+  const da = planeDistance(a.position, plane);
+  const t = da / (da - planeDistance(b.position, plane));
+  let rounding = 0;
+  for (let i = 0; i < 4; i++) {
+    const step = (b.position[i]! - a.position[i]!) * t;
+    out.position[i] = a.position[i]! + step;
+    rounding = Math.max(rounding, Math.abs(a.position[i]!) + Math.abs(step));
+  }
+  if (Math.abs(out.position[3]!) <= rounding * CUT_ROUNDING) for (let i = 0; i < 4; i++) out.position[i] = 0;
   for (let k = 0; k < a.varyings.length; k++) {
     const x = a.varyings[k]!;
     const y = b.varyings[k]!;
@@ -274,7 +294,11 @@ export function compileJSRasterizer(
         const db = planeDistance(b.position, plane);
         // Rounding can make a cut polygon slightly concave; it keeps 9 vertices at most, the slots of a half.
         if (da >= 0 && out < 9) copyVertex(a, scratch[dst + out++]!);
-        if (da >= 0 !== db >= 0 && out < 9) lerpVertex(a, b, da / (da - db), varyingFlat, v0, scratch[dst + out++]!);
+        // A cut runs from the vertex inside, so a w far smaller than the other's keeps its digits.
+        if (da >= 0 !== db >= 0 && out < 9) {
+          if (da >= 0) cutVertex(a, b, plane, varyingFlat, v0, scratch[dst + out++]!);
+          else cutVertex(b, a, plane, varyingFlat, v0, scratch[dst + out++]!);
+        }
       }
       src = dst;
       count = out;

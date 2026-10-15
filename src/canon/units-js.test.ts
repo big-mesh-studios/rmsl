@@ -1867,6 +1867,26 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * Without rounding, the clip leaves the first triangle only the point
+   * `vec4(0)`, and the rounding of its cuts left vertices of rounding alone,
+   * which drew 14 pixels. The cut next to a vertex at w `1e-20` lands where
+   * the cut next to one at w `1e-6` does, at the right edge.
+   *
+   * @canon spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: places a vertex the clip cuts inside the clip volume", (_, compileRaster) => {
+    const touching = drawColoured(compileRaster, [
+      ...[-17.008342718207317, 0.4241684540304529, -0.000040177603644876515, -3.260635316638261],
+      ...[150.88698604085658, -3.762947434834523, 0.000356429642838154, 28.926241883593512],
+      ...[-182.78403711879133, 84.72777821441362, -0.012918565514045719, -1.7127370445402237],
+    ]);
+    expect(Array.from(touching).some((value) => value !== 0)).toBe(false);
+    const nextTo = (w: number) => pattern(drawColoured(compileRaster, [-1, -1, 0.5, 1, 2, -1, 0.5, 1, 0, 0, 0, w]));
+    expect(nextTo(1e-20)).toEqual(nextTo(1e-6));
+    expect(nextTo(1e-20)[15]).not.toContain(".");
+  });
+
+  /**
    * Chromium's WebGPU on Metal gives these pixels these depths.
    *
    * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings

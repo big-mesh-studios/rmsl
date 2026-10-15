@@ -746,6 +746,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips to the clip volume, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) — The rasterizer clips a triangle with a vertex near or behind the eye to WebGPU's clip volume, and draws the part inside it. A triangle wholly behind the eye draws nothing.
+      - [`@spec a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume`](#spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume) — A vertex the clip cuts lies inside the clip volume, where it lies without rounding. The rasterizer cuts an edge from its vertex inside the volume, so a cut next to a vertex whose w is far smaller than the other's keeps that w's digits. A cut vertex whose w is no more than 2^-48 of the largest sum the cut takes, a component of the inside vertex and its step towards the other added by size, is `vec4(0)`. A triangle that meets the clip volume only at `vec4(0)` then draws nothing.
       - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A CPU rasterizer draws a vertex at or near `vec4(0)` as WebGPU draws it.
         - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w. A triangle with a vertex whose w is 1e-5 or less is clipped to that volume, plane by plane.
         - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
@@ -5507,6 +5508,14 @@ This follows because the vector a JS function computes lives in a slot that the 
 ##### @spec a-rasterizer-clips-a-triangle-to-the-clip-volume
 
 > The rasterizer clips a triangle with a vertex near or behind the eye to WebGPU's clip volume, and draws the part inside it. A triangle wholly behind the eye draws nothing.
+
+##### @spec a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+
+> A vertex the clip cuts lies inside the clip volume, where it lies without rounding. The rasterizer cuts an edge from its vertex inside the volume, so a cut next to a vertex whose w is far smaller than the other's keeps that w's digits. A cut vertex whose w is no more than 2^-48 of the largest sum the cut takes, a component of the inside vertex and its step towards the other added by size, is `vec4(0)`. A triangle that meets the clip volume only at `vec4(0)` then draws nothing.
+
+Derives from: [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume), [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because a cut vertex whose x, y and w are all rounding has an x and y over w that place it anywhere, on the target or far off it, though the point it stands for lies within that rounding of `vec4(0)`. A triangle the clip leaves no area then drew a wedge of pixels. A cut taken from the vertex outside the volume loses a w far smaller than the other vertex's, which drops part of a triangle WebGPU draws.
 
 ##### @spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre
 
