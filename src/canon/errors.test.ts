@@ -482,25 +482,34 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGPU device", () => {
 });
 
 /**
- * A vertex stage that reads a uniform array of 5000 `vec4`s, more than the
- * 4096 uniform vectors a vertex shader holds on SwiftShader, so the driver
- * refuses to link the program rmsl writes for it. rmsl leaves that limit to
- * the device.
+ * `__rmslShaderCompileError` draws with a uniform named `webgl_flag`. rmsl uses
+ * a raw name as given, and WebGL reserves the `webgl_` prefix, so the browser
+ * refuses to compile the vertex shader on every driver, and its log names the
+ * uniform. `__rmslProgramLinkError` reads a uniform array one `vec4` longer than
+ * the device's `MAX_VERTEX_UNIFORM_VECTORS`. rmsl leaves that limit to the
+ * device, and Chromium's WebGL 2 on SwiftShader refuses it when it links the
+ * program, not when it compiles the shader.
  */
 const DRIVER_SCENE = `
-import { Fn, builtinPosition, int, uniformArray, vec4 } from "../rmsl";
+import { Fn, builtinPosition, int, uniformArray, uniformRaw, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
-globalThis.__rmslDriverError = () => {
-  const values = uniformArray("vec4", 5000);
-  const vertex = Fn(() => builtinPosition().assign(values.element(int(3))))();
+const attach = (vertex) => {
   const fragment = Fn(() => vec4(0, 1, 0, 1))();
-  const canvas = document.createElement("canvas");
   try {
-    createGlsl(vertex, fragment).attach(canvas);
+    createGlsl(vertex, fragment).attach(document.createElement("canvas"));
     return { thrown: false };
   } catch (error) {
     return { name: error.name, code: error.code, target: error.target, log: error.log };
   }
+};
+globalThis.__rmslShaderCompileError = () => {
+  const flag = uniformRaw("webgl_flag", "float");
+  return attach(Fn(() => builtinPosition().assign(vec4(flag)))());
+};
+globalThis.__rmslProgramLinkError = () => {
+  const limit = document.createElement("canvas").getContext("webgl2").getParameter(WebGL2RenderingContext.MAX_VERTEX_UNIFORM_VECTORS);
+  const values = uniformArray("vec4", limit + 1);
+  return attach(Fn(() => builtinPosition().assign(values.element(int(3))))());
 };
 `;
 
@@ -511,18 +520,28 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGL 2 driver", () => {
 
   /**
    * @canon spec-a-driver-refusal-is-a-driver-error
+   * @canon spec-a-raw-name-webgl-reserves-reaches-the-glsl-driver
+   */
+  it("throws a DriverError for a vertex shader the driver does not compile", async () => {
+    const result = await runInGpuPage(DRIVER_SCENE, "__rmslShaderCompileError", import.meta.dirname);
+    expect(result).toMatchObject({ name: "DriverError", code: "shader-compile", target: "glsl" });
+  }, 120_000);
+
+  /**
+   * @canon spec-a-driver-refusal-is-a-driver-error
    */
   it("throws a DriverError for a program the driver does not link", async () => {
-    const result = await runInGpuPage(DRIVER_SCENE, "__rmslDriverError", import.meta.dirname);
+    const result = await runInGpuPage(DRIVER_SCENE, "__rmslProgramLinkError", import.meta.dirname);
     expect(result).toMatchObject({ name: "DriverError", code: "program-link", target: "glsl" });
   }, 120_000);
 
   /**
    * @canon spec-a-driver-error-carries-the-log-of-the-driver
+   * @canon spec-a-raw-name-webgl-reserves-reaches-the-glsl-driver
    */
   it("gives the driver's log", async () => {
-    const result = await runInGpuPage(DRIVER_SCENE, "__rmslDriverError", import.meta.dirname);
-    expect(result.log).toMatch(/MAX_VERTEX_UNIFORM_VECTORS/);
+    const result = await runInGpuPage(DRIVER_SCENE, "__rmslShaderCompileError", import.meta.dirname);
+    expect(result.log).toMatch(/webgl_flag/);
   }, 120_000);
 });
 

@@ -230,6 +230,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+      - [`@spec a-raw-name-webgl-reserves-reaches-the-glsl-driver`](#spec-a-raw-name-webgl-reserves-reaches-the-glsl-driver) — On GLSL, a raw name that starts with `webgl_` or `_webgl_` reaches the shader as given, and the driver refuses to compile it. `createGlsl` throws a `DriverError` of code `shader-compile`, whose log names it.
       - [`@spec create-glsl-checks-the-names-of-its-two-stages-together`](#spec-create-glsl-checks-the-names-of-its-two-stages-together) — `createGlsl` refuses a vertex and a fragment stage that declare one name differently: by type, or by the precision of a uniform.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
       - [`@spec screen-size-is-one-uniform-everywhere`](#spec-screen-size-is-one-uniform-everywhere) — `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
@@ -1015,6 +1016,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 - [`@fact glsl-takes-no-precision-on-a-boolean`](#fact-glsl-takes-no-precision-on-a-boolean) — GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
+- [`@fact webgl-refuses-a-shader-that-declares-a-name-it-reserves`](#fact-webgl-refuses-a-shader-that-declares-a-name-it-reserves) — WebGL reserves the identifiers that start with `webgl_` or `_webgl_`, and refuses to compile a shader that declares one. Chromium 149's WebGL 2 answers `'webgl_flag' : reserved built-in name` on SwiftShader and on ANGLE's Metal backend alike.
 - [`@fact glsl-links-a-uniform-of-both-stages-only-if-they-match`](#fact-glsl-links-a-uniform-of-both-stages-only-if-they-match) — GLSL ES 3.00 links a program only if a uniform that both of its shaders declare has one type and one precision in both.
 - [`@fact tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision) — TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
@@ -2370,6 +2372,14 @@ This follows because two inputs that share a name by accident read one value, a 
 ##### @spec a-raw-name-names-one-type
 
 > Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+
+##### @spec a-raw-name-webgl-reserves-reaches-the-glsl-driver
+
+> On GLSL, a raw name that starts with `webgl_` or `_webgl_` reaches the shader as given, and the driver refuses to compile it. `createGlsl` throws a `DriverError` of code `shader-compile`, whose log names it.
+
+Derives from: [`spec-a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name), [`spec-a-driver-refusal-is-a-driver-error`](#spec-a-driver-refusal-is-a-driver-error), [`fact-webgl-refuses-a-shader-that-declares-a-name-it-reserves`](#fact-webgl-refuses-a-shader-that-declares-a-name-it-reserves)
+
+This follows because rmsl uses a raw name as given and has no list of the names WebGL reserves, so it leaves the refusal to the browser, which makes it on every driver.
 
 ##### @spec create-glsl-checks-the-names-of-its-two-stages-together
 
@@ -7215,6 +7225,12 @@ This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.18
 > GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
 
 This is a fact of the GLSL ES 3.00 specification, in its section on precision qualifiers.
+
+## @fact webgl-refuses-a-shader-that-declares-a-name-it-reserves
+
+> WebGL reserves the identifiers that start with `webgl_` or `_webgl_`, and refuses to compile a shader that declares one. Chromium 149's WebGL 2 answers `'webgl_flag' : reserved built-in name` on SwiftShader and on ANGLE's Metal backend alike.
+
+This is a fact of the [WebGL 1.0 specification](https://registry.khronos.org/webgl/specs/latest/1.0/#6.20), section Reserved Identifiers, which WebGL 2 keeps, and the browser's shader validator enforces it before any driver sees the shader. The probe `probes/driver-error/webgl-reserved-identifier.ts` runs it again.
 
 ## @fact glsl-links-a-uniform-of-both-stages-only-if-they-match
 
