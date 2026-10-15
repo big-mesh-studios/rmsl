@@ -187,3 +187,50 @@ export function exactlyOnLine(a: readonly number[], b: readonly number[], width:
 export function exactCoverage(positions: readonly number[], width: number, height: number): Uint8Array | null {
   return referenceFragments(positions, width, height)?.covered ?? null;
 }
+
+/** How far `p` lies inside plane `plane` of the clip volume, as {@link insideClipVolume} takes them: w + x, w - x, w + y, w - y, z, w - z. */
+function planeDistance(p: readonly Dyadic[], plane: number): Dyadic {
+  const w = p[3]!;
+  if (plane === 0) return add(w, p[0]!);
+  if (plane === 1) return sub(w, p[0]!);
+  if (plane === 2) return add(w, p[1]!);
+  if (plane === 3) return sub(w, p[1]!);
+  if (plane === 4) return p[2]!;
+  return sub(w, p[2]!);
+}
+
+/**
+ * The winding of the part of the triangle at `positions` inside the clip volume, in normalized
+ * device coordinates with y up: 1 counter-clockwise, -1 clockwise, 0 for a part of no area or none.
+ * It clips exactly, each cut vertex `da * b - db * a`, the cut point times `da - db`, which is
+ * positive, and sums the polygon's area over the product of its w, also positive. A vertex at
+ * `vec4(0)`, the one point of the volume whose w is 0, lies at the centre.
+ */
+export function windingInClipVolume(positions: readonly number[]): number {
+  let polygon = [0, 1, 2].map((k) => positions.slice(4 * k, 4 * k + 4).map(dyadic));
+  for (let plane = 0; plane < 6 && polygon.length > 0; plane++) {
+    const next: Dyadic[][] = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i]!,
+        b = polygon[(i + 1) % polygon.length]!;
+      const da = planeDistance(a, plane),
+        db = planeDistance(b, plane);
+      if (sign(da) >= 0) next.push(a);
+      if (sign(da) >= 0 !== sign(db) >= 0)
+        next.push(a.map((c, k) => sub(mul(da, b[k]!), mul(db, c))).map((c) => (sign(da) >= 0 ? c : neg(c))));
+    }
+    polygon = next;
+  }
+  const n = polygon.length;
+  let area = ZERO;
+  for (let i = 0; i < n; i++) {
+    const p = polygon[i]!,
+      q = polygon[(i + 1) % n]!;
+    if (sign(p[3]!) === 0 || sign(q[3]!) === 0) continue;
+    let term = sub(mul(p[0]!, q[1]!), mul(q[0]!, p[1]!));
+    for (let j = 0; j < n; j++)
+      if (j !== i && j !== (i + 1) % n && sign(polygon[j]![3]!) !== 0) term = mul(term, polygon[j]![3]!);
+    area = add(area, term);
+  }
+  return sign(area);
+}

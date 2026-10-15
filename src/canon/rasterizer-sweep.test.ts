@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Fn, attribute, builtinFragDepth, varying, vec4 } from "../rmsl";
 import { compileJS } from "../js";
 import { compileWasm } from "../wasm";
-import { exactlyOnLine, random, referenceFragments } from "../testing/rasterizer-reference";
+import { exactlyOnLine, random, referenceFragments, windingInClipVolume } from "../testing/rasterizer-reference";
 
 /**
  * Draws triangles from a seeded generator on both CPU rasterizers and holds
@@ -380,5 +380,167 @@ describe("a sweep of edges two triangles share on the CPU rasterizers", { timeou
         }
       }
     }
+  });
+});
+
+/** What a draw by {@link assembler} is asked: its vertices' positions and colours, indices, topology and cull state. */
+interface AssembledDraw {
+  positions: number[];
+  colours: number[];
+  index?: Uint16Array | Uint32Array;
+  topology?: "triangle-list" | "triangle-strip";
+  cullMode?: "none" | "front" | "back";
+  frontFace?: "ccw" | "cw";
+}
+
+/** The rasterizer of {@link rasterizer}, with each vertex's colour its own and the draw's options passed on. */
+function assembler(compile: typeof compileJS): (draw: AssembledDraw, width: number, height: number) => Float64Array {
+  const position = attribute("vec4");
+  const colour = attribute("vec3");
+  const shade = varying("vec3");
+  const routine = compile(
+    () =>
+      Fn(() => {
+        shade.assign(colour);
+        return vec4(position);
+      })() as any,
+    () => Fn(() => vec4(shade, builtinFragDepth()))() as any,
+  );
+  return (draw, width, height) =>
+    Float64Array.from(
+      routine.draw(
+        {
+          attributes: {
+            [position.name]: Float64Array.from(draw.positions),
+            [colour.name]: Float64Array.from(draw.colours),
+          },
+          index: draw.index,
+        },
+        {
+          width,
+          height,
+          clearColor: [0, 0, 0, -1],
+          topology: draw.topology,
+          cullMode: draw.cullMode,
+          frontFace: draw.frontFace,
+        },
+      ),
+    ).slice(0, width * height * 4);
+}
+
+const assembledJs = assembler(compileJS);
+const assembledWasm = assembler(compileWasm as unknown as typeof compileJS);
+
+/**
+ * The triangles a draw makes, each as its three vertex numbers, written from WebGPU's rules apart
+ * from the rasterizers' own assembly: a list takes each three in turn, a strip makes triangle `k`
+ * of `k`, `k + 1`, `k + 2`, an odd one wound `k + 1`, `k`, `k + 2`, and the largest index of the
+ * array starts a strip again.
+ */
+function trianglesOf(draw: AssembledDraw, count: number): number[][] {
+  const vertices = draw.index ? Array.from(draw.index) : Array.from({ length: count }, (_, i) => i);
+  const restart = draw.index instanceof Uint16Array ? 0xffff : 0xffffffff;
+  const parts: number[][] = [[]];
+  for (const v of vertices)
+    if (draw.topology === "triangle-strip" && draw.index && v === restart) parts.push([]);
+    else parts[parts.length - 1]!.push(v);
+  const out: number[][] = [];
+  for (const part of parts) {
+    if (draw.topology === "triangle-strip")
+      for (let k = 0; k + 2 < part.length; k++)
+        out.push(k % 2 ? [part[k + 1]!, part[k]!, part[k + 2]!] : [part[k]!, part[k + 1]!, part[k + 2]!]);
+    else for (let k = 0; k + 2 < part.length; k += 3) out.push([part[k]!, part[k + 1]!, part[k + 2]!]);
+  }
+  return out;
+}
+
+/** Whether a draw with this cull state draws a triangle of winding `winding`, as WebGPU decides it. */
+function drawsFace(draw: AssembledDraw, winding: number): boolean {
+  const mode = draw.cullMode ?? "none";
+  if (mode === "none") return true;
+  const front = winding !== 0 && (draw.frontFace === "cw" ? winding < 0 : winding > 0);
+  return mode === "back" ? front : !front;
+}
+
+/** The positions of the triangle of vertices `t` of `draw`, twelve components. */
+const positionsOf = (draw: AssembledDraw, t: readonly number[]) =>
+  t.flatMap((v) => draw.positions.slice(4 * v, 4 * v + 4));
+
+/** The vertices of an assembled draw: in front of the eye, behind it, on a plane of the clip volume, and at `vec4(0)`. */
+function assembledVertex(next: () => number): number[] {
+  const r = next();
+  if (r < 0.08) return [0, 0, 0, 0];
+  return gridVertex(next, r < 0.3);
+}
+
+describe("a sweep of indexed, stripped and culled draws on the CPU rasterizers", { timeout: 60_000 }, () => {
+  /**
+   * A draw by indices, as a list or a strip with restarts, and culled or not, draws the image a
+   * draw of the triangles it makes, each as a list of its own vertices, draws with the culled
+   * ones left out; and each of those triangles draws what the exact reference draws. A triangle
+   * with a vertex behind the eye or at `vec4(0)` faces as the part of it the clip leaves winds,
+   * which the reference computes exactly.
+   *
+   * @canon spec-an-indexed-cpu-draw-takes-the-vertex-each-index-names
+   * @canon spec-a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second
+   * @canon spec-an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array
+   * @canon spec-a-cpu-triangle-across-the-near-plane-faces-as-its-part-in-front-winds
+   * @canon spec-a-cpu-draw-culling-back-draws-only-front-facing-triangles
+   * @canon spec-a-cpu-draw-culling-front-draws-only-back-facing-triangles
+   * @canon spec-a-cpu-draw-with-front-face-cw-takes-a-clockwise-triangle-as-front-facing
+   * @canon spec-a-cpu-strip-triangle-faces-by-its-own-winding
+   */
+  it("draws the triangles an indexed or stripped draw makes, culled by the winding of their clipped part", () => {
+    const next = random(400);
+    const culls: AssembledDraw["cullMode"][] = ["none", "back", "front"];
+    let culledClipped = 0;
+    for (let n = 0; n < 240; n++) {
+      const count = 6;
+      const positions = Array.from({ length: count }, () => assembledVertex(next)).flat();
+      const colours = Array.from({ length: count * 3 }, () => Math.round(next() * 8) / 8);
+      const strip = n % 2 === 1;
+      const wide = n % 4 >= 2;
+      const indices: number[] = [];
+      for (let i = 0; i < 9; i++)
+        indices.push(strip && next() < 0.12 ? (wide ? 0xffffffff : 0xffff) : Math.floor(next() * count));
+      const draw: AssembledDraw = {
+        positions,
+        colours,
+        index: n % 8 === 7 ? undefined : wide ? Uint32Array.from(indices) : Uint16Array.from(indices),
+        topology: strip ? "triangle-strip" : "triangle-list",
+        cullMode: culls[n % 3],
+        frontFace: n % 5 === 0 ? "cw" : "ccw",
+      };
+      const kept = trianglesOf(draw, count).filter((t) => drawsFace(draw, windingInClipVolume(positionsOf(draw, t))));
+      const list: AssembledDraw = {
+        positions: kept.flatMap((t) => positionsOf(draw, t)),
+        colours: kept.flatMap((t) => t.flatMap((v) => colours.slice(3 * v, 3 * v + 3))),
+      };
+      const width = n % 3 === 1 ? 15 : 16;
+      const label = JSON.stringify(draw, (_, v) => (ArrayBuffer.isView(v) ? Array.from(v as Uint32Array) : v));
+      const image = assembledJs(draw, width, 16);
+      const other = assembledWasm(draw, width, 16);
+      const expected = assembledJs(list, width, 16);
+      for (let i = 0; i < image.length; i++) {
+        if (!Object.is(image[i], other[i]))
+          expect.fail(`JS and WASM differ at ${i}: ${image[i]} ${other[i]}, ${label}`);
+        if (!Object.is(image[i], expected[i]))
+          expect.fail(`the draw and its list differ at ${i}: ${image[i]} ${expected[i]}, ${label}`);
+      }
+      for (const t of trianglesOf(draw, count)) {
+        const p = positionsOf(draw, t);
+        if (!inPlaneWithTheEye(p)) drawsAsTheReference(p, width, 16);
+        const clipped = t.some((v) => !(positions[4 * v + 3]! > 0));
+        if (!clipped || (draw.cullMode ?? "none") === "none") continue;
+        const alone = assembledJs(
+          { positions: p, colours: t.flatMap((v) => colours.slice(3 * v, 3 * v + 3)) },
+          width,
+          16,
+        );
+        if (alone.some((c, i) => i % 4 === 3 && c !== -1)) culledClipped++;
+      }
+    }
+    // The sweep reaches what it claims: triangles with a vertex behind the eye or at vec4(0) that light pixels, in draws that cull.
+    expect(culledClipped).toBeGreaterThan(100);
   });
 });
