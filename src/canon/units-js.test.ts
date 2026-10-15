@@ -110,6 +110,12 @@ async function allocatedBy(run: () => unknown, warm: number, runs: number): Prom
     profiler.connect();
     await profiler.post("HeapProfiler.enable");
   }
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  for (let k = 0; k < warm * 10; k++) run();
+  // A full collection frees what earlier tests left, which throws away code that holds their objects, so the
+  // warming runs again after it.
+  gc();
   for (let k = 0; k < warm * 10; k++) run();
   await new Promise((resolve) => setTimeout(resolve, 50));
   let least = Infinity;
