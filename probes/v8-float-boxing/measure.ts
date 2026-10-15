@@ -3,6 +3,11 @@
  * the place in the code each byte was allocated at. It runs in the thread
  * that calls it, so a probe calls it from a worker of its own: nothing an
  * earlier probe ran then shapes the objects or the feedback this one sees.
+ *
+ * It measures after `warm` calls, so V8 has optimized the code, and keeps the
+ * lower of two rounds, which leans towards "nothing": a round that V8 spent
+ * in code it had not optimized, or that deoptimized, counts only if both did.
+ * A result is what optimized code allocates, not what a cold call does.
  */
 import { Session } from "node:inspector/promises";
 

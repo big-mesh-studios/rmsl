@@ -21,6 +21,13 @@ const cases = [
   "float uniform read in the fragment",
   "fragment writes its depth",
   "float outputStruct member",
+  "vec3 varying, after draws from 2 kinds of host array",
+  "vec3 varying, after draws from 4 kinds of host array",
+  "vec3 varying, after draws from 6 kinds of host array",
+  "int attribute",
+  "uint attribute",
+  "uint attribute of 2^31 or more",
+  "vec3 varying, both triangles crossing the near plane",
 ] as const;
 
 if (isMainThread) {
@@ -81,6 +88,130 @@ if (isMainThread) {
         place();
       };
       fragment = () => vec4(v, 1);
+      break;
+    }
+    case "vec3 varying, after draws from 2 kinds of host array":
+    case "vec3 varying, after draws from 4 kinds of host array":
+    case "vec3 varying, after draws from 6 kinds of host array": {
+      // Other rasterizers draw first, each from an attribute array of another kind, then the measured one.
+      const kinds = Number(/from (\d) kinds/.exec(name)![1]);
+      const arrays = [Float32Array, Int32Array, Uint32Array, Int16Array, Uint8Array, Array].slice(0, kinds);
+      for (const make of arrays) {
+        const p = attribute("vec3");
+        const other = compileJS(
+          () =>
+            Fn(() => {
+              builtinPosition().assign(vec4(p, 1));
+            })(),
+          () => Fn(() => vec4(1))(),
+        );
+        const values = (make as any).from([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]);
+        for (let k = 0; k < 2000; k++) other.draw({ attributes: { [p.name]: values } } as any, { width: 4, height: 4 });
+      }
+      const c = attribute("vec3");
+      const v = varying("vec3");
+      attributes[c.name] = Float64Array.of(
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        0.15,
+        0.25,
+        0.35,
+        0.45,
+        0.55,
+        0.65,
+        0.75,
+        0.85,
+        0.95,
+      );
+      vertex = () => {
+        v.assign(c.mul(0.5));
+        place();
+      };
+      fragment = () => vec4(v, 1);
+      break;
+    }
+    case "vec3 varying, both triangles crossing the near plane": {
+      // Each triangle has one vertex behind the near plane (w = -1), so the clip adds two vertices to each.
+      const clip = attribute("vec4");
+      attributes[clip.name] = Float64Array.of(
+        -1,
+        -1,
+        0,
+        1,
+        1,
+        -1,
+        0,
+        1,
+        -1,
+        1,
+        0,
+        -1,
+        1,
+        -1,
+        0,
+        1,
+        1,
+        1,
+        0,
+        1,
+        -1,
+        1,
+        0,
+        -1,
+      );
+      const c = attribute("vec3");
+      const v = varying("vec3");
+      attributes[c.name] = Float64Array.of(
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        0.15,
+        0.25,
+        0.35,
+        0.45,
+        0.55,
+        0.65,
+        0.75,
+        0.85,
+        0.95,
+      );
+      vertex = () => {
+        v.assign(c.mul(0.5));
+        builtinPosition().assign(clip);
+      };
+      fragment = () => vec4(v, 1);
+      break;
+    }
+    case "int attribute":
+    case "uint attribute":
+    case "uint attribute of 2^31 or more": {
+      const unsigned = name.startsWith("uint");
+      const c = attribute(unsigned ? "uint" : "int");
+      const v = varying("float");
+      attributes[c.name] = name.includes("2^31")
+        ? Uint32Array.of(2 ** 31, 2 ** 31 + 1, 2 ** 31 + 2, 2 ** 32 - 1, 2 ** 31 + 3, 2 ** 31 + 4)
+        : unsigned
+          ? Uint32Array.of(1, 2, 3, 4, 5, 6)
+          : Int32Array.of(-1, 2, -3, 4, -5, 6);
+      // The varying is 1 at every vertex, never -0, so only the attribute can allocate per vertex.
+      vertex = () => {
+        v.assign(c.toFloat().mul(0).add(1));
+        place();
+      };
+      fragment = () => vec4(v, 0, 0, 1);
       break;
     }
     case "float varying":
