@@ -410,7 +410,7 @@ describe("the array setAttribute takes", () => {
   let wasm!: WasmAdapter;
 
   /**
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
    */
   it("takes only the array of an attribute node's kind on a GPU adapter", () => {
     for (const gpu of [glsl, wgsl]) {
@@ -431,7 +431,7 @@ describe("the array setAttribute takes", () => {
   });
 
   /**
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
    */
   it("takes a Float64Array for a float attribute node on a CPU adapter", () => {
     for (const cpu of [js, wasm]) {
@@ -444,7 +444,7 @@ describe("the array setAttribute takes", () => {
   });
 
   /**
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
    */
   it("takes any typed array by slot name", () => {
     glsl.setAttribute(ids.name, new Float32Array(2));

@@ -97,13 +97,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
       - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
-    - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
-      - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
+    - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value as that varying passes it: interpolated for a float attribute, and flat for an integer or `bool` one, as [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) states.
+      - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the value of each attribute it reads, through a varying of its own that the vertex stage writes once for each vertex.
       - [`@spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once`](#spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once) — Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
       - [`@spec a-fragment-stage-compiled-alone-refuses-an-attribute`](#spec-a-fragment-stage-compiled-alone-refuses-an-attribute) — `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
       - [`@spec a-fragment-attribute-with-no-vertex-root-is-refused`](#spec-a-fragment-attribute-with-no-vertex-root-is-refused) — A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
-      - [`@spec a-bool-attribute-the-fragment-stage-reads-means-the-same-on-every-target`](#spec-a-bool-attribute-the-fragment-stage-reads-means-the-same-on-every-target) — A `bool` or `bvecN` attribute that the fragment stage reads gives the fragment stage the same boolean on every target, or every target refuses the program with one error as it is built. Which of the two holds is left open.
-        - [`@bug a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets`](#bug-a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets) — `createJs` and `createWasm` give the fragment stage the attribute's boolean. `createGlsl` declares the varying that carries it `out bool`, and the driver refuses the vertex shader. `createWgsl` declares it `@location(n)` of type `bool`, and the draw shows nothing, with no error.
+      - [`@spec a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying`](#spec-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying) — A `bool` or `bvecN` attribute that the fragment stage reads travels to it in a `uint` or `uvecN` varying, which is flat. The fragment stage tests the integer against zero, and reads the boolean of the vertex an integer varying takes its value from.
+        - [`@spec a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex`](#spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex) — On WGSL, JS and WASM, a fragment reads a `bool` attribute as the first vertex of its triangle holds it.
+        - [`@exception a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex`](#exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex) — On GLSL, a fragment reads a `bool` attribute as the last vertex of its triangle holds it.
+        - [`@bug a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets`](#bug-a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets) — `createJs` and `createWasm` give the fragment stage the boolean of the first vertex. `createGlsl` declares the varying that carries it `out bool`, and the driver refuses the vertex shader. `createWgsl` declares it `@location(n)` of type `bool`, and the draw shows nothing, with no error.
       - [`@exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects`](#exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects) — A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
@@ -179,13 +181,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
-  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
-  - [`@spec a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer) — A `bool` or `bvecN` attribute reads, on every target, the boolean of an integer the host gives for each component: true where the integer is not zero. On GLSL and WGSL it is a vertex input of `uint` or `uvecN`, which the vertex stage compares with zero where it reads it.
-    - [`@spec a-bool-attribute-reads-true-where-its-integer-is-not-zero`](#spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads a component of a `bool` or `bvecN` attribute as true where the host's integer for it is not zero, -1 and 2³² - 1 included, and as false where it is 0.
-      - [`@bug a-bool-attribute-fails-on-the-gpu-targets`](#bug-a-bool-attribute-fails-on-the-gpu-targets) — On GLSL, `createGlsl` declares the attribute `in bool`, the driver refuses the vertex shader, and `attach` throws a `DriverError`. On WGSL, `createWgsl` declares it `@location(n) flag: bool`, the device refuses the shader module, and the draw leaves the canvas as it was with no error. `createJs` and `createWasm` draw. Every adapter takes only a `Float32Array` for the attribute, and the CPU ones a `Float64Array` too, and refuses an `Int32Array` or a `Uint32Array`.
-    - [`@spec an-adapter-takes-a-bool-attribute-as-an-int32-or-uint32-array`](#spec-an-adapter-takes-a-bool-attribute-as-an-int32-or-uint32-array) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, and refuses a `Float32Array` or a `Float64Array`, naming the type. The GPU adapters upload either array as given, without a copy.
-    - [`@exception a-bool-attribute-reads-no-float-array`](#exception-a-bool-attribute-reads-no-float-array) — TSL reads a `bool` attribute from a `Float32Array` and tests the float against zero, so 0.5 reads true. Every adapter refuses a `Float32Array` for a `bool` attribute instead.
-    - [`@spec a-scene-renderer-reads-a-bool-attribute-as-integers`](#spec-a-scene-renderer-reads-a-bool-attribute-as-integers) — `WebGLRenderer` and `WebGPURenderer` read a `bool` or `bvecN` attribute from an integer array, through an integer format, and give the vertex stage true where the integer is not zero. Which narrow integer arrays and which declared formats they admit for it is left open.
+  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. A float attribute reads floats or scaled integers, an `int` attribute signed integers, a `uint` attribute unsigned ones, and a `bool` attribute unsigned integers tested against zero. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+    - [`@spec a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type) — On both GPU renderers, a float, `int` or `uint` attribute takes its format from its width and array type, or from a format it declares, and the format survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused, naming the declared type.
+    - [`@spec a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers`](#spec-a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers) — `WebGLRenderer` and `WebGPURenderer` take an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, read it through an unsigned 32-bit format whatever the signedness of the array, and give the vertex stage true where the integer is not zero. They refuse any other array for it.
+      - [`@bug a-scene-renderer-refuses-an-integer-array-for-a-bool-attribute`](#bug-a-scene-renderer-refuses-an-integer-array-for-a-bool-attribute) — `WebGLRenderer` and `WebGPURenderer` read a `bool` attribute as a float attribute. They refuse an `Int32Array` or a `Uint32Array` for it, as of another kind, and give a `Float32Array` the format `float32`.
+  - [`@spec a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer) — A `bool` or `bvecN` attribute reads, on every target, the boolean of the integer the host gives for each component: true where it is not zero. On GLSL and WGSL it is a vertex input of `uint` or `uvecN`, which the vertex stage compares with zero where it reads it.
+    - [`@bug a-bool-attribute-is-declared-as-a-boolean-input`](#bug-a-bool-attribute-is-declared-as-a-boolean-input) — `createGlsl`, `compileGlsl` and `WebGLRenderer` declare a `bool` attribute `in bool`, which the driver refuses, and `createGlsl` throws a `DriverError` at `attach`. `createWgsl`, `compileWgsl` and `WebGPURenderer` declare it `@location(n)` of type `bool`, which the device refuses, and `createWgsl` draws nothing with no error.
+    - [`@spec a-bool-attribute-reads-true-where-its-integer-is-not-zero`](#spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads a `bool` attribute as true where the host's integer for it is not zero, -1 and 2³² - 1 included, and as false where it is 0.
+    - [`@spec a-boolean-vector-attribute-reads-each-component-against-zero`](#spec-a-boolean-vector-attribute-reads-each-component-against-zero) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads each component of a `bvec2`, `bvec3` or `bvec4` attribute as true where the host's integer for that component is not zero, and as false where it is 0.
+    - [`@spec a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input`](#spec-a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input) — `compileGlsl` declares a `bool` or `bvecN` attribute of a vertex stage `in uint` or `in uvecN`, and `compileWgsl` declares it `@location(n)` of type `u32` or `vec<N, u32>`. The host binds unsigned integers to it.
+    - [`@spec the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers`](#spec-the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers) — `createGlsl` points the array of a `bool` attribute with `vertexAttribIPointer` and `UNSIGNED_INT`, an `Int32Array` as well as a `Uint32Array`, and uploads it as given, without a copy.
+    - [`@spec a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w`](#spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w) — `WebGLRenderer` and `WebGPURenderer` give a `bool` or `bvecN` attribute that a mesh's geometry lacks the components of (0, 0, 0, 1) cut to its width, tested against zero: false in x, y and z, and true in w.
   - [`@spec a-scene-renderer-reads-an-integer-attribute-as-integers`](#spec-a-scene-renderer-reads-an-integer-attribute-as-integers) — `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
   - [`@spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location`](#spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location) — `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
   - [`@spec the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives`](#spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives) — A draw of `WebGPURenderer` gives a vertex attribute its program declares but has no data for the value (0, 0, 0, 1). A draw of `WebGLRenderer` gives it the same. Each location of the attribute reads the components of that value it holds, of the attribute's kind, at every vertex.
@@ -313,8 +319,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
   - [`@spec a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused`](#spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm`, or of a `compileJS` or `compileWasm` rasterizer, is refused when its vertex stage reads an attribute the host never gave data for. The error names the attribute, as `draw() is missing attribute "<slot>"` after the name of the call.
-  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, and a `Uint32Array` for `uint` or `uvecN`. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
+  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, a `Uint32Array` for `uint` or `uvecN`, and an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
     - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it. The scene renderers take the arrays and formats the declared type admits.
+      - [`@spec an-adapter-takes-only-the-array-of-a-numeric-attributes-kind`](#spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes a `Float32Array` for a float attribute, an `Int32Array` for an `int` one and a `Uint32Array` for a `uint` one, and refuses an array of another kind. The CPU ones take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits.
+      - [`@spec an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute.
+        - [`@bug an-adapter-refuses-an-integer-array-for-a-bool-attribute`](#bug-an-adapter-refuses-an-integer-array-for-a-bool-attribute) — Every adapter refuses an `Int32Array` and a `Uint32Array` for a `bool` attribute, as an array of another kind than a `Float32Array`.
+      - [`@spec an-adapter-refuses-a-float-array-for-a-bool-attribute`](#spec-an-adapter-refuses-a-float-array-for-a-bool-attribute) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuses a `Float32Array` or a `Float64Array` for a `bool` or `bvecN` attribute, and names the type and the arrays it takes.
+        - [`@bug an-adapter-takes-a-float-array-for-a-bool-attribute`](#bug-an-adapter-takes-a-float-array-for-a-bool-attribute) — Every adapter takes a `Float32Array` for a `bool` attribute, and the CPU ones a `Float64Array` too.
+      - [`@spec the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute) — On every adapter, the type of `setAttribute` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute node, and no float array.
     - [`@spec a-storage-buffer-takes-only-an-array-of-its-element-kind`](#spec-a-storage-buffer-takes-only-an-array-of-its-element-kind) — Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. The adapter checks a slot name where `setAttribute` is called, before `attach` as after it, against the type of its slot in its program.
     - [`@spec the-type-of-a-programs-storages-admits-only-typed-arrays`](#spec-the-type-of-a-programs-storages-admits-only-typed-arrays) — The type of `ctx.storages`, the storage arrays the host passes a program from `compileJS*` or `compileWasm*`, admits only a `Float32Array`, a `Float64Array`, an `Int32Array` and a `Uint32Array`. The type checker refuses a plain array there. The program checks nothing at run time.
     - [`@spec a-readback-array-takes-only-an-array-of-its-element-kind`](#spec-a-readback-array-takes-only-an-array-of-its-element-kind) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` of another kind than the element type of its slot, before it runs anything. The CPU ones take a `Float64Array` for float elements too.
@@ -1053,7 +1065,6 @@ The analysis found these places where the code or the documents do not hold the 
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
-3. A `bool` attribute that the fragment stage reads fails on GLSL and WGSL, as it does in TSL. Whether rmsl refuses it on every target or carries it in a flat integer varying is open, as [`spec-a-bool-attribute-the-fragment-stage-reads-means-the-same-on-every-target`](#spec-a-bool-attribute-the-fragment-stage-reads-means-the-same-on-every-target) states. Issue #291.
 
 ### Coverage gaps
 
@@ -1577,7 +1588,7 @@ This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRendere
 
 #### @spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it
 
-> An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
+> An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value as that varying passes it: interpolated for a float attribute, and flat for an integer or `bool` one, as [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) states.
 
 Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying`](#fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying)
 
@@ -1585,7 +1596,7 @@ This follows because a TSL shader reads an attribute in its fragment stage witho
 
 ##### @spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
 
-> `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
+> `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the value of each attribute it reads, through a varying of its own that the vertex stage writes once for each vertex.
 
 ##### @spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
 
@@ -1603,17 +1614,31 @@ This follows because a stage compiled alone has no vertex stage to write the var
 
 This follows because the vertex stage writes the varying that carries the attribute, and a stage with no root has nowhere to write it.
 
-##### @spec a-bool-attribute-the-fragment-stage-reads-means-the-same-on-every-target
+##### @spec a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
 
-> A `bool` or `bvecN` attribute that the fragment stage reads gives the fragment stage the same boolean on every target, or every target refuses the program with one error as it is built. Which of the two holds is left open.
+> A `bool` or `bvecN` attribute that the fragment stage reads travels to it in a `uint` or `uvecN` varying, which is flat. The fragment stage tests the integer against zero, and reads the boolean of the vertex an integer varying takes its value from.
 
-Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages), [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying`](#fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying)
+Derives from: [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat), [`spec-a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer), [`fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages), [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying`](#fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying)
 
-This follows because neither GPU language passes a boolean between stages, and TSL, which passes the attribute in a `bool` varying, draws nothing on either backend. So TSL gives no behaviour to port. A flat integer varying would carry the boolean, at the cost of a departure from TSL's varying of the attribute's own type. A refusal costs nothing. The open questions of this document hold the choice.
+This follows because neither GPU language passes a boolean between stages, and the owner of the design chose to carry the attribute's integer instead. It departs from TSL, which passes such an attribute in a `bool` varying that neither of its backends compiles, so it draws nothing. A boolean between two vertices has no value between them, so the varying is flat, as an integer varying is.
+
+###### @spec a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
+
+> On WGSL, JS and WASM, a fragment reads a `bool` attribute as the first vertex of its triangle holds it.
+
+Derives from: [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex)
+
+###### @exception a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex
+
+> On GLSL, a fragment reads a `bool` attribute as the last vertex of its triangle holds it.
+
+Derives from: [`exception-a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex), [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
+
+This follows because the attribute travels in a flat integer varying, which GLSL takes from the last vertex.
 
 ###### @bug a-bool-attribute-the-fragment-stage-reads-fails-on-the-gpu-targets
 
-> `createJs` and `createWasm` give the fragment stage the attribute's boolean. `createGlsl` declares the varying that carries it `out bool`, and the driver refuses the vertex shader. `createWgsl` declares it `@location(n)` of type `bool`, and the draw shows nothing, with no error.
+> `createJs` and `createWasm` give the fragment stage the boolean of the first vertex. `createGlsl` declares the varying that carries it `out bool`, and the driver refuses the vertex shader. `createWgsl` declares it `@location(n)` of type `bool`, and the draw shows nothing, with no error.
 
 Issue: #291
 
@@ -2047,53 +2072,73 @@ This follows because the suite evaluates every program it records on every targe
 
 ### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
 
-> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+> A vertex attribute reaches the shader as the type it declares on both GPU renderers. A float attribute reads floats or scaled integers, an `int` attribute signed integers, a `uint` attribute unsigned ones, and a `bool` attribute unsigned integers tested against zero. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
 
 Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer)
 
 This follows because a format one renderer reads as another type would make the two draw differently. Both graphics APIs refuse a draw whose format and shader input differ in kind, so the renderer refuses it first and names the cause.
 
-### @spec a-bool-attribute-travels-as-an-unsigned-integer
+#### @spec a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
 
-> A `bool` or `bvecN` attribute reads, on every target, the boolean of an integer the host gives for each component: true where the integer is not zero. On GLSL and WGSL it is a vertex input of `uint` or `uvecN`, which the vertex stage compares with zero where it reads it.
+> On both GPU renderers, a float, `int` or `uint` attribute takes its format from its width and array type, or from a format it declares, and the format survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused, naming the declared type.
 
-Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages), [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), [`spec-a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer), [`spec-a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer)
+#### @spec a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers
 
-This follows because a TSL shader that reads a `bool` attribute in its vertex stage draws, so it must port, and neither GPU language takes a boolean vertex input. TSL reads such an attribute through an input of the kind of its array and converts it to a boolean. rmsl fixes the input of an attribute from its declared type, as [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) states, so it picks one integer kind, the one a `bool` uniform travels as. An integer has no fraction and no NaN, so the test against zero is defined on every target. The bits of an `int` read as a `uint` are zero exactly where the `int` is zero, so either integer array gives the same boolean.
+> `WebGLRenderer` and `WebGPURenderer` take an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, read it through an unsigned 32-bit format whatever the signedness of the array, and give the vertex stage true where the integer is not zero. They refuse any other array for it.
 
-#### @spec a-bool-attribute-reads-true-where-its-integer-is-not-zero
+Derives from: [`spec-a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer), [`fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness`](#fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns)
 
-> A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads a component of a `bool` or `bvecN` attribute as true where the host's integer for it is not zero, -1 and 2³² - 1 included, and as false where it is 0.
+This follows because the shader reads a `bool` attribute through a `uint` input, and both graphics APIs feed an unsigned input only from an unsigned format. three.js picks the format from the array, `sint32` and `INT` for an `Int32Array`, which a `uint` input refuses, so the renderer picks it from the declared type instead. The arrays it takes are the ones the owner of the design chose for every adapter.
 
-##### @bug a-bool-attribute-fails-on-the-gpu-targets
+##### @bug a-scene-renderer-refuses-an-integer-array-for-a-bool-attribute
 
-> On GLSL, `createGlsl` declares the attribute `in bool`, the driver refuses the vertex shader, and `attach` throws a `DriverError`. On WGSL, `createWgsl` declares it `@location(n) flag: bool`, the device refuses the shader module, and the draw leaves the canvas as it was with no error. `createJs` and `createWasm` draw. Every adapter takes only a `Float32Array` for the attribute, and the CPU ones a `Float64Array` too, and refuses an `Int32Array` or a `Uint32Array`.
+> `WebGLRenderer` and `WebGPURenderer` read a `bool` attribute as a float attribute. They refuse an `Int32Array` or a `Uint32Array` for it, as of another kind, and give a `Float32Array` the format `float32`.
 
 Issue: #291
 
-#### @spec an-adapter-takes-a-bool-attribute-as-an-int32-or-uint32-array
+### @spec a-bool-attribute-travels-as-an-unsigned-integer
 
-> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, and refuses a `Float32Array` or a `Float64Array`, naming the type. The GPU adapters upload either array as given, without a copy.
+> A `bool` or `bvecN` attribute reads, on every target, the boolean of the integer the host gives for each component: true where it is not zero. On GLSL and WGSL it is a vertex input of `uint` or `uvecN`, which the vertex stage compares with zero where it reads it.
 
-Derives from: [`spec-host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused), [`spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given)
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages), [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), [`spec-a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer)
 
-This follows because a `bool` converts as into an `Int32Array`, and the integer arrays hold that value as it is. rmsl gives a boolean vector back as an `Int32Array`, and takes a `bvecN` uniform as an `Int32Array` or a `Uint32Array`, so a host that holds booleans already holds one of the two. A float array would need a conversion on every refill.
+This follows because a TSL shader that reads a `bool` attribute in its vertex stage draws, so it must port, and neither GPU language takes a boolean vertex input. TSL reads one through an input of the kind of its array and converts it. rmsl fixes the input of an attribute from its declared type, so a `bool` attribute needs one input kind before the host gives data. The owner of the design chose `uint`. On WGSL a `bool` uniform travels as `u32` too, as [`spec-a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) states. GLSL takes a `bool` uniform through `uniform1i`, a `GLint`, so the choice follows WGSL there. An integer has no fraction and no NaN, so the test against zero is defined on every target. The bits of an `int` read as a `uint` are zero exactly where the `int` is zero, so an `Int32Array` and a `Uint32Array` give the same boolean.
 
-#### @exception a-bool-attribute-reads-no-float-array
+#### @bug a-bool-attribute-is-declared-as-a-boolean-input
 
-> TSL reads a `bool` attribute from a `Float32Array` and tests the float against zero, so 0.5 reads true. Every adapter refuses a `Float32Array` for a `bool` attribute instead.
+> `createGlsl`, `compileGlsl` and `WebGLRenderer` declare a `bool` attribute `in bool`, which the driver refuses, and `createGlsl` throws a `DriverError` at `attach`. `createWgsl`, `compileWgsl` and `WebGPURenderer` declare it `@location(n)` of type `bool`, which the device refuses, and `createWgsl` draws nothing with no error.
 
-Derives from: [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open)
+Issue: #291
 
-This follows because a shader has one input kind for the attribute before the host gives data, and a WebGPU format feeds only an input of its own kind. A float input would read 0.5 as true, where a `bool` converts as into an `Int32Array` and reads it false. Truncating the float on the GPU to agree would leave a NaN to the device, which WGSL leaves open.
+#### @spec a-bool-attribute-reads-true-where-its-integer-is-not-zero
 
-#### @spec a-scene-renderer-reads-a-bool-attribute-as-integers
+> A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads a `bool` attribute as true where the host's integer for it is not zero, -1 and 2³² - 1 included, and as false where it is 0.
 
-> `WebGLRenderer` and `WebGPURenderer` read a `bool` or `bvecN` attribute from an integer array, through an integer format, and give the vertex stage true where the integer is not zero. Which narrow integer arrays and which declared formats they admit for it is left open.
+#### @spec a-boolean-vector-attribute-reads-each-component-against-zero
 
-Derives from: [`spec-a-scene-renderer-reads-an-integer-attribute-as-integers`](#spec-a-scene-renderer-reads-an-integer-attribute-as-integers)
+> A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads each component of a `bvec2`, `bvec3` or `bvec4` attribute as true where the host's integer for that component is not zero, and as false where it is 0.
 
-This follows because the scene renderers compile a material through the same GLSL and WGSL as the adapters. Any integer array holds zero exactly where its bits read as unsigned are zero, so the renderer may admit any of them. Which ones it admits decides nothing about the result, and no axiom picks.
+#### @spec a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input
+
+> `compileGlsl` declares a `bool` or `bvecN` attribute of a vertex stage `in uint` or `in uvecN`, and `compileWgsl` declares it `@location(n)` of type `u32` or `vec<N, u32>`. The host binds unsigned integers to it.
+
+This follows because a host that runs a compiled stage itself binds the attribute's buffer, and needs the input type the shader declares.
+
+#### @spec the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers
+
+> `createGlsl` points the array of a `bool` attribute with `vertexAttribIPointer` and `UNSIGNED_INT`, an `Int32Array` as well as a `Uint32Array`, and uploads it as given, without a copy.
+
+Derives from: [`fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness`](#fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness), [`spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given)
+
+This follows because WebGL 2 refuses a draw whose `uint` input reads an array pointed as `INT`. Pointing an `Int32Array` as `UNSIGNED_INT` reads its bits as unsigned, which are zero where the integer is.
+
+#### @spec a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
+
+> `WebGLRenderer` and `WebGPURenderer` give a `bool` or `bvecN` attribute that a mesh's geometry lacks the components of (0, 0, 0, 1) cut to its width, tested against zero: false in x, y and z, and true in w.
+
+Derives from: [`spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant), [`fact-tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187`](#fact-tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187)
+
+This follows because the renderers give every attribute a geometry lacks the value WebGL keeps at a fresh location, and a `bool` attribute tests that value against zero. TSL r187dev reads the w of such a `bvec4` true too. TSL 0.186.1 throws as it builds the constant of a `bvec4`, so it gives no value to follow.
 
 ### @spec a-scene-renderer-reads-an-integer-attribute-as-integers
 
@@ -2855,7 +2900,7 @@ This follows because an adapter draws no geometry, so an attribute without data 
 
 ### @spec host-data-of-another-kind-is-refused
 
-> Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, and a `Uint32Array` for `uint` or `uvecN`. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
+> Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, a `Uint32Array` for `uint` or `uvecN`, and an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
@@ -2872,6 +2917,46 @@ Also, three.js reads an attribute in a format its array's type picks, so the arr
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type)
 
 This follows because an attribute is host data a draw reads at every vertex.
+
+##### @spec an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+
+> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes a `Float32Array` for a float attribute, an `Int32Array` for an `int` one and a `Uint32Array` for a `uint` one, and refuses an array of another kind. The CPU ones take a `Float64Array` for a float attribute too. The scene renderers take the arrays and formats the declared type admits.
+
+##### @spec an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute
+
+> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute.
+
+Derives from: [`spec-a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer)
+
+This follows because the owner of the design chose these two arrays. A `bool` converts as into an `Int32Array`, and rmsl gives a boolean vector back as an `Int32Array` and takes a `bvecN` uniform as either array, so a host that holds booleans holds one of the two already. Either array holds a component as the integer the program tests.
+
+###### @bug an-adapter-refuses-an-integer-array-for-a-bool-attribute
+
+> Every adapter refuses an `Int32Array` and a `Uint32Array` for a `bool` attribute, as an array of another kind than a `Float32Array`.
+
+Issue: #291
+
+##### @spec an-adapter-refuses-a-float-array-for-a-bool-attribute
+
+> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuses a `Float32Array` or a `Float64Array` for a `bool` or `bvecN` attribute, and names the type and the arrays it takes.
+
+Derives from: [`spec-an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute), [`spec-a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer), [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind)
+
+This follows because the owner of the design chose to keep a `bool` attribute to integer arrays. A float array would read 0.5 as false on a target that converts it as into an `Int32Array`, as a `bool` host value reads, and as true on one that tests the float against zero, as TSL does. This departs from TSL, which reads a `Float32Array` for a `bool` attribute and tests each float against zero, so 0.5 and NaN read true. No fact forces the departure. It is a choice.
+
+###### @bug an-adapter-takes-a-float-array-for-a-bool-attribute
+
+> Every adapter takes a `Float32Array` for a `bool` attribute, and the CPU ones a `Float64Array` too.
+
+Issue: #291
+
+##### @spec the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute
+
+> On every adapter, the type of `setAttribute` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute node, and no float array.
+
+Derives from: [`spec-an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-an-int32-or-uint32-array-for-a-bool-attribute)
+
+This follows because the types refuse a mismatch wherever they can express it, and an attribute node carries its type.
 
 #### @spec a-storage-buffer-takes-only-an-array-of-its-element-kind
 

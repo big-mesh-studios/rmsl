@@ -2220,7 +2220,7 @@ describe("the array a CPU adapter takes for an attribute", () => {
   ];
 
   /**
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
    */
   it.each(adapters)("%s refuses an array of another kind, named by node or by slot", (_, create) => {
     const position = attribute("vec2");
