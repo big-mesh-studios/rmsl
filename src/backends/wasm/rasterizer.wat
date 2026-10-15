@@ -429,17 +429,12 @@
       (f64.add
         (f64.add (f64.mul (local.get $c0) (f64.load offset=752 (local.get $l))) (f64.mul (local.get $c1) (f64.load offset=760 (local.get $l))))
         (f64.mul (local.get $c2) (f64.load offset=768 (local.get $l)))))
+    ;; Each line's bound is three times its rounding and at least 2^-48 of its value, which covers the
+    ;; rounding of this sum too.
     (local.set $bound
       (f64.add
-        (f64.add
-          (f64.add (f64.mul (local.get $m0) (f64.load offset=776 (local.get $l))) (f64.mul (local.get $m1) (f64.load offset=784 (local.get $l))))
-          (f64.mul (local.get $m2) (f64.load offset=792 (local.get $l))))
-        (f64.mul (f64.const 0x1p-50)
-          (f64.add
-            (f64.add
-              (f64.mul (local.get $m0) (f64.abs (f64.load offset=752 (local.get $l))))
-              (f64.mul (local.get $m1) (f64.abs (f64.load offset=760 (local.get $l)))))
-            (f64.mul (local.get $m2) (f64.abs (f64.load offset=768 (local.get $l))))))))
+        (f64.add (f64.mul (local.get $m0) (f64.load offset=776 (local.get $l))) (f64.mul (local.get $m1) (f64.load offset=784 (local.get $l))))
+        (f64.mul (local.get $m2) (f64.load offset=792 (local.get $l)))))
     (if (f64.gt (local.get $value) (local.get $bound)) (then (return (i32.const 1))))
     (if (f64.lt (local.get $value) (f64.neg (local.get $bound))) (then (return (i32.const -1))))
     ;; A bound of 0 leaves every component 0, as a line of a triangle that is not flat is not 0: so is the sum.

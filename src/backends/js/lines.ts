@@ -15,9 +15,6 @@
 /** The bound of rounding of a line's value, over the sum of its terms' sizes: three times what it can reach. */
 const LINE_ROUNDING = 2 ** -48;
 
-/** The bound of rounding a sum of three values adds, over the sum of their sizes. */
-const SUM_ROUNDING = 2 ** -50;
-
 /** Dekker's splitter for a 64-bit float, `2^27 + 1`. */
 const SPLITTER = 134217729;
 
@@ -310,11 +307,9 @@ export function pointSign(lines: Lines, component: number, X: number, Y: number,
     m1 = Math.abs(points[4 + w]!) + minus * Math.abs(points[4 + z]!),
     m2 = Math.abs(points[8 + w]!) + minus * Math.abs(points[8 + z]!);
   const value = c0 * values[0]! + c1 * values[1]! + c2 * values[2]!;
-  const bound =
-    m0 * bounds[0]! +
-    m1 * bounds[1]! +
-    m2 * bounds[2]! +
-    SUM_ROUNDING * (m0 * Math.abs(values[0]!) + m1 * Math.abs(values[1]!) + m2 * Math.abs(values[2]!));
+  // Each line's bound is three times its rounding and at least 2^-48 of its value, which covers the
+  // rounding of this sum too.
+  const bound = m0 * bounds[0]! + m1 * bounds[1]! + m2 * bounds[2]!;
   if (value > bound) return 1;
   if (value < -bound) return -1;
   // A bound of 0 leaves every component 0, as a line of a triangle that is not flat is not 0: so is the sum.
