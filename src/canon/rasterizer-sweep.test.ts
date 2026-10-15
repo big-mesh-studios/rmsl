@@ -313,6 +313,30 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   });
 
   /**
+   * The hair triangles again, with a hair from 2^-24 to 2^-38 times up to 32, and each vertex
+   * scaled by a factor of many digits. The line along the hair is the cross product of two nearly
+   * parallel vertices, whose terms cancel to the hair's size, and the scaled products round, so its
+   * float value is off by about 2^-53 of its terms: a far larger part of the value. The float filter
+   * keeps a value only above 2^-16 of its terms and sums any other exactly, so each weight holds to
+   * the reference. A filter of 2^-28 or less keeps values whose weights miss it by more than 1e-9.
+   *
+   * @canon spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+   */
+  it("weighs a vertex exactly where a line's float value is near a tie of its terms", () => {
+    const next = random(57);
+    for (let n = 0; n < 480; n++) {
+      const p0 = gridVertex(next, false),
+        p1 = gridVertex(next, false);
+      const hair = 2 ** -(24 + (n % 15));
+      const k = [0.5, 1, 2, 4][n % 4]!;
+      const p2 = p0.map((c) => -k * c + hair * (Math.round(next() * 64) - 32));
+      const t = n % 2 ? [...p0, ...p1, ...p2] : [...p2, ...p0, ...p1];
+      const messy = scaled(t, [messyFactor(next), messyFactor(next), messyFactor(next)]);
+      if (!inPlaneWithTheEye(messy)) drawsAsTheReference(messy, 16, 16);
+    }
+  });
+
+  /**
    * @canon spec-a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre
    */
   it("lights nothing for a triangle in one plane with the eye that does not reach vec4(0)", () => {
