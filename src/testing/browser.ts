@@ -5,31 +5,40 @@ import { watModuleSource } from "../vite/wat-module";
 import { gpuPage, webgpuPage } from "./gpu";
 
 /**
- * A `readImage(canvas)` for an entry to read its result with: the red, green,
- * blue and alpha bytes of every pixel, read through a 2D canvas rather than by
- * copying the WebGPU texture. The drawing surface is `bgra8unorm` in one
- * browser and `rgba8unorm` in another, and `getImageData` is in the same
- * channel order either way.
+ * A `flatContext(canvas)` for the readers below: a 2D context holding a copy
+ * of the canvas, read rather than the WebGPU texture. The drawing surface is
+ * `bgra8unorm` in one browser and `rgba8unorm` in another, and `getImageData`
+ * is in the same channel order either way.
  */
-export const READ_IMAGE = `
-const readImage = (canvas) => {
+const FLAT_CONTEXT = `
+// var, so an entry that pastes both readers declares it twice without an error.
+var flatContext = (canvas) => {
   const flat = document.createElement("canvas");
   flat.width = canvas.width;
   flat.height = canvas.height;
   const context = flat.getContext("2d");
   context.drawImage(canvas, 0, 0);
-  return context.getImageData(0, 0, canvas.width, canvas.height).data;
+  return context;
 };
 `;
 
 /**
- * A `readPixel(canvas, x, y)` for an entry to read the colour of one pixel
- * with, as `readImage` reads it. It brings `readImage` along.
+ * A `readImage(canvas)` for an entry to read its result with: the red, green,
+ * blue and alpha bytes of every pixel. An entry may paste it beside
+ * `READ_PIXEL`.
  */
-export const READ_PIXEL = `${READ_IMAGE}
-const readPixel = (canvas, x, y) => {
-  const offset = (y * canvas.width + x) * 4;
-  const [r, g, b, a] = readImage(canvas).slice(offset, offset + 4);
+export const READ_IMAGE = `${FLAT_CONTEXT}
+var readImage = (canvas) => flatContext(canvas).getImageData(0, 0, canvas.width, canvas.height).data;
+`;
+
+/**
+ * A `readPixel(canvas, x, y)` for an entry to read the colour of one pixel
+ * with. A pixel outside the canvas reads as transparent black, as
+ * `getImageData` reads it. An entry may paste it beside `READ_IMAGE`.
+ */
+export const READ_PIXEL = `${FLAT_CONTEXT}
+var readPixel = (canvas, x, y) => {
+  const [r, g, b, a] = flatContext(canvas).getImageData(x, y, 1, 1).data;
   return { r, g, b, a };
 };
 `;
