@@ -92,12 +92,17 @@ const none = { name: "main", params: [] };
 let profiler: Session | undefined;
 
 /**
- * The bytes `run` allocates a call, over `runs` calls after `warm` calls, by
- * V8's sampling heap profiler, collected objects included. Only the library's
- * code counts: a compiled program has no source URL, and the rest of the
- * library lies under `src/backends/`. It measures twice and keeps the smaller:
- * another worker's load only adds to a measurement, and an allocation the
- * calls make shows in both.
+ * The bytes `run` allocates a call, over `runs` calls after `warm` rounds of
+ * warming, by V8's sampling heap profiler, collected objects included. Only the
+ * library's code counts: a compiled program has no source URL, and the rest of
+ * the library lies under `src/backends/`. It measures twice and keeps the
+ * smaller: another worker's load only adds to a measurement, and an allocation
+ * the calls make shows in both.
+ *
+ * V8 compiles optimized code on another thread, and code that still runs in
+ * the interpreter boxes the floats it computes. So the warming runs `run` ten
+ * times `warm` times, and then waits for the compiler to install what it made,
+ * before it measures.
  */
 async function allocatedBy(run: () => unknown, warm: number, runs: number): Promise<number> {
   if (!profiler) {
@@ -105,7 +110,8 @@ async function allocatedBy(run: () => unknown, warm: number, runs: number): Prom
     profiler.connect();
     await profiler.post("HeapProfiler.enable");
   }
-  for (let k = 0; k < warm; k++) run();
+  for (let k = 0; k < warm * 10; k++) run();
+  await new Promise((resolve) => setTimeout(resolve, 50));
   let least = Infinity;
   for (let round = 0; round < 2; round++) {
     await profiler.post("HeapProfiler.startSampling", {
