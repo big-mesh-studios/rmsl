@@ -637,17 +637,94 @@ note: baseVertex 2 not applied: WebGL 2 has none
   centre: nothing
   whole image: {"nothing":1024}
 
-## indexed list of 6 indices drawn from 0 for 7
+## indexed list of 6 indices drawn from 0 for 7, after a valid draw
 error: INVALID_OPERATION
-  0,1,2: nothing
+  0,1,2: id=12 vi=2 front
   3,4,5: nothing
-  whole image: {"nothing":1024}
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
 
-## indexed list of 6 indices drawn from 4 for 3
+## indexed list of 6 indices drawn from 4 for 3, after a valid draw
 error: INVALID_OPERATION
-  0,1,2: nothing
+  0,1,2: id=12 vi=2 front
   3,4,5: nothing
-  whole image: {"nothing":1024}
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed list of 6 indices drawn from 6 for 0, after a valid draw
+  0,1,2: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed list of 6 indices drawn from 7 for 0, after a valid draw
+  0,1,2: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed list of 6 indices drawn from 5 for 1, after a valid draw
+  0,1,2: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed list of 6 indices drawn from 6 for 1, after a valid draw
+error: INVALID_OPERATION
+  0,1,2: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint16 one index before the first restart
+  0,1,2: nothing
+  1,2,3: id=13 vi=3 back
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=13 vi=3 back":138}
+
+## indexed strip uint16 two indices before the first restart
+  0,1,2: nothing
+  1,2,3: nothing
+  2,3,4: id=14 vi=4 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=14 vi=4 front":138}
+
+## indexed strip uint16 one index after the last restart
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint16 two indices after the last restart
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint32 one index before the first restart
+  0,1,2: nothing
+  1,2,3: id=13 vi=3 back
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=13 vi=3 back":138}
+
+## indexed strip uint32 two indices before the first restart
+  0,1,2: nothing
+  1,2,3: nothing
+  2,3,4: id=14 vi=4 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=14 vi=4 front":138}
+
+## indexed strip uint32 one index after the last restart
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint32 two indices after the last restart
+  0,1,2: id=12 vi=2 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
 
 ## fan n=4 cull=none
   0,1,2: id=12 vi=2 front

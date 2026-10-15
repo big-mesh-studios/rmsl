@@ -103,6 +103,7 @@ function inPage(drawCases: DrawCase[], vertexSource: string, fragmentSource: str
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, array, gl.STATIC_DRAW);
       if (c.baseVertex) note = `baseVertex ${c.baseVertex} not applied: WebGL 2 has none`;
+      if (c.predraw) gl.drawElements(mode, 3, types[c.index.kind], 0);
       gl.drawElements(mode, c.count, types[c.index.kind], (c.firstIndex ?? 0) * array.BYTES_PER_ELEMENT);
     } else {
       gl.drawArrays(mode, c.firstVertex ?? 0, c.count);

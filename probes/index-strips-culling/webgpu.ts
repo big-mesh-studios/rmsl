@@ -78,6 +78,7 @@ async function inPage(drawCases: DrawCase[], shader: string, width: number, heig
       padded.set(new Uint8Array(array.buffer));
       device.queue.writeBuffer(indexBuffer, 0, padded);
       pass.setIndexBuffer(indexBuffer, c.index.kind as GPUIndexFormat);
+      if (c.predraw) pass.drawIndexed(3, 1, 0, 0, 0);
       pass.drawIndexed(c.count, 1, c.firstIndex ?? 0, c.baseVertex ?? 0, 0);
     } else {
       pass.draw(c.count, 1, c.firstVertex ?? 0, 0);
@@ -88,14 +89,17 @@ async function inPage(drawCases: DrawCase[], shader: string, width: number, heig
       size: bytesPerRow * height,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
-    encoder.copyTextureToBuffer({ texture }, { buffer: read, bytesPerRow }, [width, height]);
     device.queue.submit([encoder.finish()]);
     const internal = await device.popErrorScope();
     const validation = await device.popErrorScope();
     const error = validation?.message ?? internal?.message ?? null;
+    // The readback has an encoder of its own, so a draw that failed validation is still read back.
+    const copy = device.createCommandEncoder();
+    copy.copyTextureToBuffer({ texture }, { buffer: read, bytesPerRow }, [width, height]);
+    device.queue.submit([copy.finish()]);
     const pixels: Record<string, number[]> = {};
     let image: number[] = [];
-    if (!error) {
+    {
       await read.mapAsync(GPUMapMode.READ);
       const bytes = new Uint8Array(read.getMappedRange());
       for (const p of c.probes) {

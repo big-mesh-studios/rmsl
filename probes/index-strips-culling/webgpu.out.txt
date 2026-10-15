@@ -629,17 +629,107 @@
   centre: id=200 vi=255 front
   whole image: {"nothing":632,"id=200 vi=255 front":392}
 
-## indexed list of 6 indices drawn from 0 for 7
+## indexed list of 6 indices drawn from 0 for 7, after a valid draw
 error: Index range (first: 0, count: 7, format: IndexFormat::Uint16) does not fit in index buffer size (12).
  - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(7, 1, 0, 0, 0).
  - While finishing [CommandEncoder (unlabeled)].
 
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
 
-## indexed list of 6 indices drawn from 4 for 3
+## indexed list of 6 indices drawn from 4 for 3, after a valid draw
 error: Index range (first: 4, count: 3, format: IndexFormat::Uint16) does not fit in index buffer size (12).
  - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(3, 1, 4, 0, 0).
  - While finishing [CommandEncoder (unlabeled)].
 
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed list of 6 indices drawn from 6 for 0, after a valid draw
+  0,1,2: id=10 vi=0 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed list of 6 indices drawn from 7 for 0, after a valid draw
+error: Index range (first: 7, count: 0, format: IndexFormat::Uint16) does not fit in index buffer size (12).
+ - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(0, 1, 7, 0, 0).
+ - While finishing [CommandEncoder (unlabeled)].
+
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed list of 6 indices drawn from 5 for 1, after a valid draw
+  0,1,2: id=10 vi=0 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed list of 6 indices drawn from 6 for 1, after a valid draw
+error: Index range (first: 6, count: 1, format: IndexFormat::Uint16) does not fit in index buffer size (12).
+ - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(1, 1, 6, 0, 0).
+ - While finishing [CommandEncoder (unlabeled)].
+
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed strip uint16 one index before the first restart
+  0,1,2: nothing
+  1,2,3: id=11 vi=1 back
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=11 vi=1 back":138}
+
+## indexed strip uint16 two indices before the first restart
+  0,1,2: nothing
+  1,2,3: nothing
+  2,3,4: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint16 one index after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint16 two indices after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint32 one index before the first restart
+  0,1,2: nothing
+  1,2,3: id=11 vi=1 back
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=11 vi=1 back":138}
+
+## indexed strip uint32 two indices before the first restart
+  0,1,2: nothing
+  1,2,3: nothing
+  2,3,4: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint32 one index after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint32 two indices after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
 
 # WebGPU, fallback adapter — Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36
 # adapter: {"vendor":"google","architecture":"swiftshader","device":"","description":"","isFallbackAdapter":true}
@@ -1272,14 +1362,104 @@ error: Index range (first: 4, count: 3, format: IndexFormat::Uint16) does not fi
   centre: id=200 vi=255 front
   whole image: {"nothing":632,"id=200 vi=255 front":392}
 
-## indexed list of 6 indices drawn from 0 for 7
+## indexed list of 6 indices drawn from 0 for 7, after a valid draw
 error: Index range (first: 0, count: 7, format: IndexFormat::Uint16) does not fit in index buffer size (12).
  - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(7, 1, 0, 0, 0).
  - While finishing [CommandEncoder (unlabeled)].
 
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
 
-## indexed list of 6 indices drawn from 4 for 3
+## indexed list of 6 indices drawn from 4 for 3, after a valid draw
 error: Index range (first: 4, count: 3, format: IndexFormat::Uint16) does not fit in index buffer size (12).
  - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(3, 1, 4, 0, 0).
  - While finishing [CommandEncoder (unlabeled)].
 
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed list of 6 indices drawn from 6 for 0, after a valid draw
+  0,1,2: id=10 vi=0 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed list of 6 indices drawn from 7 for 0, after a valid draw
+error: Index range (first: 7, count: 0, format: IndexFormat::Uint16) does not fit in index buffer size (12).
+ - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(0, 1, 7, 0, 0).
+ - While finishing [CommandEncoder (unlabeled)].
+
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed list of 6 indices drawn from 5 for 1, after a valid draw
+  0,1,2: id=10 vi=0 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed list of 6 indices drawn from 6 for 1, after a valid draw
+error: Index range (first: 6, count: 1, format: IndexFormat::Uint16) does not fit in index buffer size (12).
+ - While encoding [RenderPassEncoder (unlabeled)].DrawIndexed(1, 1, 6, 0, 0).
+ - While finishing [CommandEncoder (unlabeled)].
+
+  0,1,2: nothing
+  3,4,5: nothing
+  whole image: {"nothing":1024}
+
+## indexed strip uint16 one index before the first restart
+  0,1,2: nothing
+  1,2,3: id=11 vi=1 back
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=11 vi=1 back":138}
+
+## indexed strip uint16 two indices before the first restart
+  0,1,2: nothing
+  1,2,3: nothing
+  2,3,4: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint16 one index after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint16 two indices after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint32 one index before the first restart
+  0,1,2: nothing
+  1,2,3: id=11 vi=1 back
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=11 vi=1 back":138}
+
+## indexed strip uint32 two indices before the first restart
+  0,1,2: nothing
+  1,2,3: nothing
+  2,3,4: id=12 vi=2 front
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=12 vi=2 front":138}
+
+## indexed strip uint32 one index after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}
+
+## indexed strip uint32 two indices after the last restart
+  0,1,2: id=10 vi=0 front
+  1,2,3: nothing
+  2,3,4: nothing
+  3,4,5: nothing
+  whole image: {"nothing":886,"id=10 vi=0 front":138}

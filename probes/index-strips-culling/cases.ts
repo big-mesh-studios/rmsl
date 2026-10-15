@@ -25,6 +25,8 @@ export interface DrawCase {
   baseVertex?: number;
   firstVertex?: number;
   count: number;
+  /** For an indexed case: a valid draw of the first three indices, recorded in the same pass before the case's own draw. */
+  predraw?: boolean;
   cullMode: "none" | "front" | "back";
   frontFace: "ccw" | "cw";
   /** Pixels to read back, each named, in framebuffer coordinates from the top left. */
@@ -389,26 +391,57 @@ export function cases(): DrawCase[] {
     });
   }
 
-  // An indexed draw whose first index and count run past the end of its index array.
+  // An indexed draw whose first index and count reach or pass the end of its index array. A valid draw of
+  // triangle 0,1,2 comes first in the same pass, so a readback tells "nothing draws" from "the bad draw drew nothing".
   {
     const positions = zigzag(6);
     for (const [firstIndex, count] of [
       [0, 7],
       [4, 3],
+      [6, 0],
+      [7, 0],
+      [5, 1],
+      [6, 1],
     ])
       out.push({
-        name: `indexed list of 6 indices drawn from ${firstIndex} for ${count}`,
+        name: `indexed list of 6 indices drawn from ${firstIndex} for ${count}, after a valid draw`,
         positions,
         topology: "triangle-list",
         index: { kind: "uint16", values: [0, 1, 2, 3, 4, 5] },
         firstIndex,
         count,
+        predraw: true,
         cullMode: "none",
         frontFace: "ccw",
         probes: [
           { name: "0,1,2", ...centroid(positions, 0, 1, 2) },
           { name: "3,4,5", ...centroid(positions, 3, 4, 5) },
         ],
+      });
+  }
+
+  // Parts of one or two indices before the first restart and after the last.
+  for (const kind of ["uint16", "uint32"] as const) {
+    const R = kind === "uint16" ? 0xffff : 0xffffffff;
+    const positions = zigzag(6);
+    for (const [label, values] of [
+      ["one index before the first restart", [0, R, 1, 2, 3]],
+      ["two indices before the first restart", [0, 1, R, 2, 3, 4]],
+      ["one index after the last restart", [0, 1, 2, R, 3]],
+      ["two indices after the last restart", [0, 1, 2, R, 3, 4]],
+    ] as const)
+      out.push({
+        name: `indexed strip ${kind} ${label}`,
+        positions,
+        topology: "triangle-strip",
+        index: { kind, values: [...values] },
+        count: values.length,
+        cullMode: "none",
+        frontFace: "ccw",
+        probes: Array.from({ length: 4 }, (_, k) => ({
+          name: `${k},${k + 1},${k + 2}`,
+          ...centroid(positions, k, k + 1, k + 2),
+        })),
       });
   }
 
