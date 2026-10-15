@@ -1016,6 +1016,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
+- [`@fact webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip) — WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them, so a later triangle's fragment replaces an earlier one's.
+- [`@fact webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan) — WebGL 2 draws a `TRIANGLE_FAN`, whose every triangle shares the first vertex, beside `TRIANGLES` and `TRIANGLE_STRIP`.
+- [`@fact a-webgpu-strip-triangle-faces-as-its-strip-starts`](#fact-a-webgpu-strip-triangle-faces-as-its-strip-starts) — Every triangle of a WebGPU triangle strip faces the way the first triangle of its strip faces. A strip restarted by an index starts again, and its first triangle sets the facing of the triangles after it.
+- [`@fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex) — Chromium's WebGPU on Metal gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+- [`@fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices) — A WebGPU indexed draw takes its vertices in the order of its indices, from `firstIndex` on. It runs each as the vertex its index names plus `baseVertex`, and its `vertex_index` is that sum. An index is a `uint16` or a `uint32`.
+- [`@fact webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index) — A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. An indexed list takes that index as the index of a vertex, like any other.
+- [`@fact webgl2-restarts-every-indexed-draw-at-the-largest-index`](#fact-webgl2-restarts-every-indexed-draw-at-the-largest-index) — WebGL 2 ends an indexed draw of any mode at the largest index of its type: 255, 65535 or 4294967295. It starts the draw again at the next index, in a triangle list too.
+- [`@fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation) — WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU on Metal draws the triangle with no error. It reads a `uint32` attribute of such a vertex as the last element of its buffer, and gives `vertex_index` the index itself.
+- [`@fact webgpu-culls-by-the-winding-of-the-clipped-triangle`](#fact-webgpu-culls-by-the-winding-of-the-clipped-triangle) — A WebGPU pipeline with `cullMode: "back"` draws only front-facing triangles, and one with `"front"` only back-facing ones. With `frontFace: "ccw"`, the default, a triangle is front-facing when its part inside the clip volume runs counter-clockwise in normalized device coordinates, with y up. With `"cw"`, it is front-facing when that part runs clockwise. A triangle of zero area is back-facing.
+- [`@fact webgpu-may-shade-a-repeated-index-once-or-more`](#fact-webgpu-may-shade-a-repeated-index-once-or-more) — WebGPU guarantees neither that a vertex an indexed draw names several times runs the vertex stage once, nor that it runs it more than once.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 - [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
 - [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
@@ -7191,6 +7201,82 @@ Chromium's WebGPU draws nothing, with no validation error, for a triangle at `x 
 > A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 
 Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with the default `cullMode`.
+
+## @fact webgpu-assembles-triangles-as-a-list-or-a-strip
+
+> WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them, so a later triangle's fragment replaces an earlier one's.
+
+This is a fact of the WebGPU specification. [`GPUPrimitiveTopology`](https://www.w3.org/TR/webgpu/#enumdef-gpuprimitivetopology) lists `point-list`, `line-list`, `line-strip`, `triangle-list` and `triangle-strip`. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) says "Any incomplete primitives are dropped". [Rasterization](https://www.w3.org/TR/webgpu/#rasterization) says that "the order of primitives affects later stages".
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. Strips of 3 to 6 vertices draw 1 to 4 triangles, and a strip of 2 vertices draws nothing. A list of 4 or 5 vertices draws its first triangle only. Two triangles over the same pixels, with no depth test or blending, leave the fragments of the second, in either order.
+
+## @fact webgl2-draws-a-triangle-fan
+
+> WebGL 2 draws a `TRIANGLE_FAN`, whose every triangle shares the first vertex, beside `TRIANGLES` and `TRIANGLE_STRIP`.
+
+This is a fact of the [OpenGL ES 3.0.6 specification](https://registry.khronos.org/OpenGL/specs/es/3.0/es_spec_3.0.pdf), section 2.7, "Triangle Fans", which WebGL 2 draws by. The probe `probes/index-strips-culling/webgl2.ts` draws a fan of 4 vertices as two triangles. It runs on Chromium 149's WebGL 2 through SwiftShader.
+
+## @fact a-webgpu-strip-triangle-faces-as-its-strip-starts
+
+> Every triangle of a WebGPU triangle strip faces the way the first triangle of its strip faces. A strip restarted by an index starts again, and its first triangle sets the facing of the triangles after it.
+
+This is a fact of the WebGPU specification. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3), then (vl.2, vl.3, vl.4)". Every other triangle runs in reverse. A restart splits the indices into "sub-lists", and each assembles from its own start.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. It draws strips of 3 to 6 vertices, starting either way round, under every `cullMode` and `frontFace`. Every triangle of a strip reads one `front_facing`, and a cull keeps a strip whole or drops it whole. A strip restarted after its first three indices faces the other way after the restart, as its new first triangle winds.
+
+## @fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex
+
+> Chromium's WebGPU on Metal gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws strips of 3 to 6 vertices on Chromium 149's WebGPU on Metal, on an Apple M1. Each vertex writes its own id and its `vertex_index` to flat `u32` varyings. Triangle `k` reads the id and the index of vertex `k`, in an indexed strip after a restart too.
+
+The WebGPU specification composes triangle 1 as "(vl.2, vl.1, vl.3)". That triangle starts at vertex 2. [WGSL's `first` sampling](https://www.w3.org/TR/WGSL/#interpolation-sampling-first), the default of a `flat` value, takes "the first vertex of the primitive". Chromium gives vertex 1 there.
+
+## @fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices
+
+> A WebGPU indexed draw takes its vertices in the order of its indices, from `firstIndex` on. It runs each as the vertex its index names plus `baseVertex`, and its `vertex_index` is that sum. An index is a `uint16` or a `uint32`.
+
+This is a fact of the WebGPU specification. [Index Resolution](https://www.w3.org/TR/webgpu/#index-resolution) appends "drawCall.baseVertex + relativeVertexIndex" for each index. [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing) sets "the vertex_index builtin" to it. [`GPUIndexFormat`](https://www.w3.org/TR/webgpu/#enumdef-gpuindexformat) holds `uint16` and `uint32` only.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. A list indexed `0, 1, 2, 2, 1, 3, 5, 6, 7` draws three triangles, which read the ids and the vertex indices of the vertices named. A draw of indices `3, 4, 5` from `firstIndex` 3 with `baseVertex` 2 reads vertex 5's id and `vertex_index` 5.
+
+## @fact webgpu-restarts-only-a-strip-at-the-largest-index
+
+> A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. An indexed list takes that index as the index of a vertex, like any other.
+
+This is a fact of the WebGPU specification. [`GPUIndexFormat`](https://www.w3.org/TR/webgpu/#enumdef-gpuindexformat) names the "primitive restart value" of each format for "strip primitive topologies". [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) splits the indices at it only "if the primitive topology is a strip".
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1, in both formats. A strip indexed `0, 1, 2, 3, max, 4, 5, 6, 7` draws the triangles of `0` to `3` and of `4` to `7`, and none across the restart. A list indexed `0, 1, 2, max, 3, 4, 5, 3, 4` draws three triangles, one of them through the vertex `max` names.
+
+## @fact webgl2-restarts-every-indexed-draw-at-the-largest-index
+
+> WebGL 2 ends an indexed draw of any mode at the largest index of its type: 255, 65535 or 4294967295. It starts the draw again at the next index, in a triangle list too.
+
+This is a fact of the [WebGL 2.0 specification](https://registry.khronos.org/webgl/specs/latest/2.0/#NO_PRIMITIVE_RESTART_FIXED_INDEX), section 5.18, "PRIMITIVE_RESTART_FIXED_INDEX is always enabled". Such an index "is not processed normally".
+
+The probe `probes/index-strips-culling/webgl2.ts` draws a list indexed `0, 1, 2, max, 3, 4, 5, 3, 4`, in all three index types. It runs on Chromium 149's WebGL 2 through SwiftShader. It draws the triangles `0, 1, 2` and `3, 4, 5` only, where WebGPU draws three.
+
+## @fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation
+
+> WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU on Metal draws the triangle with no error. It reads a `uint32` attribute of such a vertex as the last element of its buffer, and gives `vertex_index` the index itself.
+
+This is a fact of the WebGPU specification. [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing) covers an attribute past its buffer. It lets the implementation "empty vertexIndexList and return, cancelling the draw call". Otherwise it loads the attribute "according to WGSL’s invalid memory reference behavior". `drawIndexed` checks the indices against the index buffer. It checks no vertex they name against the vertex buffers.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. It draws 6 vertices through the indices 6, 1000, 65535 and 4294967295, inside an error scope for validation and internal errors. Each triangle through such an index draws, and none reports an error.
+
+## @fact webgpu-culls-by-the-winding-of-the-clipped-triangle
+
+> A WebGPU pipeline with `cullMode: "back"` draws only front-facing triangles, and one with `"front"` only back-facing ones. With `frontFace: "ccw"`, the default, a triangle is front-facing when its part inside the clip volume runs counter-clockwise in normalized device coordinates, with y up. With `"cw"`, it is front-facing when that part runs clockwise. A triangle of zero area is back-facing.
+
+This is a fact of the WebGPU specification. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides facing from "the sign of the area occupied by the polygon in framebuffer coordinates". The polygon is the one clipping leaves. For `"ccw"`, "area > 0 is considered front-facing, otherwise back-facing", and for `"cw"`, "area < 0". Framebuffer y runs down, and the formula signs the area so that a triangle counter-clockwise in normalized device coordinates has a positive area.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. It draws a triangle each way round under every `cullMode` and `frontFace`, and reads `front_facing`. It also draws a triangle with a vertex behind the eye. Its vertices, projected, run clockwise, and its part in front of the eye runs counter-clockwise. `"back"` draws it, and `"front"` culls it. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
+
+## @fact webgpu-may-shade-a-repeated-index-once-or-more
+
+> WebGPU guarantees neither that a vertex an indexed draw names several times runs the vertex stage once, nor that it runs it more than once.
+
+This is a fact of the WebGPU specification, in a note of [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing): "There is no guarantee that any vertexIndex that repeats more than once will result in multiple invocations. Similarly, there is no guarantee that a single vertexIndex will only be processed once."
 
 ## @fact a-webgpu-canvas-configured-opaque-drops-alpha
 
