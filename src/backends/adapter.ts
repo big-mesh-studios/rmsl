@@ -123,12 +123,13 @@ export interface SetUniform extends SetUniformByNode {
  * backend that draws infers it that way.
  */
 export interface DrawCountOptions {
-  /** First vertex to draw, or first index of a draw by indices. Defaults to 0. */
+  /** First vertex to draw. Defaults to 0. On a CPU rasterizer drawing by indices, the first index. */
   first?: number;
   /**
-   * Vertices to draw, or indices of a draw by indices. Defaults to those of the
-   * first attribute the program reads, in the order the host passed them, less
-   * `first`, or to the indices from `first` to the end of the index array.
+   * Vertices to draw. Defaults to those of the first attribute the program
+   * reads, in the order the host passed them, less `first`. On a CPU rasterizer
+   * drawing by indices, the indices to draw, which default to those from
+   * `first` to the end of the index array.
    */
   count?: number;
 }
