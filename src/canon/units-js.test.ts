@@ -1455,6 +1455,126 @@ describe("the scalars and inputs of a JS function", () => {
   });
 });
 
+describe("what a JS draw allocates for the kinds of array the host passes", () => {
+  /** Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw. */
+  const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
+  const options = { width: 16, height: 16 };
+  const texels = [0.1, 0.5, 0.9, 1, 0.2, 0.4, 0.6, 1, 0.3, 0.7, 0.8, 1, 0.15, 0.25, 0.35, 1];
+  /** Texel data in five kinds of array: a Float32Array first, then four others. */
+  const texelKinds = [
+    () => Float32Array.from(texels),
+    () => texels.slice(),
+    () => Uint8Array.from(texels, (v) => v * 255),
+    () => Uint8ClampedArray.from(texels, (v) => v * 255),
+    () => Uint16Array.from(texels, (v) => v * 255),
+  ];
+  /** The values of a vector or matrix of `n` components in five kinds of array: a Float64Array first, then four others. */
+  const vectorKinds = [
+    (n: number) => Float64Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Float32Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Int32Array.from({ length: n }, (_, i) => i + 1),
+    (n: number) => Uint8Array.from({ length: n }, (_, i) => i + 1),
+  ];
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a sampler given texel data of a fifth kind", async () => {
+    const position = attribute("vec3");
+    const t = uniform("sampler2D");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => texture(t, fragCoord().xy.mul(0.0625)))(),
+    );
+    const attributes = { [position.name]: quad() };
+    const draw = (data: ArrayLike<number>) =>
+      raster.draw({ attributes, textures: { [t.name]: { data, width: 2, height: 2 } } }, options);
+    for (const kind of texelKinds.slice(1)) {
+      const data = kind();
+      for (let k = 0; k < 2000; k++) draw(data);
+    }
+    const data = texelKinds[0]!();
+    expect(await allocatedBy(() => draw(data), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw
+   */
+  it.fails("allocates nothing per fragment for five samplers whose texel data are of five kinds", async () => {
+    const position = attribute("vec3");
+    const samplers = texelKinds.map(() => uniform("sampler2D"));
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => samplers.reduce((sum: any, t) => sum.add(texture(t, fragCoord().xy.mul(0.0625))), vec4(0)))(),
+    );
+    const textures = Object.fromEntries(
+      samplers.map((t, i) => [t.name, { data: texelKinds[i]!(), width: 2, height: 2 }]),
+    );
+    const ctx = { attributes: { [position.name]: quad() }, textures };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /** A draw whose fragment stage reads `read(u)` of the uniform `u`, measured with `value(kind)` after draws with the four other kinds. */
+  async function afterFiveKinds(
+    u: any,
+    read: (u: any) => any,
+    value: (kind: (n: number) => ArrayLike<number>) => unknown,
+  ) {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => read(u))(),
+    );
+    const attributes = { [position.name]: quad() };
+    for (const kind of vectorKinds.slice(1)) {
+      const ctx = { attributes, uniforms: { [u.name]: value(kind) } };
+      for (let k = 0; k < 2000; k++) raster.draw(ctx, options);
+    }
+    const ctx = { attributes, uniforms: { [u.name]: value(vectorKinds[0]!) } };
+    return allocatedBy(() => raster.draw(ctx, options), 2000, 200);
+  }
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a vec3 uniform given in a fifth kind of array", async () => {
+    const u = uniform("vec3");
+    const bytes = await afterFiveKinds(
+      u,
+      (u) => vec4(u.mul(0.37), 1),
+      (kind) => kind(3),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a mat3 uniform given in a fifth kind of array", async () => {
+    const u = uniform("mat3");
+    const bytes = await afterFiveKinds(
+      u,
+      (u) => vec4(u.mul(vec3(0.5, 0.25, 1)), 1),
+      (kind) => kind(9),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a uniform array element given in a fifth kind of array", async () => {
+    const u = uniformArray("vec4", 2);
+    const bytes = await afterFiveKinds(
+      u,
+      (u) => u.element(int(1)).mul(0.5),
+      (kind) => [kind(4), kind(4)],
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+});
+
 describe("what a JS program keeps after a call", () => {
   /** Whether the object `call` is given is collected once the call returns and nothing else holds it. */
   async function collectedAfter(call: (input: object) => void): Promise<boolean> {
