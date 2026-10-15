@@ -31,7 +31,12 @@ const cases = [
   "float attribute, after draws from 4 kinds of host array",
   "vec3 varying, after draws with varyings in slots of 4 kinds",
   "vec3 varying, after a host object made alike with the fragment context held undefined in fragDepth",
-  "vec3 varying, after a host object made alike with the vertex context held undefined in vertexIndex",
+  "one sampler, after draws of it with texel data of 4 other kinds",
+  "five samplers with texel data of five kinds, in one draw",
+  "five samplers with texel data of one kind, in one draw",
+  "vec3 uniform, after draws of it given in 4 other kinds of array",
+  "mat3 uniform, after draws of it given in 4 other kinds of array",
+  "vec4 uniform array element, after draws of it given in 4 other kinds of array",
 ] as const;
 
 /** Objects a case makes before its draw, kept alive for the whole of it. */
@@ -62,6 +67,25 @@ if (isMainThread) {
   const position = attribute("vec3");
   const attributes: Record<string, ArrayLike<number>> = { [position.name]: positions };
   const uniforms: Record<string, unknown> = {};
+  const textures: Record<string, unknown> = {};
+  /** Draws a case makes with the measured rasterizer itself before it measures, given what `ctx` holds then. */
+  let warm: ((draw: (ctx: any) => void) => void) | undefined;
+  /** Texel data and vector values in five kinds of array, the first of them the one a case measures with. */
+  const texels = [0.1, 0.5, 0.9, 1, 0.2, 0.4, 0.6, 1, 0.3, 0.7, 0.8, 1, 0.15, 0.25, 0.35, 1];
+  const texelKinds = [
+    () => Float32Array.from(texels),
+    () => texels.slice(),
+    () => Uint8Array.from(texels, (v) => v * 255),
+    () => Uint8ClampedArray.from(texels, (v) => v * 255),
+    () => Uint16Array.from(texels, (v) => v * 255),
+  ];
+  const vectorKinds = [
+    (n: number) => Float64Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Float32Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Int32Array.from({ length: n }, (_, i) => i + 1),
+    (n: number) => Uint8Array.from({ length: n }, (_, i) => i + 1),
+  ];
   let vertex: () => void;
   let fragment: () => unknown;
   let float32 = false;
@@ -87,7 +111,57 @@ if (isMainThread) {
   };
   const someColours = () => Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01);
   switch (name) {
+    case "one sampler, after draws of it with texel data of 4 other kinds":
+    case "five samplers with texel data of five kinds, in one draw":
+    case "five samplers with texel data of one kind, in one draw": {
+      const { texture, fragCoord } = rmsl as any;
+      const count = name.startsWith("one") ? 1 : 5;
+      const samplers = Array.from({ length: count }, () => uniform("sampler2D"));
+      const give = (kinds: (() => ArrayLike<number>)[]) =>
+        samplers.forEach((t: any, i: number) => (textures[t.name] = { data: kinds[i]!(), width: 2, height: 2 }));
+      give(name.includes("five kinds") ? texelKinds : Array(count).fill(texelKinds[0]));
+      if (count === 1)
+        warm = (draw) => {
+          for (const kind of texelKinds.slice(1)) {
+            give([kind]);
+            for (let k = 0; k < 2000; k++) draw({ attributes, uniforms, textures });
+          }
+          give([texelKinds[0]!]);
+        };
+      vertex = place;
+      fragment = () => samplers.reduce((sum: any, t: any) => sum.add(texture(t, fragCoord().xy.mul(0.0625))), vec4(0));
+      break;
+    }
+    case "vec3 uniform, after draws of it given in 4 other kinds of array":
+    case "mat3 uniform, after draws of it given in 4 other kinds of array":
+    case "vec4 uniform array element, after draws of it given in 4 other kinds of array": {
+      const { uniformArray, int } = rmsl as any;
+      const element = name.startsWith("vec4 uniform array");
+      const type = element ? "vec4" : name.startsWith("mat3") ? "mat3" : "vec3";
+      const n = type === "mat3" ? 9 : type === "vec4" ? 4 : 3;
+      const u = element ? uniformArray("vec4", 2) : uniform(type);
+      const give = (kind: (n: number) => ArrayLike<number>) =>
+        (uniforms[u.name] = element ? [kind(n), kind(n)] : kind(n));
+      warm = (draw) => {
+        for (const kind of vectorKinds.slice(1)) {
+          give(kind);
+          for (let k = 0; k < 2000; k++) draw({ attributes, uniforms, textures });
+        }
+        give(vectorKinds[0]!);
+      };
+      give(vectorKinds[0]!);
+      vertex = place;
+      fragment = () =>
+        element
+          ? u.element(int(1)).mul(0.5)
+          : type === "mat3"
+            ? vec4(u.mul((rmsl as any).vec3(0.5, 0.25, 1)), 1)
+            : vec4(u.mul(0.37), 1);
+      break;
+    }
     case "float attribute, after draws from 4 kinds of host array": {
+      // Today this shows nothing: the store of the attribute into a property already allocates 16 bytes a
+      // vertex, as the "float attribute, vec3 varying" control does, and a boxed load adds no box of its own.
       for (const make of [Float32Array, Int32Array, Uint32Array, Int16Array])
         drawOther("float", (make as any).from([1, 2, 3, 4, 5, 6]));
       const c = attribute("float");
@@ -134,22 +208,13 @@ if (isMainThread) {
       fragment = () => vec4(v, 1);
       break;
     }
-    case "vec3 varying, after a host object made alike with the fragment context held undefined in fragDepth":
-    case "vec3 varying, after a host object made alike with the vertex context held undefined in vertexIndex": {
+    case "vec3 varying, after a host object made alike with the fragment context held undefined in fragDepth": {
       // Made as the rasterizer makes its contexts: a literal, then uniforms and textures, then the per-call field.
-      if (name.includes("fragment")) {
-        const o: any = { varyings: {}, fragCoord: null };
-        o.uniforms = {};
-        o.textures = undefined;
-        o.fragDepth = undefined;
-        keep.push(o);
-      } else {
-        const o: any = { attributes: {} };
-        o.uniforms = {};
-        o.textures = undefined;
-        o.vertexIndex = undefined;
-        keep.push(o);
-      }
+      const o: any = { varyings: {}, fragCoord: null };
+      o.uniforms = {};
+      o.textures = undefined;
+      o.fragDepth = undefined;
+      keep.push(o);
       const c = attribute("vec3");
       const v = varying("vec3");
       attributes[c.name] = someColours();
@@ -411,13 +476,15 @@ if (isMainThread) {
     () => Fn(() => fragment())(),
     { float: float32 ? "f32" : "f64" },
   );
-  const ctx = { attributes, uniforms };
+  const ctx = { attributes, uniforms, textures };
+  warm?.((c) => raster.draw(c, { width: 16, height: 16 }));
   const options = { width: 16, height: 16, clear: true, clearDepth: true };
   // Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw.
   const result = await allocatedBy(() => raster.draw(ctx as any, options), 2000, 500);
   // Only the library's sites: the harness's own few bytes a call are left out.
   const sites = Object.fromEntries(
-    Object.entries(result.sites).filter(([site, bytes]) => !/measure\.ts|no url/.test(site) && bytes >= 1),
+    // A stage's own code has no URL; its sites show by the names of its functions, such as frag or _tex2d.
+    Object.entries(result.sites).filter(([site, bytes]) => !/measure\.ts/.test(site) && bytes >= 4),
   );
   parentPort!.postMessage({ perDraw: Math.round(result.perCall), sites });
 }
