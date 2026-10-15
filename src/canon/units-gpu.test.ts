@@ -938,12 +938,14 @@ describe("a pixel an edge of a triangle crosses", () => {
    * What `EDGE_PIXELS` returns: `createGlsl` on WebGL 2 on SwiftShader and on
    * the GPU through the browser of the WebGPU tests, `createWgsl` when a WebGPU
    * device is there, and `createJs` and `createWasm`. Each page bundles and
-   * draws once for every test.
+   * draws once for every test, the two pages at once.
    */
   const drawnOnEach = () =>
     (drawing ??= (async () => {
-      const webgl = await runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsOnWebGl", dir);
-      const webgpu = WEBGPU ? await runInWebGpuPage(EDGE_PIXELS, "__rmslEdgePixelsOnWebGpu", dir) : undefined;
+      const [webgl, webgpu] = await Promise.all([
+        runInGpuPage(EDGE_PIXELS, "__rmslEdgePixelsOnWebGl", dir),
+        WEBGPU ? runInWebGpuPage(EDGE_PIXELS, "__rmslEdgePixelsOnWebGpu", dir) : undefined,
+      ]);
       return { ...webgl, glsl: [webgl.glsl, ...(webgpu ? [webgpu.glsl] : [])], wgsl: webgpu?.wgsl };
     })());
 
