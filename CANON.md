@@ -756,10 +756,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count and no index array takes its count from the first attribute its program reads. The order the host passed them in decides which is first. An attribute the program does not read is taken and counts for nothing.
-      - [`@spec a-cpu-draw-whose-count-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-count-passes-an-attribute-is-refused) — A CPU rasterizer draw without indices whose count reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+      - [`@spec a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused) — A CPU rasterizer draw without indices whose `first` plus its `count` passes the end of an attribute the vertex stage reads is refused with a `UsageError`.
+        - [`@spec a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused`](#spec-a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused) — A CPU rasterizer draw without indices whose `count` reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+        - [`@spec a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused`](#spec-a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused) — A CPU rasterizer draw without indices of a `count` of 0, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`. One from the end itself draws nothing and is not refused.
+        - [`@spec a-cpu-draw-with-no-count-from-past-an-attribute-is-refused`](#spec-a-cpu-draw-with-no-count-from-past-an-attribute-is-refused) — A CPU rasterizer draw without indices that names no `count`, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`.
+      - [`@spec a-cpu-draw-with-no-count-draws-from-first-to-the-end`](#spec-a-cpu-draw-with-no-count-draws-from-first-to-the-end) — A CPU rasterizer draw without indices that names no `count` draws the vertices of the first attribute its program reads from `first` to its end.
       - [`@spec a-cpu-draw-takes-first-and-count-as-webgpu-takes-them`](#spec-a-cpu-draw-takes-first-and-count-as-webgpu-takes-them) — A CPU rasterizer draw converts its `first` and `count` as WebGPU converts `firstVertex` and `vertexCount`, or `firstIndex` and `indexCount`. It drops a fraction, and refuses a value WebGPU refuses.
         - [`@spec a-cpu-draw-drops-the-fraction-of-first-and-count`](#spec-a-cpu-draw-drops-the-fraction-of-first-and-count) — A CPU rasterizer draw drops the fraction of its `first` and its `count`, so a `first` of 2.9 draws from 2 and a `count` of 3.9 draws 3.
         - [`@spec a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count`](#spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count) — A CPU rasterizer draw is refused with a `UsageError`, and draws nothing, when its `first` or `count` is NaN or infinite. So is one whose `first` or `count` lies below 0 or above 4294967295 once its fraction is dropped.
+        - [`@spec a-cpu-draw-takes-a-first-or-count-up-to-4294967295`](#spec-a-cpu-draw-takes-a-first-or-count-up-to-4294967295) — A CPU rasterizer draw does not refuse a `first` or a `count` of 4294967295, or of 4294967295.5, for its value, and refuses one of 4294967296.
       - [`@spec a-cpu-draw-refuses-an-option-value-it-does-not-name`](#spec-a-cpu-draw-refuses-an-option-value-it-does-not-name) — A CPU rasterizer draw is refused with a `UsageError`, and draws nothing, when its `topology`, `cullMode` or `frontFace` is not a value the canon names for it. The error names the value.
         - [`@spec a-cpu-draw-refuses-an-unknown-topology`](#spec-a-cpu-draw-refuses-an-unknown-topology) — A CPU rasterizer draw whose `topology` is not `"triangle-list"` or `"triangle-strip"` is refused with a `UsageError`. `"triangle-fan"`, `"point-list"`, `"line-list"` and `"line-strip"` are such values.
         - [`@spec a-cpu-draw-refuses-an-unknown-cull-mode`](#spec-a-cpu-draw-refuses-an-unknown-cull-mode) — A CPU rasterizer draw whose `cullMode` is not `"none"`, `"front"` or `"back"` is refused with a `UsageError`.
@@ -1080,7 +1085,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one`](#fact-webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one) — WebGPU takes the `firstIndex` and `indexCount` of `drawIndexed`, and the `firstVertex` and `vertexCount` of `draw`, as whole numbers from 0 to 4294967295. It drops the fraction of each, and throws a `TypeError` for one that is NaN, infinite, or outside that range once its fraction is dropped.
 - [`@fact webgpu-may-shade-a-repeated-index-once-or-more`](#fact-webgpu-may-shade-a-repeated-index-once-or-more) — WebGPU guarantees neither that a vertex an indexed draw names several times runs the vertex stage once, nor that it runs it more than once.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
-- [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+- [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares. Each of those must hold every vertex up to `firstVertex` plus `vertexCount`, with a count of 0 too.
 - [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
 - [`@fact webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size) — WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture. A shader then reads only zeros from it.
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
@@ -1115,7 +1120,7 @@ Each choice below that a unit depends on has a spec that states what the axioms 
 
    The recommended answer is the first, until a user needs it.
 2. **Whether to report the provoking vertex of an odd strip triangle to gpuweb.** The WebGPU specification puts vertex `k + 1` first in an odd strip triangle ([`fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle)), and every implementation measured gives vertex `k` ([`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k)). No unit depends on the answer.
-3. **Whether a CPU draw caps the vertices it holds at once.** A CPU draw keeps the position and varyings of each vertex it shades until it has drawn its triangles. Its memory grows with the vertices it names. WebGPU runs a draw's vertices as a stream. A draw of a huge count, over a program that reads no attribute, ends there, where a CPU draw can run out of memory. [`spec-a-cpu-draw-whose-count-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-count-passes-an-attribute-is-refused) bounds the count of a draw that reads an attribute. The options:
+3. **Whether a CPU draw caps the vertices it holds at once.** A CPU draw keeps the position and varyings of each vertex it shades until it has drawn its triangles. Its memory grows with the vertices it names. WebGPU runs a draw's vertices as a stream. A draw of a huge count, over a program that reads no attribute, ends there, where a CPU draw can run out of memory. [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused) bounds the count of a draw that reads an attribute. A draw that reads none and starts near 4294967295 also names vertices past it, which wrap to 0 in the table of the vertices a draw names; WebGPU leaves the `vertex_index` of such a vertex unspecified. The options:
    1. No cap: the draw throws whatever the engine throws when it cannot grow its memory. It costs nothing.
    2. A cap, refused with a `LimitError`, as [work past a device limit](#spec-work-past-a-device-limit-is-a-limit-error) is. It costs a check per draw, and a number to choose.
    3. Drawing in batches of vertices, each assembled and drawn before the next. It costs a strip or an index range that spans two batches, which must carry its last vertices over.
@@ -5651,13 +5656,31 @@ Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-it
 
 This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
 
-##### @spec a-cpu-draw-whose-count-passes-an-attribute-is-refused
+##### @spec a-cpu-draw-whose-range-passes-an-attribute-is-refused
 
-> A CPU rasterizer draw without indices whose count reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+> A CPU rasterizer draw without indices whose `first` plus its `count` passes the end of an attribute the vertex stage reads is refused with a `UsageError`.
 
 Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error)
 
-This follows because WebGPU requires each vertex buffer to hold the vertices a draw reads, and refuses a draw that reaches past one. An indexed draw is another case: WebGPU checks no index against the vertex buffers, and leaves the vertex to the implementation.
+This follows because WebGPU requires each vertex buffer to hold every vertex up to the end of a draw's range, and refuses a draw whose range passes one, a draw of no vertex included. An indexed draw is another case: WebGPU checks no index against the vertex buffers, and leaves the vertex to the implementation.
+
+###### @spec a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices whose `count` reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+
+###### @spec a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices of a `count` of 0, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`. One from the end itself draws nothing and is not refused.
+
+###### @spec a-cpu-draw-with-no-count-from-past-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices that names no `count`, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`.
+
+##### @spec a-cpu-draw-with-no-count-draws-from-first-to-the-end
+
+> A CPU rasterizer draw without indices that names no `count` draws the vertices of the first attribute its program reads from `first` to its end.
+
+Derives from: [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
 ##### @spec a-cpu-draw-takes-first-and-count-as-webgpu-takes-them
 
@@ -5678,6 +5701,14 @@ This follows because a CPU target stands in for the GPU, and a draw a WebGPU hos
 Derives from: [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error)
 
 This follows because WebGPU throws for such a value before it draws, and a mistake that shows only as the application runs is a `UsageError`. A `first` of -0.5 drops its fraction to 0, as WebGPU's does, and draws.
+
+###### @spec a-cpu-draw-takes-a-first-or-count-up-to-4294967295
+
+> A CPU rasterizer draw does not refuse a `first` or a `count` of 4294967295, or of 4294967295.5, for its value, and refuses one of 4294967296.
+
+Derives from: [`spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count`](#spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count)
+
+This follows because 4294967295 is the largest `GPUSize32`. A draw that takes such a `first` can still be refused for its range, as any other range past its array is.
 
 ##### @spec a-cpu-draw-refuses-an-option-value-it-does-not-name
 
@@ -7692,9 +7723,9 @@ Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, a
 
 ## @fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares
 
-> A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+> A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares. Each of those must hold every vertex up to `firstVertex` plus `vertexCount`, with a count of 0 too.
 
-This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, firstVertex, firstInstance)` in `GPURenderCommandsMixin`, and its validation of the bound vertex buffers against the draw's vertex range.
+This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, firstVertex, firstInstance)` in `GPURenderCommandsMixin` validates the bound vertex buffers against the draw's vertex range. For a buffer stepped by vertex, its "strideCount" is "firstVertex + vertexCount", and "If strideCount ≠ 0", the buffer must be large enough for it. The probe `probes/index-strips-culling/webgpu-ranges.ts` runs on Chromium 149's WebGPU on Metal, on an Apple M1, over 6 vertices. A draw of 0 vertices from vertex 7, and of 3 from vertex 4, each report a validation error, and a draw of 0 from vertex 6 reports none.
 
 ## @fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture
 

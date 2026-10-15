@@ -132,7 +132,7 @@ export function assembleDraw(
   for (let a = 0; a < read.slots.length; a++) {
     const slot = read.slots[a]!;
     const holds = Math.floor(attributes[slot]!.length / read.widths[a]!);
-    if (n > 0 && first + n > holds) {
+    if (first + n > holds) {
       throw new UsageError(
         "attribute-range",
         `${origin.caller}: draw() reads ${n} vertices from vertex ${first}, and the attribute "${slot}" holds ${holds}`,

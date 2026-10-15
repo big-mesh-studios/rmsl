@@ -220,7 +220,7 @@ describe.each(rasterizers)("a CPU rasterizer on %s assembles triangles as WebGPU
    * attribute holds 3: a check of the first attribute alone, or of `count`
    * without `first`, would let some of these draws through.
    *
-   * @canon spec-a-cpu-draw-whose-count-passes-an-attribute-is-refused
+   * @canon spec-a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused
    */
   it("refuses a draw whose count reaches past the end of an attribute", () => {
     const position = attribute("vec4");
@@ -244,6 +244,39 @@ describe.each(rasterizers)("a CPU rasterizer on %s assembles triangles as WebGPU
     expect(() => draw(3, {})).toThrowRmsl(UsageError, "attribute-range");
     expect(() => draw(6, { first: 4, count: 3 })).toThrowRmsl(UsageError, "attribute-range");
     expect(() => draw(6, { first: 3, count: 3 })).not.toThrow();
+  });
+
+  /**
+   * Six vertices: a draw of none from vertex 7 is refused, as WebGPU refuses
+   * it, and one of none from vertex 6, the end, is not.
+   *
+   * @canon spec-a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused
+   */
+  it("refuses a draw of no vertex from past the end of an attribute", () => {
+    const positions = zigzag(6);
+    const draw = idProgram(compile);
+    expect(() => draw(positions, { first: 7, count: 0 })).toThrowRmsl(UsageError, "attribute-range");
+    expect(draw(positions, { first: 6, count: 0 })(centroid(positions, 3, 4, 5))).toBe(null);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-with-no-count-from-past-an-attribute-is-refused
+   */
+  it("refuses a draw with no count from past the end of an attribute", () => {
+    const draw = idProgram(compile);
+    expect(() => draw(zigzag(6), { first: 7 })).toThrowRmsl(UsageError, "attribute-range");
+  });
+
+  /**
+   * From vertex 3 of 6, the draw makes triangle 3, 4, 5 and no other: a count
+   * that did not take `first` off would reach past the attributes.
+   *
+   * @canon spec-a-cpu-draw-with-no-count-draws-from-first-to-the-end
+   */
+  it("draws from first to the end of the first attribute when it names no count", () => {
+    const positions = zigzag(6);
+    const show = idProgram(compile)(positions, { first: 3 });
+    expect(stripIds(show, positions, 4)).toEqual([null, null, null, 13]);
   });
 
   /**
@@ -469,6 +502,25 @@ describe.each(rasterizers)("a CPU rasterizer on %s takes first and count as WebG
   });
 });
 
+describe.each(rasterizers)("a CPU rasterizer on %s takes a first or count up to 4294967295", (_, compile) => {
+  /**
+   * A `first` of 4294967295, or of 4294967295.5, passes the end of six indices
+   * and is refused for that; one of 4294967296 is refused for its value.
+   *
+   * @canon spec-a-cpu-draw-takes-a-first-or-count-up-to-4294967295
+   */
+  it("takes 4294967295 and refuses 4294967296", () => {
+    const positions = zigzag(6);
+    const draw = idProgram(compile);
+    const index = Uint16Array.of(0, 1, 2, 3, 4, 5);
+    for (const first of [4294967295, 4294967295.5])
+      expect(() => draw(positions, { first }, index)).toThrowRmsl(UsageError, "index-range");
+    expect(() => draw(positions, { first: 4294967296 }, index)).toThrowRmsl(UsageError, "draw-range");
+    expect(() => draw(positions, { count: 4294967295 })).toThrowRmsl(UsageError, "attribute-range");
+    expect(() => draw(positions, { count: 4294967296 })).toThrowRmsl(UsageError, "draw-range");
+  });
+});
+
 describe.each(rasterizers)("a CPU rasterizer on %s refuses an option value it does not name", (_, compile) => {
   const draw = (options: Record<string, unknown>) => idProgram(compile)(zigzag(4), options as Partial<DrawOptions>);
 
@@ -498,6 +550,70 @@ describe.each(rasterizers)("a CPU rasterizer on %s refuses an option value it do
 });
 
 describe("the tables a CPU draw assembles its triangles in", () => {
+  /**
+   * A program that reads no attribute and places vertex v at x = (v % 8) / 4 - 1
+   * and y = (v % 3) - 1, drawn by `Uint32Array` indices near the top of their
+   * range: past every attribute and past 1048575, so through the map.
+   */
+  function bigIndexProgram(compile: typeof compileJS) {
+    const routine = compile(
+      () =>
+        Fn(() => {
+          const v = vertexIndex().toFloat();
+          builtinPosition().assign(vec4(v.mod(8).div(4).sub(1), v.mod(3).sub(1), 0, 1));
+        })() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+    );
+    return (indices: number[]) =>
+      Array.from(routine.draw({ attributes: {}, index: Uint32Array.from(indices) }, { width: WIDTH, height: HEIGHT }));
+  }
+
+  /**
+   * 0xFFFFFFF0 + 5, + 6 and + 1 sit at (0.25, 1), (0.5, -1) and (-0.75, 0).
+   * A table sized to such an index would take seconds and gigabytes, so the
+   * test allows a second, where the draw takes milliseconds.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("draws on JS through indices past every attribute and past 1048575", () => {
+    const B = 0xfffffff0;
+    const image = bigIndexProgram(compileJS)([B + 5, B + 6, B + 1]);
+    const drawn = image.filter((_, i) => i % 4 === 3 && image[i] === 1).length;
+    expect(drawn).toBeGreaterThan(50);
+  }, 1000);
+
+  /**
+   * The first draw maps B + 1 to a slot; the second names B + 5 and B + 6 first,
+   * so a map kept from the first draw would send B + 1 to the slot B + 6 now
+   * holds, and draw nothing. A fresh routine shows what the second draw draws.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("makes the map of indices past 1048575 for each draw on JS", () => {
+    const B = 0xfffffff0;
+    const kept = bigIndexProgram(compileJS);
+    kept([B, B + 1, B + 2]);
+    const second = kept([B + 5, B + 6, B + 1]);
+    expect(second).toEqual(bigIndexProgram(compileJS)([B + 5, B + 6, B + 1]));
+    expect(second.some((value, i) => i % 4 === 3 && value === 1)).toBe(true);
+  });
+
+  /**
+   * The same draws on WASM, which assembles its triangles in the same tables.
+   *
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
+  it("draws on WASM what JS draws through indices past 1048575, one draw after another", () => {
+    const B = 0xfffffff0;
+    const js = bigIndexProgram(compileJS);
+    const wasm = bigIndexProgram(compileWasm as unknown as typeof compileJS);
+    for (const indices of [
+      [B, B + 1, B + 2],
+      [B + 5, B + 6, B + 1],
+    ])
+      expect(wasm(indices)).toEqual(js(indices));
+  }, 1000);
+
   /**
    * @canon spec-a-js-draw-without-indices-keeps-no-vertex-table
    */

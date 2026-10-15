@@ -1484,20 +1484,49 @@ describe("the scalars and inputs of a JS function", () => {
    * A program that reads no attribute and places its four vertices by
    * `vertexIndex()`: each index lies past every attribute, as there is none,
    * so a table sized by the attributes alone would send each through a map.
+   * The indices start at 1000, so a table that stopped short of them would too.
    *
    * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
    */
   it("allocates nothing on an indexed draw whose program reads no attribute", async () => {
-    // Vertex v lies at x = v - 1, y = 1 - (v % 2) * 2: vertices 0 to 3 make a quad over the target.
+    // Vertex 1000 + w lies at x = w - 1, y = 1 - (w % 2) * 2: w of 0 to 3 make a quad over the target.
     const raster = compileJS(
       () =>
         Fn(() => {
-          const v = vertexIndex().toFloat();
-          builtinPosition().assign(vec4(v.sub(1), float(1).sub(v.mod(2).mul(2)), 0, 1));
+          const w = vertexIndex().toFloat().sub(1000);
+          builtinPosition().assign(vec4(w.sub(1), float(1).sub(w.mod(2).mul(2)), 0, 1));
         })(),
       () => Fn(() => vec4(1, 0, 0, 1))(),
     );
-    const ctx = { attributes: {}, index: Uint16Array.of(0, 2, 1, 1, 2, 3) };
+    const ctx = { attributes: {}, index: Uint16Array.of(1000, 1002, 1001, 1001, 1002, 1003) };
+    const options = { width: 16, height: 16 };
+    expect(Array.from(raster.draw(ctx, options).slice(0, 4))).toEqual([1, 0, 0, 1]);
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * An attribute of 1048580 vertices, drawn through indices past 1048575 but
+   * inside it: a table that stopped at 1048575 would send them through a map.
+   *
+   * @canon spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+   */
+  it("allocates nothing on an indexed draw through vertices of its attributes past 1048575", async () => {
+    const shade = attribute("float");
+    const s = varying("float");
+    // Vertex 1048576 + w lies at x = w - 1, y = 1 - (w % 2) * 2.
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          const w = vertexIndex().toFloat().sub(1048576);
+          s.assign(shade);
+          builtinPosition().assign(vec4(w.sub(1), float(1).sub(w.mod(2).mul(2)), 0, 1));
+        })(),
+      () => Fn(() => vec4(s, 0, 0, 1))(),
+    );
+    const ctx = {
+      attributes: { [shade.name]: new Float64Array(1048580).fill(1) },
+      index: Uint32Array.of(1048576, 1048578, 1048577, 1048577, 1048578, 1048579),
+    };
     const options = { width: 16, height: 16 };
     expect(Array.from(raster.draw(ctx, options).slice(0, 4))).toEqual([1, 0, 0, 1]);
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
