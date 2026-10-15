@@ -431,6 +431,46 @@ describe("the array setAttribute takes", () => {
   });
 
   /**
+   * @canon spec-the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute
+   */
+  it("takes an Int32Array or a Uint32Array for a bool attribute node on every adapter", () => {
+    const flag = attribute("bool");
+    const flags = attribute("bvec3");
+    glsl.setAttribute(flag, new Int32Array(3));
+    glsl.setAttribute(flag, new Uint32Array(3));
+    glsl.setAttribute(flags, new Int32Array(9));
+    glsl.setAttribute(flags, new Uint32Array(9));
+    // @ts-expect-error a bool attribute takes no float array
+    glsl.setAttribute(flag, new Float32Array(3));
+    // @ts-expect-error a bvec3 attribute takes no float array
+    glsl.setAttribute(flags, new Float32Array(9));
+    wgsl.setAttribute(flag, new Int32Array(3));
+    wgsl.setAttribute(flag, new Uint32Array(3));
+    wgsl.setAttribute(flags, new Int32Array(9));
+    wgsl.setAttribute(flags, new Uint32Array(9));
+    // @ts-expect-error a bool attribute takes no float array
+    wgsl.setAttribute(flag, new Float32Array(3));
+    // @ts-expect-error a bvec3 attribute takes no float array
+    wgsl.setAttribute(flags, new Float32Array(9));
+    js.setAttribute(flag, new Int32Array(3));
+    js.setAttribute(flag, new Uint32Array(3));
+    js.setAttribute(flags, new Int32Array(9));
+    js.setAttribute(flags, new Uint32Array(9));
+    // @ts-expect-error a bool attribute takes no float array
+    js.setAttribute(flag, new Float32Array(3));
+    // @ts-expect-error a bvec3 attribute takes no float array
+    js.setAttribute(flags, new Float64Array(9));
+    wasm.setAttribute(flag, new Int32Array(3));
+    wasm.setAttribute(flag, new Uint32Array(3));
+    wasm.setAttribute(flags, new Int32Array(9));
+    wasm.setAttribute(flags, new Uint32Array(9));
+    // @ts-expect-error a bool attribute takes no float array
+    wasm.setAttribute(flag, new Float32Array(3));
+    // @ts-expect-error a bvec3 attribute takes no float array
+    wasm.setAttribute(flags, new Float64Array(9));
+  });
+
+  /**
    * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
    */
   it("takes a Float64Array for a float attribute node on a CPU adapter", () => {

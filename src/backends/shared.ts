@@ -579,15 +579,19 @@ export function linkStages<V, F>(
   const assignments: BaseNode<ShaderType>[] = [];
   for (const n of reads) {
     const { slot, shaderType } = n.value;
+    // No GPU language passes a boolean between stages, so a bool attribute travels as the unsigned integer it converts to, which is flat.
+    const boolean = shaderType === "bool" || shaderType.startsWith("bvec");
+    const carrierType = boolean ? (shaderType === "bool" ? "uint" : `uvec${shaderType.slice(-1)}`) : shaderType;
     let carrier = varyings.get(slot);
     if (!carrier) {
-      carrier = varying(shaderType);
+      carrier = varying(carrierType);
       // A refusal of the varying names the attribute it carries, which is what the application wrote.
       carrier.value.carries = slot;
       varyings.set(slot, carrier);
-      assignments.push(node({ _t: "void", type: "assign", params: [carrier, n] }) as BaseNode<ShaderType>);
+      const value = boolean ? n.convert(carrierType) : n;
+      assignments.push(node({ _t: "void", type: "assign", params: [carrier, value] }) as BaseNode<ShaderType>);
     }
-    replaced.set(n, carrier);
+    replaced.set(n, boolean ? carrier.convert(shaderType) : carrier);
   }
   if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
   const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;

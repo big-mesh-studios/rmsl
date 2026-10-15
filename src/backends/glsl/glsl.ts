@@ -89,6 +89,13 @@ export function glslType(brand: any): string {
   return typeToGLSL[brand as string] ?? "float";
 }
 
+/** The `uint` type a `bool` or boolean vector attribute is declared as, or undefined for any other type. */
+function glslBooleanCarrier(shaderType: string): string | undefined {
+  if (shaderType === "bool") return "uint";
+  if (shaderType.startsWith("bvec")) return `uvec${shaderType.slice(-1)}`;
+  return undefined;
+}
+
 export function compileGLSLStage(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
   ctx: CompileCtx,
@@ -259,10 +266,21 @@ export function compileGLSLNode(
 
     case "attribute": {
       let v = node.value as any;
+      let carrier = glslBooleanCarrier(v.shaderType);
       if (!ctx.attributes.has(v.slot)) {
-        ctx.attributes.set(v.slot, { id: v.id, type: glslType(v.shaderType), shaderType: v.shaderType, slot: v.slot });
+        ctx.attributes.set(v.slot, {
+          id: v.id,
+          type: carrier ?? glslType(v.shaderType),
+          shaderType: v.shaderType,
+          slot: v.slot,
+        });
       }
-      return { decls: [], body: [], expr: v.slot };
+      if (!carrier) return { decls: [], body: [], expr: v.slot };
+      return {
+        decls: [],
+        body: [],
+        expr: carrier === "uint" ? `(${v.slot} != 0u)` : `notEqual(${v.slot}, ${carrier}(0u))`,
+      };
     }
 
     case "varying": {

@@ -687,14 +687,26 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "attribute": {
       let v = node.value as any;
       assertNotInAComputeStage(ctx, ctx.shaderStage, COMPUTE_REFUSES.attribute);
+      // A boolean vertex input is no WGSL type, so a bool attribute arrives as `u32`s, compared with zero where it is read.
+      const carrier = v ? booleanCarrier(v.shaderType) : undefined;
       if (v && v.id != null && !ctx.attributes.has(v.slot)) {
-        ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), shaderType: v.shaderType, slot: v.slot });
+        ctx.attributes.set(v.slot, {
+          id: v.id,
+          type: carrier ?? wgslType(v.shaderType),
+          shaderType: v.shaderType,
+          slot: v.slot,
+        });
       }
       if (ctx.shaderStage !== "vertex") return { decls: [], body: [], expr: v.slot };
       // A matrix attribute is rebuilt from its columns at the top of `main`,
       // under its own slot name, so a reference to it is a plain local read.
       const isMatrix = wgslMatrixColumns(wgslType(v.shaderType)) !== null;
-      return { decls: [], body: [], expr: isMatrix ? v.slot : `input.${v.slot}` };
+      const ref = isMatrix ? v.slot : `input.${v.slot}`;
+      return {
+        decls: [],
+        body: [],
+        expr: carrier ? `(${ref} != ${carrier === "u32" ? "0u" : `${carrier}(0u)`})` : ref,
+      };
     }
 
     case "varying": {
