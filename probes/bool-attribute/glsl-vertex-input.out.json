@@ -1,0 +1,21 @@
+{
+  "environment": {
+    "node": "v24.12.0",
+    "platform": "darwin arm64",
+    "chromium": "149.0.7827.55",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
+    "glVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "results": {
+    "vertex input bool": "ERROR: 0:3: 'in' : cannot be bool",
+    "vertex input bvec2": "ERROR: 0:3: 'in' : cannot be bool",
+    "vertex input bvec4": "ERROR: 0:3: 'in' : cannot be bool",
+    "vertex input uint compared with zero": "compiles",
+    "vertex input uvec2 compared with zero": "compiles",
+    "vertex input sampler2D": "ERROR: 0:3: 'sampler2D' : sampler2Ds must be uniform",
+    "vertex output bool": "ERROR: 0:3: 'flat out' : cannot be bool",
+    "fragment input bool": "ERROR: 0:3: 'flat in' : cannot be bool",
+    "vertex output uint flat": "compiles"
+  }
+}
