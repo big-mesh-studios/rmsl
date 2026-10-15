@@ -23,7 +23,7 @@ const TARGETS = ["glsl", "wgsl", "js", "wasm"] as const;
  * the fragment stage reads `read(flag)` true and black where it reads false.
  */
 const BOOL_ATTRIBUTE = `
-import { Fn, attributeRaw, bool, builtinPosition, bvec2, float, uint, vec4 } from "../rmsl";
+import { Fn, attributeRaw, bool, builtinPosition, bvec2, float, uint, varyingRaw, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
@@ -96,6 +96,23 @@ const drawLogic = async (stage) => {
 };
 globalThis.__rmslBoolLogic = () => drawLogic("vertex");
 globalThis.__rmslBoolFragmentLogic = () => drawLogic("fragment");
+// A bool attribute of 2 or -1 converted to uint by the program, into a varying of its own, which the fragment stage reads as 1.
+globalThis.__rmslBoolUserVarying = async () => {
+  const drawn = {};
+  for (const [name, values] of [["two", Int32Array.of(2, 2, 2)], ["minusOne", Int32Array.of(-1, -1, -1)]]) {
+    const converted = varyingRaw(\`converted_\${name}\`, "uint");
+    drawn[name] = await draw(
+      "bool",
+      values,
+      (pos, flag) => {
+        converted.assign(flag.convert("uint"));
+        return vec4(pos, 1);
+      },
+      () => vec4(0, converted.equal(uint(1)).select(float(1), float(0)), 0, 1),
+    );
+  }
+  return drawn;
+};
 // The same, read in the body of an Fn with a layout, which only GLSL, JS and WASM let read an attribute.
 globalThis.__rmslBoolLayoutFn = async () => ({
   vertex: await drawFlag("bool", Int32Array.of(...each(2)), (f) =>
@@ -270,6 +287,22 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
         120_000,
       );
     }
+  }
+
+  for (const target of TARGETS) {
+    /**
+     * The program converts the attribute itself, into a varying of its own,
+     * so the varying holds 1 and not the host's integer.
+     *
+     * @canon spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero
+     */
+    it.skipIf(target === "wgsl" && !WEBGPU)(
+      `converts an integer other than 1 to the uint 1 written into a varying of the program on ${target}`,
+      async () => {
+        expect(await run(target, "__rmslBoolUserVarying")).toEqual({ two: GREEN, minusOne: GREEN });
+      },
+      120_000,
+    );
   }
 
   for (const target of ["glsl", "js", "wasm"]) {
