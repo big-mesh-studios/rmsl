@@ -47,15 +47,19 @@ vertex `e` is the cross product of the other two in homogeneous `(x, y, w)`,
 kept as four exact terms for each coefficient (Dekker's product). A pixel
 centre `(x + 0.5, y + 0.5)` has the ray `X = (2x + 1 - width) * height`,
 `Y = (height - 2y - 1) * width`, `W = width * height`, whole numbers an f64
-holds exactly. A line's value there is decided by a float filter, and within
-its bound of rounding by summing its terms exactly as an expansion of floats
-(Shewchuk's adaptive predicates), so a centre exactly on an edge goes by the
-top-left rule at any size of target and any scale of the positions. The
-point's `z` and `w - z`, each the sum over the vertices of that component
-times the vertex's line, are decided the same way, so a centre exactly at
-depth 0 or 1 is drawn. The depth is their ratio, and each vertex weighs its
-line there times its scale over the greatest scale among the vertices whose
-lines are not 0. A triangle with a vertex at `vec4(0)` and the other two in
+holds exactly. A line's value there is the float sum of its coefficients
+times the ray when that is at least `2^-16` of its terms' sizes, `2^32` times
+its bound of rounding; otherwise its terms are summed exactly as an expansion
+of floats (Shewchuk's adaptive predicates), whose sign is the line's and whose
+float sum is its value. So a centre exactly on an edge goes by the top-left
+rule at any size of target and any scale of the positions. The point's `z` and
+`w - z`, each the sum over the vertices of that component times the vertex's
+line, are decided the same way, so a centre exactly at depth 0 or 1 is drawn.
+The depth is a plane on the screen, the point's `z` along the ray over the
+triangle's determinant times `W`, its three coefficients each summed exactly
+once per triangle, and held to 0 to 1, where those signs put the point. Each
+vertex weighs its line there times its scale over the greatest scale among the
+vertices whose lines are not 0. A triangle with a vertex at `vec4(0)` and the other two in
 the clip volume is drawn the same way, with that vertex at the centre at
 depth 0, and all the weight. The pixels tested are those of the vertices'
 projections when every `w` is above 0; otherwise those of the polygon the

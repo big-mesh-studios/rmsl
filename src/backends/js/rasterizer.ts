@@ -4,7 +4,7 @@ import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, miss
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
 import { compileJSProgram, CompileJSOptions } from "./js";
-import { lineSign, makeLines, pointSign, prepareLines } from "./lines";
+import { depthAt, lineSign, makeLines, pointSign, prepareLines } from "./lines";
 
 /**
  * How many times the rounding of a cut a vertex's components may be and still
@@ -458,7 +458,8 @@ export function compileJSRasterizer(
    * Rasterizes a triangle by its own lines, which {@link prepareLines} has measured: a pixel is
    * covered where each line's exact sign puts its centre inside, or on an edge the triangle owns,
    * and where the point there lies at a depth from 0 to 1. The weight of each
-   * vertex is its line there, scaled; one at `centre` takes all of it. The pixels tested are those
+   * vertex is its line there, scaled; one at `centre` takes all of it. The depth is the
+   * triangle's plane of depth there, which {@link prepareLines} summed exactly once. The pixels tested are those
    * of the projections of the vertices, or of the polygon the clip leaves of a triangle with a
    * vertex at or behind the eye.
    */
@@ -539,9 +540,7 @@ export function compileJSRasterizer(
         const l0 = values[0]!,
           l1 = values[1]!,
           l2 = values[2]!;
-        fragment[4] =
-          (points[2]! * l0 + points[6]! * l1 + points[10]! * l2) /
-          (points[3]! * l0 + points[7]! * l1 + points[11]! * l2);
+        fragment[4] = depthAt(lines, X, Y, whole);
         if (centre !== -1) {
           fragment[0] = centre === 0 ? 1 : 0;
           fragment[1] = centre === 1 ? 1 : 0;

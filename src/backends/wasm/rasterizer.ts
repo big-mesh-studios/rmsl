@@ -68,7 +68,7 @@ const VEC4_BYTES = 32;
  * scratch: the lines of the triangle being drawn, the room to sum a line's
  * value exactly, and the weights and depth of the fragment being shaded.
  */
-export const LINES_BYTES = 6744;
+export const LINES_BYTES = 6776;
 
 /**
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.

@@ -15,6 +15,12 @@
 /** The bound of rounding of a line's value, over the sum of its terms' sizes: three times what it can reach. */
 const LINE_ROUNDING = 2 ** -48;
 
+/**
+ * The least a line's float value keeps, over the sum of its terms' sizes: 2^32 times its bound of rounding,
+ * so a value kept is within 2^-32 of itself. A smaller value is summed exactly, as a weight takes it.
+ */
+const LINE_FILTER = 2 ** -16;
+
 /** Dekker's splitter for a 64-bit float, `2^27 + 1`. */
 const SPLITTER = 134217729;
 
@@ -40,6 +46,11 @@ export interface Lines {
   owns: Uint8Array;
   /** The weight of each vertex for each unit of its line, by which of the three lines are not 0: `mask * 3 + e`. */
   ratios: Float64Array;
+  /**
+   * The depth over w as a plane on the screen: the point's z along the ray `(X, Y, W)` is
+   * `plane[0] X + plane[1] Y + plane[2] W`, and its w is `plane[3] W`, the triangle's determinant times `W`.
+   */
+  plane: Float64Array;
   /** At the pixel being tested: each line's value and its bound of rounding. */
   values: Float64Array;
   bounds: Float64Array;
@@ -61,6 +72,7 @@ export function makeLines(): Lines {
     sizes: new Float64Array(9),
     owns: new Uint8Array(3),
     ratios: new Float64Array(24),
+    plane: new Float64Array(4),
     values: new Float64Array(3),
     bounds: new Float64Array(3),
     expansions: new Float64Array(3 * EXPANSION),
@@ -153,6 +165,13 @@ function addExactly(terms: Float64Array, count: number, sum: Float64Array, at: n
   return length;
 }
 
+/** The sum of the expansion at `sum[at]` of `length` components, as a float: within a few roundings of it. */
+function estimateOf(sum: Float64Array, at: number, length: number): number {
+  let estimate = 0;
+  for (let i = 0; i < length; i++) estimate += sum[at + i]!;
+  return estimate;
+}
+
 /** The sign of the expansion at `sum[at]` of `length` components. */
 function signOf(sum: Float64Array, at: number, length: number): number {
   if (length === 0) return 0;
@@ -220,8 +239,21 @@ export function prepareLines(
       product(terms, k * 4 + q, points, k === 2 ? 3 : k, pending, n);
       n += 2;
     }
-  const orientation = signOf(sum, 0, addExactly(pending, n, sum, 0));
+  const determinant = addExactly(pending, n, sum, 0);
+  const orientation = signOf(sum, 0, determinant);
   if (orientation === 0) return 0;
+  const { plane } = lines;
+  plane[3] = estimateOf(sum, 0, determinant);
+  // The point's z along the ray is the sum of each vertex's z times its line: each coefficient summed exactly once.
+  for (let k = 0; k < 3; k++) {
+    n = 0;
+    for (let e = 0; e < 3; e++)
+      for (let q = 0; q < 4; q++) {
+        product(terms, (3 * e + k) * 4 + q, points, 4 * e + 2, pending, n);
+        n += 2;
+      }
+    plane[k] = estimateOf(sum, 0, addExactly(pending, n, sum, 0));
+  }
   // An edge owns its centres when its inside lies to its right on the screen, or below it when horizontal.
   for (let e = 0; e < 3; e++) {
     const a = signOfTerms(lines, 3 * e * 4) * orientation,
@@ -268,25 +300,31 @@ function expandLine(lines: Lines, e: number, X: number, Y: number, W: number): n
 
 /**
  * Tests line `e` at the ray `(X, Y, W)`: writes its value and bound into `values` and `bounds`, and
- * gives its sign, exactly. Where the filter cannot decide, the value is the top of the exact expansion.
+ * gives its sign, exactly. Where the filter cannot decide, the value is the float sum of the exact expansion.
  */
 export function lineSign(lines: Lines, e: number, X: number, Y: number, W: number): number {
   const { coefficients: c, sizes: m, values, bounds, expansions } = lines;
   const k = 3 * e;
   const value = c[k]! * X + c[k + 1]! * Y + c[k + 2]! * W;
-  const bound = LINE_ROUNDING * (m[k]! * Math.abs(X) + m[k + 1]! * Math.abs(Y) + m[k + 2]! * W);
-  bounds[e] = bound;
-  let sign: number;
-  if (value > bound) sign = 1;
-  else if (value < -bound) sign = -1;
-  else {
-    const length = expandLine(lines, e, X, Y, W);
-    sign = signOf(expansions, e * EXPANSION, length);
-    values[e] = sign === 0 ? 0 : expansions[e * EXPANSION + length - 1]!;
-    return sign;
+  const size = m[k]! * Math.abs(X) + m[k + 1]! * Math.abs(Y) + m[k + 2]! * W;
+  bounds[e] = LINE_ROUNDING * size;
+  if (value > LINE_FILTER * size) {
+    values[e] = value;
+    return 1;
   }
-  values[e] = value;
-  return sign;
+  if (value < -LINE_FILTER * size) {
+    values[e] = value;
+    return -1;
+  }
+  const length = expandLine(lines, e, X, Y, W);
+  values[e] = estimateOf(expansions, e * EXPANSION, length);
+  return signOf(expansions, e * EXPANSION, length);
+}
+
+/** The depth at the ray `(X, Y, W)` by the triangle's {@link Lines.plane}, held to 0 to 1, where coverage put it. */
+export function depthAt(lines: Lines, X: number, Y: number, W: number): number {
+  const { plane } = lines;
+  return Math.min(1, Math.max(0, (plane[0]! * X + plane[1]! * Y + plane[2]! * W) / (plane[3]! * W)));
 }
 
 /**

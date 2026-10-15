@@ -99,11 +99,30 @@ function messyTriangles(seed: number, count: number, behind: number): number[][]
 }
 
 /**
- * Draws `positions` on both rasterizers and asserts the JS and WASM images are the same bits, and
- * that each lights the pixels the reference lights, with its weights and depth unless `values` is
- * false. Gives the image.
+ * Triangles in front of the eye with an edge at depth 0 or 1: two vertices with z 0, or z = w, and the
+ * third between. Each vertex is scaled by a factor of many digits, so the depth along that edge,
+ * exactly 0 or 1, rounds when computed.
  */
-function drawsAsTheReference(positions: readonly number[], width: number, height: number, values = true): Float64Array {
+function edgeAtDepthTriangles(seed: number, count: number): number[][] {
+  const next = random(seed);
+  return Array.from({ length: count }, (_, n) =>
+    [0, 1, 2].flatMap((k) => {
+      const w = Math.abs(onGrid(next, 2)) + 0.0625;
+      const x = onGrid(next, w),
+        y = onGrid(next, w);
+      const z = k === 2 ? Math.abs(onGrid(next, w)) % w : n % 2 ? w : 0;
+      const f = messyFactor(next);
+      return [x * f, y * f, z * f, w * f];
+    }),
+  );
+}
+
+/**
+ * Draws `positions` on both rasterizers and asserts the JS and WASM images are the same bits, and
+ * that each lights the pixels the reference lights, with its weights, and its depth, from 0 to 1.
+ * Gives the image.
+ */
+function drawsAsTheReference(positions: readonly number[], width: number, height: number): Float64Array {
   const image = js(positions, width, height);
   const other = wasm(positions, width, height);
   const label = `${JSON.stringify(positions)} on ${width}x${height}`;
@@ -115,12 +134,13 @@ function drawsAsTheReference(positions: readonly number[], width: number, height
     const lit = image[p * 4 + 3] !== -1;
     if (lit !== (reference.covered[p] === 1))
       expect.fail(`pixel ${p % width},${Math.floor(p / width)} lit ${lit}, ${label}`);
-    if (!lit || !values) continue;
+    if (!lit) continue;
     for (let e = 0; e < 3; e++)
       if (!(Math.abs(image[p * 4 + e]! - reference.weights[p * 3 + e]!) <= 1e-9))
         expect.fail(`weight ${e} at ${p}: ${image[p * 4 + e]} for ${reference.weights[p * 3 + e]}, ${label}`);
-    if (!(Math.abs(image[p * 4 + 3]! - reference.depth[p]!) <= 1e-9))
-      expect.fail(`depth at ${p}: ${image[p * 4 + 3]} for ${reference.depth[p]}, ${label}`);
+    const depth = image[p * 4 + 3]!;
+    if (!(depth >= 0 && depth <= 1 && Math.abs(depth - reference.depth[p]!) <= 1e-9))
+      expect.fail(`depth at ${p}: ${depth} for ${reference.depth[p]}, ${label}`);
   }
   return image;
 }
@@ -164,6 +184,17 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   it("decides a centre on an edge, or at depth 0 or 1, exactly where products of the coordinates round", () => {
     for (const [width, height] of [SIZES[0]!, SIZES[1]!])
       for (const t of messyTriangles(80 + width, 80, 0))
+        if (!inPlaneWithTheEye(t)) drawsAsTheReference(t, width, height);
+  });
+
+  /**
+   * A centre on an edge at depth 0 or 1 lies at that depth exactly, and the depth computed there rounds.
+   *
+   * @canon spec-a-rasterizer-clips-outside-the-depth-range
+   */
+  it("gives a depth from 0 to 1 at a centre on an edge at depth 0 or 1", () => {
+    for (const [width, height] of [SIZES[0]!, SIZES[1]!])
+      for (const t of edgeAtDepthTriangles(100 + width, 400))
         if (!inPlaneWithTheEye(t)) drawsAsTheReference(t, width, height);
   });
 
@@ -235,20 +266,22 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
    * The third vertex is minus a power of two times the first, plus a hair, so an edge passes a
    * hair from vec4(0), and a vertex the clip cuts there has a w of that hair: its projection is
    * rounding, and the pixels to test are all of the target's. The lines of such a triangle are
-   * nearly parallel, so its weights and depth are held only to the pixels it lights.
+   * nearly parallel, and near a tie a line's value comes from its exact sum, so its weights and
+   * depth are held to the reference too.
    *
    * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
+   * @canon spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
    */
   it("draws a triangle whose edge passes a hair from vec4(0)", () => {
     const next = random(55);
-    for (let n = 0; n < 120; n++) {
+    for (let n = 0; n < 480; n++) {
       const p0 = gridVertex(next, false),
         p1 = gridVertex(next, false);
-      const hair = 2 ** -(36 + (n % 20));
+      const hair = 2 ** -(36 + (n % 24));
       const k = [0.5, 1, 2, 4][n % 4]!;
       const p2 = p0.map((c) => -k * c + hair * (Math.round(next() * 64) - 32));
       const t = n % 2 ? [...p0, ...p1, ...p2] : [...p2, ...p0, ...p1];
-      if (!inPlaneWithTheEye(t)) drawsAsTheReference(t, 16, 16, false);
+      if (!inPlaneWithTheEye(t)) drawsAsTheReference(t, 16, 16);
     }
   });
 
