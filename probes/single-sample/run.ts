@@ -14,5 +14,13 @@ const entry = process.argv[2];
 if (!entry) throw new Error("usage: node probes/single-sample/run.ts probes/single-sample/<probe>.ts");
 const out = join(dirname(resolve(entry)), ".out", basename(entry).replace(/\.ts$/, ".mjs"));
 await mkdir(dirname(out), { recursive: true });
-await build({ entryPoints: [entry], bundle: true, platform: "node", format: "esm", packages: "external", outfile: out, logLevel: "silent" });
+await build({
+  entryPoints: [entry],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  packages: "external",
+  outfile: out,
+  logLevel: "silent",
+});
 await import(pathToFileURL(out).href);

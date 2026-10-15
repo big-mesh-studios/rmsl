@@ -19,8 +19,19 @@ export async function environment(): Promise<Record<string, unknown>> {
       const adapter = await (navigator as any).gpu?.requestAdapter?.().catch(() => null);
       return {
         userAgent: navigator.userAgent,
-        webgl: gl ? { renderer: gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER), version: gl.getParameter(gl.VERSION) } : null,
-        webgpu: adapter ? { vendor: adapter.info?.vendor, architecture: adapter.info?.architecture, description: adapter.info?.description } : null,
+        webgl: gl
+          ? {
+              renderer: gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+              version: gl.getParameter(gl.VERSION),
+            }
+          : null,
+        webgpu: adapter
+          ? {
+              vendor: adapter.info?.vendor,
+              architecture: adapter.info?.architecture,
+              description: adapter.info?.description,
+            }
+          : null,
       };
     });
   return {
