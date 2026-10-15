@@ -44,6 +44,27 @@ globalThis.__rmslAdapterFlatIndexRun = async () => {
 };
 `;
 
+const ENTRY_FLAT_STRIP = `
+${QUAD}
+globalThis.__rmslAdapterFlatStripRun = async () => {
+  // A strip of four vertices: triangle 0 covers the top left, triangle 1 the bottom right.
+  const k = varying("int");
+  const vertex = Fn(() => {
+    const v = vertexIndex();
+    k.assign(v.toInt().add(1));
+    const right = v.greaterThanEqual(uint(2));
+    const top = v.equal(uint(0)).or(v.equal(uint(2)));
+    return vec4(right.select(float(1), float(-1)), top.select(float(1), float(-1)), 0, 1);
+  })();
+  const adapter = createWgsl({ vertex, fragment: Fn(() => vec4(k.toFloat().div(4), 1, 0, 1))(), topology: "triangle-strip" });
+  const target = canvas();
+  await adapter.attach(target);
+  adapter.draw({ count: 4 });
+  await adapter.device().queue.onSubmittedWorkDone();
+  return { even: readPixel(target, 0, 0), odd: readPixel(target, 3, 3) };
+};
+`;
+
 const ENTRY_RETEXTURE = `
 ${QUAD}
 globalThis.__rmslAdapterRetextureRun = async () => {
@@ -152,10 +173,29 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
   /**
    * The vertices write 0, 1 and 2, drawn as red of half that.
    *
-   * @canon spec-a-flat-varying-takes-the-first-vertex
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
    */
   it("reads an integer varying as the triangle's first vertex wrote it on WGSL", async () => {
     expect(await run(ENTRY_FLAT_INDEX, "__rmslAdapterFlatIndexRun")).toEqual({ r: 0, g: 0, b: 0, a: 255 });
+  }, 60_000);
+
+  /**
+   * Each vertex writes its index plus one, drawn as red of a quarter of that:
+   * strip vertex 0 gives 64, vertex 1 gives 128, and vertex 2 would give 191.
+   *
+   * @canon spec-a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k
+   */
+  it("reads an integer varying of an even strip triangle as strip vertex k wrote it on WGSL", async () => {
+    const { even } = await run(ENTRY_FLAT_STRIP, "__rmslAdapterFlatStripRun");
+    expect(even).toEqual({ r: 64, g: 255, b: 0, a: 255 });
+  }, 60_000);
+
+  /**
+   * @canon spec-a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k
+   */
+  it("reads an integer varying of an odd strip triangle as strip vertex k wrote it on WGSL", async () => {
+    const { odd } = await run(ENTRY_FLAT_STRIP, "__rmslAdapterFlatStripRun");
+    expect(odd).toEqual({ r: 128, g: 255, b: 0, a: 255 });
   }, 60_000);
 
   /**

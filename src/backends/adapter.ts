@@ -123,9 +123,14 @@ export interface SetUniform extends SetUniformByNode {
  * backend that draws infers it that way.
  */
 export interface DrawCountOptions {
-  /** First vertex to draw. Defaults to 0. */
+  /** First vertex to draw. Defaults to 0. On a CPU rasterizer drawing by indices, the first index. */
   first?: number;
-  /** Vertices to draw. Defaults to those of the first attribute the program reads, in the order the host passed them, less `first`. */
+  /**
+   * Vertices to draw. Defaults to those of the first attribute the program
+   * reads, in the order the host passed them, less `first`. On a CPU rasterizer
+   * drawing by indices, the indices to draw, which default to those from
+   * `first` to the end of the index array.
+   */
   count?: number;
 }
 
@@ -160,15 +165,17 @@ export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderTyp
 /**
  * The array an attribute of type `T`, or a storage buffer of elements of type
  * `T`, takes: an `Int32Array` for an `int` or `ivecN`, a `Uint32Array` for a
- * `uint` or `uvecN`, and `TFloatArray` for any other, a `Float32Array` unless
- * the adapter also takes a `Float64Array`.
+ * `uint` or `uvecN`, either for a `bool` or `bvecN`, and `TFloatArray` for any
+ * other, a `Float32Array` unless the adapter also takes a `Float64Array`.
  */
 export type HostArray<T extends ShaderType, TFloatArray extends Float32Array | Float64Array = Float32Array> = T extends
   "int" | "ivec2" | "ivec3" | "ivec4"
   ? Int32Array
   : T extends "uint" | "uvec2" | "uvec3" | "uvec4"
     ? Uint32Array
-    : TFloatArray;
+    : T extends "bool" | "bvec2" | "bvec3" | "bvec4"
+      ? Int32Array | Uint32Array
+      : TFloatArray;
 
 /** A node whose slot `setAttribute` fills: an attribute, or a storage buffer. */
 export type AttributeOrStorage<T extends ShaderType> = AttributeNode<T> | StorageNode<T> | ReadOnlyStorageNode<T>;

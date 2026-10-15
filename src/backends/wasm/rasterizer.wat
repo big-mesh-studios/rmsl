@@ -84,6 +84,8 @@
   (global $writesDepth (mut i32) (i32.const 0))
   (global $discardAddress (mut i32) (i32.const 0))
   (global $mayDiscard (mut i32) (i32.const 0))
+  ;; The sign of the screen area of a triangle the draw culls, or 0 to cull none.
+  (global $cullSign (mut f64) (f64.const 0))
   ;; Where in the clip scratch the polygon the last clip left starts.
   (global $clipped (mut i32) (i32.const 0))
 
@@ -922,6 +924,8 @@
         (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
         (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (f64.sub (local.get $s2x) (local.get $s0x)))))
     (if (f64.eq (local.get $area) (f64.const 0)) (then (return)))
+    ;; A face the draw culls draws nothing.
+    (if (f64.gt (f64.mul (local.get $area) (global.get $cullSign)) (f64.const 0)) (then (return)))
     ;; A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
     ;; pixel outside it, which is what clipping there drops, as depth over w is affine in
     ;; screen space; one inside it draws every pixel, whatever the rounding of its depth.
@@ -1140,17 +1144,18 @@
         (local.set $y (i32.add (local.get $y) (i32.const 1)))
         (br $yContinue))))
 
-  ;; Draws the triangle of vertices $tri, $tri + 1 and $tri + 2, as rasterizer.ts's drawTriangle
+  ;; Draws the triangle of vertices $t0, $t1 and $t2, as rasterizer.ts's drawTriangle
   ;; does: one whose vertices do not lie in one plane with the eye, or with a vertex at vec4(0) and the other two in the clip volume, is
   ;; drawn by its lines; any other is clipped, and draws only by a fan from a vertex at vec4(0).
   (func $drawTriangle
     (param $positionsOutBase i32) (param $varyingsOutBase i32)
-    (param $clippedPositionsOutBase i32) (param $clippedVaryingsOutBase i32) (param $tri i32)
+    (param $clippedPositionsOutBase i32) (param $clippedVaryingsOutBase i32)
+    (param $t0 i32) (param $t1 i32) (param $t2 i32)
     (local $a i32) (local $b i32) (local $c i32) (local $zeros i32) (local $centre i32) (local $orientation i32)
     (local $count i32) (local $i i32) (local $origin i32) (local $clippedVertexCount i32) (local $src i32)
-    (local.set $a (i32.add (local.get $positionsOutBase) (i32.mul (local.get $tri) (i32.const 32))))
-    (local.set $b (i32.add (local.get $a) (i32.const 32)))
-    (local.set $c (i32.add (local.get $a) (i32.const 64)))
+    (local.set $a (i32.add (local.get $positionsOutBase) (i32.mul (local.get $t0) (i32.const 32))))
+    (local.set $b (i32.add (local.get $positionsOutBase) (i32.mul (local.get $t1) (i32.const 32))))
+    (local.set $c (i32.add (local.get $positionsOutBase) (i32.mul (local.get $t2) (i32.const 32))))
     (local.set $zeros (i32.add (i32.add (call $isOrigin (local.get $a)) (call $isOrigin (local.get $b))) (call $isOrigin (local.get $c))))
     (local.set $centre (i32.const -1))
     (if (i32.eq (local.get $zeros) (i32.const 1))
@@ -1168,15 +1173,18 @@
         (local.set $orientation (call $prepareLines (local.get $a) (local.get $b) (local.get $c) (local.get $centre)))
         (if (local.get $orientation)
           (then
+            ;; The sign of a triangle is its winding in normalized device coordinates, that of its part in front of the eye too.
+            (if (f64.lt (f64.mul (f64.convert_i32_s (local.get $orientation)) (global.get $cullSign)) (f64.const 0))
+              (then (return)))
             (call $rasterizeByLines (local.get $positionsOutBase) (local.get $varyingsOutBase)
-              (local.get $tri) (i32.add (local.get $tri) (i32.const 1)) (i32.add (local.get $tri) (i32.const 2))
+              (local.get $t0) (local.get $t1) (local.get $t2)
               (local.get $centre) (local.get $orientation))
             (return)))
         (if (i32.ne (local.get $centre) (i32.const -1)) (then (return)))))
     ;; In one plane with the eye: the clipped polygon draws only by a fan from a vertex at vec4(0), at the centre.
-    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $tri) (i32.const 0))
-    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (i32.add (local.get $tri) (i32.const 1)) (i32.const 1))
-    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (i32.add (local.get $tri) (i32.const 2)) (i32.const 2))
+    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $t0) (i32.const 0))
+    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $t1) (i32.const 1))
+    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $t2) (i32.const 2))
     (local.set $count (call $clip))
     (local.set $src (global.get $clipped))
     (local.set $origin (i32.const -1))
@@ -1207,7 +1215,7 @@
       (loop $triContinue
         (br_if $triBreak (i32.ge_s (i32.add (local.get $i) (i32.const 2)) (local.get $clippedVertexCount)))
         (call $rasterizeFan (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase) (local.get $i)
-          (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $tri) (global.get $varyingBytes))))
+          (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t0) (global.get $varyingBytes))))
         (local.set $i (i32.add (local.get $i) (i32.const 3)))
         (br $triContinue))))
 
@@ -1226,7 +1234,13 @@
     (param $fragCoordAddress i32) (param $readsFragCoord i32)
     (param $fragDepthAddress i32) (param $usesDepth i32) (param $writesDepth i32)
     (param $discardAddress i32) (param $mayDiscard i32)
-    (local $i i32) (local $tri i32)
+    ;; The triangles to draw, three i32 vertex numbers each, wound as WebGPU winds
+    ;; them, the first giving the flat varyings. A $triangleBase of 0 takes each
+    ;; three vertices in turn instead.
+    (param $triangleBase i32) (param $triangleCount i32)
+    ;; The sign of the screen area of a triangle the draw culls, or 0 to cull none.
+    (param $cullSign f64)
+    (local $i i32) (local $tri i32) (local $t i32) (local $entry i32)
     (global.set $lines (call $linesBase (local.get $clipScratchBase) (local.get $varyingBytes)))
     (global.set $clipScratch (local.get $clipScratchBase))
     (global.set $varyingBytes (local.get $varyingBytes))
@@ -1245,6 +1259,7 @@
     (global.set $writesDepth (local.get $writesDepth))
     (global.set $discardAddress (local.get $discardAddress))
     (global.set $mayDiscard (local.get $mayDiscard))
+    (global.set $cullSign (local.get $cullSign))
 
     ;; ---- vertex pass ----
     (block $vertexBreak
@@ -1263,10 +1278,22 @@
     ;; ---- each triangle ----
     (block $trianglesDone
       (loop $nextTriangle
-        (br_if $trianglesDone (i32.ge_s (i32.add (local.get $tri) (i32.const 2)) (local.get $vertexCount)))
-        (call $drawTriangle (local.get $positionsOutBase) (local.get $varyingsOutBase)
-          (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase) (local.get $tri))
-        (local.set $tri (i32.add (local.get $tri) (i32.const 3)))
+        (if (i32.eqz (local.get $triangleBase))
+          (then
+            (local.set $t (i32.mul (local.get $tri) (i32.const 3)))
+            (br_if $trianglesDone (i32.ge_s (i32.add (local.get $t) (i32.const 2)) (local.get $vertexCount)))
+            (call $drawTriangle (local.get $positionsOutBase) (local.get $varyingsOutBase)
+              (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
+              (local.get $t) (i32.add (local.get $t) (i32.const 1)) (i32.add (local.get $t) (i32.const 2))))
+          (else
+            (br_if $trianglesDone (i32.ge_s (local.get $tri) (local.get $triangleCount)))
+            (local.set $entry (i32.add (local.get $triangleBase) (i32.mul (local.get $tri) (i32.const 12))))
+            (call $drawTriangle (local.get $positionsOutBase) (local.get $varyingsOutBase)
+              (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
+              (i32.load (local.get $entry))
+              (i32.load (i32.add (local.get $entry) (i32.const 4)))
+              (i32.load (i32.add (local.get $entry) (i32.const 8))))))
+        (local.set $tri (i32.add (local.get $tri) (i32.const 1)))
         (br $nextTriangle))))
 
   (export "rasterize" (func $rasterize)))

@@ -1,0 +1,19 @@
+{
+  "environment": {
+    "node": "v24.12.0",
+    "platform": "darwin arm64",
+    "@kmamal/gpu": "0.2.1",
+    "dawnCommit": "029eb3459232f0507d737c0ba3e8e82be3572251",
+    "adapter": "Metal driver on macOS Version 15.0 (Build 24A335)"
+  },
+  "results": {
+    "vertex input bool": "Error while parsing WGSL: :1:30 error: cannot apply '@location' to declaration of type 'bool'",
+    "vertex input vec2<bool>": "Error while parsing WGSL: :1:30 error: cannot apply '@location' to declaration of type 'vec2<bool>'",
+    "vertex input vec4<bool>": "Error while parsing WGSL: :1:30 error: cannot apply '@location' to declaration of type 'vec4<bool>'",
+    "vertex input u32 compared with zero": "valid",
+    "vertex input vec2<u32> compared with zero": "valid",
+    "vertex output bool": "Error while parsing WGSL: :1:54 error: cannot apply '@location' to declaration of type 'bool'",
+    "fragment input bool": "Error while parsing WGSL: :1:51 error: cannot apply '@location' to declaration of type 'bool'",
+    "vertex output u32 flat": "valid"
+  }
+}

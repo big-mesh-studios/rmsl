@@ -27,7 +27,10 @@ its own. `compileWat` builds both modules from the one `.wat`.
 
 ### 1. Vertex pass
 
-Loops `vertexCount` times: for each attribute descriptor in
+The host lays out one record for each vertex the draw names, once however
+many indices name it (`TriangleAssembly` in `src/backends/assemble.ts`
+decides which), with an attribute past the end of its array written as
+zero. The pass loops `vertexCount` times, once per record: for each attribute descriptor in
 `attrDescBase`/`attrDescCount`, byte-copies that slot's bytes from
 `attrSrcBase` into the imported vertex function's own attribute address for
 that slot, calls it, then byte-copies its written `vec4` position (and one
@@ -36,8 +39,18 @@ shared varying blob, `varyingBytes` long) out to
 
 ### 2. Triangle pass
 
-Each original (non-indexed) triangle is drawn before the next, one of two
-ways, as `rasterizer.ts` in the JS backend draws it.
+The triangles come from `triangleBase`: `triangleCount` entries of three
+`i32` vertex records each, which the host assembles from the draw's
+topology and indices. Each is wound as WebGPU winds it, with an odd strip
+triangle reversed, and its first vertex gives its flat varyings. A
+`triangleBase` of 0 takes each three records in turn instead.
+
+Each triangle is drawn before the next, one of two ways, as `rasterizer.ts`
+in the JS backend draws it. A draw that culls a face (`cullSign`, the sign
+of the screen area such a face has, or 0) skips a triangle drawn by its
+lines whose sign, which is opposite to its screen area's as y runs down the
+screen, is opposite to `cullSign`, and a triangle of a fan whose screen area
+has the sign of `cullSign`.
 
 **By its lines.** A triangle whose vertices do not lie in one plane with the
 eye is tested pixel by pixel against its own lines. Each vertex is scaled by
@@ -131,7 +144,8 @@ clipped or not.
   needs `compileWasmFn`'s `scalarsInMemory: true` option to force it into
   memory too instead of a real WASM function parameter, which this
   rasterizer's fixed-arity imports can't accept.
-- No index buffer, no antialiasing.
+- No antialiasing. Indices, strips and restarts are assembled by the host;
+  the module sees only the triangle list.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
 - A triangle drawn by its lines is not clipped: its lines, depth 0 to 1
