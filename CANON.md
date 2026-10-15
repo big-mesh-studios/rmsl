@@ -758,24 +758,29 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes`](#spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes) — The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
-      - [`@spec a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does) — A CPU rasterizer draw takes a `topology` among its options, `"triangle-list"` or `"triangle-strip"`. It makes its triangles from its vertices as a WebGPU pipeline of that topology makes them.
+      - [`@spec a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does) — A CPU rasterizer draw takes a `topology` among its options, `"triangle-list"` or `"triangle-strip"`, and no other of WebGPU's. It makes its triangles from its vertices as a WebGPU pipeline of that topology makes them.
         - [`@spec a-cpu-draw-is-a-triangle-list-unless-it-names-another-topology`](#spec-a-cpu-draw-is-a-triangle-list-unless-it-names-another-topology) — A CPU rasterizer draw that names no topology, or `"triangle-list"`, makes triangle `k` of its vertices `3k`, `3k + 1` and `3k + 2`.
-        - [`@spec a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second`](#spec-a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second) — A CPU rasterizer draw with `topology: "triangle-strip"` makes triangle `k` of its vertices `k`, `k + 1` and `k + 2`.
+        - [`@spec a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second`](#spec-a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second) — A CPU rasterizer draw with `topology: "triangle-strip"` makes triangle `k` of its vertices `k`, `k + 1` and `k + 2`, in that order for an even `k`, and in the order `k + 1`, `k`, `k + 2` for an odd `k`.
         - [`@spec a-cpu-list-draws-nothing-for-vertices-that-complete-no-triangle`](#spec-a-cpu-list-draws-nothing-for-vertices-that-complete-no-triangle) — A CPU rasterizer list draws nothing for the last one or two of its vertices when they complete no triangle.
         - [`@spec a-cpu-strip-of-fewer-than-three-vertices-draws-nothing`](#spec-a-cpu-strip-of-fewer-than-three-vertices-draws-nothing) — A CPU rasterizer strip of one or two vertices draws nothing.
-        - [`@spec a-cpu-draw-has-no-fan-topology`](#spec-a-cpu-draw-has-no-fan-topology) — The type of a CPU rasterizer draw's `topology` admits no `"triangle-fan"`. The draw checks nothing at run time.
-        - [`@spec a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them`](#spec-a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them) — A CPU rasterizer draw draws its triangles in the order its topology and its indices make them. Of two fragments at the same depth on one pixel, it keeps the later triangle's.
-        - [`@spec a-cpu-strip-triangle-takes-its-flat-varyings-from-its-first-strip-vertex`](#spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-its-first-strip-vertex) — A fragment of triangle `k` of a CPU rasterizer strip reads an integer varying as strip vertex `k` wrote it. This holds for an odd `k` as for an even one, and counts `k` from the start of the strip or from its last restart.
-        - [`@spec a-cpu-strip-triangle-faces-as-its-strip-starts`](#spec-a-cpu-strip-triangle-faces-as-its-strip-starts) — Every triangle of a CPU rasterizer strip faces the way the first triangle of its strip faces, after a restart too. A cull keeps a strip whole or drops it whole.
+        - [`@spec a-cpu-draw-has-no-point-list-topology`](#spec-a-cpu-draw-has-no-point-list-topology) — The type of a CPU rasterizer draw's `topology` admits no `"point-list"`. The draw checks nothing at run time.
+        - [`@spec a-cpu-draw-has-no-line-topology`](#spec-a-cpu-draw-has-no-line-topology) — The type of a CPU rasterizer draw's `topology` admits neither `"line-list"` nor `"line-strip"`. The draw checks nothing at run time.
+        - [`@spec a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices`](#spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices) — Every fragment of a triangle of a CPU rasterizer strip reads an integer varying as one and the same vertex of that triangle wrote it.
+        - [`@spec a-cpu-strip-triangle-faces-by-its-own-winding`](#spec-a-cpu-strip-triangle-faces-by-its-own-winding) — A CPU rasterizer takes the facing of each triangle of a strip from its own winding, in the order its strip takes its vertices. A strip that folds on screen culls in part. A triangle of zero area decides nothing for the others.
       - [`@spec a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array) — A CPU rasterizer draw given an `index` array in its context takes its vertices in the order of the indices. It takes them as a WebGPU indexed draw does.
         - [`@spec an-indexed-cpu-draw-takes-the-vertex-each-index-names`](#spec-an-indexed-cpu-draw-takes-the-vertex-each-index-names) — Vertex `i` of an indexed CPU rasterizer draw is the vertex its `i`-th index names. Every triangle through a vertex that several indices name takes that vertex's position and varyings.
+        - [`@spec an-indexed-cpu-draw-reads-the-index-as-the-vertex-index`](#spec-an-indexed-cpu-draw-reads-the-index-as-the-vertex-index) — In an indexed CPU rasterizer draw, `vertexIndex()` reads the index that names the vertex the stage runs for.
+        - [`@spec an-indexed-cpu-draw-takes-no-base-vertex`](#spec-an-indexed-cpu-draw-takes-no-base-vertex) — An indexed CPU rasterizer draw takes no base vertex. An index names the vertex at that index, counted from the start of the attributes.
         - [`@spec an-indexed-cpu-draw-counts-its-indices`](#spec-an-indexed-cpu-draw-counts-its-indices) — In an indexed CPU rasterizer draw, `first` is the first index it draws, and `count` the number of indices. A draw that names no count draws the indices from `first` to the end of the array.
+        - [`@spec an-indexed-cpu-draw-past-its-index-array-is-refused`](#spec-an-indexed-cpu-draw-past-its-index-array-is-refused) — A CPU rasterizer draw whose `first`, or `first` plus its `count`, passes the end of its index array is refused with a `UsageError`. The error names both and the length of the array, and the draw draws nothing.
         - [`@spec an-index-array-is-a-uint16-or-uint32-array`](#spec-an-index-array-is-a-uint16-or-uint32-array) — The type of the `index` of a CPU rasterizer draw's context admits only a `Uint16Array` and a `Uint32Array`. The draw checks nothing at run time.
         - [`@spec an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array`](#spec-an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array) — An indexed CPU rasterizer strip ends at an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`. It starts a new strip at the next index.
+        - [`@spec a-part-of-an-indexed-cpu-strip-under-three-vertices-draws-nothing`](#spec-a-part-of-an-indexed-cpu-strip-under-three-vertices-draws-nothing) — A part of an indexed CPU rasterizer strip with fewer than three indices draws nothing. A part lies between two restarts, before the first, or after the last. A restart first, a restart last, or two in a row make no triangle.
         - [`@spec an-indexed-cpu-list-takes-the-largest-index-as-a-vertex`](#spec-an-indexed-cpu-list-takes-the-largest-index-as-a-vertex) — An indexed CPU rasterizer list restarts nothing. It takes an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`, as the index of a vertex, like any other.
         - [`@spec an-indexed-cpu-draw-shades-with-the-inputs-of-that-draw`](#spec-an-indexed-cpu-draw-shades-with-the-inputs-of-that-draw) — An indexed CPU rasterizer draw runs the vertex stage for each vertex it names with the attributes, uniforms and textures of that draw. A vertex an earlier draw shaded counts for nothing.
         - [`@spec an-indexed-cpu-draw-gives-the-same-pixels-however-often-it-shades-a-vertex`](#spec-an-indexed-cpu-draw-gives-the-same-pixels-however-often-it-shades-a-vertex) — An indexed CPU rasterizer draw gives the same pixels for any number of runs of the vertex stage for a vertex that several indices name.
         - [`@spec an-indexed-cpu-draw-through-a-vertex-past-its-attributes-agrees-on-js-and-wasm`](#spec-an-indexed-cpu-draw-through-a-vertex-past-its-attributes-agrees-on-js-and-wasm) — An indexed CPU rasterizer draw can name a vertex past the end of an attribute the vertex stage reads. It then gives the same pixels on JS and WASM, whatever else their memory holds.
+      - [`@spec a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them`](#spec-a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them) — A CPU rasterizer draw draws its triangles in the order its topology and its indices make them. Of two fragments at the same depth on one pixel, it keeps the later triangle's.
       - [`@spec a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to) — A CPU rasterizer draw takes a `cullMode`, `"none"`, `"front"` or `"back"`, and a `frontFace`, `"ccw"` or `"cw"`, among its options. It culls triangles by their facing as a WebGPU pipeline with that state culls them.
         - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draw that names no `cullMode`, or `"none"`, draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
         - [`@spec a-cpu-draw-culling-back-draws-only-front-facing-triangles`](#spec-a-cpu-draw-culling-back-draws-only-front-facing-triangles) — A CPU rasterizer draw with `cullMode: "back"` draws a front-facing triangle, and nothing of a back-facing one.
@@ -1041,14 +1046,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
-- [`@fact webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip) — WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them, so a later triangle's fragment replaces an earlier one's.
+- [`@fact webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip) — WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them. With no depth test and no blending, a later triangle's fragment replaces an earlier one's on a pixel both cover.
 - [`@fact webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan) — WebGL 2 draws a `TRIANGLE_FAN`, whose every triangle shares the first vertex, beside `TRIANGLES` and `TRIANGLE_STRIP`.
-- [`@fact a-webgpu-strip-triangle-faces-as-its-strip-starts`](#fact-a-webgpu-strip-triangle-faces-as-its-strip-starts) — Every triangle of a WebGPU triangle strip faces the way the first triangle of its strip faces. A strip restarted by an index starts again, and its first triangle sets the facing of the triangles after it.
-- [`@fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex) — Chromium's WebGPU on Metal gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+- [`@fact webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse) — WebGPU takes triangle `k` of a triangle strip, counted from 0, with its vertices in the order `k`, `k + 1`, `k + 2` for an even `k`, and `k + 1`, `k`, `k + 2` for an odd `k`. It decides the facing of each triangle from its own winding in that order, as it does for any triangle. A strip that folds on screen has triangles of both facings, and a triangle of zero area decides nothing for the others. A restart counts `k` from 0 again.
+- [`@fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex) — Chromium's WebGPU, on Metal and on its fallback adapter, gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
 - [`@fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices) — A WebGPU indexed draw takes its vertices in the order of its indices, from `firstIndex` on. It runs each as the vertex its index names plus `baseVertex`, and its `vertex_index` is that sum. An index is a `uint16` or a `uint32`.
-- [`@fact webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index) — A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. An indexed list takes that index as the index of a vertex, like any other.
+- [`@fact webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index) — A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. A part of fewer than three indices between two restarts, or before the first or after the last, draws nothing. An indexed list takes that index as the index of a vertex, like any other.
 - [`@fact webgl2-restarts-every-indexed-draw-at-the-largest-index`](#fact-webgl2-restarts-every-indexed-draw-at-the-largest-index) — WebGL 2 ends an indexed draw of any mode at the largest index of its type: 255, 65535 or 4294967295. It starts the draw again at the next index, in a triangle list too.
-- [`@fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation) — WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU on Metal draws the triangle with no error. It reads a `uint32` attribute of such a vertex as the last element of its buffer, and gives `vertex_index` the index itself.
+- [`@fact webgpu-refuses-an-indexed-draw-past-its-index-buffer`](#fact-webgpu-refuses-an-indexed-draw-past-its-index-buffer) — A WebGPU indexed draw whose `firstIndex` plus `indexCount` passes the end of its index buffer is a validation error. The encoder that records it becomes invalid, and nothing it records draws.
+- [`@fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation) — WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU draws the triangle with no error, and gives `vertex_index` the index itself. On Metal it reads a `uint32` attribute of such a vertex as the last element of its buffer, and on its fallback adapter as zero.
 - [`@fact webgpu-culls-by-the-winding-of-the-clipped-triangle`](#fact-webgpu-culls-by-the-winding-of-the-clipped-triangle) — A WebGPU pipeline with `cullMode: "back"` draws only front-facing triangles, and one with `"front"` only back-facing ones. With `frontFace: "ccw"`, the default, a triangle is front-facing when its part inside the clip volume runs counter-clockwise in normalized device coordinates, with y up. With `"cw"`, it is front-facing when that part runs clockwise. A triangle of zero area is back-facing.
 - [`@fact webgpu-may-shade-a-repeated-index-once-or-more`](#fact-webgpu-may-shade-a-repeated-index-once-or-more) — WebGPU guarantees neither that a vertex an indexed draw names several times runs the vertex stage once, nor that it runs it more than once.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
@@ -1075,6 +1081,44 @@ The analysis found these places where the code or the documents do not hold the 
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
+
+### Choices waiting for a ruling
+
+Each choice below has a spec that states what the axioms force, and links here for the rest. The owner of the design rules on each, and the ruling becomes a unit.
+
+1. **Which vertex gives a strip triangle's flat varyings.** [`spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices`](#spec-a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices) states only that one vertex does. The WebGPU specification takes an odd triangle `k` as `k + 1`, `k`, `k + 2`, and WGSL's `first` sampling takes its first vertex, `k + 1`. Chromium gives vertex `k`, on Metal and on its fallback adapter ([`fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex)). [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex), read with the strip order, says `k + 1` on WGSL too, which the measured WGSL target contradicts. The options:
+   1. Vertex `k`, as Chromium gives. The CPU targets then match the GPU a user checks them against, and the first-vertex spec needs a leaf for strips on every target. It costs nothing to compute.
+   2. Vertex `k + 1`, as the specification's text gives. The CPU targets then differ from every implementation probed, and the WGSL target needs an exception for Chromium.
+
+   The recommended answer is the first.
+2. **Whether a CPU draw takes a fan.** WebGL 2 draws a `TRIANGLE_FAN` ([`fact-webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan)), and `createGlsl` draws one through its `mode`. WebGPU has none ([`fact-webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip)), and issue #233 asks for one. The options:
+   1. No fan, as WebGPU. A fan's triangles draw as a list, or as indices that repeat its first vertex. A program drawn as a fan through `createGlsl` has no CPU twin.
+   2. A fan, as WebGL 2. It costs one more assembly rule, with its tests, on each CPU target. A CPU draw then has a topology the WGSL target cannot draw.
+
+   The recommended answer is the first, as [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) follows WebGPU where WebGL and WebGPU differ. That axiom does not forbid a CPU target from giving more than WebGPU gives, so the owner rules.
+3. **Whether an indexed CPU draw takes a base vertex.** [`spec-an-indexed-cpu-draw-takes-no-base-vertex`](#spec-an-indexed-cpu-draw-takes-no-base-vertex) states the draw as it stands. WebGPU's `drawIndexed` takes a `baseVertex`, and WebGL 2 has none without an extension. A CPU draw takes no instance count either, as [`spec-a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) states. The options:
+   1. No base vertex. Meshes that share one attribute array each need indices offset by the host.
+   2. A `baseVertex` option, added to each index before it names a vertex and before `vertexIndex()` reads it. It costs an addition per index, and a test on each target.
+
+   The recommended answer is the first, until a user needs it.
+4. **How often an indexed CPU draw runs the vertex stage for a shared vertex.** [`spec-an-indexed-cpu-draw-gives-the-same-pixels-however-often-it-shades-a-vertex`](#spec-an-indexed-cpu-draw-gives-the-same-pixels-however-often-it-shades-a-vertex) states that the count changes no pixel. The options:
+   1. Once for each distinct vertex the indices name. A mesh whose vertices each sit in about six triangles runs the stage about a sixth as often. The draw keeps a slot for each vertex its attributes hold, and a mark of the slots it has shaded. The routine makes them once and keeps them across draws.
+   2. Once for each index. The draw shades as a list without indices does, and keeps three vertices at a time. It runs the stage about six times as often on such a mesh.
+
+   The recommended answer is the first, which issue #233 asks for.
+5. **What a CPU draw reads for a vertex past its attributes.** [`spec-an-indexed-cpu-draw-through-a-vertex-past-its-attributes-agrees-on-js-and-wasm`](#spec-an-indexed-cpu-draw-through-a-vertex-past-its-attributes-agrees-on-js-and-wasm) states that JS and WASM agree. WebGPU leaves the result to the implementation. Chromium reads such an attribute as its last element on Metal, and as zero on its fallback adapter ([`fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation)). A draw without indices whose `count` reaches past an attribute meets the same question, and no unit states what it draws now. The options:
+   1. The attribute reads zero, as [a storage access outside its buffer](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) does, and as the fallback adapter reads. It costs a bounds test for each vertex the draw shades.
+   2. The vertex reads as the last vertex of the attribute, as Chromium on Metal reads it. A run-time index past a vector [reaches its last element](#spec-a-run-time-index-past-the-end-reaches-the-last-element) the same way. It costs the same test.
+   3. The triangles through such a vertex draw nothing. WebGPU allows the whole draw to be cancelled instead. It costs the same test, and a triangle loop that skips.
+   4. The draw is refused with an error. It costs a pass over the indices for each draw, before the vertex stage runs.
+
+   The recommended answer is the first, which follows the precedent of storage and reads nothing the host did not give.
+6. **Where `createJs` and `createWasm` take a topology, indices and culling.** [`spec-a-cpu-adapter-draws-with-the-topology-indices-and-culling-the-host-gives`](#spec-a-cpu-adapter-draws-with-the-topology-indices-and-culling-the-host-gives) states that they take them. An adapter keeps the attributes and uniforms the host sets, and checks each where the host sets it, as [host data of another kind is refused](#spec-host-data-of-another-kind-is-refused) asks. `createGlsl` takes a `mode` with each draw. `createWgsl` takes a `topology` when the host creates it. Neither has indices or culling. The options:
+   1. `setIndex(array)` beside `setAttribute`, which refuses an array of another kind where the host calls it. `topology`, `cullMode` and `frontFace` sit among the options of `draw`.
+   2. All four among the options of `draw`. The host then gives the indices again with each draw, and the adapter checks them there.
+   3. `topology`, `cullMode` and `frontFace` given to `createJs` and `createWasm`, as `createWgsl` takes its `topology`, with the indices set by `setIndex`. A program drawn two ways needs two adapters.
+
+   The recommended answer is the first, which keeps host data in setters and draw state in the draw.
 
 ### Coverage gaps
 
@@ -5628,11 +5672,11 @@ This follows because a GPU passes the fragment stage every varying the vertex st
 
 ##### @spec a-cpu-rasterizer-assembles-triangles-as-webgpu-does
 
-> A CPU rasterizer draw takes a `topology` among its options, `"triangle-list"` or `"triangle-strip"`. It makes its triangles from its vertices as a WebGPU pipeline of that topology makes them.
+> A CPU rasterizer draw takes a `topology` among its options, `"triangle-list"` or `"triangle-strip"`, and no other of WebGPU's. It makes its triangles from its vertices as a WebGPU pipeline of that topology makes them.
 
 Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`fact-webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip)
 
-This follows because a CPU target stands in for the GPU. A mesh made as a strip draws on it as it draws through WebGPU. The topology is an option of each draw, beside `count` and `first`, as no pipeline fixes it. Its name is WebGPU's, where the GLSL adapter names it `mode`.
+This follows because a CPU target stands in for the GPU. A mesh made as a strip draws on it as it draws through WebGPU. WebGPU's [`GPUPrimitiveTopology`](https://www.w3.org/TR/webgpu/#enumdef-gpuprimitivetopology) has five topologies: `point-list`, `line-list`, `line-strip`, `triangle-list` and `triangle-strip`. A CPU rasterizer is a triangle rasterizer, so it takes the two of triangles. A leaf below says why it takes no point or line. Whether it also takes WebGL 2's fan waits for [a ruling](#choices-waiting-for-a-ruling). The topology is an option of each draw, beside `count` and `first`, as no pipeline fixes it. Its name is WebGPU's, where the GLSL adapter names it `mode`.
 
 ###### @spec a-cpu-draw-is-a-triangle-list-unless-it-names-another-topology
 
@@ -5640,7 +5684,9 @@ This follows because a CPU target stands in for the GPU. A mesh made as a strip 
 
 ###### @spec a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second
 
-> A CPU rasterizer draw with `topology: "triangle-strip"` makes triangle `k` of its vertices `k`, `k + 1` and `k + 2`.
+> A CPU rasterizer draw with `topology: "triangle-strip"` makes triangle `k` of its vertices `k`, `k + 1` and `k + 2`, in that order for an even `k`, and in the order `k + 1`, `k`, `k + 2` for an odd `k`.
+
+Derives from: [`fact-webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse)
 
 ###### @spec a-cpu-list-draws-nothing-for-vertices-that-complete-no-triangle
 
@@ -5650,37 +5696,37 @@ This follows because a CPU target stands in for the GPU. A mesh made as a strip 
 
 > A CPU rasterizer strip of one or two vertices draws nothing.
 
-###### @spec a-cpu-draw-has-no-fan-topology
+###### @spec a-cpu-draw-has-no-point-list-topology
 
-> The type of a CPU rasterizer draw's `topology` admits no `"triangle-fan"`. The draw checks nothing at run time.
+> The type of a CPU rasterizer draw's `topology` admits no `"point-list"`. The draw checks nothing at run time.
 
-Derives from: [`fact-webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan), [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs)
+Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs)
 
-This follows because WebGL 2 draws a fan and WebGPU has none, and where WebGL and WebGPU differ, a CPU target follows WebGPU. A fan's triangles draw as a list or with indices instead.
+This follows because a CPU rasterizer rasterizes triangles only, and no target fakes a capability it lacks. A draw of points that drew triangles instead would give other pixels than WebGPU gives. WebGPU draws points, so this is a capability the CPU targets lack, not a choice to depart from WebGPU.
 
-###### @spec a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them
+###### @spec a-cpu-draw-has-no-line-topology
 
-> A CPU rasterizer draw draws its triangles in the order its topology and its indices make them. Of two fragments at the same depth on one pixel, it keeps the later triangle's.
+> The type of a CPU rasterizer draw's `topology` admits neither `"line-list"` nor `"line-strip"`. The draw checks nothing at run time.
 
-Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment)
+Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs)
 
-This follows because WebGPU writes its triangles in order, and a depth test of less or equal passes a later fragment at the same depth.
+This follows because a CPU rasterizer rasterizes triangles only, and no target fakes a capability it lacks. WebGPU draws lines, so this too is a capability the CPU targets lack.
 
-###### @spec a-cpu-strip-triangle-takes-its-flat-varyings-from-its-first-strip-vertex
+###### @spec a-cpu-strip-triangle-takes-its-flat-varyings-from-one-of-its-vertices
 
-> A fragment of triangle `k` of a CPU rasterizer strip reads an integer varying as strip vertex `k` wrote it. This holds for an odd `k` as for an even one, and counts `k` from the start of the strip or from its last restart.
+> Every fragment of a triangle of a CPU rasterizer strip reads an integer varying as one and the same vertex of that triangle wrote it.
 
-Derives from: [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex), [`fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex`](#fact-chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex)
+Derives from: [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat)
 
-This follows because a CPU target gives what WebGPU gives, and WebGPU as it runs gives strip vertex `k`. The text of the specification would give an odd triangle vertex `k + 1`, which no probed implementation gives. The canon takes the result Chromium measures, as it does for a pixel centre on an edge.
+This follows because an integer varying is flat, so each fragment of a triangle reads the value one of its vertices wrote. Which vertex that is for an odd triangle waits for [a ruling](#choices-waiting-for-a-ruling): the specification's text and what Chromium gives differ there.
 
-###### @spec a-cpu-strip-triangle-faces-as-its-strip-starts
+###### @spec a-cpu-strip-triangle-faces-by-its-own-winding
 
-> Every triangle of a CPU rasterizer strip faces the way the first triangle of its strip faces, after a restart too. A cull keeps a strip whole or drops it whole.
+> A CPU rasterizer takes the facing of each triangle of a strip from its own winding, in the order its strip takes its vertices. A strip that folds on screen culls in part. A triangle of zero area decides nothing for the others.
 
-Derives from: [`fact-a-webgpu-strip-triangle-faces-as-its-strip-starts`](#fact-a-webgpu-strip-triangle-faces-as-its-strip-starts), [`spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to)
+Derives from: [`fact-webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse), [`spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to)
 
-This follows because a strip takes every other triangle in reverse, so its triangles all wind as its first does.
+This follows because WebGPU decides the facing of each triangle from its own area. A strip takes every other triangle in reverse, so a strip that does not fold faces one way throughout, and one that folds does not.
 
 ##### @spec a-cpu-rasterizer-draws-by-an-index-array
 
@@ -5694,6 +5740,22 @@ This follows because a mesh shares a vertex between its triangles through its in
 
 > Vertex `i` of an indexed CPU rasterizer draw is the vertex its `i`-th index names. Every triangle through a vertex that several indices name takes that vertex's position and varyings.
 
+###### @spec an-indexed-cpu-draw-reads-the-index-as-the-vertex-index
+
+> In an indexed CPU rasterizer draw, `vertexIndex()` reads the index that names the vertex the stage runs for.
+
+Derives from: [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices), [`spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for`](#spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for)
+
+This follows because WebGPU's `vertex_index` is the index plus `baseVertex`, and a CPU draw [takes no base vertex](#spec-an-indexed-cpu-draw-takes-no-base-vertex), which leaves the index.
+
+###### @spec an-indexed-cpu-draw-takes-no-base-vertex
+
+> An indexed CPU rasterizer draw takes no base vertex. An index names the vertex at that index, counted from the start of the attributes.
+
+Derives from: [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices)
+
+This states the draw as it stands. WebGPU's `drawIndexed` takes a `baseVertex`, and whether a CPU draw takes one too waits for [a ruling](#choices-waiting-for-a-ruling).
+
 ###### @spec an-indexed-cpu-draw-counts-its-indices
 
 > In an indexed CPU rasterizer draw, `first` is the first index it draws, and `count` the number of indices. A draw that names no count draws the indices from `first` to the end of the array.
@@ -5702,17 +5764,31 @@ Derives from: [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-re
 
 This follows because WebGPU counts an indexed draw in indices from `firstIndex`. A draw that names no count takes it from its indices, as a draw without them takes it from its first attribute.
 
+###### @spec an-indexed-cpu-draw-past-its-index-array-is-refused
+
+> A CPU rasterizer draw whose `first`, or `first` plus its `count`, passes the end of its index array is refused with a `UsageError`. The error names both and the length of the array, and the draw draws nothing.
+
+Derives from: [`fact-webgpu-refuses-an-indexed-draw-past-its-index-buffer`](#fact-webgpu-refuses-an-indexed-draw-past-its-index-buffer), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused`](#spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused)
+
+This follows because WebGPU refuses such a draw. A draw of a CPU rasterizer already refuses a mistake it can see once per draw, such as a missing attribute. The check runs once per draw, not once per vertex or pixel, so [a compiled program that trusts its inputs](#spec-a-compiled-program-trusts-its-inputs) loses nothing to it.
+
 ###### @spec an-index-array-is-a-uint16-or-uint32-array
 
 > The type of the `index` of a CPU rasterizer draw's context admits only a `Uint16Array` and a `Uint32Array`. The draw checks nothing at run time.
 
-Derives from: [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs)
+Derives from: [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices), [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs)
 
 This follows because WebGPU takes an index as a `uint16` or a `uint32`, and the kind of the array names which.
 
 ###### @spec an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array
 
 > An indexed CPU rasterizer strip ends at an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`. It starts a new strip at the next index.
+
+Derives from: [`fact-webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index)
+
+###### @spec a-part-of-an-indexed-cpu-strip-under-three-vertices-draws-nothing
+
+> A part of an indexed CPU rasterizer strip with fewer than three indices draws nothing. A part lies between two restarts, before the first, or after the last. A restart first, a restart last, or two in a row make no triangle.
 
 Derives from: [`fact-webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index)
 
@@ -5736,12 +5812,7 @@ This follows because the vertices of a draw are those of its own inputs. A verte
 
 Derives from: [`fact-webgpu-may-shade-a-repeated-index-once-or-more`](#fact-webgpu-may-shade-a-repeated-index-once-or-more), [`spec-a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only)
 
-Pending: how many times the vertex stage runs for a vertex that several indices name. No axiom decides it. WebGPU guarantees neither once nor more, and a render stage writes nothing a later call could see, so the count changes no pixel. The options:
-
-1. Once for each distinct vertex the indices name. A mesh whose vertices each sit in about six triangles runs the stage about a sixth as often. The draw keeps a slot for each vertex its attributes hold, and a mark of the slots it has shaded. The routine makes them once and keeps them across draws. Issue #233 describes indexed triangles this way.
-2. Once for each index. The draw shades as a list without indices does, and keeps three vertices at a time. It runs the stage about six times as often on such a mesh.
-
-The ruling waits on the issue candidate "How often does an indexed CPU draw run the vertex stage for a shared vertex?". The recommended answer is the first, which issue #233 asks for. This unit owes no test until it is ruled.
+This follows because WebGPU guarantees neither one run nor more. A render stage writes nothing a later call could see, so the number of runs changes no pixel. How many runs a CPU draw makes waits for [a ruling](#choices-waiting-for-a-ruling).
 
 ###### @spec an-indexed-cpu-draw-through-a-vertex-past-its-attributes-agrees-on-js-and-wasm
 
@@ -5749,14 +5820,15 @@ The ruling waits on the issue candidate "How often does an indexed CPU draw run 
 
 Derives from: [`fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation), [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws)
 
-Pending: what such a draw draws. WebGPU leaves it to the implementation, and a CPU target picks one result. The options:
+This follows because the targets must agree on one program, and WebGPU leaves the result to the implementation, so the CPU targets pick one together. Which result they pick waits for [a ruling](#choices-waiting-for-a-ruling).
 
-1. The attribute reads zero, as [a storage access outside its buffer](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) does. It costs a bounds test for each vertex the draw shades.
-2. The vertex reads as the last vertex of the attribute, as Chromium's WebGPU on Metal reads a `uint32` attribute. A run-time index past a vector [reaches its last element](#spec-a-run-time-index-past-the-end-reaches-the-last-element) the same way. It costs the same test.
-3. The triangles through such a vertex draw nothing. WebGPU allows the whole draw to be cancelled instead. It costs the same test, and a triangle loop that skips.
-4. The draw is refused with an error. [A compiled program trusts its inputs](#spec-a-compiled-program-trusts-its-inputs) and checks none at run time. Only an adapter could check it, or that spec would change.
+##### @spec a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them
 
-A draw without indices whose `count` reaches past an attribute meets the same question, and no unit states what it draws now. The ruling waits on the issue candidate "What does a CPU draw read for a vertex past its attributes?", which covers both draws. The recommended answer is the first, which follows the precedent of storage and reads nothing the host did not give. This unit owes no test until it is ruled.
+> A CPU rasterizer draw draws its triangles in the order its topology and its indices make them. Of two fragments at the same depth on one pixel, it keeps the later triangle's.
+
+Derives from: [`spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does), [`spec-a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array), [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment), [`fact-webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip)
+
+This follows because WebGPU writes its triangles in order, and a depth test of less or equal passes a later fragment at the same depth. A CPU rasterizer has no blending to keep both.
 
 ##### @spec a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to
 
@@ -5804,13 +5876,7 @@ This follows because WebGPU decides facing from the polygon clipping leaves. A v
 
 Derives from: [`spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does), [`spec-a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array), [`spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to)
 
-Pending: where an adapter takes them. An adapter keeps the attributes and uniforms the host sets. It checks each where the host sets it, as [host data of another kind is refused](#spec-host-data-of-another-kind-is-refused) asks. The options:
-
-1. `setIndex(array)` beside `setAttribute`, which refuses an array of another kind where the host calls it. `topology`, `cullMode` and `frontFace` sit among the options of `draw`. The adapter keeps the indices as it keeps the attributes, and the host gives the state with each draw, as it gives `count`.
-2. All four among the options of `draw`. The indices are then given again with each draw, and checked there.
-3. `topology`, `cullMode` and `frontFace` given to `createJs` and `createWasm`, as `createWgsl` takes its `topology`, with the indices set by `setIndex`. A program drawn two ways needs two adapters.
-
-`createGlsl` takes a `mode` with each draw. `createWgsl` takes a `topology` when the host creates it. Neither has indices or culling. The ruling waits on the issue candidate "Where do `createJs` and `createWasm` take a topology, indices and culling?". The recommended answer is the first, which keeps host data in setters and draw state in the draw. This unit owes no test until it is ruled.
+This follows because an adapter draws with its rasterizer routine, and gives the host a call for each input the routine takes. Where it takes these waits for [a ruling](#choices-waiting-for-a-ruling).
 
 #### @spec shader-logic-is-tested-without-a-graphics-api
 
@@ -7407,11 +7473,11 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 
 ## @fact webgpu-assembles-triangles-as-a-list-or-a-strip
 
-> WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them, so a later triangle's fragment replaces an earlier one's.
+> WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them. With no depth test and no blending, a later triangle's fragment replaces an earlier one's on a pixel both cover.
 
 This is a fact of the WebGPU specification. [`GPUPrimitiveTopology`](https://www.w3.org/TR/webgpu/#enumdef-gpuprimitivetopology) lists `point-list`, `line-list`, `line-strip`, `triangle-list` and `triangle-strip`. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) says "Any incomplete primitives are dropped". [Rasterization](https://www.w3.org/TR/webgpu/#rasterization) says that "the order of primitives affects later stages".
 
-The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. Strips of 3 to 6 vertices draw 1 to 4 triangles, and a strip of 2 vertices draws nothing. A list of 4 or 5 vertices draws its first triangle only. Two triangles over the same pixels, with no depth test or blending, leave the fragments of the second, in either order.
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. Strips of 3 to 6 vertices draw 1 to 4 triangles, and a strip of 2 vertices draws nothing. A list of 4 or 5 vertices draws its first triangle only. Two triangles over the same pixels, with no depth test or blending, leave the fragments of the second, in either order.
 
 ## @fact webgl2-draws-a-triangle-fan
 
@@ -7419,19 +7485,19 @@ The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU
 
 This is a fact of the [OpenGL ES 3.0.6 specification](https://registry.khronos.org/OpenGL/specs/es/3.0/es_spec_3.0.pdf), section 2.7, "Triangle Fans", which WebGL 2 draws by. The probe `probes/index-strips-culling/webgl2.ts` draws a fan of 4 vertices as two triangles. It runs on Chromium 149's WebGL 2 through SwiftShader.
 
-## @fact a-webgpu-strip-triangle-faces-as-its-strip-starts
+## @fact webgpu-takes-an-odd-strip-triangle-in-reverse
 
-> Every triangle of a WebGPU triangle strip faces the way the first triangle of its strip faces. A strip restarted by an index starts again, and its first triangle sets the facing of the triangles after it.
+> WebGPU takes triangle `k` of a triangle strip, counted from 0, with its vertices in the order `k`, `k + 1`, `k + 2` for an even `k`, and `k + 1`, `k`, `k + 2` for an odd `k`. It decides the facing of each triangle from its own winding in that order, as it does for any triangle. A strip that folds on screen has triangles of both facings, and a triangle of zero area decides nothing for the others. A restart counts `k` from 0 again.
 
-This is a fact of the WebGPU specification. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3), then (vl.2, vl.3, vl.4)". Every other triangle runs in reverse. A restart splits the indices into "sub-lists", and each assembles from its own start.
+This is a fact of the WebGPU specification. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3), then (vl.2, vl.3, vl.4)". A restart splits the indices into "sub-lists", and each assembles from its own start. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides the facing of each polygon from its own area.
 
-The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. It draws strips of 3 to 6 vertices, starting either way round, under every `cullMode` and `frontFace`. Every triangle of a strip reads one `front_facing`, and a cull keeps a strip whole or drops it whole. A strip restarted after its first three indices faces the other way after the restart, as its new first triangle winds.
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws under every `cullMode` and `frontFace`. Zigzag strips of 3 to 6 vertices read one `front_facing` in every triangle. A strip of 5 vertices whose third triangle doubles back reads front-facing in triangles 0 and 1, and back-facing in triangle 2. A cull drops only the triangles of its face. A strip whose first triangle has zero area faces by its second triangle's own winding there. A strip restarted after its first three indices faces the other way after the restart, as its new first triangle winds. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
 
 ## @fact chromium-webgpu-takes-a-strip-triangles-flat-value-from-its-first-strip-vertex
 
-> Chromium's WebGPU on Metal gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+> Chromium's WebGPU, on Metal and on its fallback adapter, gives triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
 
-The probe `probes/index-strips-culling/webgpu.ts` draws strips of 3 to 6 vertices on Chromium 149's WebGPU on Metal, on an Apple M1. Each vertex writes its own id and its `vertex_index` to flat `u32` varyings. Triangle `k` reads the id and the index of vertex `k`, in an indexed strip after a restart too.
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws strips of 3 to 6 vertices, and a strip that folds. Each vertex writes its own id and its `vertex_index` to flat `u32` varyings. Triangle `k` reads the id and the index of vertex `k`, in an indexed strip after a restart too.
 
 The WebGPU specification composes triangle 1 as "(vl.2, vl.1, vl.3)". That triangle starts at vertex 2. [WGSL's `first` sampling](https://www.w3.org/TR/WGSL/#interpolation-sampling-first), the default of a `flat` value, takes "the first vertex of the primitive". Chromium gives vertex 1 there.
 
@@ -7441,15 +7507,15 @@ The WebGPU specification composes triangle 1 as "(vl.2, vl.1, vl.3)". That trian
 
 This is a fact of the WebGPU specification. [Index Resolution](https://www.w3.org/TR/webgpu/#index-resolution) appends "drawCall.baseVertex + relativeVertexIndex" for each index. [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing) sets "the vertex_index builtin" to it. [`GPUIndexFormat`](https://www.w3.org/TR/webgpu/#enumdef-gpuindexformat) holds `uint16` and `uint32` only.
 
-The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. A list indexed `0, 1, 2, 2, 1, 3, 5, 6, 7` draws three triangles, which read the ids and the vertex indices of the vertices named. A draw of indices `3, 4, 5` from `firstIndex` 3 with `baseVertex` 2 reads vertex 5's id and `vertex_index` 5.
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. A list indexed `0, 1, 2, 2, 1, 3, 5, 6, 7` draws three triangles, which read the ids and the vertex indices of the vertices named. A draw of indices `3, 4, 5` from `firstIndex` 3 with `baseVertex` 2 reads vertex 5's id and `vertex_index` 5.
 
 ## @fact webgpu-restarts-only-a-strip-at-the-largest-index
 
-> A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. An indexed list takes that index as the index of a vertex, like any other.
+> A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. A part of fewer than three indices between two restarts, or before the first or after the last, draws nothing. An indexed list takes that index as the index of a vertex, like any other.
 
 This is a fact of the WebGPU specification. [`GPUIndexFormat`](https://www.w3.org/TR/webgpu/#enumdef-gpuindexformat) names the "primitive restart value" of each format for "strip primitive topologies". [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) splits the indices at it only "if the primitive topology is a strip".
 
-The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1, in both formats. A strip indexed `0, 1, 2, 3, max, 4, 5, 6, 7` draws the triangles of `0` to `3` and of `4` to `7`, and none across the restart. A list indexed `0, 1, 2, max, 3, 4, 5, 3, 4` draws three triangles, one of them through the vertex `max` names.
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws both formats. A strip indexed `0, 1, 2, 3, max, 4, 5, 6, 7` draws the triangles of `0` to `3` and of `4` to `7`, and none across the restart. A restart first, a restart last, two restarts in a row, and a part of one or two indices between restarts each draw no triangle of their own. A list indexed `0, 1, 2, max, 3, 4, 5, 3, 4` draws three triangles, one of them through the vertex `max` names. With 65,537 vertices, a `uint16` list indexed `0xFFFF, 0, 1` draws its triangle through vertex 65,535, which reads that vertex's own id.
 
 ## @fact webgl2-restarts-every-indexed-draw-at-the-largest-index
 
@@ -7457,15 +7523,21 @@ The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU
 
 This is a fact of the [WebGL 2.0 specification](https://registry.khronos.org/webgl/specs/latest/2.0/#NO_PRIMITIVE_RESTART_FIXED_INDEX), section 5.18, "PRIMITIVE_RESTART_FIXED_INDEX is always enabled". Such an index "is not processed normally".
 
-The probe `probes/index-strips-culling/webgl2.ts` draws a list indexed `0, 1, 2, max, 3, 4, 5, 3, 4`, in all three index types. It runs on Chromium 149's WebGL 2 through SwiftShader. It draws the triangles `0, 1, 2` and `3, 4, 5` only, where WebGPU draws three.
+The probe `probes/index-strips-culling/webgl2.ts` draws a list indexed `0, 1, 2, max, 3, 4, 5, 3, 4`, in all three index types. It runs on Chromium 149's WebGL 2 through SwiftShader. It draws the triangles `0, 1, 2` and `3, 4, 5` only, where WebGPU draws three. With 65,537 vertices, a `uint16` list indexed `0xFFFF, 0, 1` draws nothing, where WebGPU draws a triangle through vertex 65,535.
+
+## @fact webgpu-refuses-an-indexed-draw-past-its-index-buffer
+
+> A WebGPU indexed draw whose `firstIndex` plus `indexCount` passes the end of its index buffer is a validation error. The encoder that records it becomes invalid, and nothing it records draws.
+
+This is a fact of the WebGPU specification: [`drawIndexed`](https://www.w3.org/TR/webgpu/#dom-gpurendercommandsmixin-drawindexed) requires "firstIndex + indexCount ≤ this.[[index_buffer_size]] ÷ this.[[index_format]]’s byte size", and otherwise invalidates the encoder. The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws 6 `uint16` indices from 0 for 7, and from 4 for 3. Each reports a validation error that the index range does not fit in the index buffer. WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, reports `INVALID_OPERATION` for both and draws nothing.
 
 ## @fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation
 
-> WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU on Metal draws the triangle with no error. It reads a `uint32` attribute of such a vertex as the last element of its buffer, and gives `vertex_index` the index itself.
+> WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU draws the triangle with no error, and gives `vertex_index` the index itself. On Metal it reads a `uint32` attribute of such a vertex as the last element of its buffer, and on its fallback adapter as zero.
 
 This is a fact of the WebGPU specification. [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing) covers an attribute past its buffer. It lets the implementation "empty vertexIndexList and return, cancelling the draw call". Otherwise it loads the attribute "according to WGSL’s invalid memory reference behavior". `drawIndexed` checks the indices against the index buffer. It checks no vertex they name against the vertex buffers.
 
-The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. It draws 6 vertices through the indices 6, 1000, 65535 and 4294967295, inside an error scope for validation and internal errors. Each triangle through such an index draws, and none reports an error.
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws 6 vertices through the indices 6, 1000, 65535 and 4294967295, inside an error scope for validation and internal errors. Each triangle through such an index draws, and none reports an error.
 
 ## @fact webgpu-culls-by-the-winding-of-the-clipped-triangle
 
@@ -7473,7 +7545,7 @@ The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU
 
 This is a fact of the WebGPU specification. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides facing from "the sign of the area occupied by the polygon in framebuffer coordinates". The polygon is the one clipping leaves. For `"ccw"`, "area > 0 is considered front-facing, otherwise back-facing", and for `"cw"`, "area < 0". Framebuffer y runs down, and the formula signs the area so that a triangle counter-clockwise in normalized device coordinates has a positive area.
 
-The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU on Metal, on an Apple M1. It draws a triangle each way round under every `cullMode` and `frontFace`, and reads `front_facing`. It also draws a triangle with a vertex behind the eye. Its vertices, projected, run clockwise, and its part in front of the eye runs counter-clockwise. `"back"` draws it, and `"front"` culls it. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws a triangle each way round under every `cullMode` and `frontFace`, and reads `front_facing`. It also draws a triangle with a vertex behind the eye, and its mirror image. In each, the vertices projected run one way and the part in front of the eye runs the other. Under every `cullMode` and `frontFace`, the part in front of the eye decides the facing. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
 
 ## @fact webgpu-may-shade-a-repeated-index-once-or-more
 
