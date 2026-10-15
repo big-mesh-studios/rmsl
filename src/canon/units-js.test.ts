@@ -2279,36 +2279,39 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
-   * The first vertex lies outside the clip volume, so the polygon the clip
-   * leaves starts at a vertex it cuts, and its fan starts at the vertex at
-   * `vec4(0)`, the second.
+   * Each triangle has a vertex at `vec4(0)` and one outside the clip volume,
+   * so its fan starts at the vertex at `vec4(0)`, the second. In the first,
+   * the first vertex lies outside the volume, so the polygon the clip leaves
+   * starts at a vertex it cuts; in the second, it lies inside.
    *
    * @canon spec-a-flat-varying-takes-the-first-vertex
    */
   it.each(rasterizers)("%s: gives a triangle through vec4(0) its first vertex's integer", (_, compileRaster) => {
-    const pos = attribute("vec4");
-    const id = attribute("int");
-    const k = varying("int");
-    const routine = compileRaster(
-      () =>
-        Fn(() => {
-          k.assign(id);
-          builtinPosition().assign(pos);
-        })() as any,
-      () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
-    );
-    const image = routine.draw(
-      {
-        attributes: {
-          [pos.name]: Float64Array.of(0.85, -0.075, 0, 1.25e-6, 0, 0, 0, 0, -0.25, -0.625, 0.125, 0.875),
-          [id.name]: Int32Array.of(5, 2, 7),
-        },
-      },
-      { width: 16, height: 16 },
-    );
-    const reds = Array.from(image).filter((_, i) => i % 4 === 0 && image[i + 3] === 1);
-    expect(reds.length).toBeGreaterThan(0);
-    expect(new Set(reds)).toEqual(new Set([5]));
+    const outside = [0.85, -0.075, 0, 1.25e-6],
+      inside = [-0.25, -0.625, 0.125, 0.875];
+    for (const positions of [
+      [...outside, 0, 0, 0, 0, ...inside],
+      [...inside, 0, 0, 0, 0, ...outside],
+    ]) {
+      const pos = attribute("vec4");
+      const id = attribute("int");
+      const k = varying("int");
+      const routine = compileRaster(
+        () =>
+          Fn(() => {
+            k.assign(id);
+            builtinPosition().assign(pos);
+          })() as any,
+        () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+      );
+      const image = routine.draw(
+        { attributes: { [pos.name]: Float64Array.from(positions), [id.name]: Int32Array.of(5, 2, 7) } },
+        { width: 16, height: 16 },
+      );
+      const reds = Array.from(image).filter((_, i) => i % 4 === 0 && image[i + 3] === 1);
+      expect(reds.length).toBeGreaterThan(0);
+      expect(new Set(reds)).toEqual(new Set([5]));
+    }
   });
 
   /**
