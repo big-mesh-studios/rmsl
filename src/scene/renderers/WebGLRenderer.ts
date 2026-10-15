@@ -138,6 +138,12 @@ export class WebGLRenderer {
   private vertexArray: WebGLVertexArrayObject | null = null;
 
   /**
+   * `antialias: true` makes the canvas's WebGL 2 context antialiased, which
+   * WebGL 2 must obey, with as many samples as the implementation chooses; by
+   * default the renderer asks for none, as three.js's does. A
+   * `WebGLRenderTarget` draws with one sample either way, and a canvas that
+   * already has a context keeps its samples.
+   *
    * With `preserveState: true`, each call puts back the WebGL state it changed
    * before it returns, for code that shares the context. Without it, a call
    * leaves the state as it set it.
@@ -149,7 +155,7 @@ export class WebGLRenderer {
     this.canvas = canvas ?? document.createElement("canvas");
     this.precision = options.precision ?? "highp";
     const gl = this.canvas.getContext("webgl2", {
-      antialias: options.antialias ?? true,
+      antialias: options.antialias ?? false,
       depth: options.depth ?? true,
     });
     if (!gl) {
