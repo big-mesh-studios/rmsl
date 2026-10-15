@@ -146,8 +146,10 @@ decides its multisampling. A renderer made on a canvas that already has a
 context draws with that context's samples, whatever `antialias` asks, as in
 three.js. So a renderer with `antialias: true` made after
 `createGlsl(...).attach(canvas)` draws with the single sample `createGlsl` asked
-for, and `createGlsl` attached to the canvas of a renderer made with
-`antialias: true` inherits its multisampling.
+for. The other way round, `createGlsl` attached to a canvas that already has a
+context keeps that context's attributes, multisampling included: a renderer
+made with `antialias: true`, or a plain `getContext("webgl2")`, which
+multisamples by default, gives it a multisampled context.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
 state the application left. Before a frame it sets the colour mask, blend

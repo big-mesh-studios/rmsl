@@ -328,6 +328,12 @@ const DRAW_STATE =
  * `attach` and `draw` — `getContext("webgl2")` and GL's own draw call are
  * both synchronous, unlike WGSL's device request/GPU submit. */
 export interface GlslAdapter extends Adapter<never, GlslDrawOptions> {
+  /**
+   * Gets the canvas's WebGL 2 context without multisampling. A canvas that
+   * already has a context keeps it, with the attributes it was made with:
+   * multisampled when a plain `getContext("webgl2")` or a `WebGLRenderer`
+   * with `antialias: true` made it.
+   */
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: GlslDrawOptions): void;
 }
