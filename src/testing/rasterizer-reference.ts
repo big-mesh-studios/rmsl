@@ -10,7 +10,9 @@
  * 2^-300 of the largest of its vertex taken as 0, and a vertex at `vec4(0)`
  * placed at the centre at depth 0 with all of the weight, when the other two
  * lie in the clip volume. Each weight is a vertex's barycentric over its w,
- * over the sum of the three, as WebGPU interpolates.
+ * over the sum of the three, as WebGPU interpolates. A triangle in one plane
+ * with the eye covers what the fan of the polygon its exact clip leaves covers,
+ * from that polygon's vertex at `vec4(0)` at the centre, with that vertex's weights.
  */
 
 export { random } from "./inline-fn-fuzz";
@@ -108,31 +110,44 @@ export interface ReferenceFragments {
   weights: Float64Array;
   /** The depth, z over w, at each pixel. */
   depth: Float64Array;
+  /**
+   * 1 for each pixel whose centre lies exactly on an edge of what a triangle in one plane with the
+   * eye draws, which the canon leaves to the rasterizer's precision: lit or not, either holds.
+   */
+  open: Uint8Array;
+}
+
+/**
+ * Whether the triangle at `positions` draws by the fan of its clipped polygon: it lies in one plane
+ * with the eye, other than a vertex at `vec4(0)` with the other two in the clip volume.
+ */
+export function drawnByItsFan(positions: readonly number[]): boolean {
+  const given = [0, 1, 2].map((k) => positions.slice(4 * k, 4 * k + 4));
+  const zeros = given.filter(isZero).length;
+  if (zeros === 1 && given.every((v) => isZero(v) || insideClipVolume(v))) return false;
+  if (zeros > 0) return true;
+  const vertex = given.map(flushed);
+  return sign(at(lineThrough(vertex[1]!, vertex[2]!), vertex[0]!)) === 0;
 }
 
 /**
  * The fragments the triangle at `positions`, three clip positions of four
- * components, draws on a target of `width` by `height`. `null` for a triangle
- * the canon leaves to the clip: one in a plane with the eye that is not a
- * vertex at `vec4(0)` and two vertices in the clip volume.
+ * components, draws on a target of `width` by `height`.
  */
-export function referenceFragments(
-  positions: readonly number[],
-  width: number,
-  height: number,
-): ReferenceFragments | null {
+export function referenceFragments(positions: readonly number[], width: number, height: number): ReferenceFragments {
+  if (drawnByItsFan(positions)) return fanFragments(positions, width, height);
   const given = [0, 1, 2].map((k) => positions.slice(4 * k, 4 * k + 4));
   const zeros = given.filter(isZero).length;
   // A vertex at vec4(0) with the other two in the clip volume lies at the centre, at depth 0, with all the weight.
-  const centre = zeros === 1 && given.every((v) => isZero(v) || insideClipVolume(v)) ? given.findIndex(isZero) : -1;
-  if (zeros > 0 && centre < 0) return null;
+  const centre = zeros === 1 ? given.findIndex(isZero) : -1;
   const vertex = given.map((v, k) => (k === centre ? [ZERO, ZERO, ZERO, integer(1)] : flushed(v)));
   const lines = [0, 1, 2].map((e) => lineThrough(vertex[(e + 1) % 3]!, vertex[(e + 2) % 3]!));
   const s = sign(at(lines[0]!, vertex[0]!));
   const covered = new Uint8Array(width * height);
   const weights = new Float64Array(width * height * 3);
   const depth = new Float64Array(width * height);
-  if (s === 0) return centre >= 0 ? { covered, weights, depth } : null;
+  const open = new Uint8Array(width * height);
+  if (s === 0) return { covered, weights, depth, open };
   // Top-left: an edge owns its centres when its inside lies to its right on the screen, or below a horizontal one.
   const owns = lines.map((l) => {
     const ax = sign(l[0]!) * s,
@@ -171,7 +186,150 @@ export function referenceFragments(
       const total = lambda.reduce(add, ZERO);
       for (let e = 0; e < 3; e++) weights[p * 3 + e] = ratio(lambda[e]!, total);
     }
-  return { covered, weights, depth };
+  return { covered, weights, depth, open };
+}
+
+/** A vertex of the polygon the exact clip leaves, and its weight of each vertex of the triangle, both times one positive factor. */
+interface ClippedVertex {
+  position: Dyadic[];
+  weights: Dyadic[];
+}
+
+/**
+ * The polygon of the triangle at `positions` inside the clip volume, clipped exactly at each plane
+ * in turn: each cut vertex is `da * b - db * a`, the cut point times `da - db`, made positive, and
+ * so are its weights. `flush` takes a component smaller than 2^-300 of its vertex for 0 first.
+ */
+function clipExactly(positions: readonly number[], flush: boolean): ClippedVertex[] {
+  let polygon: ClippedVertex[] = [0, 1, 2].map((k) => {
+    const v = positions.slice(4 * k, 4 * k + 4);
+    return { position: flush ? flushed(v) : v.map(dyadic), weights: [0, 1, 2].map((e) => integer(e === k ? 1 : 0)) };
+  });
+  for (let plane = 0; plane < 6 && polygon.length > 0; plane++) {
+    const next: ClippedVertex[] = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i]!,
+        b = polygon[(i + 1) % polygon.length]!;
+      const da = planeDistance(a.position, plane),
+        db = planeDistance(b.position, plane);
+      if (sign(da) >= 0) next.push(a);
+      if (sign(da) >= 0 !== sign(db) >= 0) {
+        const cut = (x: Dyadic[], y: Dyadic[]) =>
+          x.map((c, k) => sub(mul(da, y[k]!), mul(db, c))).map((c) => (sign(da) >= 0 ? c : neg(c)));
+        next.push({ position: cut(a.position, b.position), weights: cut(a.weights, b.weights) });
+      }
+    }
+    polygon = next;
+  }
+  return polygon;
+}
+
+/**
+ * Which pixel centres lie exactly on the segment the projections of `points` span, points of
+ * homogeneous x, y and w, each w above 0, that lie on one line on the screen.
+ */
+function onSegment(points: Dyadic[][], width: number, height: number): Uint8Array {
+  const out = new Uint8Array(width * height);
+  /** The sign of a's projection minus b's, along `axis`, 0 for x and 1 for y. */
+  const along = (a: Dyadic[], b: Dyadic[], axis: number) => sign(sub(mul(a[axis]!, b[3]!), mul(b[axis]!, a[3]!)));
+  const extremes = (axis: number) => {
+    let least = points[0]!,
+      most = points[0]!;
+    for (const q of points) {
+      if (along(q, least, axis) < 0) least = q;
+      if (along(q, most, axis) > 0) most = q;
+    }
+    return [least, most] as const;
+  };
+  const axis = along(...extremes(0), 0) !== 0 ? 0 : 1;
+  const [least, most] = extremes(axis);
+  const line = lineThrough(least, most);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const r = ray(x, y, width, height);
+      const between = along(r, least, axis) >= 0 && along(r, most, axis) <= 0;
+      const onLine =
+        along(least, most, axis) !== 0 ? sign(at(line, r)) === 0 : along(r, least, 1 - axis) === 0;
+      if (between && onLine) out[y * width + x] = 1;
+    }
+  return out;
+}
+
+/** The centre of the target at depth 0, where a vertex at `vec4(0)` lies. */
+const CENTRE: Dyadic[] = [ZERO, ZERO, ZERO, integer(1)];
+
+/**
+ * The fragments of a triangle in one plane with the eye: the fan of the polygon its exact clip leaves,
+ * from that polygon's first vertex at `vec4(0)`, at the centre. Without one, the polygon lies on a
+ * line and covers nothing. The fan's other vertices lie in order along one line on the screen, so the
+ * fan covers the triangle from the centre to the first and the last of them; a centre exactly on an
+ * edge of that triangle is left open. Inside, the depth is that of the fan triangle the centre lies
+ * in, linear on the screen, and every fragment takes the weights of the vertex at `vec4(0)`.
+ */
+function fanFragments(positions: readonly number[], width: number, height: number): ReferenceFragments {
+  const covered = new Uint8Array(width * height);
+  const weights = new Float64Array(width * height * 3);
+  const depth = new Float64Array(width * height);
+  const open = new Uint8Array(width * height);
+  const polygon = clipExactly(positions, true);
+  const isOrigin = (v: ClippedVertex) => v.position.every((c) => sign(c) === 0);
+  const origin = polygon.findIndex(isOrigin);
+  if (origin < 0) return { covered, weights, depth, open };
+  const n = polygon.length;
+  const around = Array.from({ length: n - 1 }, (_, i) => polygon[(origin + 1 + i) % n]!);
+  const placed = (v: ClippedVertex) => (isOrigin(v) ? CENTRE : v.position);
+  const triangle = (vertex: Dyadic[][]) => {
+    const lines = [0, 1, 2].map((e) => lineThrough(vertex[(e + 1) % 3]!, vertex[(e + 2) % 3]!));
+    return { vertex, lines, s: sign(at(lines[0]!, vertex[0]!)) };
+  };
+  const fan = around.slice(1).map((v, i) => triangle([CENTRE, placed(around[i]!), placed(v)]));
+  const others = around.filter((v) => !isOrigin(v)).map((v) => v.position);
+  const total = polygon[origin]!.weights.reduce(add, ZERO);
+  const weight = polygon[origin]!.weights.map((w) => ratio(w, total));
+  const whole = triangle([CENTRE, others[0] ?? CENTRE, others[others.length - 1] ?? CENTRE]);
+  for (const t of fan)
+    if (t.s !== 0 && t.s !== whole.s) throw new Error(`a fan triangle winds against the fan: ${JSON.stringify(positions)}`);
+  if (whole.s === 0) {
+    // A part of no area: a centre exactly on it is on its edge, open, with no depth to hold it to.
+    const on = onSegment([CENTRE, ...others], width, height);
+    for (let p = 0; p < width * height; p++)
+      if (on[p]) {
+        open[p] = 1;
+        depth[p] = NaN;
+        for (let e = 0; e < 3; e++) weights[p * 3 + e] = weight[e]!;
+      }
+    return { covered, weights, depth, open };
+  }
+  /** -1 outside, 0 on an edge, 1 inside. */
+  const where = (t: ReturnType<typeof triangle>, values: Dyadic[]) => {
+    let least = 1;
+    for (const v of values) least = Math.min(least, sign(v) * t.s);
+    return least;
+  };
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const r = ray(x, y, width, height);
+      const inWhole = where(whole, whole.lines.map((l) => at(l, r)));
+      if (inWhole < 0) continue;
+      const p = y * width + x;
+      if (inWhole === 0) open[p] = 1;
+      else covered[p] = 1;
+      for (const t of fan) {
+        if (t.s === 0) continue;
+        const values = t.lines.map((l) => at(l, r));
+        if (where(t, values) < 0) continue;
+        let z = ZERO,
+          w = ZERO;
+        for (let e = 0; e < 3; e++) {
+          z = add(z, mul(values[e]!, t.vertex[e]![2]!));
+          w = add(w, mul(values[e]!, t.vertex[e]![3]!));
+        }
+        depth[p] = ratio(z, w);
+        break;
+      }
+      for (let e = 0; e < 3; e++) weights[p * 3 + e] = weight[e]!;
+    }
+  return { covered, weights, depth, open };
 }
 
 /** Which pixel centres lie exactly on the line through the projections of clip positions `a` and `b`. */
@@ -183,9 +341,9 @@ export function exactlyOnLine(a: readonly number[], b: readonly number[], width:
   return out;
 }
 
-/** The pixels the triangle at `positions` covers, or `null` where {@link referenceFragments} gives none. */
+/** The pixels the triangle at `positions` covers by its lines, or `null` for one {@link drawnByItsFan}. */
 export function exactCoverage(positions: readonly number[], width: number, height: number): Uint8Array | null {
-  return referenceFragments(positions, width, height)?.covered ?? null;
+  return drawnByItsFan(positions) ? null : referenceFragments(positions, width, height).covered;
 }
 
 /** How far `p` lies inside plane `plane` of the clip volume, as {@link insideClipVolume} takes them: w + x, w - x, w + y, w - y, z, w - z. */
@@ -207,20 +365,7 @@ function planeDistance(p: readonly Dyadic[], plane: number): Dyadic {
  * `vec4(0)`, the one point of the volume whose w is 0, lies at the centre.
  */
 export function windingInClipVolume(positions: readonly number[]): number {
-  let polygon = [0, 1, 2].map((k) => positions.slice(4 * k, 4 * k + 4).map(dyadic));
-  for (let plane = 0; plane < 6 && polygon.length > 0; plane++) {
-    const next: Dyadic[][] = [];
-    for (let i = 0; i < polygon.length; i++) {
-      const a = polygon[i]!,
-        b = polygon[(i + 1) % polygon.length]!;
-      const da = planeDistance(a, plane),
-        db = planeDistance(b, plane);
-      if (sign(da) >= 0) next.push(a);
-      if (sign(da) >= 0 !== sign(db) >= 0)
-        next.push(a.map((c, k) => sub(mul(da, b[k]!), mul(db, c))).map((c) => (sign(da) >= 0 ? c : neg(c))));
-    }
-    polygon = next;
-  }
+  const polygon = clipExactly(positions, false).map((v) => v.position);
   const n = polygon.length;
   let area = ZERO;
   for (let i = 0; i < n; i++) {

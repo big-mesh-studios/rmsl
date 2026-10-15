@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Fn, attribute, builtinFragDepth, varying, vec4 } from "../rmsl";
 import { compileJS } from "../js";
 import { compileWasm } from "../wasm";
-import { exactlyOnLine, random, referenceFragments, windingInClipVolume } from "../testing/rasterizer-reference";
+import {
+  drawnByItsFan,
+  exactlyOnLine,
+  random,
+  referenceFragments,
+  windingInClipVolume,
+} from "../testing/rasterizer-reference";
 
 /**
  * Draws triangles from a seeded generator on both CPU rasterizers and holds
@@ -120,6 +126,8 @@ function edgeAtDepthTriangles(seed: number, count: number): number[][] {
 /**
  * Draws `positions` on both rasterizers and asserts the JS and WASM images are the same bits, and
  * that each lights the pixels the reference lights, with its weights, and its depth, from 0 to 1.
+ * A pixel the reference leaves open may be lit or not, and if lit, holds its weights, and its depth
+ * where the reference gives one.
  * Gives the image.
  */
 function drawsAsTheReference(positions: readonly number[], width: number, height: number): Float64Array {
@@ -128,20 +136,24 @@ function drawsAsTheReference(positions: readonly number[], width: number, height
   const label = `${JSON.stringify(positions)} on ${width}x${height}`;
   for (let i = 0; i < image.length; i++)
     if (!Object.is(image[i], other[i])) expect.fail(`JS and WASM differ at ${i}: ${image[i]} ${other[i]}, ${label}`);
-  const reference = referenceFragments(positions, width, height)!;
-  expect(reference, label).not.toBeNull();
-  for (let p = 0; p < width * height; p++) {
-    const lit = image[p * 4 + 3] !== -1;
-    if (lit !== (reference.covered[p] === 1))
-      expect.fail(`pixel ${p % width},${Math.floor(p / width)} lit ${lit}, ${label}`);
-    if (!lit) continue;
-    for (let e = 0; e < 3; e++)
-      if (!(Math.abs(image[p * 4 + e]! - reference.weights[p * 3 + e]!) <= 1e-9))
-        expect.fail(`weight ${e} at ${p}: ${image[p * 4 + e]} for ${reference.weights[p * 3 + e]}, ${label}`);
-    const depth = image[p * 4 + 3]!;
-    if (!(depth >= 0 && depth <= 1 && Math.abs(depth - reference.depth[p]!) <= 1e-9))
-      expect.fail(`depth at ${p}: ${depth} for ${reference.depth[p]}, ${label}`);
-  }
+  const reference = referenceFragments(positions, width, height);
+  for (const [target, drawn] of [
+    ["JS", image],
+    ["WASM", other],
+  ] as const)
+    for (let p = 0; p < width * height; p++) {
+      const lit = drawn[p * 4 + 3] !== -1;
+      if (lit !== (reference.covered[p] === 1) && !reference.open[p])
+        expect.fail(`${target}: pixel ${p % width},${Math.floor(p / width)} lit ${lit}, ${label}`);
+      if (!lit) continue;
+      for (let e = 0; e < 3; e++)
+        if (!(Math.abs(drawn[p * 4 + e]! - reference.weights[p * 3 + e]!) <= 1e-9))
+          expect.fail(`${target}: weight ${e} at ${p}: ${drawn[p * 4 + e]} for ${reference.weights[p * 3 + e]}, ${label}`);
+      const depth = drawn[p * 4 + 3]!;
+      const expected = reference.depth[p]!;
+      if (!(depth >= 0 && depth <= 1 && (Number.isNaN(expected) || Math.abs(depth - expected) <= 1e-9)))
+        expect.fail(`${target}: depth at ${p}: ${depth} for ${reference.depth[p]}, ${label}`);
+    }
   return image;
 }
 
@@ -149,8 +161,8 @@ function drawsAsTheReference(positions: readonly number[], width: number, height
 const scaled = (positions: readonly number[], scales: readonly number[]) =>
   positions.map((c, i) => c * scales[Math.floor(i / 4)]!);
 
-/** Whether the triangle at `positions` lies in one plane with the eye, as the reference has no lines for it. */
-const inPlaneWithTheEye = (positions: readonly number[]) => referenceFragments(positions, 2, 2) === null;
+/** Whether the triangle at `positions` lies in one plane with the eye, and so draws by the fan of its clipped polygon. */
+const inPlaneWithTheEye = drawnByItsFan;
 
 describe("a sweep of triangles on the CPU rasterizers against an exact reference", { timeout: 60_000 }, () => {
   /**
@@ -332,6 +344,44 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
       drawn++;
     }
   });
+
+  /**
+   * Each triangle lies in one plane with the eye and reaches `vec4(0)`: at a vertex, the other two
+   * not both in the clip volume, or along an edge, its third vertex a negative multiple of another.
+   * The rasterizers draw the fan of the polygon the clip leaves, which the reference clips exactly:
+   * its pixels, the weights of the polygon's vertex at `vec4(0)`, and a depth linear on the screen
+   * in each triangle of the fan. A centre exactly on an edge of what it draws is left open.
+   *
+   * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
+   */
+  it("draws the part inside the clip volume of a triangle in one plane with the eye through vec4(0)", () => {
+    const next = random(65);
+    let lit = 0;
+    for (let n = 0; n < 360; n++) {
+      const p0 = gridVertex(next, next() < 0.4),
+        p1 = gridVertex(next, next() < 0.4);
+      let p2: number[];
+      if (n % 2 === 0) {
+        if ([p0, p1].every((p) => Math.abs(p[0]!) <= p[3]! && Math.abs(p[1]!) <= p[3]! && p[2]! >= 0 && p[2]! <= p[3]!))
+          continue;
+        p2 = [0, 0, 0, 0];
+      } else {
+        const k = [0.25, 0.5, 1, 2, 3][Math.floor(next() * 5)]!;
+        p2 = p0.map((c) => -k * c);
+      }
+      const order = [
+        [p0, p1, p2],
+        [p2, p0, p1],
+        [p1, p2, p0],
+      ][n % 3]!;
+      const t = order.flat();
+      if (!inPlaneWithTheEye(t)) continue;
+      const image = drawsAsTheReference(t, n % 2 ? 15 : 16, 16);
+      if (image.some((c, i) => i % 4 === 3 && c !== -1)) lit++;
+    }
+    // The sweep reaches what it claims: triangles of both kinds that light pixels.
+    expect(lit).toBeGreaterThan(100);
+  });
 });
 
 describe("a sweep of edges two triangles share on the CPU rasterizers", { timeout: 60_000 }, () => {
@@ -373,7 +423,7 @@ describe("a sweep of edges two triangles share on the CPU rasterizers", { timeou
             litOther = other[p * 4 + 3] !== -1;
           if (litOne && litOther) expect.fail(`pixel ${p} shaded twice, ${JSON.stringify([first, second])}`);
           if (onEdge[p] && !litOne && !litOther) {
-            const reference = [first, second].some((t) => referenceFragments(t, 32, 32)!.covered[p]);
+            const reference = [first, second].some((t) => referenceFragments(t, 32, 32).covered[p]);
             if (reference)
               expect.fail(`pixel ${p} on the shared edge shaded by neither, ${JSON.stringify([first, second])}`);
           }
@@ -477,9 +527,9 @@ describe("a sweep of indexed, stripped and culled draws on the CPU rasterizers",
   /**
    * A draw by indices, as a list or a strip with restarts, and culled or not, draws the image a
    * draw of the triangles it makes, each as a list of its own vertices, draws with the culled
-   * ones left out; and each of those triangles draws what the exact reference draws. A triangle
-   * with a vertex behind the eye or at `vec4(0)` faces as the part of it the clip leaves winds,
-   * which the reference computes exactly.
+   * ones left out, on JS and on WASM each; and each of those triangles draws what the exact
+   * reference draws. A triangle with a vertex behind the eye or at `vec4(0)` faces as the part of
+   * it the clip leaves winds, `vec4(0)` at the centre, which the reference computes exactly.
    *
    * @canon spec-an-indexed-cpu-draw-takes-the-vertex-each-index-names
    * @canon spec-a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second
@@ -522,15 +572,18 @@ describe("a sweep of indexed, stripped and culled draws on the CPU rasterizers",
       const image = assembledJs(draw, width, 16);
       const other = assembledWasm(draw, width, 16);
       const expected = assembledJs(list, width, 16);
+      const expectedWasm = assembledWasm(list, width, 16);
       for (let i = 0; i < image.length; i++) {
         if (!Object.is(image[i], other[i]))
           expect.fail(`JS and WASM differ at ${i}: ${image[i]} ${other[i]}, ${label}`);
         if (!Object.is(image[i], expected[i]))
           expect.fail(`the draw and its list differ at ${i}: ${image[i]} ${expected[i]}, ${label}`);
+        if (!Object.is(other[i], expectedWasm[i]))
+          expect.fail(`on WASM, the draw and its list differ at ${i}: ${other[i]} ${expectedWasm[i]}, ${label}`);
       }
       for (const t of trianglesOf(draw, count)) {
         const p = positionsOf(draw, t);
-        if (!inPlaneWithTheEye(p)) drawsAsTheReference(p, width, 16);
+        drawsAsTheReference(p, width, 16);
         const clipped = t.some((v) => !(positions[4 * v + 3]! > 0));
         if (!clipped || (draw.cullMode ?? "none") === "none") continue;
         const alone = assembledJs(
