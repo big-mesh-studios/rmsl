@@ -4,7 +4,10 @@
  * the WebGL 2 backend of `WebGPURenderer`, for three.js 0.186.1 and a pinned
  * commit of its dev branch (r187dev). It records the shaders TSL generates, the
  * errors the device or the console reports, and the pixel the draw leaves, for
- * each typed array the geometry gives the attribute.
+ * each case below: an array kind and a value that tells a test against zero
+ * from a truncation, a boolean vector, and a geometry that lacks the attribute.
+ * The vertex stage writes clip w 1 where the attribute reads true, and 0, which
+ * draws nothing, where it reads false.
  *
  * The WebGPU run uses the browser the repository's `webgpuPage` launches, the
  * WebGL 2 run the SwiftShader browser its `gpuPage` launches. The probe fetches
@@ -37,7 +40,7 @@ const page = (version: string) => `<!doctype html><title>probe</title>
 <script type="module">
 import * as T from "three/webgpu";
 import { attribute, vec3, vec4, float, positionGeometry } from "three/tsl";
-window.run = async (forceWebGL, arrayName, stage) => {
+window.run = async (forceWebGL, arrayName, stage, value, type, component) => {
   const shaders = [], errors = [], logs = [];
   const log = (kind) => { const f = console[kind]; console[kind] = (...a) => { logs.push(kind + ": " + a.map(String).join(" ").slice(0, 400)); f.apply(console, a); }; };
   log("warn"); log("error");
@@ -55,9 +58,13 @@ window.run = async (forceWebGL, arrayName, stage) => {
   renderer.setClearColor(0x000000, 0);
   const geometry = new T.BufferGeometry();
   geometry.setAttribute("position", new T.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
-  const Arr = { Float32Array, Int32Array, Uint32Array, Uint8Array }[arrayName];
-  geometry.setAttribute("flag", new T.BufferAttribute(new Arr([1, 1, 1]), 1));
-  const flag = attribute("flag", "bool");
+  const width = type === "bool" ? 1 : Number(type.slice(-1));
+  if (arrayName !== null) {
+    const Arr = { Float32Array, Int32Array, Uint32Array, Uint8Array }[arrayName];
+    geometry.setAttribute("flag", new T.BufferAttribute(new Arr(Array(3 * width).fill(value)), width));
+  }
+  const node = attribute("flag", type);
+  const flag = component === null ? node : node[component];
   const material = new T.MeshBasicNodeMaterial();
   if (stage === "vertex") {
     material.vertexNode = vec4(positionGeometry.xy, 0, flag.select(float(1), float(0)));
@@ -74,8 +81,9 @@ window.run = async (forceWebGL, arrayName, stage) => {
   const flat = document.createElement("canvas"); flat.width = 4; flat.height = 4;
   const c = flat.getContext("2d"); c.drawImage(canvas, 0, 0);
   const [r, g, b, a] = c.getImageData(1, 2, 1, 1).data;
-  const pick = (code) => code.split("\\n").filter((l) => /flag|nodeVarying/.test(l)).map((l) => l.trim());
-  return { revision: T.REVISION, shaderLines: [...new Set(shaders.flatMap(pick))], errors, logs: [...new Set(logs)].slice(0, 6), pixel: { r, g, b, a } };
+  const pick = (code) => code.split("\\n").filter((l) => /flag|nodeVarying|bool/.test(l)).map((l) => l.trim());
+  const adapter = forceWebGL ? null : (renderer.backend.adapter?.info ?? (await navigator.gpu.requestAdapter())?.info);
+  return { revision: T.REVISION, adapter: adapter ? { vendor: adapter.vendor, architecture: adapter.architecture, description: adapter.description } : null, shaderLines: [...new Set(shaders.flatMap(pick))], errors, logs: [...new Set(logs)].slice(0, 6), pixel: { r, g, b, a } };
 };
 window.ready = true;
 </script>`;
@@ -98,20 +106,42 @@ const browsers = {
   webgpu: await chromium.launch({ channel: "chromium" }),
   webgl2: await chromium.launch({ args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"] }),
 };
+/** Each case: the stage that reads the attribute, its array (null for none), the value at every component, its type, and the component read. */
+const CASES: [string, string | null, number, string, string | null][] = [
+  ["vertex", "Float32Array", 1, "bool", null],
+  ["vertex", "Float32Array", 0, "bool", null],
+  ["vertex", "Float32Array", 0.5, "bool", null],
+  ["vertex", "Float32Array", NaN, "bool", null],
+  ["vertex", "Int32Array", -1, "bool", null],
+  ["vertex", "Int32Array", 0, "bool", null],
+  ["vertex", "Uint32Array", 2 ** 32 - 1, "bool", null],
+  ["vertex", "Uint8Array", 1, "bool", null],
+  ["vertex", "Int32Array", -1, "bvec2", "y"],
+  ["vertex", "Float32Array", 0.5, "bvec2", "y"],
+  ["vertex", null, 0, "bool", null],
+  ["vertex", null, 0, "bvec4", "w"],
+  ["vertex", null, 0, "bvec4", "x"],
+  ["fragment", "Float32Array", 1, "bool", null],
+  ["fragment", "Int32Array", 1, "bool", null],
+  ["fragment", "Uint32Array", 1, "bool", null],
+];
 const results: Record<string, unknown> = {};
 for (const version of Object.keys(THREE)) {
   for (const backend of ["webgpu", "webgl2"] as const) {
-    for (const stage of ["vertex", "fragment"]) {
-      for (const array of ["Float32Array", "Int32Array", "Uint32Array", "Uint8Array"]) {
-        const tab = await browsers[backend].newPage();
-        await tab.goto(origin + encodeURIComponent(version), { waitUntil: "domcontentloaded", timeout: 120_000 });
-        await tab.waitForFunction(() => (window as any).ready === true, null, { timeout: 120_000 });
-        results[`${version} ${backend} ${stage} ${array}`] = await tab.evaluate(
-          ([forceWebGL, arrayName, stageName]) => (window as any).run(forceWebGL, arrayName, stageName),
-          [backend === "webgl2", array, stage] as const,
-        );
-        await tab.close();
-      }
+    for (const [stage, array, value, type, component] of CASES) {
+      const tab = await browsers[backend].newPage();
+      await tab.goto(origin + encodeURIComponent(version), { waitUntil: "domcontentloaded", timeout: 120_000 });
+      await tab.waitForFunction(() => (window as any).ready === true, null, { timeout: 120_000 });
+      const name = `${version} ${backend} ${stage} ${type}${component ? "." + component : ""} ${array ?? "no data"}${array ? " of " + value : ""}`;
+      results[name] = await tab.evaluate(([forceWebGL, ...rest]) => (window as any).run(forceWebGL, ...rest), [
+        backend === "webgl2",
+        array,
+        stage,
+        value,
+        type,
+        component,
+      ] as const);
+      await tab.close();
     }
   }
 }
