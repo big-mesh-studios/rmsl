@@ -461,6 +461,61 @@ describe("a bool attribute's array", () => {
   });
 });
 
+describe("a bool attribute's vertex format on a scene renderer", () => {
+  const origin = { target: "wgsl", caller: "vertexFormatOf" } as const;
+  const format = (
+    type: string,
+    array: ArrayLike<number>,
+    itemSize: number,
+    options: { normalized?: boolean; format?: string } = {},
+  ) => {
+    const attribute = new BufferAttribute(array as Int32Array, itemSize, options.normalized ?? false);
+    if (options.format) attribute.format = options.format as never;
+    return () => vertexFormatOf(origin, attribute, type);
+  };
+
+  /**
+   * @canon spec-a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies
+   */
+  it("reads a declared sint32 or uint32 format of its width as unsigned", () => {
+    expect(format("bvec2", Int32Array.of(1, 0), 2, { format: "sint32x2" })()).toBe("uint32x2");
+    expect(format("bvec2", Uint32Array.of(1, 0), 2, { format: "uint32x2" })()).toBe("uint32x2");
+    expect(format("bvec4", Int32Array.of(1, 0, 0, 1), 4)()).toBe("uint32x4");
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies
+   */
+  it("refuses a narrow or float format, or another array in a 32-bit one, naming the type", () => {
+    expect(format("bool", Int32Array.of(1, 0, 0, 1), 4, { format: "uint8x4" })).toThrowRmsl(
+      UsageError,
+      "vertex-format-of-another-kind",
+      /bool/,
+    );
+    expect(format("bool", Int32Array.of(1), 1, { format: "float32" })).toThrowRmsl(
+      UsageError,
+      "vertex-format-of-another-kind",
+      /bool/,
+    );
+    expect(format("bool", Float32Array.of(1), 1, { format: "uint32" })).toThrowRmsl(
+      UsageError,
+      "vertex-format-of-another-kind",
+      /bool.*Float32Array/,
+    );
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies
+   */
+  it("refuses a normalized array and a width no format covers as it does any attribute", () => {
+    expect(format("bool", Int32Array.of(1), 1, { normalized: true })).toThrowRmsl(
+      UsageError,
+      "normalized-array-without-format",
+    );
+    expect(format("bvec4", Int32Array.of(1, 0, 0, 1, 1), 5)).toThrowRmsl(UsageError, "no-vertex-format-for-array");
+  });
+});
+
 describe("a bool attribute in a compiled vertex stage", () => {
   /**
    * @canon spec-a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input
