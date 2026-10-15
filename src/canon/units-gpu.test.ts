@@ -1324,7 +1324,8 @@ describe("the array a GPU adapter takes for an attribute", () => {
   /**
    * The stub context reports an `ivec2`, a `uint` and a `vec3` attribute.
    *
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it("refuses an array of another kind on createGlsl, named by node or by slot", () => {
     const ids = attribute("ivec2");
@@ -1376,7 +1377,8 @@ describe("the array a GPU adapter takes for an attribute", () => {
   /**
    * A stub device stands in for the GPU.
    *
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it("refuses an array of another kind on createWgsl, named by node or by slot", async () => {
     vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
@@ -1639,7 +1641,7 @@ describe("the vertex layout of createWgsl", () => {
    * own, in the order the program made them, and a matrix a location for each
    * column, numbered as the compiled WGSL numbers them.
    *
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    * @canon spec-a-gpu-adapter-points-each-column-of-a-matrix-attribute-at-its-column
    */
   it("lays out integer attributes in integer formats and a matrix column by column", async () => {
@@ -2136,7 +2138,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   );
 
   /**
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    */
   it.each(["intAttribute", "uintAttribute"])(
     "draws with an integer attribute through createGlsl, %s",
@@ -2154,7 +2156,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
   }, 120_000);
 
   /**
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    */
   it.skipIf(!WEBGPU).each(["wgslIntAttribute", "wgslUintAttribute"])(
     "draws with an integer attribute through createWgsl, %s",

@@ -27,7 +27,10 @@ its own. `compileWat` builds both modules from the one `.wat`.
 
 ### 1. Vertex pass
 
-Loops `vertexCount` times: for each attribute descriptor in
+The host lays out one record for each vertex the draw names, once however
+many indices name it (`TriangleAssembly` in `src/backends/assemble.ts`
+decides which), with an attribute past the end of its array written as
+zero. The pass loops `vertexCount` times, once per record: for each attribute descriptor in
 `attrDescBase`/`attrDescCount`, byte-copies that slot's bytes from
 `attrSrcBase` into the imported vertex function's own attribute address for
 that slot, calls it, then byte-copies its written `vec4` position (and one
@@ -36,7 +39,13 @@ shared varying blob, `varyingBytes` long) out to
 
 ### 2. Clip pass
 
-For each original (non-indexed) triangle, clips it against the homogeneous
+The triangles come from `triangleBase`: `triangleCount` entries of three
+`i32` vertex records each, which the host assembles from the draw's
+topology and indices. Each is wound as WebGPU winds it, with an odd strip
+triangle reversed, and its first vertex gives its flat varyings. A
+`triangleBase` of 0 takes each three records in turn instead.
+
+For each triangle, clips it against the homogeneous
 near plane `w > W_CLIP_EPS` (Sutherland-Hodgman, single plane): a triangle
 fully in front passes through unchanged, one fully behind is dropped, and
 one straddling the plane is cut into a quad and fan-triangulated into two.
@@ -48,7 +57,8 @@ Results land in `clippedPositionsOutBase`/`clippedVaryingsOutBase`, using
 ### 3. Triangle pass
 
 For each clipped triangle: perspective divide and screen-space mapping, a
-degenerate-area skip, a clamped bounding box, and per pixel in that box an
+degenerate-area skip, a skip of a face the draw culls (`cullSign`, the sign
+of the screen area such a face has, or 0), a clamped bounding box, and per pixel in that box an
 edge-function coverage test. A pixel centre that lies on an edge belongs to
 the triangle whose edge, wound so its inside is positive, runs up the
 screen (a left edge) or right along it (a top edge), by WebGPU's top-left
@@ -98,7 +108,8 @@ in the clip pass and per pixel alike.
   needs `compileWasmFn`'s `scalarsInMemory: true` option to force it into
   memory too instead of a real WASM function parameter, which this
   rasterizer's fixed-arity imports can't accept.
-- No index buffer, no antialiasing.
+- No antialiasing. Indices, strips and restarts are assembled by the host;
+  the module sees only the triangle list.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
 - Geometric clipping is near-plane (`w`) only; depth 0 to 1 is held per

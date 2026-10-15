@@ -1,0 +1,1428 @@
+{
+  "environment": {
+    "node": "v24.12.0",
+    "platform": "darwin arm64",
+    "chromium": {
+      "webgpu": "149.0.7827.55",
+      "webgl2": "149.0.7827.55"
+    },
+    "three": {
+      "0.186.1": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/",
+      "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e": "https://raw.githubusercontent.com/mrdoob/three.js/58c219bc1e166f27846f25f888a8953452d7cb5e/build/"
+    }
+  },
+  "results": {
+    "0.186.1 webgpu vertex bool Float32Array of 1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bool Float32Array of 0": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu vertex bool Float32Array of 0.5": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bool Float32Array of NaN": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bool Int32Array of -1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : i32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bool Int32Array of 0": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : i32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu vertex bool Uint32Array of 4294967295": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : u32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bool Uint8Array of 1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : u32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bvec2.y Int32Array of -1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : vec2<i32> ) -> VaryingsStruct {",
+        "if ( vec2<bool>( flag ).y ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bvec2.y Float32Array of 0.5": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : vec2<f32> ) -> VaryingsStruct {",
+        "if ( vec2<bool>( flag ).y ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bool no data": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu vertex bool.not no data": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgpu vertex bvec4.w no data": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry.",
+        "error: THREE.TSL: TypeError: Cannot read properties of null (reading 'x') [Unknown location]"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu vertex bvec4.x no data": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry.",
+        "error: THREE.TSL: TypeError: Cannot read properties of null (reading 'x') [Unknown location]"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu fragment bool Float32Array of 1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 0 ) nodeVarying0 : bool,",
+        "fn main( @location( 0 ) flag : f32,",
+        "varyings.nodeVarying0 = bool( flag );",
+        "fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "if ( nodeVarying0 ) {"
+      ],
+      "errors": [
+        "Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool' |   @location( 0 ) nodeVarying0 : bool,",
+        "Error while parsing WGSL: :32:25 error: cannot apply '@location' to declaration of type 'bool' | fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "[Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error. |  - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).",
+        "[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error. |  - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])"
+      ],
+      "logs": [
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool'\n  @location( 0 ) nodeVarying0 : bool,\n                 ^^^^^^^^^^^^\n\n:15:3 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\n  @location( 0 ) nodeVarying0 : bool,\n   ^^^^^^^^\n\n\n - While calling [Devi",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :32:25 error: cannot apply '@location' to declaration of type 'bool'\nfn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {\n                        ^^^^^^^^^^^^\n\n:32:11 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\nfn main( @location( 0 ) nodeVarying0 : b",
+        "error: THREE.WebGPURenderer: Render pipeline creation failed (renderPipeline_MeshBasicNodeMaterial_17): [Invalid ShaderModule \"vertex\"] is invalid due to a previous error.\n - While validating vertex stage ([Invalid ShaderModule \"vertex\"], entryPoint: \"main\").\n - While validating vertex state.\n - While calling [Device].CreateRenderPipeline([RenderPipelineDescriptor \"\"renderPipeline_MeshBasicNodeMaterial_1",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error.\n - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).\n - While finishing [CommandEncoder \"renderContext_0\"].\n",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])\n",
+        "error: THREE.WebGPURenderer [renderPipeline_MeshBasicNodeMaterial_17 / vertex error] at line 15:17: cannot apply '@location' to declaration of type 'bool'\n  \t@location( 0 ) nodeVarying0 : bool,\n                  ^"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu fragment bool Int32Array of 1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 0 ) nodeVarying0 : bool,",
+        "fn main( @location( 0 ) flag : i32,",
+        "varyings.nodeVarying0 = bool( flag );",
+        "fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "if ( nodeVarying0 ) {"
+      ],
+      "errors": [
+        "Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool' |   @location( 0 ) nodeVarying0 : bool,",
+        "Error while parsing WGSL: :32:25 error: cannot apply '@location' to declaration of type 'bool' | fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "[Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error. |  - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).",
+        "[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error. |  - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])"
+      ],
+      "logs": [
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool'\n  @location( 0 ) nodeVarying0 : bool,\n                 ^^^^^^^^^^^^\n\n:15:3 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\n  @location( 0 ) nodeVarying0 : bool,\n   ^^^^^^^^\n\n\n - While calling [Devi",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :32:25 error: cannot apply '@location' to declaration of type 'bool'\nfn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {\n                        ^^^^^^^^^^^^\n\n:32:11 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\nfn main( @location( 0 ) nodeVarying0 : b",
+        "error: THREE.WebGPURenderer: Render pipeline creation failed (renderPipeline_MeshBasicNodeMaterial_17): [Invalid ShaderModule \"vertex\"] is invalid due to a previous error.\n - While validating vertex stage ([Invalid ShaderModule \"vertex\"], entryPoint: \"main\").\n - While validating vertex state.\n - While calling [Device].CreateRenderPipeline([RenderPipelineDescriptor \"\"renderPipeline_MeshBasicNodeMaterial_1",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error.\n - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).\n - While finishing [CommandEncoder \"renderContext_0\"].\n",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])\n",
+        "error: THREE.WebGPURenderer [renderPipeline_MeshBasicNodeMaterial_17 / vertex error] at line 15:17: cannot apply '@location' to declaration of type 'bool'\n  \t@location( 0 ) nodeVarying0 : bool,\n                  ^"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgpu fragment bool Uint32Array of 1": {
+      "revision": "186",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 0 ) nodeVarying0 : bool,",
+        "fn main( @location( 0 ) flag : u32,",
+        "varyings.nodeVarying0 = bool( flag );",
+        "fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "if ( nodeVarying0 ) {"
+      ],
+      "errors": [
+        "Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool' |   @location( 0 ) nodeVarying0 : bool,",
+        "Error while parsing WGSL: :32:25 error: cannot apply '@location' to declaration of type 'bool' | fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "[Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error. |  - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).",
+        "[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error. |  - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])"
+      ],
+      "logs": [
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool'\n  @location( 0 ) nodeVarying0 : bool,\n                 ^^^^^^^^^^^^\n\n:15:3 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\n  @location( 0 ) nodeVarying0 : bool,\n   ^^^^^^^^\n\n\n - While calling [Devi",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :32:25 error: cannot apply '@location' to declaration of type 'bool'\nfn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {\n                        ^^^^^^^^^^^^\n\n:32:11 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\nfn main( @location( 0 ) nodeVarying0 : b",
+        "error: THREE.WebGPURenderer: Render pipeline creation failed (renderPipeline_MeshBasicNodeMaterial_17): [Invalid ShaderModule \"vertex\"] is invalid due to a previous error.\n - While validating vertex stage ([Invalid ShaderModule \"vertex\"], entryPoint: \"main\").\n - While validating vertex state.\n - While calling [Device].CreateRenderPipeline([RenderPipelineDescriptor \"\"renderPipeline_MeshBasicNodeMaterial_1",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error.\n - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).\n - While finishing [CommandEncoder \"renderContext_0\"].\n",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])\n",
+        "error: THREE.WebGPURenderer [renderPipeline_MeshBasicNodeMaterial_17 / vertex error] at line 15:17: cannot apply '@location' to declaration of type 'bool'\n  \t@location( 0 ) nodeVarying0 : bool,\n                  ^"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 vertex bool Float32Array of 1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bool Float32Array of 0": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 vertex bool Float32Array of 0.5": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bool Float32Array of NaN": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bool Int32Array of -1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in int flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bool Int32Array of 0": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in int flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 vertex bool Uint32Array of 4294967295": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in uint flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bool Uint8Array of 1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in int flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 vertex bvec2.y Int32Array of -1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in ivec2 flag;",
+        "if ( bvec2( flag ).y ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bvec2.y Float32Array of 0.5": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in vec2 flag;",
+        "if ( bvec2( flag ).y ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bool no data": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 vertex bool.not no data": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "0.186.1 webgl2 vertex bvec4.w no data": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry.",
+        "error: THREE.TSL: TypeError: Cannot read properties of null (reading 'x') [Unknown location]"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 vertex bvec4.x no data": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry.",
+        "error: THREE.TSL: TypeError: Cannot read properties of null (reading 'x') [Unknown location]"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 fragment bool Float32Array of 1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "out bool nodeVarying0;",
+        "layout( location = 0 ) in float flag;",
+        "nodeVarying0 = bool( flag );",
+        "in bool nodeVarying0;",
+        "if ( nodeVarying0 ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "error: THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false\n\nProgram Info Log: Vertex shader is not compiled.\n\u0000\nVERTEX\n\nERROR: 0:43: 'out' : cannot be bool\n\u0000\n\n  38: \n  39: // uniforms\n  40: \n  41: \n  42: // varyings\n> 43: out bool nodeVarying0;\n  44: \n  45: \n  46: // attributes\n  47: layout( location = 0 ) in float flag;\n  48: layout( location = 1 ) in vec3 position;\n  49: \nFRAGMENT\n\nERROR: 0:47: '"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 fragment bool Int32Array of 1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "out bool nodeVarying0;",
+        "layout( location = 0 ) in int flag;",
+        "nodeVarying0 = bool( flag );",
+        "in bool nodeVarying0;",
+        "if ( nodeVarying0 ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "error: THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false\n\nProgram Info Log: Vertex shader is not compiled.\n\u0000\nVERTEX\n\nERROR: 0:43: 'out' : cannot be bool\n\u0000\n\n  38: \n  39: // uniforms\n  40: \n  41: \n  42: // varyings\n> 43: out bool nodeVarying0;\n  44: \n  45: \n  46: // attributes\n  47: layout( location = 0 ) in int flag;\n  48: layout( location = 1 ) in vec3 position;\n  49: \nFRAGMENT\n\nERROR: 0:47: 'in"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "0.186.1 webgl2 fragment bool Uint32Array of 1": {
+      "revision": "186",
+      "adapter": null,
+      "shaderLines": [
+        "out bool nodeVarying0;",
+        "layout( location = 0 ) in uint flag;",
+        "nodeVarying0 = bool( flag );",
+        "in bool nodeVarying0;",
+        "if ( nodeVarying0 ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "error: THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false\n\nProgram Info Log: Vertex shader is not compiled.\n\u0000\nVERTEX\n\nERROR: 0:43: 'out' : cannot be bool\n\u0000\n\n  38: \n  39: // uniforms\n  40: \n  41: \n  42: // varyings\n> 43: out bool nodeVarying0;\n  44: \n  45: \n  46: // attributes\n  47: layout( location = 0 ) in uint flag;\n  48: layout( location = 1 ) in vec3 position;\n  49: \nFRAGMENT\n\nERROR: 0:47: 'i"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Float32Array of 1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Float32Array of 0": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Float32Array of 0.5": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Float32Array of NaN": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : f32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Int32Array of -1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : i32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Int32Array of 0": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : i32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Uint32Array of 4294967295": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : u32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool Uint8Array of 1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : u32 ) -> VaryingsStruct {",
+        "if ( bool( flag ) ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bvec2.y Int32Array of -1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : vec2<i32> ) -> VaryingsStruct {",
+        "if ( vec2<bool>( flag ).y ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bvec2.y Float32Array of 0.5": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 1 ) flag : vec2<f32> ) -> VaryingsStruct {",
+        "if ( vec2<bool>( flag ).y ) {"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool no data": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bool.not no data": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bvec4.w no data": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "if ( vec4<bool>( false, false, false, true ).w ) {"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu vertex bvec4.x no data": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "if ( vec4<bool>( false, false, false, true ).x ) {"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu fragment bool Float32Array of 1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 0 ) nodeVarying0 : bool,",
+        "fn main( @location( 0 ) flag : f32,",
+        "varyings.nodeVarying0 = bool( flag );",
+        "fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "if ( nodeVarying0 ) {"
+      ],
+      "errors": [
+        "Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool' |   @location( 0 ) nodeVarying0 : bool,",
+        "Error while parsing WGSL: :34:25 error: cannot apply '@location' to declaration of type 'bool' | fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "[Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error. |  - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).",
+        "[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error. |  - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])"
+      ],
+      "logs": [
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool'\n  @location( 0 ) nodeVarying0 : bool,\n                 ^^^^^^^^^^^^\n\n:15:3 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\n  @location( 0 ) nodeVarying0 : bool,\n   ^^^^^^^^\n\n\n - While calling [Devi",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :34:25 error: cannot apply '@location' to declaration of type 'bool'\nfn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {\n                        ^^^^^^^^^^^^\n\n:34:11 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\nfn main( @location( 0 ) nodeVarying0 : b",
+        "error: THREE.WebGPURenderer: Render pipeline creation failed (renderPipeline_MeshBasicNodeMaterial_17): [Invalid ShaderModule \"vertex\"] is invalid due to a previous error.\n - While validating vertex stage ([Invalid ShaderModule \"vertex\"], entryPoint: \"main\").\n - While validating vertex state.\n - While calling [Device].CreateRenderPipeline([RenderPipelineDescriptor \"\"renderPipeline_MeshBasicNodeMaterial_1",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error.\n - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).\n - While finishing [CommandEncoder \"renderContext_0\"].\n",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])\n",
+        "error: THREE.WebGPURenderer [renderPipeline_MeshBasicNodeMaterial_17 / vertex error] at line 15:17: cannot apply '@location' to declaration of type 'bool'\n  \t@location( 0 ) nodeVarying0 : bool,\n                  ^"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu fragment bool Int32Array of 1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 0 ) nodeVarying0 : bool,",
+        "fn main( @location( 0 ) flag : i32,",
+        "varyings.nodeVarying0 = bool( flag );",
+        "fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "if ( nodeVarying0 ) {"
+      ],
+      "errors": [
+        "Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool' |   @location( 0 ) nodeVarying0 : bool,",
+        "Error while parsing WGSL: :34:25 error: cannot apply '@location' to declaration of type 'bool' | fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "[Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error. |  - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).",
+        "[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error. |  - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])"
+      ],
+      "logs": [
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool'\n  @location( 0 ) nodeVarying0 : bool,\n                 ^^^^^^^^^^^^\n\n:15:3 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\n  @location( 0 ) nodeVarying0 : bool,\n   ^^^^^^^^\n\n\n - While calling [Devi",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :34:25 error: cannot apply '@location' to declaration of type 'bool'\nfn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {\n                        ^^^^^^^^^^^^\n\n:34:11 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\nfn main( @location( 0 ) nodeVarying0 : b",
+        "error: THREE.WebGPURenderer: Render pipeline creation failed (renderPipeline_MeshBasicNodeMaterial_17): [Invalid ShaderModule \"vertex\"] is invalid due to a previous error.\n - While validating vertex stage ([Invalid ShaderModule \"vertex\"], entryPoint: \"main\").\n - While validating vertex state.\n - While calling [Device].CreateRenderPipeline([RenderPipelineDescriptor \"\"renderPipeline_MeshBasicNodeMaterial_1",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error.\n - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).\n - While finishing [CommandEncoder \"renderContext_0\"].\n",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])\n",
+        "error: THREE.WebGPURenderer [renderPipeline_MeshBasicNodeMaterial_17 / vertex error] at line 15:17: cannot apply '@location' to declaration of type 'bool'\n  \t@location( 0 ) nodeVarying0 : bool,\n                  ^"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgpu fragment bool Uint32Array of 1": {
+      "revision": "187dev",
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": ""
+      },
+      "shaderLines": [
+        "@location( 0 ) nodeVarying0 : bool,",
+        "fn main( @location( 0 ) flag : u32,",
+        "varyings.nodeVarying0 = bool( flag );",
+        "fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "if ( nodeVarying0 ) {"
+      ],
+      "errors": [
+        "Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool' |   @location( 0 ) nodeVarying0 : bool,",
+        "Error while parsing WGSL: :34:25 error: cannot apply '@location' to declaration of type 'bool' | fn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {",
+        "[Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error. |  - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).",
+        "[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error. |  - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])"
+      ],
+      "logs": [
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :15:17 error: cannot apply '@location' to declaration of type 'bool'\n  @location( 0 ) nodeVarying0 : bool,\n                 ^^^^^^^^^^^^\n\n:15:3 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\n  @location( 0 ) nodeVarying0 : bool,\n   ^^^^^^^^\n\n\n - While calling [Devi",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: Error while parsing WGSL: :34:25 error: cannot apply '@location' to declaration of type 'bool'\nfn main( @location( 0 ) nodeVarying0 : bool ) -> OutputStruct {\n                        ^^^^^^^^^^^^\n\n:34:11 note: '@location' must only be applied to declarations of numeric scalar or numeric vector type\nfn main( @location( 0 ) nodeVarying0 : b",
+        "error: THREE.WebGPURenderer: Render pipeline creation failed (renderPipeline_MeshBasicNodeMaterial_17): [Invalid ShaderModule \"vertex\"] is invalid due to a previous error.\n - While validating vertex stage ([Invalid ShaderModule \"vertex\"], entryPoint: \"main\").\n - While validating vertex state.\n - While calling [Device].CreateRenderPipeline([RenderPipelineDescriptor \"\"renderPipeline_MeshBasicNodeMaterial_1",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"] is invalid due to a previous error.\n - While encoding [RenderPassEncoder (unlabeled)].SetPipeline([Invalid RenderPipeline \"renderPipeline_MeshBasicNodeMaterial_17\"]).\n - While finishing [CommandEncoder \"renderContext_0\"].\n",
+        "error: THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"renderContext_0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"renderContext_0\"]])\n",
+        "error: THREE.WebGPURenderer [renderPipeline_MeshBasicNodeMaterial_17 / vertex error] at line 15:17: cannot apply '@location' to declaration of type 'bool'\n  \t@location( 0 ) nodeVarying0 : bool,\n                  ^"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Float32Array of 1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Float32Array of 0": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Float32Array of 0.5": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Float32Array of NaN": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in float flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Int32Array of -1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in int flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Int32Array of 0": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in int flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Uint32Array of 4294967295": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in uint flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool Uint8Array of 1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in int flag;",
+        "if ( bool( flag ) ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bvec2.y Int32Array of -1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in ivec2 flag;",
+        "if ( bvec2( flag ).y ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bvec2.y Float32Array of 0.5": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "layout( location = 1 ) in vec2 flag;",
+        "if ( bvec2( flag ).y ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool no data": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bool.not no data": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bvec4.w no data": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 vertex bvec4.x no data": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "warn: THREE.AttributeNode: Vertex attribute \"flag\" not found on geometry."
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 fragment bool Float32Array of 1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "out bool nodeVarying0;",
+        "layout( location = 0 ) in float flag;",
+        "nodeVarying0 = bool( flag );",
+        "in bool nodeVarying0;",
+        "if ( nodeVarying0 ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "error: THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false\n\nProgram Info Log: Vertex shader is not compiled.\n\u0000\nVERTEX\n\nERROR: 0:43: 'out' : cannot be bool\n\u0000\n\n  38: \n  39: // uniforms\n  40: \n  41: \n  42: // varyings\n> 43: out bool nodeVarying0;\n  44: \n  45: \n  46: // attributes\n  47: layout( location = 0 ) in float flag;\n  48: layout( location = 1 ) in vec3 position;\n  49: \nFRAGMENT\n\nERROR: 0:47: '"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 fragment bool Int32Array of 1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "out bool nodeVarying0;",
+        "layout( location = 0 ) in int flag;",
+        "nodeVarying0 = bool( flag );",
+        "in bool nodeVarying0;",
+        "if ( nodeVarying0 ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "error: THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false\n\nProgram Info Log: Vertex shader is not compiled.\n\u0000\nVERTEX\n\nERROR: 0:43: 'out' : cannot be bool\n\u0000\n\n  38: \n  39: // uniforms\n  40: \n  41: \n  42: // varyings\n> 43: out bool nodeVarying0;\n  44: \n  45: \n  46: // attributes\n  47: layout( location = 0 ) in int flag;\n  48: layout( location = 1 ) in vec3 position;\n  49: \nFRAGMENT\n\nERROR: 0:47: 'in"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    },
+    "r187dev@58c219bc1e166f27846f25f888a8953452d7cb5e webgl2 fragment bool Uint32Array of 1": {
+      "revision": "187dev",
+      "adapter": null,
+      "shaderLines": [
+        "out bool nodeVarying0;",
+        "layout( location = 0 ) in uint flag;",
+        "nodeVarying0 = bool( flag );",
+        "in bool nodeVarying0;",
+        "if ( nodeVarying0 ) {",
+        "bool nodeVar2;",
+        "nodeVar2 = bool( nodeUniform2 );"
+      ],
+      "errors": [],
+      "logs": [
+        "error: THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false\n\nProgram Info Log: Vertex shader is not compiled.\n\u0000\nVERTEX\n\nERROR: 0:43: 'out' : cannot be bool\n\u0000\n\n  38: \n  39: // uniforms\n  40: \n  41: \n  42: // varyings\n> 43: out bool nodeVarying0;\n  44: \n  45: \n  46: // attributes\n  47: layout( location = 0 ) in uint flag;\n  48: layout( location = 1 ) in vec3 position;\n  49: \nFRAGMENT\n\nERROR: 0:47: 'i"
+      ],
+      "pixel": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 0
+      }
+    }
+  }
+}

@@ -105,14 +105,21 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
     - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
-      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
+        - [`@spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex`](#spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex) — On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped at the near plane keeps that vertex's value.
+        - [`@spec a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k`](#spec-a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k) — On WGSL, JS and WASM, a fragment of an even triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
+        - [`@spec a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k`](#spec-a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k) — On WGSL, JS and WASM, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
       - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
-    - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
-      - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
+    - [`@spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it`](#spec-an-attribute-the-fragment-stage-reads-is-a-varying-of-it) — An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value as that varying passes it: interpolated for a float attribute, and flat for an integer or `bool` one, as [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) states.
+      - [`@spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying`](#spec-a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying) — `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the value of each attribute it reads, through a varying of its own that the vertex stage writes once for each vertex.
       - [`@spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once`](#spec-a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once) — Several reads of one attribute in a fragment stage, through the same node or through nodes of the same slot, share one varying.
       - [`@spec a-fragment-stage-compiled-alone-refuses-an-attribute`](#spec-a-fragment-stage-compiled-alone-refuses-an-attribute) — `compileGlsl.fragment`, `compileWgsl.fragment`, `compileJSFragment` and `compileWasmFragment` refuse a fragment stage that reads an attribute. The error names the attribute's slot and asks for a varying, or for the stage to be compiled with its vertex stage.
       - [`@spec a-fragment-attribute-with-no-vertex-root-is-refused`](#spec-a-fragment-attribute-with-no-vertex-root-is-refused) — A program whose fragment stage reads an attribute and whose vertex stage gives no root is refused as it is built. The error names the attribute and says that a vertex stage returns its position.
+      - [`@exception a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying`](#exception-a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying) — Where TSL passes a `bool` or `bvecN` attribute that the fragment stage reads in a `bool` varying, which neither of its backends compiles, rmsl passes it in a flat `uint` or `uvecN` varying. The fragment stage tests each component against zero, and reads the boolean of the vertex an integer varying takes its value from.
+      - [`@spec a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex`](#spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex) — On WGSL, JS and WASM, a fragment reads a `bool` attribute as the first vertex of its triangle holds it.
+      - [`@spec a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex`](#spec-a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex) — On WGSL, JS and WASM, a fragment reads each component of a `bvecN` attribute as the first vertex of its triangle holds it.
+      - [`@exception a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex`](#exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex) — On GLSL, a fragment reads a `bool` or `bvecN` attribute as the last vertex of its triangle holds it.
       - [`@exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects`](#exception-a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects) — A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
@@ -172,6 +179,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-target-normalizes-a-zero-vector-to-zero`](#spec-a-cpu-target-normalizes-a-zero-vector-to-zero) — On a CPU target, `normalize` of a vector of length zero gives the zero vector.
       - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
     - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing. An element the buffer holds only some components of is past its end, whichever of its components a program reads or writes.
+    - [`@spec an-attribute-read-past-its-end-reads-zero`](#spec-an-attribute-read-past-its-end-reads-zero) — An indexed draw through a vertex past the end of an attribute the vertex stage reads reads that attribute as zero.
+      - [`@spec a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero) — In an indexed draw of a CPU rasterizer, a vertex past the end of an attribute the vertex stage reads reads that attribute as zero, on JS and WASM alike.
+      - [`@exception a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end`](#exception-a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end) — On GLSL and WGSL, an indexed draw through a vertex past the end of an attribute reads whatever the driver gives.
     - [`@spec round-takes-a-half-to-the-even-integer`](#spec-round-takes-a-half-to-the-even-integer) — `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
     - [`@spec every-target-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-every-target-shades-a-pixel-centre-on-a-top-or-left-edge) — Every target shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge, whichever way the triangle winds.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
@@ -192,7 +202,19 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
-  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. A float attribute reads floats or scaled integers, an `int` attribute signed integers, a `uint` attribute unsigned ones, and a `bool` attribute unsigned integers tested against zero. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+    - [`@spec a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type) — On both GPU renderers, a float, `int` or `uint` attribute takes its format from its width and array type, or from a format it declares, and the format survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused, naming the declared type.
+    - [`@spec a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers`](#spec-a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers) — `WebGLRenderer` and `WebGPURenderer` take an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, read it through an unsigned 32-bit format whatever the signedness of the array, and give the vertex stage true where the integer is not zero. They refuse any other array for it.
+  - [`@spec a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer) — A `bool` or `bvecN` attribute reads, on every target, the boolean of the integer the host gives for each component: true where it is not zero. On every target it is a vertex input of `uint` or `uvecN`, which the vertex stage compares with zero where it reads it, so every operation on it reads a boolean and never the integer.
+    - [`@spec a-bool-attribute-reads-true-where-its-integer-is-not-zero`](#spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads a `bool` attribute as true where the host's integer for it is not zero, -1, 2 and 2³² - 1 included, and as false where it is 0. `and`, `or`, `xor`, `not`, `equal` and `notEqual` take that boolean, and a conversion to `uint` gives 1, in the vertex stage and in the fragment stage.
+    - [`@spec a-boolean-vector-attribute-reads-each-component-against-zero`](#spec-a-boolean-vector-attribute-reads-each-component-against-zero) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads each component of a `bvec2`, `bvec3` or `bvec4` attribute as true where the host's integer for that component is not zero, and as false where it is 0. A component-wise `equal`, `all` and `and` of two components take those booleans, in the vertex stage and in the fragment stage.
+    - [`@spec a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input`](#spec-a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input) — `compileGlsl` declares a `bool` or `bvecN` attribute of a vertex stage `in uint` or `in uvecN`, and `compileWgsl` declares it `@location(n)` of type `u32` or `vec<N, u32>`. The host binds unsigned integers to it.
+    - [`@spec a-cpu-raster-routine-reports-a-bool-attribute-by-its-declared-type`](#spec-a-cpu-raster-routine-reports-a-bool-attribute-by-its-declared-type) — The `attributeTypes` of a routine of `compileJS` or `compileWasm` names a `bool` or `bvecN` attribute by that type, though its vertex stage reads it as `uint` or `uvecN`.
+    - [`@spec the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers`](#spec-the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers) — `createGlsl` points the array of a `bool` attribute with `vertexAttribIPointer` and `UNSIGNED_INT`, an `Int32Array` as well as a `Uint32Array`, and uploads it as given, without a copy.
+    - [`@spec a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies`](#spec-a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies) — `WebGLRenderer` and `WebGPURenderer` read a `bool` or `bvecN` attribute in the format its `format` declares, or else the one its array, width and `normalized` flag imply, as they do any attribute. A `sint32` format reads as the `uint32` format of its width. They refuse an array that is not an `Int32Array` or a `Uint32Array`, whatever its width, and a format that is not a 32-bit `sint` or `uint` one, as a format of another kind, naming the declared type. They refuse a `normalized` `Int32Array` or `Uint32Array` as having no format, and a width no format covers as having no format for the array, with the code any attribute gets.
+    - [`@spec a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w`](#spec-a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w) — `WebGLRenderer` and `WebGPURenderer` give a `bool` or `bvecN` attribute that a mesh's geometry lacks the components of (0, 0, 0, 1) cut to its width, tested against zero: false in x, y and z, and true in w.
+    - [`@exception a-bool-attribute-refuses-the-float-array-tsl-reads`](#exception-a-bool-attribute-refuses-the-float-array-tsl-reads) — Where TSL reads a `bool` attribute from a `Float32Array` and tests each float against zero, so 0.5 and NaN read true, every adapter and scene renderer refuses a float array for it.
+    - [`@exception a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads`](#exception-a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads) — Where TSL reads a `bool` attribute from a `Uint8Array`, every adapter and scene renderer refuses a `Uint8Array` for it.
   - [`@spec a-scene-renderer-reads-an-integer-attribute-as-integers`](#spec-a-scene-renderer-reads-an-integer-attribute-as-integers) — `WebGLRenderer` and `WebGPURenderer` hand an `int`, `uint`, `ivecN` or `uvecN` attribute to the vertex stage as the integers its array holds. The array is an `Int32Array` or a `Uint32Array`, or an 8- or 16-bit integer array that is not normalized. A `format` that names a `sint` or `uint` format reads it so too. `WebGLRenderer` points the attribute with `vertexAttribIPointer`.
   - [`@spec a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location`](#spec-a-scene-renderer-reads-each-column-of-a-matrix-attribute-at-its-own-location) — `WebGLRenderer` and `WebGPURenderer` take a matrix attribute of any shape, `mat2` to `mat4` and the non-square ones, as one flat array that holds each vertex's columns one after another. They read each column at a location of its own, counted from the attribute's first location.
   - [`@spec the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives`](#spec-the-webgpu-renderer-gives-an-attribute-with-no-data-what-a-webgl-draw-gives) — A draw of `WebGPURenderer` gives a vertex attribute its program declares but has no data for the value (0, 0, 0, 1). A draw of `WebGLRenderer` gives it the same. Each location of the attribute reads the components of that value it holds, of the attribute's kind, at every vertex.
@@ -230,6 +252,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+      - [`@spec a-raw-name-webgl-reserves-reaches-the-glsl-driver`](#spec-a-raw-name-webgl-reserves-reaches-the-glsl-driver) — On GLSL, a raw name that starts with `webgl_` or `_webgl_` reaches the shader as given, and the driver refuses to compile it. `createGlsl` throws a `DriverError` of code `shader-compile`, whose log names it.
       - [`@spec create-glsl-checks-the-names-of-its-two-stages-together`](#spec-create-glsl-checks-the-names-of-its-two-stages-together) — `createGlsl` refuses a vertex and a fragment stage that declare one name differently: by type, or by the precision of a uniform.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
       - [`@spec screen-size-is-one-uniform-everywhere`](#spec-screen-size-is-one-uniform-everywhere) — `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
@@ -320,8 +343,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
   - [`@spec a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused`](#spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused) — A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm`, or of a `compileJS` or `compileWasm` rasterizer, is refused when its vertex stage reads an attribute the host never gave data for. The error names the attribute, as `draw() is missing attribute "<slot>"` after the name of the call.
-  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, and a `Uint32Array` for `uint` or `uvecN`. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
-    - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it. The scene renderers take the arrays and formats the declared type admits.
+  - [`@spec host-data-of-another-kind-is-refused`](#spec-host-data-of-another-kind-is-refused) — Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, a `Uint32Array` for `uint` or `uvecN`, and an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
+    - [`@spec an-attribute-takes-only-an-array-of-its-own-kind`](#spec-an-attribute-takes-only-an-array-of-its-own-kind) — The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it.
+      - [`@spec an-adapter-takes-only-the-array-of-a-numeric-attributes-kind`](#spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes a `Float32Array` for a float attribute, an `Int32Array` for an `int` one and a `Uint32Array` for a `uint` one, and refuses an array of another kind. The CPU ones take a `Float64Array` for a float attribute too.
+      - [`@spec an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called`](#spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an attribute by its slot name as well as by its node. The adapter checks the array against the type of that slot's attribute in its program where `setAttribute` is called, before `attach` as after it. The type of `setAttribute` admits any typed array by slot name, and leaves the check to the adapter.
+      - [`@spec an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute) — `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, and refuses any other array, naming the type and the arrays it takes.
+      - [`@spec the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute) — On every adapter, the type of `setAttribute` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute node, and no float array.
     - [`@spec a-storage-buffer-takes-only-an-array-of-its-element-kind`](#spec-a-storage-buffer-takes-only-an-array-of-its-element-kind) — Every adapter refuses an array of another kind for a storage buffer, by its element type. These are `createGlsl`, `createWgsl`, `createWgslCompute`, `createJsCompute`, `createWasmCompute`, `createJsGrid` and `createWasmGrid`. The CPU ones take a `Float64Array` for float elements too. The adapter checks a slot name where `setAttribute` is called, before `attach` as after it, against the type of its slot in its program.
     - [`@spec the-type-of-a-programs-storages-admits-only-typed-arrays`](#spec-the-type-of-a-programs-storages-admits-only-typed-arrays) — The type of `ctx.storages`, the storage arrays the host passes a program from `compileJS*` or `compileWasm*`, admits only a `Float32Array`, a `Float64Array`, an `Int32Array` and a `Uint32Array`. The type checker refuses a plain array there. The program checks nothing at run time.
     - [`@spec a-readback-array-takes-only-an-array-of-its-element-kind`](#spec-a-readback-array-takes-only-an-array-of-its-element-kind) — `compute(out)` on `createJsCompute`, `createWasmCompute` and `createWgslCompute` refuses an array of `out` of another kind than the element type of its slot, before it runs anything. The CPU ones take a `Float64Array` for float elements too.
@@ -338,6 +365,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec every-adapter-shares-one-type-of-setuniform`](#spec-every-adapter-shares-one-type-of-setuniform) — Every adapter types `setUniform` as the one exported `SetUniform`, which takes a uniform by its node, as a uniform array or by slot name. Every context types it as `SetUniformByNode`, which takes the first two only.
       - [`@spec the-types-hold-a-routine-parameter-to-its-shape`](#spec-the-types-hold-a-routine-parameter-to-its-shape) — A routine adapter of `createJsRoutine` or `createWasmRoutine` may hold parameter names the type checker knows. Its method `run` then takes each parameter by its name, typed as a uniform of its type is. Each may be absent or `null`. It refuses a name the routine has no parameter for. When the type checker does not know the names, `run` takes any name with any value a parameter can hold, a plain or typed array included.
     - [`@spec a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs) — A program the host calls with its inputs in a context checks neither the shape of a value nor the kind of an array. These programs are the function `compileJSFn` gives, which `precompileJS` ships, the program `precompileWasm` ships, and the routines, grids, stages and draws of `compileJS*` and `compileWasm*`. Their inputs include `ctx.storages` and the attribute arrays of a draw. A value of another shape, or an array of another kind, gives what that target gives. Each component it reads still converts as a typed slot of its kind does.
+    - [`@spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined`](#spec-a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined) — A JS or WASM draw reads a hole or `undefined` inside an attribute array as a typed slot of the attribute's kind converts `undefined`.
+      - [`@spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan) — A JS or WASM draw reads a hole or `undefined` inside a `float` attribute's array as NaN.
+      - [`@spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero) — A JS or WASM draw reads a hole or `undefined` inside an `int` or `uint` attribute's array as 0.
+      - [`@spec a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan`](#spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan) — A JS or WASM draw reads each component of a `vec3` attribute that is a hole or `undefined` inside its array as NaN.
+      - [`@spec a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero`](#spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero) — A JS or WASM draw reads each component of an `ivec3` or `uvec3` attribute that is a hole or `undefined` inside its array as 0.
   - [`@spec a-message-puts-the-article-its-sound-takes-before-a-name`](#spec-a-message-puts-the-article-its-sound-takes-before-a-name) — A refusal puts before a name of a type, a class or a kind of value the article its sound takes. Examples are `an int`, `an Int32Array`, `an object`, `an HTMLElement`, `a uint`, `a uvec3`, `a usampler2D`, `a unorm8x4`, `a Uint32Array` and `a URL`. It reads a name that opens with two capitals letter by letter.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. The port runs one way, so an addition TSL lacks departs from nothing. The language departs from TSL only where a departure adds value, and that value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
@@ -758,21 +790,68 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
-    - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
+    - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips at the near plane, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
-      - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
+      - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count and no index array takes its count from the first attribute its program reads. The order the host passed them in decides which is first. An attribute the program does not read is taken and counts for nothing.
+      - [`@spec a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused) — A CPU rasterizer draw without indices whose `first` plus its `count` passes the end of an attribute the vertex stage reads is refused with a `UsageError`.
+        - [`@spec a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused`](#spec-a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused) — A CPU rasterizer draw without indices whose `count` reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+        - [`@spec a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused`](#spec-a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused) — A CPU rasterizer draw without indices of a `count` of 0, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`. One from the end itself draws nothing and is not refused.
+        - [`@spec a-cpu-draw-with-no-count-from-past-an-attribute-is-refused`](#spec-a-cpu-draw-with-no-count-from-past-an-attribute-is-refused) — A CPU rasterizer draw without indices that names no `count`, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`.
+      - [`@spec a-cpu-draw-with-no-count-draws-from-first-to-the-end`](#spec-a-cpu-draw-with-no-count-draws-from-first-to-the-end) — A CPU rasterizer draw without indices that names no `count` draws the vertices of the first attribute its program reads from `first` to its end.
+      - [`@spec a-cpu-draw-takes-first-and-count-as-webgpu-takes-them`](#spec-a-cpu-draw-takes-first-and-count-as-webgpu-takes-them) — A CPU rasterizer draw converts its `first` and `count` as WebGPU converts `firstVertex` and `vertexCount`, or `firstIndex` and `indexCount`. It drops a fraction, and refuses a value WebGPU refuses.
+        - [`@spec a-cpu-draw-drops-the-fraction-of-first-and-count`](#spec-a-cpu-draw-drops-the-fraction-of-first-and-count) — A CPU rasterizer draw drops the fraction of its `first` and its `count`, so a `first` of 2.9 draws from 2 and a `count` of 3.9 draws 3.
+        - [`@spec a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count`](#spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count) — A CPU rasterizer draw is refused with a `UsageError`, and draws nothing, when its `first` or `count` is NaN or infinite. So is one whose `first` or `count` lies below 0 or above 4294967295 once its fraction is dropped.
+        - [`@spec a-cpu-draw-takes-a-first-or-count-up-to-4294967295`](#spec-a-cpu-draw-takes-a-first-or-count-up-to-4294967295) — A CPU rasterizer draw does not refuse a `first` or a `count` of 4294967295, or of 4294967295.5, for its value, and refuses one of 4294967296.
+      - [`@spec a-cpu-draw-refuses-an-option-value-it-does-not-name`](#spec-a-cpu-draw-refuses-an-option-value-it-does-not-name) — A CPU rasterizer draw is refused with a `UsageError`, and draws nothing, when its `topology`, `cullMode` or `frontFace` is not a value the canon names for it. The error names the value.
+        - [`@spec a-cpu-draw-refuses-an-unknown-topology`](#spec-a-cpu-draw-refuses-an-unknown-topology) — A CPU rasterizer draw whose `topology` is not `"triangle-list"` or `"triangle-strip"` is refused with a `UsageError`. `"triangle-fan"`, `"point-list"`, `"line-list"` and `"line-strip"` are such values.
+        - [`@spec a-cpu-draw-refuses-an-unknown-cull-mode`](#spec-a-cpu-draw-refuses-an-unknown-cull-mode) — A CPU rasterizer draw whose `cullMode` is not `"none"`, `"front"` or `"back"` is refused with a `UsageError`.
+        - [`@spec a-cpu-draw-refuses-an-unknown-front-face`](#spec-a-cpu-draw-refuses-an-unknown-front-face) — A CPU rasterizer draw whose `frontFace` is not `"ccw"` or `"cw"` is refused with a `UsageError`.
+      - [`@spec a-wasm-list-draw-without-indices-writes-no-triangle-table`](#spec-a-wasm-list-draw-without-indices-writes-no-triangle-table) — A WASM rasterizer draw of a list without indices hands the rasterizer module no table of triangles, which takes each three vertices in turn.
       - [`@spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage`](#spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage) — `compileJS` and `compileWasm` read which attributes the vertex stage reads, and the type of each, from the compiled stage. The host names neither.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
+      - [`@spec a-reentrant-js-draw-draws-what-one-without-it-draws`](#spec-a-reentrant-js-draw-draws-what-one-without-it-draws) — A JS draw compiled with `reentrant` draws the image a draw of the same programs and inputs compiled without it draws.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
-      - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
-      - [`@spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes`](#spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes) — The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+      - [`@spec a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes`](#spec-a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes) — The JS rasterizer interpolates every float varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+      - [`@spec a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does) — A CPU rasterizer draw takes a `topology` among its options, `"triangle-list"` or `"triangle-strip"`, and no other of WebGPU's. It makes its triangles from its vertices as a WebGPU pipeline of that topology makes them.
+        - [`@spec a-cpu-draw-is-a-triangle-list-unless-it-names-another-topology`](#spec-a-cpu-draw-is-a-triangle-list-unless-it-names-another-topology) — A CPU rasterizer draw that names no topology, or `"triangle-list"`, makes triangle `k` of its vertices `3k`, `3k + 1` and `3k + 2`.
+        - [`@spec a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second`](#spec-a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second) — A CPU rasterizer draw with `topology: "triangle-strip"` makes triangle `k` of its vertices `k`, `k + 1` and `k + 2`. An even triangle winds as `k`, `k + 1`, `k + 2` run, and an odd one as `k + 1`, `k`, `k + 2` run.
+        - [`@spec a-cpu-list-draws-nothing-for-vertices-that-complete-no-triangle`](#spec-a-cpu-list-draws-nothing-for-vertices-that-complete-no-triangle) — A CPU rasterizer list draws nothing for the last one or two of its vertices when they complete no triangle.
+        - [`@spec a-cpu-strip-of-fewer-than-three-vertices-draws-nothing`](#spec-a-cpu-strip-of-fewer-than-three-vertices-draws-nothing) — A CPU rasterizer strip of one or two vertices draws nothing.
+        - [`@spec a-cpu-draw-has-no-fan-topology`](#spec-a-cpu-draw-has-no-fan-topology) — The type of a CPU rasterizer draw's `topology` admits no `"triangle-fan"`.
+        - [`@spec a-cpu-draw-has-no-point-list-topology`](#spec-a-cpu-draw-has-no-point-list-topology) — The type of a CPU rasterizer draw's `topology` admits no `"point-list"`.
+        - [`@spec a-cpu-draw-has-no-line-topology`](#spec-a-cpu-draw-has-no-line-topology) — The type of a CPU rasterizer draw's `topology` admits neither `"line-list"` nor `"line-strip"`.
+        - [`@spec a-cpu-strip-triangle-faces-by-its-own-winding`](#spec-a-cpu-strip-triangle-faces-by-its-own-winding) — A CPU rasterizer takes the facing of each triangle of a strip from its own winding, in the order its strip takes its vertices. A strip that folds on screen culls in part. A triangle of zero area decides nothing for the others.
+      - [`@spec a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array) — A CPU rasterizer draw given an `index` array in its context takes its vertices in the order of the indices. It takes them as a WebGPU indexed draw does.
+        - [`@spec an-indexed-cpu-draw-takes-the-vertex-each-index-names`](#spec-an-indexed-cpu-draw-takes-the-vertex-each-index-names) — Vertex `i` of an indexed CPU rasterizer draw is the vertex its `i`-th index names. Every triangle through a vertex that several indices name takes that vertex's position and varyings.
+        - [`@spec an-indexed-cpu-draw-reads-the-named-vertex-as-the-vertex-index`](#spec-an-indexed-cpu-draw-reads-the-named-vertex-as-the-vertex-index) — In an indexed CPU rasterizer draw, `vertexIndex()` reads the index of the vertex that the draw's index names.
+        - [`@spec an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value`](#spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value) — An index of an indexed CPU rasterizer draw that names no base vertex names the vertex at that index, counted from the start of the attributes.
+        - [`@spec an-indexed-cpu-draw-counts-its-indices`](#spec-an-indexed-cpu-draw-counts-its-indices) — In an indexed CPU rasterizer draw, `first` is the first index it draws, and `count` the number of indices. A draw that names no count draws the indices from `first` to the end of the array.
+        - [`@spec an-indexed-cpu-draw-past-its-index-array-is-refused`](#spec-an-indexed-cpu-draw-past-its-index-array-is-refused) — A CPU rasterizer draw whose `first`, or `first` plus its `count`, passes the end of its index array is refused with a `UsageError`. The error names both and the length of the array, and the draw draws nothing.
+        - [`@spec an-index-array-is-a-uint16-or-uint32-array`](#spec-an-index-array-is-a-uint16-or-uint32-array) — The type of the `index` of a CPU rasterizer draw's context admits only a `Uint16Array` and a `Uint32Array`. The draw checks nothing at run time.
+        - [`@spec an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array`](#spec-an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array) — An indexed CPU rasterizer strip ends at an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`. It starts a new strip at the next index.
+        - [`@spec a-part-of-an-indexed-cpu-strip-under-three-vertices-draws-nothing`](#spec-a-part-of-an-indexed-cpu-strip-under-three-vertices-draws-nothing) — A part of an indexed CPU rasterizer strip with fewer than three indices draws nothing. A part lies between two restarts, before the first, or after the last. A restart first, a restart last, or two in a row make no triangle.
+        - [`@spec an-indexed-cpu-list-takes-the-largest-index-as-a-vertex`](#spec-an-indexed-cpu-list-takes-the-largest-index-as-a-vertex) — An indexed CPU rasterizer list restarts nothing. It takes an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`, as the index of a vertex, like any other.
+        - [`@spec an-indexed-cpu-draw-shades-with-the-inputs-of-that-draw`](#spec-an-indexed-cpu-draw-shades-with-the-inputs-of-that-draw) — An indexed CPU rasterizer draw runs the vertex stage for each vertex it names with the attributes, uniforms and textures of that draw. A vertex an earlier draw shaded counts for nothing.
+        - [`@spec an-indexed-cpu-draw-shades-each-vertex-it-names-once`](#spec-an-indexed-cpu-draw-shades-each-vertex-it-names-once) — An indexed CPU rasterizer draw runs the vertex stage once for each distinct vertex its indices name.
+      - [`@spec a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them`](#spec-a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them) — A CPU rasterizer draw draws its triangles in the order its topology and its indices make them. Of two fragments at the same depth on one pixel, it keeps the later triangle's.
+      - [`@spec a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to) — A CPU rasterizer draw takes a `cullMode`, `"none"`, `"front"` or `"back"`, and a `frontFace`, `"ccw"` or `"cw"`, among its options. It culls triangles by their facing as a WebGPU pipeline with that state culls them.
+        - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draw that names no `cullMode`, or `"none"`, draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
+        - [`@spec a-cpu-draw-culling-back-draws-only-front-facing-triangles`](#spec-a-cpu-draw-culling-back-draws-only-front-facing-triangles) — A CPU rasterizer draw with `cullMode: "back"` draws a front-facing triangle, and nothing of a back-facing one.
+        - [`@spec a-cpu-draw-culling-front-draws-only-back-facing-triangles`](#spec-a-cpu-draw-culling-front-draws-only-back-facing-triangles) — A CPU rasterizer draw with `cullMode: "front"` draws a back-facing triangle, and nothing of a front-facing one.
+        - [`@spec a-cpu-triangle-counter-clockwise-on-screen-faces-front-by-default`](#spec-a-cpu-triangle-counter-clockwise-on-screen-faces-front-by-default) — A CPU rasterizer draw that names no `frontFace`, or `"ccw"`, takes a triangle as front-facing when it runs counter-clockwise, and as back-facing otherwise. It reads the winding in normalized device coordinates, with y up.
+        - [`@spec a-cpu-draw-with-front-face-cw-takes-a-clockwise-triangle-as-front-facing`](#spec-a-cpu-draw-with-front-face-cw-takes-a-clockwise-triangle-as-front-facing) — A CPU rasterizer draw with `frontFace: "cw"` takes a triangle as front-facing when it runs clockwise, and as back-facing otherwise. It reads the winding in normalized device coordinates, with y up.
+        - [`@spec a-cpu-triangle-across-the-near-plane-faces-as-its-part-in-front-winds`](#spec-a-cpu-triangle-across-the-near-plane-faces-as-its-part-in-front-winds) — A CPU rasterizer takes the facing of a triangle with a vertex behind the eye from its part in front of the eye. Its vertices, projected, do not decide it.
+      - [`@spec a-cpu-adapter-draws-with-the-topology-indices-and-culling-the-host-gives`](#spec-a-cpu-adapter-draws-with-the-topology-indices-and-culling-the-host-gives) — `createJs` and `createWasm` take an index array through `setIndex`, and a topology, a cull mode and a front face among the options of each draw. They draw what their rasterizer routine draws with the same.
+        - [`@spec set-index-gives-a-cpu-adapter-the-indices-it-draws-by`](#spec-set-index-gives-a-cpu-adapter-the-indices-it-draws-by) — After `setIndex(array)` on `createJs` or `createWasm`, each draw draws by that array, until `setIndex(null)` makes the draws draw without indices again.
+        - [`@spec set-index-refuses-an-array-of-another-kind`](#spec-set-index-refuses-an-array-of-another-kind) — `setIndex` on `createJs` and `createWasm` refuses any array but a `Uint16Array` or a `Uint32Array` with a `UsageError`, where the host calls it.
+        - [`@spec a-cpu-adapter-draw-takes-a-topology-and-a-cull-state`](#spec-a-cpu-adapter-draw-takes-a-topology-and-a-cull-state) — A draw of `createJs` or `createWasm` takes `topology`, `cullMode` and `frontFace` among its options, with the defaults the rasterizer routine has.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
       - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
       - [`@spec an-input-is-bound-by-its-node`](#spec-an-input-is-bound-by-its-node) — A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
@@ -818,8 +897,52 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-restored-graph-keeps-its-shape`](#spec-a-restored-graph-keeps-its-shape) — A node read in several places stays one node, and what several roots share stays shared. A storage buffer is rebuilt once, with its layout, its contents or none, and its access. A uniform array keeps its length.
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced. A variable or a slot named by text that is no identifier, or a slot named by a keyword or a built-in of GLSL or WGSL, or by a name with the prefix `gl_` or two underscores in a row, is one such case, and every target refuses it again as it compiles, so a graph built by hand is refused alike.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
-  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
-  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
+  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. The depth is `undefined` in a stage that neither reads nor writes one, and in a stage that reads or writes one, a call that does not write it gives the depth its context holds ([`exception-a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own)). With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
+  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, compiled without `reentrant`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
+    - [`@spec a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying`](#spec-a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying) — A JS draw whose vertex stage reads a `vec3` attribute and writes a `vec3` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute) — A JS draw whose vertex stage reads a `float` attribute holding fractions allocates nothing for each vertex.
+    - [`@spec a-js-draw-allocates-nothing-for-an-int-attribute`](#spec-a-js-draw-allocates-nothing-for-an-int-attribute) — A JS draw whose vertex stage reads an `int` attribute allocates nothing for each vertex.
+    - [`@spec a-js-draw-allocates-nothing-for-a-uint-attribute-no-small-integer-holds`](#spec-a-js-draw-allocates-nothing-for-a-uint-attribute-no-small-integer-holds) — A JS draw whose vertex stage reads a `uint` attribute holding values of 2³¹ or more allocates nothing for each vertex.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-varying-at-f64`](#spec-a-js-draw-allocates-nothing-for-a-float-varying-at-f64) — A JS draw at `float: "f64"` whose vertex stage writes a `float` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-varying-at-f32`](#spec-a-js-draw-allocates-nothing-for-a-float-varying-at-f32) — A JS draw at `float: "f32"` whose vertex stage writes a `float` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-an-int-varying`](#spec-a-js-draw-allocates-nothing-for-an-int-varying) — A JS draw whose varying is an `int` allocates nothing for each vertex or fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-a-bool-varying`](#spec-a-js-draw-allocates-nothing-for-a-bool-varying) — A JS draw whose varying is a `bool` allocates nothing for each vertex or fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-a-uint-varying-no-small-integer-holds`](#spec-a-js-draw-allocates-nothing-for-a-uint-varying-no-small-integer-holds) — A JS draw whose varying is a `uint` holding a value of 2³¹ or more allocates nothing for each vertex or fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform) — A JS draw whose fragment stage reads a `float` uniform allocates nothing for each fragment.
+    - [`@spec a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth`](#spec-a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth) — A JS draw whose fragment stage writes `builtinFragDepth()` allocates nothing for each fragment.
+    - [`@spec a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn`](#spec-a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn) — A JS draw with a `float` attribute and varying allocates nothing for each vertex or fragment after another `compileJS` rasterizer, with `float` attributes and varyings of other slots, has drawn in the same process.
+    - [`@spec a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots`](#spec-a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots) — A JS draw with a `float` attribute and varying allocates nothing for each vertex or fragment after the host has made an object of its own, keyed by the slots of that attribute and varying, that held `undefined` in them.
+    - [`@spec a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `vec3` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `vec3` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `float` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `float` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
+    - [`@spec a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot`](#spec-a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot) — A JS draw whose vertex stage writes a `vec3` varying at `float: "f64"` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, with an `ivec3` varying, a `uvec3` varying, and a `vec3` varying at `float: "f32"`.
+    - [`@spec a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context`](#spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context) — A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, and given it a `fragDepth` that held `undefined`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in four other kinds of array: a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array) — After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw`](#spec-a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw) — A JS draw whose fragment stage samples five `sampler2D` uniforms, whose texel data are a `Float32Array`, a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`, allocates nothing for each fragment.
+      - [`@bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw`](#bug-a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw) — Each texel the stage reads from float data, a `Float32Array` or a plain array of floats, is boxed into a new heap number; texels of integer data are not: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array) — A JS draw whose fragment stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+      - [`@bug a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 12.4 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array) — A JS draw whose fragment stage reads a `mat3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+      - [`@bug a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 37 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array) — A JS draw whose fragment stage reads an element of a `vec4` uniform array, whose elements are given as `Float64Array`s, allocates nothing for each fragment after draws of the same rasterizer that gave its elements as `Float32Array`s, plain arrays, `Int32Array`s and `Uint8Array`s.
+      - [`@bug a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array) — A JS draw whose vertex stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each vertex after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+      - [`@bug a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads, 16 bytes for each component of each vertex: about 300 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds) — A JS draw whose vertex stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each vertex after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array) — After those draws, each texel component the stage reads is boxed into a new heap number: about 390 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage samples a `sampler2D` whose `magFilter` is `"linear"`, with texel data in a `Float32Array`, allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array) — After those draws, each texel the linear filter reads is boxed into a new heap number, several for each fragment: about 99 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage reads a texel with `textureLoad` from a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array) — After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes) — A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
+      - [`@bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes`](#bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes) — After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts`](#spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts) — A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
+  - [`@spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade`](#spec-a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade) — A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, when no triangle crosses the near plane. It does no work for the elements of the host's attribute arrays its vertices do not use.
+    - [`@spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size`](#spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size) — A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+    - [`@spec a-js-draw-reads-only-the-attribute-elements-of-its-vertices`](#spec-a-js-draw-reads-only-the-attribute-elements-of-its-vertices) — A JS draw from `first`, of `count` vertices, reads each attribute array only at the elements of those vertices.
+  - [`@spec a-js-draw-assembles-its-triangles-in-tables-it-keeps`](#spec-a-js-draw-assembles-its-triangles-in-tables-it-keeps) — A draw of the JS rasterizer assembles its triangles in tables the routine keeps. It grows a table only for a draw that needs more than an earlier draw did. A draw by indices allocates nothing on a call whose tables fit, with an attribute or none. A draw without indices keeps no table of the vertices it names.
+    - [`@spec a-js-indexed-draw-allocates-nothing-once-its-tables-fit`](#spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit) — A draw of the JS rasterizer by indices allocates nothing on a call whose indices and vertices fit the tables an earlier call grew. This holds for a program that reads an attribute and for one that reads none. An index past the end of every attribute and past 1048575 takes an entry in a map, made for that call.
+    - [`@spec a-js-draw-without-indices-keeps-no-vertex-table`](#spec-a-js-draw-without-indices-keeps-no-vertex-table) — A draw of the JS rasterizer without indices keeps no table that maps a vertex to its slot. It shades each vertex it names once, in order.
   - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
   - [`@spec a-js-program-keeps-no-host-input-after-a-call`](#spec-a-js-program-keeps-no-host-input-after-a-call) — A JS grid, compute stage and rasterizer keep none of the inputs a call passes them once the call returns or throws.
@@ -870,6 +993,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 - [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
 - [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+- [`@fact webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex`](#fact-webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex) — Chromium 149's WebGL 2 offers `WEBGL_provoking_vertex` through ANGLE's Metal backend on an Apple M1, which leaves the last vertex convention set. After `provokingVertexWEBGL(FIRST_VERTEX_CONVENTION_WEBGL)`, a flat `uint` varying takes the first vertex of a triangle. On SwiftShader, as the test suite's `gpuPage` runs it, the extension is not offered, and a flat varying takes the last vertex.
 - [`@fact three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex) — three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
 - [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
@@ -897,10 +1021,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
 - [`@fact a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves`](#fact-a-typed-array-set-throws-on-a-longer-array-and-keeps-what-a-shorter-one-leaves) — `TypedArray.prototype.set` throws a `RangeError` for a source array that holds more elements than fit after its offset. It writes only the elements a shorter source holds, and leaves the rest of the target as it was.
 - [`@fact a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it) — JavaScript converts a value it stores in a typed slot, such as a typed array element, a `DataView` write, a WebAssembly parameter or a WebGL argument. A signed 32-bit slot such as `Int32Array`, `i32` or `GLint` takes ToInt32, and an unsigned one such as `Uint32Array` or `GLuint` takes ToUint32. A float slot such as `Float64Array` or `f64` takes ToNumber, which a 32-bit one such as `Float32Array` or `GLfloat` rounds to 32 bits. ToNumber turns `true` into 1, `"2"` into 2 and a string that spells no number into NaN. ToInt32 and ToUint32 truncate toward zero, wrap modulo 2³², and give 0 for NaN and the infinities.
-- [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
-- [`@fact v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds) — V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
-- [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
-- [`@fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline) — V8 boxes a float passed as an argument to, or returned from, a call it does not inline. A large function inlines few of the calls it makes.
+- [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — In code V8 has optimized, a read of a float from a property of an ordinary object, by a key held in a variable, at a place in the code that has seen more than one key, allocates a new heap number each time, while the property has held only numbers. A read of a property that has held something else, a read of a small integer, a read by a key the code names, and a read at a place that has seen only one key allocate nothing. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and a read from it allocates nothing by any key.
+- [`@fact v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number) — In code V8 has optimized, a store of a float into a property of an ordinary object allocates nothing while the property has held only numbers. Once it has held anything else, such as `undefined`, `null`, a string or an array, each store of a float that is not a small integer allocates a new heap number. A store of such a float allocates one too where the code stores it by a key held in a variable, at a place in the code that has seen more than one key, or into an object in dictionary mode, whatever the property has held. A small integer is a whole number from -2³¹ to 2³¹ − 1; a fraction, -0, NaN, an infinity and a whole number past that range are not. A store of `true` or `false`, and a store into an element of a typed array, allocate nothing.
+- [`@fact v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike) — In code V8 has optimized, V8 holds a property alike in every object made alike: objects that start from the same shape and gain the same keys in the same order. What one of them has ever held in the property decides, for all of them, whether a float stored there allocates, whenever each was made. `{}` with keys added and `Object.fromEntries` start from one shape. An object literal starts from another, which every object literal with the same keys shares, wherever in the code it stands.
+- [`@fact v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there) — The functions that one function makes from one function expression share what each place in their code has seen, in V8. A place where each of them reads or stores by a key of its own has seen the keys of all of them.
+- [`@fact v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds) — In code V8 has optimized, V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
+- [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each float it reads from a `Float64Array`. A typed array's own `set` copies from typed arrays and from plain arrays of numbers without boxing.
+- [`@fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline) — In code V8 has optimized, V8 boxes a float passed as an argument to, or returned from, a call it does not inline. V8 does not inline a call to a function with a large body.
+- [`@fact v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it) — In V8's interpreter and in Sparkplug, which run code before V8 optimizes it, a float loaded from a `Float64Array` and its product with another number are each a new heap number, whole numbers among them. A store of such a product into a property or a `Float64Array` allocates 32 bytes, and a product of a property and such a float, stored into a `Float64Array`, 48. Maglev and TurboFan, which optimize code that has run often, allocate nothing for the same code.
 - [`@fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target) — TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
 - [`@fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target) — A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
 - [`@fact glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined) — A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
@@ -921,6 +1049,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four) — WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
 - [`@fact a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input) — A WebGPU vertex format feeds a shader input of one kind. A `float`, `unorm` or `snorm` format feeds an `f32` input, a `sint` format an `i32` input, and a `uint` format a `u32` input. A render pipeline whose vertex format differs in kind from the input at its location is a validation error.
 - [`@fact webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer) — WebGL 2 gives an integer vertex input, an `int`, `uint`, `ivecN` or `uvecN`, the integers an array holds only when `vertexAttribIPointer` set that array. A draw whose integer input reads an array set with `vertexAttribPointer`, or whose float input reads one set with `vertexAttribIPointer`, fails with `INVALID_OPERATION`.
+- [`@fact glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages) — GLSL ES 3.00 refuses a boolean type, `bool` or `bvecN`, as a vertex input, a vertex output or a fragment input. It refuses an opaque type, such as a sampler, as a vertex input too. A shader that declares one does not compile.
+- [`@fact webgl2-points-an-integer-input-only-at-an-array-of-its-signedness`](#fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness) — WebGL 2 draws an integer vertex input only from an array that `vertexAttribIPointer` points as a type of its signedness. A `uint` input reads an array pointed as `UNSIGNED_INT`, `UNSIGNED_SHORT` or `UNSIGNED_BYTE`. Pointed as `INT`, `SHORT` or `BYTE`, the draw fails with `INVALID_OPERATION` and draws nothing. An `int` input pointed as `UNSIGNED_INT` fails the same way.
 - [`@fact tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks`](#fact-tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks) — When a material reads an attribute its geometry lacks, TSL's `AttributeNode.generate` warns `AttributeNode: Vertex attribute "<name>" not found on geometry.` It bakes `generateConst` of the attribute's type into the shader in its place. That is 0 for a scalar and a zero vector of two or three components. It is (0, 0, 0, 1) for a `vec4`, `ivec4` or `uvec4`, as `Vector4` defaults its w to one. It is a constructor with no arguments for a `mat3` or `mat4`, which WGSL reads as a zero matrix, and for a `mat2` it throws. TSL compiles each material against the geometry of the object it draws.
 - [`@fact webgl-keeps-a-value-at-each-attribute-location`](#fact-webgl-keeps-a-value-at-each-attribute-location) — A WebGL 2 context keeps a value for each vertex attribute location, (0, 0, 0, 1) when it is fresh. A location that no enabled array feeds reads that value. A matrix attribute reads such a value at each of its column locations.
 - [`@fact webgpu-keeps-no-value-for-an-attribute-without-a-buffer`](#fact-webgpu-keeps-no-value-for-an-attribute-without-a-buffer) — A WebGPU draw needs a vertex buffer set at every slot of its pipeline's vertex layout, and fails validation when one is missing. WebGPU keeps no value for a vertex input, as WebGL keeps one for each location. A vertex buffer layout with an `arrayStride` of 0 gives every vertex the same element.
@@ -982,12 +1112,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
 - [`@fact tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with`](#fact-tsl-gives-the-fragment-stage-the-position-the-vertex-stage-ends-with) — TSL's `positionLocal` is a varying of the geometry's position. The vertex stage assigns it in order: morph targets, skinning, displacement, batching, the instance matrix, and the material's `positionNode` last. The fragment stage reads the value the vertex stage ends with.
 - [`@fact tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage`](#fact-tsl-reads-the-geometry-normal-as-normal-local-in-the-fragment-stage) — TSL's `normalLocal` is a variable of each stage, set from the geometry's `normal` attribute, which the fragment stage reads through a varying. In the vertex stage, the instance assigns it the normal turned by the inverse transpose of the instance matrix's upper 3×3, normalized. That assignment stays in the vertex stage.
-- [`@fact wgsl-allows-only-numeric-scalars-and-vectors-between-stages`](#fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages) — A WGSL vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type. A matrix is refused, and the shader module fails to compile.
+- [`@fact wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location) — A WGSL vertex input, vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type: `f32`, `f16`, `i32` or `u32`, or a vector of one. A `bool`, a boolean vector or a matrix there is refused, and the shader module fails to compile.
 - [`@fact tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged) — TSL's WGSL builder writes a matrix varying as a `@location` member of the matrix type, and does not split it into columns. A fragment stage of `MeshBasicNodeMaterial` that reads `varying(mat3(a, a, a))` draws nothing on a WebGPU device, which reports the member as invalid.
 - [`@fact tsl-lets-a-layout-fn-read-a-stage-input-on-webgl`](#fact-tsl-lets-a-layout-fn-read-a-stage-input-on-webgl) — On TSL's WebGL backend, an `Fn` with a layout reads an attribute, a varying, `screenCoordinate` (the fragment coordinate) or `vertexIndex` from its body. TSL generates a GLSL function that reads the global the stage declares, and the shader draws correctly.
 - [`@fact tsl-lets-a-layout-fn-assign-a-varying`](#fact-tsl-lets-a-layout-fn-assign-a-varying) — On TSL's WebGL and WebGPU backends, an `Fn` with a layout assigns `positionLocal`, a varying the vertex stage assigns, from its body, and the vertex stage draws correctly. TSL's WGSL declares the vertex stage's varyings as a module-level private variable, which the function writes.
 - [`@fact tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu`](#fact-tsl-fails-a-layout-fn-that-reads-a-stage-input-on-webgpu) — On TSL's WebGPU backend, an `Fn` with a layout that reads an attribute, a varying, `screenCoordinate` or `vertexIndex` from its body generates a WGSL function that names a value only the entry point declares. The device refuses the shader module with `unresolved value`, and the draw shows nothing.
 - [`@fact tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying`](#fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying) — TSL's `AttributeNode` builds a varying of itself when the stage that reads it is not the vertex stage. The vertex stage assigns the varying from the attribute, and the fragment stage reads it, as `nodeVarying0` for the first. A node built in the vertex stage reads the attribute directly.
+- [`@fact tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind) — TSL declares `attribute(name, "bool")` as a vertex input of the kind its geometry's array picks: `f32` or `float` for a `Float32Array`, `i32` or `int` for an `Int32Array`, `u32` or `uint` for a `Uint32Array`. A `bvec2` takes the vector of that kind, `vec2<i32>` or `ivec2` for an `Int32Array` and `vec2<f32>` or `vec2` for a `Float32Array`. Where the vertex stage reads it, TSL converts it with `bool(...)` or `bvec2(...)`, which tests each component against zero. So 0 reads false, and 0.5, NaN, -1 and 2³² - 1 read true, on the WebGPU and the WebGL 2 backend of `WebGPURenderer`.
+- [`@fact tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying`](#fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying) — TSL passes `attribute(name, "bool")` that the fragment stage reads in a varying of type `bool`, which the vertex stage assigns `bool(...)` of the input. On WebGPU the device refuses the shader module, `cannot apply '@location' to declaration of type 'bool'`, and the draw shows nothing. On WebGL 2 the driver refuses the vertex shader, `'out' : cannot be bool`, and the draw shows nothing.
+- [`@fact tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187`](#fact-tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187) — When a mesh's geometry lacks an attribute `attribute(name, "bool")` reads, TSL reads it false: a vertex stage that draws only where the attribute holds draws nothing, and one that draws only where its negation holds draws. For a `bvec4`, TSL 0.186.1 throws `TypeError: Cannot read properties of null (reading 'x')` as it builds the constant, logs it, and draws nothing. TSL r187dev writes `vec4<bool>(false, false, false, true)` on WebGPU, and reads w true and x false on WebGL 2 too.
 - [`@fact tsl-takes-a-normal-node-as-a-view-space-normal`](#fact-tsl-takes-a-normal-node-as-a-view-space-normal) — TSL's fragment stage builds `normalView` from the material's `normalNode`, so `normalNode` gives a view-space normal. The vertex stage does not read it. `normalWorld` is `normalView` turned by the inverse of the view matrix: `normalize((vec4(n, 0) * viewMatrix).xyz)`. Inside `normalNode`, `normalView` is the geometry's normal in view space.
 - [`@fact tsl-converts-an-operand-to-the-type-of-the-other`](#fact-tsl-converts-an-operand-to-the-type-of-the-other) — TSL builds the operands of an operation as one type, and converts each operand of another type to it. An arithmetic or bitwise operator takes the type of its first operand, unless the second is the longer vector, so `int + uint` converts the `uint` to an `int`. A math function such as `clamp`, `pow` or `step` takes the type of its longest operand, and `select` that of its longer branch, the first on a tie. Two scalars of different types compare as `float`. A shift converts its amount to `uint`, and `mix` its weight to `float` when the weight is a scalar.
 - [`@fact tsl-builds-a-bitwise-operand-as-an-integer`](#fact-tsl-builds-a-bitwise-operand-as-an-integer) — TSL gives a bitwise operator or a shift the integer type of its first operand's width, and builds its operands as that type. So `float & float` converts both floats to `int`, and `~` of a `vec2` converts it to an `ivec2`.
@@ -1011,6 +1144,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 - [`@fact glsl-takes-no-precision-on-a-boolean`](#fact-glsl-takes-no-precision-on-a-boolean) — GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
+- [`@fact webgl-refuses-a-shader-that-declares-a-name-it-reserves`](#fact-webgl-refuses-a-shader-that-declares-a-name-it-reserves) — WebGL reserves the identifiers that start with `webgl_` or `_webgl_`, and refuses to compile a shader that declares one. Chromium 149's WebGL 2 answers `'webgl_flag' : reserved built-in name` on SwiftShader and on ANGLE's Metal backend alike.
 - [`@fact glsl-links-a-uniform-of-both-stages-only-if-they-match`](#fact-glsl-links-a-uniform-of-both-stages-only-if-they-match) — GLSL ES 3.00 links a program only if a uniform that both of its shaders declare has one type and one precision in both.
 - [`@fact tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision) — TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
@@ -1036,8 +1170,21 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
+- [`@fact webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip) — WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them. With no depth test and no blending, a later triangle's fragment replaces an earlier one's on a pixel both cover.
+- [`@fact webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan) — WebGL 2 draws a `TRIANGLE_FAN`, whose every triangle shares the first vertex, beside `TRIANGLES` and `TRIANGLE_STRIP`.
+- [`@fact webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse) — WebGPU makes triangle `k` of a triangle strip, counted from 0, of its vertices `k`, `k + 1` and `k + 2`. An even triangle winds as `k`, `k + 1`, `k + 2` run, and an odd one as `k + 1`, `k`, `k + 2` run, the reverse. WebGPU decides the facing of each triangle from its own winding, as it does for any triangle. A strip that folds on screen has triangles of both facings, and a triangle of zero area decides nothing for the others. A restart counts `k` from 0 again.
+- [`@fact webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k) — Dawn, in Chromium on Metal and on its fallback adapter, and wgpu, in Deno on Metal, give triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+- [`@fact the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle) — The WebGPU specification composes an odd triangle `k` of a strip with vertex `k + 1` first, and WGSL's `first` sampling, the default of a `flat` value, takes the first vertex of the primitive.
+- [`@fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices) — A WebGPU indexed draw takes its vertices in the order of its indices, from `firstIndex` on. It runs each as the vertex its index names plus `baseVertex`, and its `vertex_index` is that sum. An index is a `uint16` or a `uint32`.
+- [`@fact webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index) — A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. A part of fewer than three indices between two restarts, or before the first or after the last, draws nothing. An indexed list takes that index as the index of a vertex, like any other.
+- [`@fact webgl2-restarts-every-indexed-draw-at-the-largest-index`](#fact-webgl2-restarts-every-indexed-draw-at-the-largest-index) — WebGL 2 ends an indexed draw of any mode at the largest index of its type: 255, 65535 or 4294967295. It starts the draw again at the next index, in a triangle list too.
+- [`@fact webgpu-refuses-an-indexed-draw-past-its-index-buffer`](#fact-webgpu-refuses-an-indexed-draw-past-its-index-buffer) — A WebGPU indexed draw whose `firstIndex` plus `indexCount` passes the end of its index buffer is a validation error, with a count of 0 too. The encoder that records it becomes invalid, and nothing it records draws, the draws before it included.
+- [`@fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation) — WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU draws the triangle with no error, and gives `vertex_index` the index itself. On Metal it reads a `uint32` attribute of such a vertex as the last element of its buffer, and on its fallback adapter as zero.
+- [`@fact webgpu-culls-by-the-winding-of-the-clipped-triangle`](#fact-webgpu-culls-by-the-winding-of-the-clipped-triangle) — A WebGPU pipeline with `cullMode: "back"` draws only front-facing triangles, and one with `"front"` only back-facing ones. With `frontFace: "ccw"`, the default, a triangle is front-facing when its part inside the clip volume runs counter-clockwise in normalized device coordinates, with y up. With `"cw"`, it is front-facing when that part runs clockwise. A triangle of zero area is back-facing.
+- [`@fact webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one`](#fact-webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one) — WebGPU takes the `firstIndex` and `indexCount` of `drawIndexed`, and the `firstVertex` and `vertexCount` of `draw`, as whole numbers from 0 to 4294967295. It drops the fraction of each, and throws a `TypeError` for one that is NaN, infinite, or outside that range once its fraction is dropped.
+- [`@fact webgpu-may-shade-a-repeated-index-once-or-more`](#fact-webgpu-may-shade-a-repeated-index-once-or-more) — WebGPU guarantees neither that a vertex an indexed draw names several times runs the vertex stage once, nor that it runs it more than once.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
-- [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+- [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares. Each of those must hold every vertex up to `firstVertex` plus `vertexCount`, with a count of 0 too.
 - [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
 - [`@fact webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size) — WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture. A shader then reads only zeros from it.
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
@@ -1060,19 +1207,39 @@ The analysis found these places where the code or the documents do not hold the 
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
+3. `createGlsl` takes `mode: "triangle-fan"`, where the owner of the design ruled that no target draws a fan for now. Issue #317 discusses fans.
 
-### Choices waiting
+### Choices waiting for a ruling
 
-1. Which pixels a line or a point shades. `createGlsl` draws lines and points through its `mode`, and `createWgsl` through its `topology`, but the CPU targets draw only triangles, and no unit says which pixels a line or a point covers on the two GPU targets or whether they agree. [`spec-every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) holds one sample for them and leaves the rest here. The options: state the GPU targets' rules as exceptions under a program-level spec once a probe measures them, at the cost of a probe per primitive and per driver; or scope lines and points out of the one-program axiom, at the cost of a program that draws them meaning something else on each GPU target. A first look through the tests of `createGlsl` and `createWgsl` on Chromium found that the two lines they draw shade different pixels on WebGL 2 on SwiftShader, on WebGL 2 on Metal and on WebGPU on Metal, and that a GLSL point has no defined size, since the vertex stage never writes `gl_PointSize`: SwiftShader fills the 4×4 canvas and Metal draws nothing. Recommendation: give a GLSL point the size 1 WebGPU gives every point, then probe lines per driver and state them as exceptions. Until then, the GLSL leaf of the spec claims triangles and lines only. Issue #338.
-2. Whether `createGlsl` adopts every attribute of a WebGL 2 context a canvas already has, or refuses the ones that change its pixels against the other targets, such as `alpha: false`. [`spec-the-glsl-adapter-draws-with-the-context-a-canvas-has`](#spec-the-glsl-adapter-draws-with-the-context-a-canvas-has) states today's behaviour, adopting every attribute, and links here. The options: adopt every attribute, at the cost of a draw whose alpha differs from `createWgsl`'s on the same program, decided by whoever made the context; or refuse such a context with a usage error, at the cost of a page that made its own context with those attributes no longer drawing with `createGlsl` on that canvas. Refusing also stops short of the drawing buffer's format: `drawingBufferStorage` sets it with a method called on the context after the context exists, not with an attribute the context is made with, so a refusal at `attach` cannot see a call made after it. Copying through a framebuffer of one sample is no third option, since it cannot give a drawing buffer without alpha an alpha channel. Recommendation: keep adopting, as for the samples, and say so in the documentation, since the application made the context and asked for those attributes. Issue #339.
+Each choice below that a unit depends on has a spec that states what the axioms force, and links here for the rest. The owner of the design rules on each, and the ruling becomes a unit or leaves the list.
+
+1. **Whether an indexed CPU draw takes a base vertex.** [`spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value`](#spec-an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value) states the case of a draw that names none. WebGPU's `drawIndexed` takes a `baseVertex`, and WebGL 2 has none without an extension. A CPU draw takes no instance count either, as [`spec-a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) states. The options:
+   1. No base vertex. Meshes that share one attribute array each need indices offset by the host.
+   2. A `baseVertex` option, added to each index before it names a vertex. It costs an addition per index, and a test on each target.
+
+   The recommended answer is the first, until a user needs it.
+2. **Whether to report the provoking vertex of an odd strip triangle to gpuweb.** The WebGPU specification puts vertex `k + 1` first in an odd strip triangle ([`fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle)), and every implementation measured gives vertex `k` ([`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k)). No unit depends on the answer.
+3. **Whether a CPU draw caps the vertices it holds at once.** A CPU draw keeps the position and varyings of each vertex it shades until it has drawn its triangles. Its memory grows with the vertices it names. WebGPU runs a draw's vertices as a stream. A draw of a huge count, over a program that reads no attribute, ends there, where a CPU draw can run out of memory. [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused) bounds the count of a draw that reads an attribute. A draw that reads none and starts near 4294967295 also names vertices past it, which wrap to 0 in the table of the vertices a draw names; WebGPU leaves the `vertex_index` of such a vertex unspecified. The options:
+   1. No cap: the draw throws whatever the engine throws when it cannot grow its memory. It costs nothing.
+   2. A cap, refused with a `LimitError`, as [work past a device limit](#spec-work-past-a-device-limit-is-a-limit-error) is. It costs a check per draw, and a number to choose.
+   3. Drawing in batches of vertices, each assembled and drawn before the next. It costs a strip or an index range that spans two batches, which must carry its last vertices over.
+
+   The recommended answer is the second.
+4. **Which pixels a line or a point shades.** `createGlsl` draws lines and points through its `mode`, and `createWgsl` through its `topology`, but the CPU targets draw only triangles, and no unit says which pixels a line or a point covers on the two GPU targets or whether they agree. [`spec-every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone) holds one sample for them and leaves the rest here. The options: state the GPU targets' rules as exceptions under a program-level spec once a probe measures them, at the cost of a probe per primitive and per driver; or scope lines and points out of the one-program axiom, at the cost of a program that draws them meaning something else on each GPU target. A first look through the tests of `createGlsl` and `createWgsl` on Chromium found that the two lines they draw shade different pixels on WebGL 2 on SwiftShader, on WebGL 2 on Metal and on WebGPU on Metal, and that a GLSL point has no defined size, since the vertex stage never writes `gl_PointSize`: SwiftShader fills the 4×4 canvas and Metal draws nothing. Recommendation: give a GLSL point the size 1 WebGPU gives every point, then probe lines per driver and state them as exceptions. Until then, the GLSL leaf of the spec claims triangles and lines only. Issue #338.
+5. **Whether `createGlsl` adopts every attribute of a WebGL 2 context a canvas already has, or refuses the ones that change its pixels against the other targets, such as `alpha: false`.** [`spec-the-glsl-adapter-draws-with-the-context-a-canvas-has`](#spec-the-glsl-adapter-draws-with-the-context-a-canvas-has) states today's behaviour, adopting every attribute, and links here. The options: adopt every attribute, at the cost of a draw whose alpha differs from `createWgsl`'s on the same program, decided by whoever made the context; or refuse such a context with a usage error, at the cost of a page that made its own context with those attributes no longer drawing with `createGlsl` on that canvas. Refusing also stops short of the drawing buffer's format: `drawingBufferStorage` sets it with a method called on the context after the context exists, not with an attribute the context is made with, so a refusal at `attach` cannot see a call made after it. Copying through a framebuffer of one sample is no third option, since it cannot give a drawing buffer without alpha an alpha channel. Recommendation: keep adopting, as for the samples, and say so in the documentation, since the application made the context and asked for those attributes. Issue #339.
+
+### Platform behaviour without a fact
+
+1. In the test runner, a JS draw whose rasterizer runs after rasterizers of other attribute slots once sent the shared per-draw function into a loop of Maglev deoptimizations at a keyed access ("unexpected name in keyed access"), so the per-vertex work ran in code V8 had not optimized, which allocates for each float. The rasterizer now keeps its per-vertex work in a function of its own, and reads its own records of slots through a `Map`. No probe outside the test runner reproduced the loop, so no fact states when V8 falls into one, and the scope of [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) to optimized draws assumes V8 does optimize them.
 
 ### Coverage gaps
 
 These units hold a claim that no test checks yet.
 
 1. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
-2. [`exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver): its test checks the pixels only on the driver that was measured, Chromium's WebGPU on Metal on an Apple M1, and is skipped on any other.
-3. [`spec-every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone): no leaf claims its one sample for a GLSL point, since a GLSL point has no defined size until [Choices waiting](#choices-waiting) #1 (issue #338) is ruled.
+2. [`exception-a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end`](#exception-a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end): no GPU adapter draws by indices, and a test through a scene renderer can only pin it as reading some value.
+3. [`exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver): its test checks the pixels only on the driver that was measured, Chromium's WebGPU on Metal on an Apple M1, and is skipped on any other.
+4. [`spec-every-target-shades-a-pixel-by-its-centre-alone`](#spec-every-target-shades-a-pixel-by-its-centre-alone): no leaf claims its one sample for a GLSL point, since a GLSL point has no defined size until [choice 4 waiting for a ruling](#choices-waiting-for-a-ruling) (issue #338) is ruled.
 
 ## Terms
 
@@ -1664,17 +1831,35 @@ This follows because both GPU languages refuse an integer varying that is not fl
 
 ##### @spec a-flat-varying-takes-the-first-vertex
 
-> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
 
-This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives.
+This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives. Every WebGPU implementation measured takes strip vertex `k` as the first of triangle `k`, where the specification's text puts vertex `k + 1` first in an odd triangle, and the owner of the design ruled that the CPU targets take vertex `k` too.
+
+###### @spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex
+
+> On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped at the near plane keeps that vertex's value.
+
+###### @spec a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k
+
+> On WGSL, JS and WASM, a fragment of an even triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
+
+Derives from: [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k)
+
+###### @spec a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k
+
+> On WGSL, JS and WASM, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
+
+Derives from: [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k), [`fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle`](#fact-the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle)
+
+This follows because the WGSL target declares the varying `flat` and its driver picks vertex `k`, on every implementation measured. The owner of the design ruled that the CPU targets give what those implementations give, not what the specification's text gives.
 
 ##### @exception a-glsl-flat-varying-takes-the-last-vertex
 
 > On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
 
-Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex), [`fact-three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex)
+Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex), [`fact-three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex), [`fact-webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex`](#fact-webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex)
 
-This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRenderer` draw, and three.js leaves the provoking vertex where WebGL 2 sets it. Issue #232 settled this.
+This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRenderer` draw, and three.js leaves the provoking vertex where WebGL 2 sets it. Issue #232 settled this. A driver that offers `WEBGL_provoking_vertex` could take the first vertex, but SwiftShader does not offer it, so the difference would remain there.
 
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
@@ -1682,7 +1867,7 @@ This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRendere
 
 #### @spec an-attribute-the-fragment-stage-reads-is-a-varying-of-it
 
-> An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value for the vertex, interpolated, as TSL's `AttributeNode` gives it.
+> An attribute that a fragment stage reads is passed to it through a varying that the vertex stage writes. The fragment stage reads the attribute's value as that varying passes it: interpolated for a float attribute, and flat for an integer or `bool` one, as [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) states.
 
 Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying`](#fact-tsl-turns-an-attribute-the-fragment-stage-reads-into-a-varying)
 
@@ -1690,7 +1875,7 @@ This follows because a TSL shader reads an attribute in its fragment stage witho
 
 ##### @spec a-fragment-stage-linked-to-a-vertex-stage-reads-an-attribute-through-a-varying
 
-> `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the interpolated value of each attribute it reads. The vertex stage writes the attribute into a varying of its own, once for each vertex.
+> `createGlsl`, `createWgsl`, `compileJS` and `compileWasm`, and the adapters `createJs` and `createWasm` over them, give a fragment stage the value of each attribute it reads, through a varying of its own that the vertex stage writes once for each vertex.
 
 ##### @spec a-fragment-stage-reads-the-attribute-of-a-stage-it-is-linked-to-once
 
@@ -1708,11 +1893,39 @@ This follows because a stage compiled alone has no vertex stage to write the var
 
 This follows because the vertex stage writes the varying that carries the attribute, and a stage with no root has nowhere to write it.
 
+##### @exception a-bool-attribute-the-fragment-stage-reads-travels-in-a-flat-unsigned-varying
+
+> Where TSL passes a `bool` or `bvecN` attribute that the fragment stage reads in a `bool` varying, which neither of its backends compiles, rmsl passes it in a flat `uint` or `uvecN` varying. The fragment stage tests each component against zero, and reads the boolean of the vertex an integer varying takes its value from.
+
+Derives from: [`fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying`](#fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying), [`fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages), [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat), [`spec-a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the CPU targets give the fragment stage the attribute, and neither GPU language passes a boolean between stages. TSL draws nothing on either backend. The owner of the design chose to carry the attribute's integer, so the program draws the same on every target. That serves [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target). A boolean between two vertices has no value between them, so the varying is flat, as an integer varying is.
+
+##### @spec a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
+
+> On WGSL, JS and WASM, a fragment reads a `bool` attribute as the first vertex of its triangle holds it.
+
+Derives from: [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex)
+
+##### @spec a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex
+
+> On WGSL, JS and WASM, a fragment reads each component of a `bvecN` attribute as the first vertex of its triangle holds it.
+
+Derives from: [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex)
+
+##### @exception a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex
+
+> On GLSL, a fragment reads a `bool` or `bvecN` attribute as the last vertex of its triangle holds it.
+
+Derives from: [`spec-an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat), [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
+
+This follows because the attribute travels in a flat integer varying, which GLSL takes from the last vertex, as [`exception-a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) states.
+
 ##### @exception a-matrix-attribute-the-fragment-stage-reads-is-a-matrix-varying-wgsl-rejects
 
 > A matrix attribute that the fragment stage reads is passed in a matrix varying on every target. GLSL, JS and WASM give the fragment stage the matrix. On WGSL the shader fails to compile and the draw shows nothing.
 
-Derives from: [`fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages`](#fact-wgsl-allows-only-numeric-scalars-and-vectors-between-stages), [`fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged)
+Derives from: [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged`](#fact-tsl-passes-a-matrix-varying-to-wgsl-unchanged)
 
 This follows because rmsl passes an attribute on in a varying of its own type, as TSL does. TSL leaves a matrix varying as it is. Issue #290 asks whether rmsl should diverge from TSL here.
 
@@ -2050,6 +2263,26 @@ Derives from: [`fact-normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-nor
 
 This follows because an access out of range must do the same on every target.
 
+#### @spec an-attribute-read-past-its-end-reads-zero
+
+> An indexed draw through a vertex past the end of an attribute the vertex stage reads reads that attribute as zero.
+
+Derives from: [`fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation), [`spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing)
+
+This follows because WebGPU leaves the value to the implementation, so rmsl picks one. An attribute is a buffer, and a storage read past the end of its buffer reads zero.
+
+##### @spec a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero
+
+> In an indexed draw of a CPU rasterizer, a vertex past the end of an attribute the vertex stage reads reads that attribute as zero, on JS and WASM alike.
+
+##### @exception a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end
+
+> On GLSL and WGSL, an indexed draw through a vertex past the end of an attribute reads whatever the driver gives.
+
+Derives from: [`fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation`](#fact-webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation)
+
+Chromium's WebGPU reads such an attribute as its last element on Metal, and as zero on its fallback adapter. The scene renderers draw indexed meshes on both GPU targets.
+
 #### @spec round-takes-a-half-to-the-even-integer
 
 > `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
@@ -2168,11 +2401,91 @@ This follows because the suite evaluates every program it records on every targe
 
 ### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
 
-> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
+> A vertex attribute reaches the shader as the type it declares on both GPU renderers. A float attribute reads floats or scaled integers, an `int` attribute signed integers, a `uint` attribute unsigned ones, and a `bool` attribute unsigned integers tested against zero. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused. The refusal names the declared type.
 
 Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer`](#fact-webgl2-reads-an-integer-attribute-only-through-an-integer-pointer)
 
 This follows because a format one renderer reads as another type would make the two draw differently. Both graphics APIs refuse a draw whose format and shader input differ in kind, so the renderer refuses it first and names the cause.
+
+#### @spec a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
+
+> On both GPU renderers, a float, `int` or `uint` attribute takes its format from its width and array type, or from a format it declares, and the format survives a clone. A float attribute reads floats or scaled integers, an `int` attribute signed integers, and a `uint` attribute unsigned ones. A format of another kind, one no buffer of its own can carry, or a width no format covers is refused, naming the declared type.
+
+#### @spec a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers
+
+> `WebGLRenderer` and `WebGPURenderer` take an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, read it through an unsigned 32-bit format whatever the signedness of the array, and give the vertex stage true where the integer is not zero. They refuse any other array for it.
+
+Derives from: [`spec-a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer), [`fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness`](#fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness), [`fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input`](#fact-a-webgpu-vertex-format-has-the-kind-of-its-shader-input), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns)
+
+This follows because the shader reads a `bool` attribute through a `uint` input, and both graphics APIs feed an unsigned input only from an unsigned format. three.js picks the format from the array, `sint32` and `INT` for an `Int32Array`, which a `uint` input refuses, so the renderer picks it from the declared type instead. The arrays it takes are the ones the owner of the design chose for every adapter.
+
+### @spec a-bool-attribute-travels-as-an-unsigned-integer
+
+> A `bool` or `bvecN` attribute reads, on every target, the boolean of the integer the host gives for each component: true where it is not zero. On every target it is a vertex input of `uint` or `uvecN`, which the vertex stage compares with zero where it reads it, so every operation on it reads a boolean and never the integer.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages`](#fact-glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages), [`fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location`](#fact-wgsl-takes-only-numeric-scalars-and-vectors-at-a-location), [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), [`spec-a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer), [`spec-a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer)
+
+This follows because a TSL shader that reads a `bool` attribute in its vertex stage draws, so it must port, and TSL tests each component against zero. Neither GPU language takes a boolean vertex input. TSL reads one through an input of the kind of its array. rmsl fixes the input of an attribute from its declared type, so a `bool` attribute needs one input kind before the host gives data. The owner of the design chose `uint`. On WGSL a `bool` uniform travels as `u32` too, as [`spec-a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) states. GLSL takes a `bool` uniform through `uniform1i`, a `GLint`, so the choice follows WGSL there. An integer has no fraction and no NaN, so the test against zero is defined on every target. The bits of an `int` read as a `uint` are zero exactly where the `int` is zero, so an `Int32Array` and a `Uint32Array` give the same boolean.
+
+#### @spec a-bool-attribute-reads-true-where-its-integer-is-not-zero
+
+> A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads a `bool` attribute as true where the host's integer for it is not zero, -1, 2 and 2³² - 1 included, and as false where it is 0. `and`, `or`, `xor`, `not`, `equal` and `notEqual` take that boolean, and a conversion to `uint` gives 1, in the vertex stage and in the fragment stage.
+
+#### @spec a-boolean-vector-attribute-reads-each-component-against-zero
+
+> A draw of `createGlsl`, `createWgsl`, `createJs` or `createWasm` reads each component of a `bvec2`, `bvec3` or `bvec4` attribute as true where the host's integer for that component is not zero, and as false where it is 0. A component-wise `equal`, `all` and `and` of two components take those booleans, in the vertex stage and in the fragment stage.
+
+#### @spec a-stage-compiler-declares-a-bool-attribute-as-an-unsigned-input
+
+> `compileGlsl` declares a `bool` or `bvecN` attribute of a vertex stage `in uint` or `in uvecN`, and `compileWgsl` declares it `@location(n)` of type `u32` or `vec<N, u32>`. The host binds unsigned integers to it.
+
+This follows because a host that runs a compiled stage itself binds the attribute's buffer, and needs the input type the shader declares.
+
+#### @spec a-cpu-raster-routine-reports-a-bool-attribute-by-its-declared-type
+
+> The `attributeTypes` of a routine of `compileJS` or `compileWasm` names a `bool` or `bvecN` attribute by that type, though its vertex stage reads it as `uint` or `uvecN`.
+
+This follows because `attributeTypes` reports each attribute as the program declares it, which is what a host checks its arrays against, as [`spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute) does.
+
+#### @spec the-glsl-adapter-points-a-bool-attribute-at-unsigned-integers
+
+> `createGlsl` points the array of a `bool` attribute with `vertexAttribIPointer` and `UNSIGNED_INT`, an `Int32Array` as well as a `Uint32Array`, and uploads it as given, without a copy.
+
+Derives from: [`fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness`](#fact-webgl2-points-an-integer-input-only-at-an-array-of-its-signedness), [`spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given)
+
+This follows because WebGL 2 refuses a draw whose `uint` input reads an array pointed as `INT`. Pointing an `Int32Array` as `UNSIGNED_INT` reads its bits as unsigned, which are zero where the integer is.
+
+#### @spec a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies
+
+> `WebGLRenderer` and `WebGPURenderer` read a `bool` or `bvecN` attribute in the format its `format` declares, or else the one its array, width and `normalized` flag imply, as they do any attribute. A `sint32` format reads as the `uint32` format of its width. They refuse an array that is not an `Int32Array` or a `Uint32Array`, whatever its width, and a format that is not a 32-bit `sint` or `uint` one, as a format of another kind, naming the declared type. They refuse a `normalized` `Int32Array` or `Uint32Array` as having no format, and a width no format covers as having no format for the array, with the code any attribute gets.
+
+Derives from: [`spec-a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers`](#spec-a-scene-renderer-reads-a-bool-attribute-as-unsigned-integers), [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type)
+
+This follows because a `bool` attribute takes its format by the rules of every attribute, and only the kind it reads differs. The bits of a `sint32` component are zero exactly where those of the `uint32` reading are, so a format that names the array's own signedness reads the same booleans. A narrower or a float format reads components of another width or kind, which the arrays the owner of the design chose rule out.
+
+#### @spec a-scene-renderer-gives-a-bool-attribute-its-geometry-lacks-true-only-in-w
+
+> `WebGLRenderer` and `WebGPURenderer` give a `bool` or `bvecN` attribute that a mesh's geometry lacks the components of (0, 0, 0, 1) cut to its width, tested against zero: false in x, y and z, and true in w.
+
+Derives from: [`spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant`](#spec-a-scene-renderer-gives-an-attribute-its-geometry-lacks-a-constant), [`fact-tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187`](#fact-tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187)
+
+This follows because the renderers give every attribute a geometry lacks the value WebGL keeps at a fresh location, and a `bool` attribute tests that value against zero. TSL r187dev reads the w of such a `bvec4` true too. TSL 0.186.1 throws as it builds the constant of a `bvec4`, so it gives no value to follow.
+
+#### @exception a-bool-attribute-refuses-the-float-array-tsl-reads
+
+> Where TSL reads a `bool` attribute from a `Float32Array` and tests each float against zero, so 0.5 and NaN read true, every adapter and scene renderer refuses a float array for it.
+
+Derives from: [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), [`spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute), [`spec-a-bool-host-value-reads-true-for-a-nonzero-integer`](#spec-a-bool-host-value-reads-true-for-a-nonzero-integer), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a `bool` host value converts as into an `Int32Array`, so 0.5 reads false, and a float array tested against zero would read it true. The owner of the design chose to refuse the float array, so that a `bool` reads one way on every target and from every source. That serves [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target).
+
+#### @exception a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads
+
+> Where TSL reads a `bool` attribute from a `Uint8Array`, every adapter and scene renderer refuses a `Uint8Array` for it.
+
+Derives from: [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), [`spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because TSL draws a `bool` attribute from a `Uint8Array` on its WebGPU backend and draws nothing from it on its WebGL 2 backend, so the same TSL shader means two things. The owner of the design chose the two 32-bit integer arrays alone, which refuses every other integer array as well, as [`spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute) states. That serves [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target).
 
 ### @spec a-scene-renderer-reads-an-integer-attribute-as-integers
 
@@ -2393,6 +2706,14 @@ This follows because two inputs that share a name by accident read one value, a 
 ##### @spec a-raw-name-names-one-type
 
 > Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+
+##### @spec a-raw-name-webgl-reserves-reaches-the-glsl-driver
+
+> On GLSL, a raw name that starts with `webgl_` or `_webgl_` reaches the shader as given, and the driver refuses to compile it. `createGlsl` throws a `DriverError` of code `shader-compile`, whose log names it.
+
+Derives from: [`spec-a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name), [`spec-a-driver-refusal-is-a-driver-error`](#spec-a-driver-refusal-is-a-driver-error), [`fact-webgl-refuses-a-shader-that-declares-a-name-it-reserves`](#fact-webgl-refuses-a-shader-that-declares-a-name-it-reserves)
+
+This follows because rmsl uses a raw name as given and has no list of the names WebGL reserves, so it leaves the refusal to the browser, which makes it on every driver.
 
 ##### @spec create-glsl-checks-the-names-of-its-two-stages-together
 
@@ -2934,7 +3255,7 @@ This follows because an adapter draws no geometry, so an attribute without data 
 
 ### @spec host-data-of-another-kind-is-refused
 
-> Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, and a `Uint32Array` for `uint` or `uvecN`. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
+> Every adapter and scene renderer refuses host data of another kind or shape than its type, where the host sets it, and names the type. An attribute, a storage buffer, a readback or a context write takes only the typed array of its kind. That is a `Float32Array` for a float type, or a `Float64Array` on a CPU target, an `Int32Array` for `int` or `ivecN`, a `Uint32Array` for `uint` or `uvecN`, and an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute. A parameter or uniform takes only a value of the shape of its type. The types refuse a mismatch wherever they can express it.
 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns`](#fact-three-js-reads-an-integer-array-as-integers-and-a-matrix-by-its-columns), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
@@ -2946,11 +3267,37 @@ Also, three.js reads an attribute in a format its array's type picks, so the arr
 
 #### @spec an-attribute-takes-only-an-array-of-its-own-kind
 
-> The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it. The scene renderers take the arrays and formats the declared type admits.
+> The adapters `createGlsl`, `createWgsl`, `createJs` and `createWasm` refuse an attribute's array of another kind in `setAttribute`. The CPU ones take a `Float64Array` for a float attribute too. Each checks a slot name against the type of its attribute in its program where `setAttribute` is called, before `attach` as after it.
 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type)
 
-This follows because an attribute is host data a draw reads at every vertex.
+This follows because an attribute is host data a draw reads at every vertex. The scene renderers take the arrays and formats the declared type admits, as [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) states.
+
+##### @spec an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+
+> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes a `Float32Array` for a float attribute, an `Int32Array` for an `int` one and a `Uint32Array` for a `uint` one, and refuses an array of another kind. The CPU ones take a `Float64Array` for a float attribute too.
+
+##### @spec an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
+
+> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an attribute by its slot name as well as by its node. The adapter checks the array against the type of that slot's attribute in its program where `setAttribute` is called, before `attach` as after it. The type of `setAttribute` admits any typed array by slot name, and leaves the check to the adapter.
+
+This follows because the adapter holds its program from the start, so it knows the type of each slot before it has a device, as a uniform's slot is checked in [`spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape`](#spec-a-gpu-adapter-refuses-a-uniform-value-of-another-shape).
+
+##### @spec an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute
+
+> `setAttribute` on `createGlsl`, `createWgsl`, `createJs` and `createWasm` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute, and refuses any other array, naming the type and the arrays it takes.
+
+Derives from: [`spec-a-bool-attribute-travels-as-an-unsigned-integer`](#spec-a-bool-attribute-travels-as-an-unsigned-integer)
+
+This follows because the owner of the design chose these two arrays and no other. A `bool` converts as into an `Int32Array`, and rmsl gives a boolean vector back as an `Int32Array` and takes a `bvecN` uniform as either array, so a host that holds booleans holds one of the two already. Either array holds a component as the integer the program tests. A float or a narrower integer array departs from TSL, as [`exception-a-bool-attribute-refuses-the-float-array-tsl-reads`](#exception-a-bool-attribute-refuses-the-float-array-tsl-reads) and [`exception-a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads`](#exception-a-bool-attribute-refuses-the-narrow-integer-array-tsl-reads) state.
+
+##### @spec the-type-of-set-attribute-takes-an-int32-or-uint32-array-for-a-bool-attribute
+
+> On every adapter, the type of `setAttribute` takes an `Int32Array` or a `Uint32Array` for a `bool` or `bvecN` attribute node, and no float array.
+
+Derives from: [`spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute`](#spec-an-adapter-takes-only-an-int32-or-uint32-array-for-a-bool-attribute)
+
+This follows because the types refuse a mismatch wherever they can express it, and an attribute node carries its type.
 
 #### @spec a-storage-buffer-takes-only-an-array-of-its-element-kind
 
@@ -3061,6 +3408,38 @@ This follows because `run` checks the shape of each parameter it receives, and t
 Derives from: [`axiom-a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs)
 
 This follows because such a program runs once for each pixel or invocation, and a check there would cost every one of those calls. A check in the function `precompileJS` ships would ship with the application too. The adapters are the path that checks. An adapter checks a value once, where the host sets it, so a host that wants the check pays for it once.
+
+#### @spec a-cpu-draw-reads-an-attribute-element-its-array-lacks-as-a-typed-slot-converts-undefined
+
+> A JS or WASM draw reads a hole or `undefined` inside an attribute array as a typed slot of the attribute's kind converts `undefined`.
+
+Derives from: [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs), [`fact-a-typed-slot-converts-the-value-stored-in-it`](#fact-a-typed-slot-converts-the-value-stored-in-it)
+
+This follows because a draw checks nothing of its attribute arrays. It converts each component as a typed slot of its kind does, and both targets then read the same value. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
+
+##### @spec a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
+
+> A JS or WASM draw reads a hole or `undefined` inside a `float` attribute's array as NaN.
+
+This follows because a float slot converts `undefined` with ToNumber, which gives NaN. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
+
+##### @spec a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
+
+> A JS or WASM draw reads a hole or `undefined` inside an `int` or `uint` attribute's array as 0.
+
+This follows because an integer slot converts `undefined` with ToInt32 or ToUint32, which give 0. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
+
+##### @spec a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan
+
+> A JS or WASM draw reads each component of a `vec3` attribute that is a hole or `undefined` inside its array as NaN.
+
+This follows because a draw reads a vector attribute one component at a time, and a float slot converts `undefined` with ToNumber. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
+
+##### @spec a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero
+
+> A JS or WASM draw reads each component of an `ivec3` or `uvec3` attribute that is a hole or `undefined` inside its array as 0.
+
+This follows because a draw reads a vector attribute one component at a time, and an integer slot converts `undefined` with ToInt32 or ToUint32. A draw past the end of the array gives what WebGPU gives, by [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives). Without indices it is refused, by [`spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-range-passes-an-attribute-is-refused). With indices it reads 0, by [`spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero).
 
 ### @spec a-message-puts-the-article-its-sound-takes-before-a-name
 
@@ -5640,7 +6019,7 @@ This follows because the vector a JS function computes lives in a slot that the 
 
 #### @spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair
 
-> `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
+> `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips at the near plane, and keeps the closer fragment.
 
 ##### @spec the-wasm-rasterizer-links-its-stages-in-one-memory
 
@@ -5674,11 +6053,93 @@ This follows because a stage that does not write its depth cannot change what th
 
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
 
-> A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
+> A draw that names no vertex count and no index array takes its count from the first attribute its program reads. The order the host passed them in decides which is first. An attribute the program does not read is taken and counts for nothing.
 
 Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares)
 
 This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
+
+##### @spec a-cpu-draw-whose-range-passes-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices whose `first` plus its `count` passes the end of an attribute the vertex stage reads is refused with a `UsageError`.
+
+Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error)
+
+This follows because WebGPU requires each vertex buffer to hold every vertex up to the end of a draw's range, and refuses a draw whose range passes one, a draw of no vertex included. An indexed draw is another case: WebGPU checks no index against the vertex buffers, and leaves the vertex to the implementation.
+
+###### @spec a-cpu-draw-whose-count-reaches-past-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices whose `count` reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+
+###### @spec a-cpu-draw-of-no-vertex-from-past-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices of a `count` of 0, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`. One from the end itself draws nothing and is not refused.
+
+###### @spec a-cpu-draw-with-no-count-from-past-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices that names no `count`, from a `first` past the end of an attribute the vertex stage reads, is refused with a `UsageError`.
+
+##### @spec a-cpu-draw-with-no-count-draws-from-first-to-the-end
+
+> A CPU rasterizer draw without indices that names no `count` draws the vertices of the first attribute its program reads from `first` to its end.
+
+Derives from: [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
+
+##### @spec a-cpu-draw-takes-first-and-count-as-webgpu-takes-them
+
+> A CPU rasterizer draw converts its `first` and `count` as WebGPU converts `firstVertex` and `vertexCount`, or `firstIndex` and `indexCount`. It drops a fraction, and refuses a value WebGPU refuses.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one`](#fact-webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one)
+
+This follows because a CPU target stands in for the GPU, and a draw a WebGPU host would make draws the same on it.
+
+###### @spec a-cpu-draw-drops-the-fraction-of-first-and-count
+
+> A CPU rasterizer draw drops the fraction of its `first` and its `count`, so a `first` of 2.9 draws from 2 and a `count` of 3.9 draws 3.
+
+###### @spec a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count
+
+> A CPU rasterizer draw is refused with a `UsageError`, and draws nothing, when its `first` or `count` is NaN or infinite. So is one whose `first` or `count` lies below 0 or above 4294967295 once its fraction is dropped.
+
+Derives from: [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error)
+
+This follows because WebGPU throws for such a value before it draws, and a mistake that shows only as the application runs is a `UsageError`. A `first` of -0.5 drops its fraction to 0, as WebGPU's does, and draws.
+
+###### @spec a-cpu-draw-takes-a-first-or-count-up-to-4294967295
+
+> A CPU rasterizer draw does not refuse a `first` or a `count` of 4294967295, or of 4294967295.5, for its value, and refuses one of 4294967296.
+
+Derives from: [`spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count`](#spec-a-cpu-draw-refuses-a-negative-or-non-finite-first-or-count)
+
+This follows because 4294967295 is the largest `GPUSize32`. A draw that takes such a `first` can still be refused for its range, as any other range past its array is.
+
+##### @spec a-cpu-draw-refuses-an-option-value-it-does-not-name
+
+> A CPU rasterizer draw is refused with a `UsageError`, and draws nothing, when its `topology`, `cullMode` or `frontFace` is not a value the canon names for it. The error names the value.
+
+Derives from: [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error), [`spec-glsl-refuses-an-unknown-precision`](#spec-glsl-refuses-an-unknown-precision)
+
+This follows because a value the draw does not know names no state it could draw with. A draw that took it as some default would draw what the host did not ask for. A GLSL compile refuses an unknown precision the same way. The check runs once per draw, so [a compiled program that trusts its inputs](#spec-a-compiled-program-trusts-its-inputs) loses nothing to it.
+
+###### @spec a-cpu-draw-refuses-an-unknown-topology
+
+> A CPU rasterizer draw whose `topology` is not `"triangle-list"` or `"triangle-strip"` is refused with a `UsageError`. `"triangle-fan"`, `"point-list"`, `"line-list"` and `"line-strip"` are such values.
+
+###### @spec a-cpu-draw-refuses-an-unknown-cull-mode
+
+> A CPU rasterizer draw whose `cullMode` is not `"none"`, `"front"` or `"back"` is refused with a `UsageError`.
+
+###### @spec a-cpu-draw-refuses-an-unknown-front-face
+
+> A CPU rasterizer draw whose `frontFace` is not `"ccw"` or `"cw"` is refused with a `UsageError`.
+
+##### @spec a-wasm-list-draw-without-indices-writes-no-triangle-table
+
+> A WASM rasterizer draw of a list without indices hands the rasterizer module no table of triangles, which takes each three vertices in turn.
+
+Derives from: [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because such a draw's triangles are its vertices in order. A table of them would tell the module nothing, and cost a write and a copy of three numbers per triangle on every frame.
 
 ##### @spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
 
@@ -5691,6 +6152,12 @@ This follows because each attribute node carries its type, and the compiled stag
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
 > The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
+
+##### @spec a-reentrant-js-draw-draws-what-one-without-it-draws
+
+> A JS draw compiled with `reentrant` draws the image a draw of the same programs and inputs compiled without it draws.
+
+This follows because `reentrant` changes only where each stage call keeps its slots and its result object, not what it computes, so it changes no pixel. What a reentrant draw allocates is left open: its stage calls each make their own slots and result object, which V8 removes or not as it inlines them.
 
 ##### @spec a-pixel-on-a-shared-edge-is-shaded-once
 
@@ -5724,21 +6191,229 @@ Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target
 
 This follows because a GPU shades each vertex apart from the others, and a CPU target gives what WebGPU gives.
 
-##### @spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds
+##### @spec a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes
 
-> A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
+> The JS rasterizer interpolates every float varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because a GPU passes the fragment stage every varying the vertex stage declares, from every vertex, and leaves the value of one a vertex does not write undefined, which 0 is as good a value for as any. An integer varying is not interpolated: it takes the first vertex's value, as [`spec-a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) states.
+
+##### @spec a-cpu-rasterizer-assembles-triangles-as-webgpu-does
+
+> A CPU rasterizer draw takes a `topology` among its options, `"triangle-list"` or `"triangle-strip"`, and no other of WebGPU's. It makes its triangles from its vertices as a WebGPU pipeline of that topology makes them.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`fact-webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip)
+
+This follows because a CPU target stands in for the GPU. A mesh made as a strip draws on it as it draws through WebGPU. WebGPU's [`GPUPrimitiveTopology`](https://www.w3.org/TR/webgpu/#enumdef-gpuprimitivetopology) has five topologies: `point-list`, `line-list`, `line-strip`, `triangle-list` and `triangle-strip`. A CPU rasterizer is a triangle rasterizer, so it takes the two of triangles. Leaves below say why it takes no point, line or fan. The topology is an option of each draw, beside `count` and `first`, as no pipeline fixes it. Its name is WebGPU's, where the GLSL adapter names it `mode`.
+
+###### @spec a-cpu-draw-is-a-triangle-list-unless-it-names-another-topology
+
+> A CPU rasterizer draw that names no topology, or `"triangle-list"`, makes triangle `k` of its vertices `3k`, `3k + 1` and `3k + 2`.
+
+###### @spec a-cpu-strip-makes-a-triangle-of-each-vertex-after-the-second
+
+> A CPU rasterizer draw with `topology: "triangle-strip"` makes triangle `k` of its vertices `k`, `k + 1` and `k + 2`. An even triangle winds as `k`, `k + 1`, `k + 2` run, and an odd one as `k + 1`, `k`, `k + 2` run.
+
+Derives from: [`fact-webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse)
+
+###### @spec a-cpu-list-draws-nothing-for-vertices-that-complete-no-triangle
+
+> A CPU rasterizer list draws nothing for the last one or two of its vertices when they complete no triangle.
+
+###### @spec a-cpu-strip-of-fewer-than-three-vertices-draws-nothing
+
+> A CPU rasterizer strip of one or two vertices draws nothing.
+
+###### @spec a-cpu-draw-has-no-fan-topology
+
+> The type of a CPU rasterizer draw's `topology` admits no `"triangle-fan"`.
+
+Derives from: [`fact-webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip), [`fact-webgl2-draws-a-triangle-fan`](#fact-webgl2-draws-a-triangle-fan)
+
+This follows because the owner of the design ruled that no target draws a fan for now, and that the topologies of a draw follow WebGPU's `GPUPrimitiveTopology`, which has none. A fan's triangles draw as a list, or as indices that repeat its first vertex. Whether the WGSL target should emulate a fan is discussed in issue #317.
+
+###### @spec a-cpu-draw-has-no-point-list-topology
+
+> The type of a CPU rasterizer draw's `topology` admits no `"point-list"`.
+
+Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`spec-a-cpu-draw-refuses-an-unknown-topology`](#spec-a-cpu-draw-refuses-an-unknown-topology)
+
+This follows because a CPU rasterizer rasterizes triangles only, and no target fakes a capability it lacks. A draw of points that drew triangles instead would give other pixels than WebGPU gives. WebGPU draws points, so this is a capability the CPU targets lack, not a choice to depart from WebGPU.
+
+###### @spec a-cpu-draw-has-no-line-topology
+
+> The type of a CPU rasterizer draw's `topology` admits neither `"line-list"` nor `"line-strip"`.
+
+Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`spec-a-cpu-draw-refuses-an-unknown-topology`](#spec-a-cpu-draw-refuses-an-unknown-topology)
+
+This follows because a CPU rasterizer rasterizes triangles only, and no target fakes a capability it lacks. WebGPU draws lines, so this too is a capability the CPU targets lack.
+
+###### @spec a-cpu-strip-triangle-faces-by-its-own-winding
+
+> A CPU rasterizer takes the facing of each triangle of a strip from its own winding, in the order its strip takes its vertices. A strip that folds on screen culls in part. A triangle of zero area decides nothing for the others.
+
+Derives from: [`fact-webgpu-takes-an-odd-strip-triangle-in-reverse`](#fact-webgpu-takes-an-odd-strip-triangle-in-reverse), [`spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to)
+
+This follows because WebGPU decides the facing of each triangle from its own area. A strip takes every other triangle in reverse, so a strip that does not fold faces one way throughout, and one that folds does not.
+
+##### @spec a-cpu-rasterizer-draws-by-an-index-array
+
+> A CPU rasterizer draw given an `index` array in its context takes its vertices in the order of the indices. It takes them as a WebGPU indexed draw does.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices)
+
+This follows because a mesh shares a vertex between its triangles through its indices, and a CPU target draws it as WebGPU does. The indices sit in the context beside the attributes, as data the host passes a draw. The topology sits among the options, as the state of a draw.
+
+###### @spec an-indexed-cpu-draw-takes-the-vertex-each-index-names
+
+> Vertex `i` of an indexed CPU rasterizer draw is the vertex its `i`-th index names. Every triangle through a vertex that several indices name takes that vertex's position and varyings.
+
+###### @spec an-indexed-cpu-draw-reads-the-named-vertex-as-the-vertex-index
+
+> In an indexed CPU rasterizer draw, `vertexIndex()` reads the index of the vertex that the draw's index names.
+
+Derives from: [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices), [`spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for`](#spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for)
+
+This follows because WebGPU's `vertex_index` is the vertex the index names: the index plus `baseVertex`. Whether a CPU draw takes a base vertex waits for [a ruling](#choices-waiting-for-a-ruling), and this holds either way.
+
+###### @spec an-index-of-a-draw-with-no-base-vertex-names-the-vertex-at-its-value
+
+> An index of an indexed CPU rasterizer draw that names no base vertex names the vertex at that index, counted from the start of the attributes.
+
+Derives from: [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices)
+
+This follows because WebGPU adds `baseVertex` to each index, and a draw that names none adds nothing. Whether a CPU draw can name one waits for [a ruling](#choices-waiting-for-a-ruling).
+
+###### @spec an-indexed-cpu-draw-counts-its-indices
+
+> In an indexed CPU rasterizer draw, `first` is the first index it draws, and `count` the number of indices. A draw that names no count draws the indices from `first` to the end of the array.
+
+Derives from: [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
+
+This follows because WebGPU counts an indexed draw in indices from `firstIndex`. A draw that names no count takes it from its indices, as a draw without them takes it from its first attribute.
+
+###### @spec an-indexed-cpu-draw-past-its-index-array-is-refused
+
+> A CPU rasterizer draw whose `first`, or `first` plus its `count`, passes the end of its index array is refused with a `UsageError`. The error names both and the length of the array, and the draw draws nothing.
+
+Derives from: [`fact-webgpu-refuses-an-indexed-draw-past-its-index-buffer`](#fact-webgpu-refuses-an-indexed-draw-past-its-index-buffer), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error), [`spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused`](#spec-a-draw-missing-an-attribute-its-vertex-stage-reads-is-refused)
+
+This follows because WebGPU refuses such a draw, and a CPU target gives what WebGPU gives. The mistake shows only while the application runs, so it is a `UsageError`. A draw of a CPU rasterizer already refuses a mistake it can see once per draw, such as a missing attribute. The check runs once per draw, not once per vertex or pixel, so [a compiled program that trusts its inputs](#spec-a-compiled-program-trusts-its-inputs) loses nothing to it.
+
+###### @spec an-index-array-is-a-uint16-or-uint32-array
+
+> The type of the `index` of a CPU rasterizer draw's context admits only a `Uint16Array` and a `Uint32Array`. The draw checks nothing at run time.
+
+Derives from: [`fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices`](#fact-webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices), [`spec-a-compiled-program-trusts-its-inputs`](#spec-a-compiled-program-trusts-its-inputs)
+
+This follows because WebGPU takes an index as a `uint16` or a `uint32`, and the kind of the array names which.
+
+###### @spec an-indexed-cpu-strip-restarts-at-the-largest-index-of-its-array
+
+> An indexed CPU rasterizer strip ends at an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`. It starts a new strip at the next index.
+
+Derives from: [`fact-webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index)
+
+###### @spec a-part-of-an-indexed-cpu-strip-under-three-vertices-draws-nothing
+
+> A part of an indexed CPU rasterizer strip with fewer than three indices draws nothing. A part lies between two restarts, before the first, or after the last. A restart first, a restart last, or two in a row make no triangle.
+
+Derives from: [`fact-webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index)
+
+###### @spec an-indexed-cpu-list-takes-the-largest-index-as-a-vertex
+
+> An indexed CPU rasterizer list restarts nothing. It takes an index of `0xFFFF` in a `Uint16Array`, or of `0xFFFFFFFF` in a `Uint32Array`, as the index of a vertex, like any other.
+
+Derives from: [`fact-webgpu-restarts-only-a-strip-at-the-largest-index`](#fact-webgpu-restarts-only-a-strip-at-the-largest-index), [`fact-webgl2-restarts-every-indexed-draw-at-the-largest-index`](#fact-webgl2-restarts-every-indexed-draw-at-the-largest-index)
+
+This follows because WebGL 2 restarts a list there and WebGPU does not, and where they differ, a CPU target follows WebGPU.
+
+###### @spec an-indexed-cpu-draw-shades-with-the-inputs-of-that-draw
+
+> An indexed CPU rasterizer draw runs the vertex stage for each vertex it names with the attributes, uniforms and textures of that draw. A vertex an earlier draw shaded counts for nothing.
+
+This follows because the vertices of a draw are those of its own inputs. A vertex kept from an earlier draw would carry an input that this draw replaced.
+
+###### @spec an-indexed-cpu-draw-shades-each-vertex-it-names-once
+
+> An indexed CPU rasterizer draw runs the vertex stage once for each distinct vertex its indices name.
+
+Derives from: [`fact-webgpu-may-shade-a-repeated-index-once-or-more`](#fact-webgpu-may-shade-a-repeated-index-once-or-more), [`spec-a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only)
+
+This follows because WebGPU guarantees neither one run nor more, and a render stage writes nothing a later call could see. The number of runs changes no pixel, only the cost, and one run costs least. The point of indices is to share a vertex between triangles.
+
+##### @spec a-cpu-draw-draws-its-triangles-in-the-order-it-makes-them
+
+> A CPU rasterizer draw draws its triangles in the order its topology and its indices make them. Of two fragments at the same depth on one pixel, it keeps the later triangle's.
+
+Derives from: [`spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does), [`spec-a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array), [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment), [`fact-webgpu-assembles-triangles-as-a-list-or-a-strip`](#fact-webgpu-assembles-triangles-as-a-list-or-a-strip)
+
+This follows because WebGPU writes its triangles in order, and a depth test of less or equal passes a later fragment at the same depth. A CPU rasterizer has no blending to keep both.
+
+##### @spec a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to
+
+> A CPU rasterizer draw takes a `cullMode`, `"none"`, `"front"` or `"back"`, and a `frontFace`, `"ccw"` or `"cw"`, among its options. It culls triangles by their facing as a WebGPU pipeline with that state culls them.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-culls-by-the-winding-of-the-clipped-triangle`](#fact-webgpu-culls-by-the-winding-of-the-clipped-triangle)
+
+This follows because a mesh drawn with its back faces culled draws on a CPU target as it draws through WebGPU. The names and the defaults are those of WebGPU's `GPUPrimitiveState`, and the state is an option of each draw, as the topology is.
+
+###### @spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds
+
+> A CPU rasterizer draw that names no `cullMode`, or `"none"`, draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
 
 Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default)
 
 This follows because a WebGPU pipeline culls no face unless it asks to, and a CPU target gives what WebGPU gives.
 
-##### @spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes
+###### @spec a-cpu-draw-culling-back-draws-only-front-facing-triangles
 
-> The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+> A CPU rasterizer draw with `cullMode: "back"` draws a front-facing triangle, and nothing of a back-facing one.
 
-Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+###### @spec a-cpu-draw-culling-front-draws-only-back-facing-triangles
 
-This follows because a GPU passes the fragment stage every varying the vertex stage declares, from every vertex, and leaves the value of one a vertex does not write undefined, which 0 is as good a value for as any.
+> A CPU rasterizer draw with `cullMode: "front"` draws a back-facing triangle, and nothing of a front-facing one.
+
+###### @spec a-cpu-triangle-counter-clockwise-on-screen-faces-front-by-default
+
+> A CPU rasterizer draw that names no `frontFace`, or `"ccw"`, takes a triangle as front-facing when it runs counter-clockwise, and as back-facing otherwise. It reads the winding in normalized device coordinates, with y up.
+
+###### @spec a-cpu-draw-with-front-face-cw-takes-a-clockwise-triangle-as-front-facing
+
+> A CPU rasterizer draw with `frontFace: "cw"` takes a triangle as front-facing when it runs clockwise, and as back-facing otherwise. It reads the winding in normalized device coordinates, with y up.
+
+###### @spec a-cpu-triangle-across-the-near-plane-faces-as-its-part-in-front-winds
+
+> A CPU rasterizer takes the facing of a triangle with a vertex behind the eye from its part in front of the eye. Its vertices, projected, do not decide it.
+
+Derives from: [`spec-a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane)
+
+This follows because WebGPU decides facing from the polygon clipping leaves. A vertex behind the eye projects through the eye to the other side. The projected vertices of such a triangle can then run the other way.
+
+##### @spec a-cpu-adapter-draws-with-the-topology-indices-and-culling-the-host-gives
+
+> `createJs` and `createWasm` take an index array through `setIndex`, and a topology, a cull mode and a front face among the options of each draw. They draw what their rasterizer routine draws with the same.
+
+Derives from: [`spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does`](#spec-a-cpu-rasterizer-assembles-triangles-as-webgpu-does), [`spec-a-cpu-rasterizer-draws-by-an-index-array`](#spec-a-cpu-rasterizer-draws-by-an-index-array), [`spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to)
+
+This follows because an adapter keeps the data the host sets with a setter, as `setAttribute` keeps an attribute, and takes the state of a draw with the draw, as `draw` takes `count`.
+
+###### @spec set-index-gives-a-cpu-adapter-the-indices-it-draws-by
+
+> After `setIndex(array)` on `createJs` or `createWasm`, each draw draws by that array, until `setIndex(null)` makes the draws draw without indices again.
+
+###### @spec set-index-refuses-an-array-of-another-kind
+
+> `setIndex` on `createJs` and `createWasm` refuses any array but a `Uint16Array` or a `Uint32Array` with a `UsageError`, where the host calls it.
+
+Derives from: [`spec-an-index-array-is-a-uint16-or-uint32-array`](#spec-an-index-array-is-a-uint16-or-uint32-array), [`spec-host-data-of-the-wrong-kind-or-size-is-refused-with-a-usage-error`](#spec-host-data-of-the-wrong-kind-or-size-is-refused-with-a-usage-error)
+
+This follows because an adapter checks host data once, where the host sets it.
+
+###### @spec a-cpu-adapter-draw-takes-a-topology-and-a-cull-state
+
+> A draw of `createJs` or `createWasm` takes `topology`, `cullMode` and `frontFace` among its options, with the defaults the rasterizer routine has.
 
 #### @spec shader-logic-is-tested-without-a-graphics-api
 
@@ -6022,17 +6697,327 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 
 ### @spec a-js-routine-allocates-nothing-per-call
 
-> A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
+> A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. The depth is `undefined` in a stage that neither reads nor writes one, and in a stage that reads or writes one, a call that does not write it gives the depth its context holds ([`exception-a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own)). With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
 
 This follows because a call that builds a new array or a closure gives the garbage collector work on every call, and a per-pixel call is the one that cannot afford it.
 
 ### @spec a-js-draw-allocates-nothing-per-vertex-or-fragment
 
-> A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
+> In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, compiled without `reentrant`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
 
-Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number), [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike), [`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there), [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads), [`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)
 
-This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times.
+This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times. A boolean takes no typed array, because V8 stores `true` and `false` without allocating, and a typed slot would read it back as 1 or 0. A float stored in a property allocates whenever any object made alike, the host's included, has held something else there, or the place that stores it has seen a second key in any rasterizer, and nothing in the draw rules either out. An element of a typed array takes a float without allocating, but a load from the host's arrays still boxes once its place has seen more than four kinds of array. A stage's own code is the rasterizer's for every draw, so a load in it from a host's uniform or texel data sees every kind of array the host passed it across those draws, and the code that samples a texture is one for all the samplers of a stage. A load from what a stage hands back sees the kinds of slot a stage keeps a vector in, a `Float64Array`, a `Float32Array`, an `Int32Array` and a `Uint32Array`, four, so a fifth kind of slot would make it box. Code V8 has not optimized allocates for every float it computes, so the claim is of the draw once V8 has optimized it.
+
+How the rasterizer hands a stage its scalars, and takes back the scalar varyings and depth a stage writes, is left open, inside one limit: it is a channel of the rasterizer's own. A stage the host calls, and the source `compileJSFn` gives and `precompileJS` ships, keep the shape [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot) and [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) give them: a scalar input or varying is a number under its slot. No probe measured another engine, another version of V8, or a build of V8 with pointer compression, as Chromium's is, so the spec claims nothing there.
+
+#### @spec a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying
+
+> A JS draw whose vertex stage reads a `vec3` attribute and writes a `vec3` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
+
+This follows because a vector travels between the rasterizer and the stages in typed arrays the draw made once.
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-attribute
+
+> A JS draw whose vertex stage reads a `float` attribute holding fractions allocates nothing for each vertex.
+
+This follows because a float attribute reaches the vertex stage once for each vertex, and a float is the value V8 boxes wherever it can.
+
+#### @spec a-js-draw-allocates-nothing-for-an-int-attribute
+
+> A JS draw whose vertex stage reads an `int` attribute allocates nothing for each vertex.
+
+Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
+
+This follows because every `int` is a small integer in this V8, which V8 holds without boxing.
+
+#### @spec a-js-draw-allocates-nothing-for-a-uint-attribute-no-small-integer-holds
+
+> A JS draw whose vertex stage reads a `uint` attribute holding values of 2³¹ or more allocates nothing for each vertex.
+
+Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
+
+This follows because such a value is a float to V8, not a small integer, and so travels as a float does.
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-varying-at-f64
+
+> A JS draw at `float: "f64"` whose vertex stage writes a `float` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
+
+This follows because a float varying passes from the vertex stage to the draw once for each vertex, and from the draw to the fragment stage once for each fragment.
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-varying-at-f32
+
+> A JS draw at `float: "f32"` whose vertex stage writes a `float` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
+
+This follows because a value rounded to 32 bits is still a float to V8, and travels as one at f64 does.
+
+#### @spec a-js-draw-allocates-nothing-for-an-int-varying
+
+> A JS draw whose varying is an `int` allocates nothing for each vertex or fragment.
+
+Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
+
+This follows because every `int` is a small integer in this V8, which V8 holds without boxing.
+
+#### @spec a-js-draw-allocates-nothing-for-a-bool-varying
+
+> A JS draw whose varying is a `bool` allocates nothing for each vertex or fragment.
+
+Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
+
+This follows because V8 stores `true` and `false` in a property without allocating.
+
+#### @spec a-js-draw-allocates-nothing-for-a-uint-varying-no-small-integer-holds
+
+> A JS draw whose varying is a `uint` holding a value of 2³¹ or more allocates nothing for each vertex or fragment.
+
+Derives from: [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number)
+
+This follows because such a value is a float to V8, not a small integer, and so travels as a float does.
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-uniform
+
+> A JS draw whose fragment stage reads a `float` uniform allocates nothing for each fragment.
+
+Derives from: [`fact-v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key)
+
+This follows because a stage reads a uniform from the host's object by the key its code names, which allocates nothing.
+
+#### @spec a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth
+
+> A JS draw whose fragment stage writes `builtinFragDepth()` allocates nothing for each fragment.
+
+This follows because the depth the rasterizer interpolates for a fragment, and the depth the stage writes, are floats like any other the draw hands a stage or takes back.
+
+#### @spec a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn
+
+> A JS draw with a `float` attribute and varying allocates nothing for each vertex or fragment after another `compileJS` rasterizer, with `float` attributes and varyings of other slots, has drawn in the same process.
+
+Derives from: [`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there)
+
+This follows because every rasterizer runs the same code, so each place in it has seen the slots of all of them, and a draw that stored its scalars by a key held in a variable would allocate once its place had seen two.
+
+#### @spec a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots
+
+> A JS draw with a `float` attribute and varying allocates nothing for each vertex or fragment after the host has made an object of its own, keyed by the slots of that attribute and varying, that held `undefined` in them.
+
+Derives from: [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike)
+
+This follows because an object the host keys by a slot is made alike with any object of rmsl keyed by that slot alone, so a draw that kept its scalars in such an object would allocate once the host's had held `undefined`.
+
+#### @spec a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array
+
+> A JS draw from a `vec3` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `vec3` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because every rasterizer runs the same code, so whatever reads the host's vector attribute arrays sees every kind any of them was given, and a load that has seen more than four boxes what it reads.
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array
+
+> A JS draw from a `float` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `float` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because every rasterizer runs the same code, so whatever reads a scalar attribute's array sees every kind of array a scalar attribute of any rasterizer was given.
+
+#### @spec a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot
+
+> A JS draw whose vertex stage writes a `vec3` varying at `float: "f64"` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, with an `ivec3` varying, a `uvec3` varying, and a `vec3` varying at `float: "f32"`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the rasterizer loads each vector a vertex stage hands back at one place, which sees every kind of slot such a vector is kept in, and four kinds keep that load specialised.
+
+#### @spec a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context
+
+> A JS draw allocates nothing for each fragment after the host has made an object the way the rasterizer makes the context it passes its fragment stage, and given it a `fragDepth` that held `undefined`.
+
+Derives from: [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike)
+
+This follows because a host object made that way is made alike with the context, so a draw that stored each fragment's depth in a property of the context would allocate once the host's object had held `undefined` there.
+
+#### @spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose fragment stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in four other kinds of array: a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage loads texel data at the same places in its code on every draw, so those places see every kind of array the host gave any of its samplers.
+
+##### @bug a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array
+
+> After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw
+
+> A JS draw whose fragment stage samples five `sampler2D` uniforms, whose texel data are a `Float32Array`, a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`, allocates nothing for each fragment.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because one helper of the stage samples every one of its samplers, so its loads see the kinds of all of their texel data in a single draw.
+
+##### @bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw
+
+> Each texel the stage reads from float data, a `Float32Array` or a plain array of floats, is boxed into a new heap number; texels of integer data are not: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array
+
+> A JS draw whose fragment stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage copies the uniform into a slot at one place in its code on every draw, so that place sees every kind of array the host gave the uniform.
+
+##### @bug a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads: about 12.4 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array
+
+> A JS draw whose fragment stage reads a `mat3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage copies a matrix uniform into a slot as it copies a vector one, at one place in its code on every draw.
+
+##### @bug a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads: about 37 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array
+
+> A JS draw whose fragment stage reads an element of a `vec4` uniform array, whose elements are given as `Float64Array`s, allocates nothing for each fragment after draws of the same rasterizer that gave its elements as `Float32Array`s, plain arrays, `Int32Array`s and `Uint8Array`s.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because the stage copies an element it reads into a slot at one place in its code on every draw, so that place sees every kind of array the host gave the elements.
+
+##### @bug a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
+
+> A JS draw whose vertex stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each vertex after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a vertex stage copies a uniform into a slot as a fragment stage does, at one place in its code on every draw.
+
+##### @bug a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads, 16 bytes for each component of each vertex: about 300 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose vertex stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each vertex after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a vertex stage samples a texture with the same helper a fragment stage does, which loads texel data at the same places on every draw.
+
+##### @bug a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array
+
+> After those draws, each texel component the stage reads is boxed into a new heap number: about 390 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose fragment stage samples a `sampler2D` whose `magFilter` is `"linear"`, with texel data in a `Float32Array`, allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a linear filter loads texel data at places of its own, apart from the nearest filter, which see every kind of array the host gave the stage's samplers.
+
+##### @bug a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array
+
+> After those draws, each texel the linear filter reads is boxed into a new heap number, several for each fragment: about 99 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose fragment stage reads a texel with `textureLoad` from a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because `textureLoad` loads texel data at places of its own, which see every kind of array the host gave the sampler.
+
+##### @bug a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array
+
+> After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes
+
+> A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
+
+Derives from: [`fact-v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key)
+
+This follows because the stage reads the uniform by its slot at one place in its code on every draw, so that place sees the shape of every uniforms object the host passed.
+
+##### @bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes
+
+> After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #328
+
+#### @spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
+
+> A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
+
+This follows because the clip runs once for each triangle it cuts, not once for each vertex or fragment the draw shades, and the vertices it adds have no place the draw made for them before.
+
+### @spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade
+
+> A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, when no triangle crosses the near plane. It does no work for the elements of the host's attribute arrays its vertices do not use.
+
+Derives from: [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment)
+
+This follows because a draw runs every frame, so what it costs for itself it costs every frame, and an application may keep vertices in one large array and draw a part of it.
+
+#### @spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size
+
+> A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+
+This follows because the vertices, the depth buffer and the image a draw needs are kept from the draws before it, and made again only when a draw needs more of them.
+
+#### @spec a-js-draw-reads-only-the-attribute-elements-of-its-vertices
+
+> A JS draw from `first`, of `count` vertices, reads each attribute array only at the elements of those vertices.
+
+This follows because a draw of a part of a large array would otherwise cost as much as a draw of all of it.
+
+### @spec a-js-draw-assembles-its-triangles-in-tables-it-keeps
+
+> A draw of the JS rasterizer assembles its triangles in tables the routine keeps. It grows a table only for a draw that needs more than an earlier draw did. A draw by indices allocates nothing on a call whose tables fit, with an attribute or none. A draw without indices keeps no table of the vertices it names.
+
+Derives from: [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment)
+
+This follows because a draw by indices looks up the slot of each index in a table. A table made for each draw would cost an allocation on every frame. Its work grows with the indices it reads, and with the vertices it names once each.
+
+#### @spec a-js-indexed-draw-allocates-nothing-once-its-tables-fit
+
+> A draw of the JS rasterizer by indices allocates nothing on a call whose indices and vertices fit the tables an earlier call grew. This holds for a program that reads an attribute and for one that reads none. An index past the end of every attribute and past 1048575 takes an entry in a map, made for that call.
+
+#### @spec a-js-draw-without-indices-keeps-no-vertex-table
+
+> A draw of the JS rasterizer without indices keeps no table that maps a vertex to its slot. It shades each vertex it names once, in order.
 
 ### @spec a-js-grid-allocates-nothing-per-pixel
 
@@ -6352,6 +7337,12 @@ This is a fact of the WGSL specification, section Interpolation, and Dawn gives 
 
 This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
 
+## @fact webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex
+
+> Chromium 149's WebGL 2 offers `WEBGL_provoking_vertex` through ANGLE's Metal backend on an Apple M1, which leaves the last vertex convention set. After `provokingVertexWEBGL(FIRST_VERTEX_CONVENTION_WEBGL)`, a flat `uint` varying takes the first vertex of a triangle. On SwiftShader, as the test suite's `gpuPage` runs it, the extension is not offered, and a flat varying takes the last vertex.
+
+This is how Chromium 149 behaves, measured by `probes/bool-attribute/webgl-provoking-vertex.ts`, which draws a triangle whose first vertex writes 1 and the other two 2.
+
 ## @fact three-js-asks-for-no-provoking-vertex
 
 > three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
@@ -6520,27 +7511,51 @@ This is a fact of three specifications, not a choice. ECMAScript defines `ToNumb
 
 ## @fact v8-boxes-a-float-it-reads-by-a-variable-key
 
-> V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
+> In code V8 has optimized, a read of a float from a property of an ordinary object, by a key held in a variable, at a place in the code that has seen more than one key, allocates a new heap number each time, while the property has held only numbers. A read of a property that has held something else, a read of a small integer, a read by a key the code names, and a read at a place that has seen only one key allocate nothing. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and a read from it allocates nothing by any key.
 
-This is how V8 behaves, in Node 24 and in Chromium, and not a choice. A reproduction reads a uniform of `0.5` from an ordinary object once per dispatch and allocates 16 bytes a dispatch; from an object made by `Object.create(null)` it allocates nothing.
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/store.ts`, in its rows that read. A read by a variable key allocated 16 bytes with two or four keys at the place, and nothing with one; nothing where the properties had held `undefined` before their floats, or held small integers; and nothing from an object in dictionary mode. A read by a named key allocated nothing from objects of four shapes, and 16 bytes from objects of five, each shape a key of its own added before the one read. What a place has seen counts every function made there ([`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there)). Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)).
+
+## @fact v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number
+
+> In code V8 has optimized, a store of a float into a property of an ordinary object allocates nothing while the property has held only numbers. Once it has held anything else, such as `undefined`, `null`, a string or an array, each store of a float that is not a small integer allocates a new heap number. A store of such a float allocates one too where the code stores it by a key held in a variable, at a place in the code that has seen more than one key, or into an object in dictionary mode, whatever the property has held. A small integer is a whole number from -2³¹ to 2³¹ − 1; a fraction, -0, NaN, an infinity and a whole number past that range are not. A store of `true` or `false`, and a store into an element of a typed array, allocate nothing.
+
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/store.ts`, which stores fractions, whole numbers, whole numbers past 2³¹, -0, NaN, the infinities, -2³¹ and 2³¹ − 1, and booleans. Each store that allocated took 16 bytes. Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)). Which objects count as holding the property is [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike). The range of a small integer is that of a build without pointer compression, as Node is built; a build with it, as Chromium is, has a smaller one, which no probe here measured.
+
+## @fact v8-holds-a-property-alike-in-objects-made-alike
+
+> In code V8 has optimized, V8 holds a property alike in every object made alike: objects that start from the same shape and gain the same keys in the same order. What one of them has ever held in the property decides, for all of them, whether a float stored there allocates, whenever each was made. `{}` with keys added and `Object.fromEntries` start from one shape. An object literal starts from another, which every object literal with the same keys shares, wherever in the code it stands.
+
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/shared-field.ts`. A store of a fraction into `o.x`, where `o` was `{}` with `x` added, allocated nothing alone, and 16 bytes once another object made alike held `undefined`, a string or an array in `x`, whether that object was made before or after `o`'s stores had run. `Object.fromEntries` with the key `x` holding a string had the same effect. An object literal `{ x: undefined }` had none on `o`, but had it on an object literal `{ x: 0 }` at another place in the code. Another key, or the same key after another, had none. Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)).
+
+## @fact v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there
+
+> The functions that one function makes from one function expression share what each place in their code has seen, in V8. A place where each of them reads or stores by a key of its own has seen the keys of all of them.
+
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/feedback.ts`. A factory made functions that each store floats under a key of their own, by a key held in a variable. The first function made allocated nothing a store; the last of two, or of five, allocated 16 bytes a store, after the ones before it ran. Functions that read floats by a key of their own did the same: nothing for the first, 16 bytes a read for the last of two. Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)).
 
 ## @fact v8-boxes-a-float-a-closure-variable-holds
 
-> V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
+> In code V8 has optimized, V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
 
-This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Sobel effect at f64 allocated about 3 MB a 128×128 frame with its scalars in variables beside the function, and nothing with them in locals.
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/closure.ts`: a store into a variable outside the function allocated 16 bytes, whether the variable first held 0 or 0.5 and whether `new Function` made the code, and a store into a local allocated nothing. Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)). In `scripts/bench-cpu`, the Sobel effect at f64 allocated about 3 MB a 128×128 frame with its scalars in variables beside the function, and nothing with them in locals.
 
 ## @fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads
 
-> V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
+> V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each float it reads from a `Float64Array`. A typed array's own `set` copies from typed arrays and from plain arrays of numbers without boxing.
 
-This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Standard material at f64 allocated about 26 MB a 128×128 frame with its helpers reading the host's plain uniform arrays beside the function's typed slots, and about 2 MB once each input was copied into a slot of its kind.
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/array-kinds.ts`: a load from a `Float64Array` allocated nothing at a place that had seen four kinds of array, and 16 bytes at one that had seen five or six. `set` from typed arrays and plain arrays of numbers allocated nothing; from a plain array that also held an object, 16 bytes. No probe read a generic load from another kind of array. Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)). In `scripts/bench-cpu`, the Standard material at f64 allocated about 26 MB a 128×128 frame with its helpers reading the host's plain uniform arrays beside the function's typed slots, and about 2 MB once each input was copied into a slot of its kind.
 
 ## @fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline
 
-> V8 boxes a float passed as an argument to, or returned from, a call it does not inline. A large function inlines few of the calls it makes.
+> In code V8 has optimized, V8 boxes a float passed as an argument to, or returned from, a call it does not inline. V8 does not inline a call to a function with a large body.
 
-This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Standard material at f64 still allocated about 760 KB a 128×128 frame with its element-wise operations and dot products as calls that took or gave a float, and nothing with them written out.
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/call.ts`: a fraction passed to or returned from a call too large to inline allocated 16 bytes, and nothing through a call V8 inlined. The probe made the callee large; how many calls a large caller inlines, it did not measure. Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)). In `scripts/bench-cpu`, the Standard material at f64 still allocated about 760 KB a 128×128 frame with its element-wise operations and dot products as calls that took or gave a float, and nothing with them written out.
+
+## @fact v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it
+
+> In V8's interpreter and in Sparkplug, which run code before V8 optimizes it, a float loaded from a `Float64Array` and its product with another number are each a new heap number, whole numbers among them. A store of such a product into a property or a `Float64Array` allocates 32 bytes, and a product of a property and such a float, stored into a `Float64Array`, 48. Maglev and TurboFan, which optimize code that has run often, allocate nothing for the same code.
+
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/tiers.ts`, which runs the same code with `--max-opt` at 0, 1 and 2 and at the default. It measured fractions and small integers loaded from a `Float64Array`, stored into a property or a `Float64Array`, and a property read into a `Float64Array`; no other operation. Every other V8 fact here measures code V8 has optimized: `probes/v8-float-boxing/measure.ts` warms the code first and keeps the lower of two rounds.
 
 ## @fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target
 
@@ -6661,6 +7676,20 @@ This is a fact of the WebGPU specification, in the validation of a `GPUVertexBuf
 > WebGL 2 gives an integer vertex input, an `int`, `uint`, `ivecN` or `uvecN`, the integers an array holds only when `vertexAttribIPointer` set that array. A draw whose integer input reads an array set with `vertexAttribPointer`, or whose float input reads one set with `vertexAttribIPointer`, fails with `INVALID_OPERATION`.
 
 This is a fact of the WebGL 2.0 specification, which makes a draw check the type of each enabled array against the shader's input. Chromium's WebGL 2 refuses such a draw.
+
+## @fact glsl-es-300-takes-no-boolean-or-opaque-type-as-a-vertex-input-or-between-stages
+
+> GLSL ES 3.00 refuses a boolean type, `bool` or `bvecN`, as a vertex input, a vertex output or a fragment input. It refuses an opaque type, such as a sampler, as a vertex input too. A shader that declares one does not compile.
+
+This is a fact of the [GLSL ES 3.00 specification](https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf). Section 4.3.4, Input Variables: "It is a compile-time error to declare a vertex shader input with, or that contains, any of the following types: A boolean type, An opaque type, An array, A structure." It lists a boolean type for a fragment input too, and section 4.3.6, Output Variables, for a vertex output.
+
+Chromium 149's WebGL 2, on SwiftShader as the test suite's `gpuPage` runs it, answers `'in' : cannot be bool` for a `bool`, `bvec2` or `bvec4` vertex input, `'flat out' : cannot be bool` and `'flat in' : cannot be bool` for one passed between stages, and `sampler2Ds must be uniform` for a sampler input. It compiles a `uint` or `uvec2` input in their place. The probe `probes/bool-attribute/glsl-vertex-input.ts` runs again.
+
+## @fact webgl2-points-an-integer-input-only-at-an-array-of-its-signedness
+
+> WebGL 2 draws an integer vertex input only from an array that `vertexAttribIPointer` points as a type of its signedness. A `uint` input reads an array pointed as `UNSIGNED_INT`, `UNSIGNED_SHORT` or `UNSIGNED_BYTE`. Pointed as `INT`, `SHORT` or `BYTE`, the draw fails with `INVALID_OPERATION` and draws nothing. An `int` input pointed as `UNSIGNED_INT` fails the same way.
+
+This is how Chromium 149's WebGL 2 behaves, on SwiftShader as the test suite's `gpuPage` runs it. The probe `probes/bool-attribute/webgl-integer-pointer-signedness.ts` runs it again, with -1 in every vertex's component.
 
 ## @fact tsl-substitutes-a-constant-for-an-attribute-its-geometry-lacks
 
@@ -6947,6 +7976,7 @@ This is how three.js's TSL behaves, checked by running its code generator for GL
 ## @fact a-wgsl-entry-point-owns-the-inputs-and-outputs-of-its-stage
 
 > In WGSL the attributes, the varyings a fragment stage reads and the built-in inputs are parameters of the entry point, and the outputs are its return value. A function it calls reaches them only if the entry point passes them. In GLSL ES 3.00 they are globals.
+
 ## @fact tsl-generates-the-statements-of-a-node-again-in-a-branch-that-lacks-them
 
 > TSL r187 generates the statements of an `Fn` called outside the program's body in each branch of an `If` that reads its value.
@@ -7035,11 +8065,13 @@ This is how three.js's TSL behaves, read from its source (`Position`, `Instance`
 
 This is how three.js's TSL behaves, read from its source (`Normal`, `Instance` and `transformNormal`, three.js 0.186).
 
-## @fact wgsl-allows-only-numeric-scalars-and-vectors-between-stages
+## @fact wgsl-takes-only-numeric-scalars-and-vectors-at-a-location
 
-> A WGSL vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type. A matrix is refused, and the shader module fails to compile.
+> A WGSL vertex input, vertex output or fragment input with `@location` must have a numeric scalar or numeric vector type: `f32`, `f16`, `i32` or `u32`, or a vector of one. A `bool`, a boolean vector or a matrix there is refused, and the shader module fails to compile.
 
-This is how Tint, the WGSL compiler of Chromium's WebGPU, behaves. It answers with `'@location' must only be applied to declarations of numeric scalar or numeric vector type` for a `mat3x3<f32>` member.
+This is a fact of the WGSL specification, [§13.3.1.2 User-defined Inputs and Outputs](https://www.w3.org/TR/2026/CRD-WGSL-20260921/#user-defined-inputs-outputs) (Candidate Recommendation Draft of 21 September 2026): "Each user-defined input datum and user-defined output datum must: be of numeric scalar type or numeric vector type." A `bool` is not a numeric scalar.
+
+Tint, the WGSL compiler of Chromium's WebGPU, answers with `'@location' must only be applied to declarations of numeric scalar or numeric vector type` for a `mat3x3<f32>` member. Dawn at commit `029eb34` (`@kmamal/gpu` 0.2.1, on Metal) answers `cannot apply '@location' to declaration of type 'bool'` for a `bool`, `vec2<bool>` or `vec4<bool>` vertex input, and for a `bool` vertex output or fragment input, and takes a `u32` or `vec2<u32>` vertex input in their place. The probe `probes/bool-attribute/wgsl-vertex-input.ts` runs that again. Chromium 149's WebGPU, on Metal, answers the same for the `bool` varying TSL writes, in the probe of [`fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying`](#fact-tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying).
 
 ## @fact tsl-passes-a-matrix-varying-to-wgsl-unchanged
 
@@ -7070,6 +8102,24 @@ This is how three.js's TSL behaves, run on a Chromium WebGPU device (three.js 18
 > TSL's `AttributeNode` builds a varying of itself when the stage that reads it is not the vertex stage. The vertex stage assigns the varying from the attribute, and the fragment stage reads it, as `nodeVarying0` for the first. A node built in the vertex stage reads the attribute directly.
 
 This is how three.js's TSL behaves, read from its source (`AttributeNode.generate`). Its WGSL and GLSL node builders generate it for `attribute('uv', 'vec2')` read in the fragment stage (three.js 187dev).
+
+## @fact tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind
+
+> TSL declares `attribute(name, "bool")` as a vertex input of the kind its geometry's array picks: `f32` or `float` for a `Float32Array`, `i32` or `int` for an `Int32Array`, `u32` or `uint` for a `Uint32Array`. A `bvec2` takes the vector of that kind, `vec2<i32>` or `ivec2` for an `Int32Array` and `vec2<f32>` or `vec2` for a `Float32Array`. Where the vertex stage reads it, TSL converts it with `bool(...)` or `bvec2(...)`, which tests each component against zero. So 0 reads false, and 0.5, NaN, -1 and 2³² - 1 read true, on the WebGPU and the WebGL 2 backend of `WebGPURenderer`.
+
+This is how three.js's TSL behaves, run by `probes/bool-attribute/tsl-bool-attribute.ts` in three.js 0.186.1 and at commit `58c219b` of its dev branch (r187dev), on Chromium 149's WebGPU (Metal) and on its WebGL 2 over SwiftShader. The WebGPU adapter reported vendor `apple` and architecture `metal-3`. Each array held one value at every vertex, and the vertex stage drew only where it read true. A `Uint8Array` holding 1 gives a `u32` input on WebGPU, which draws, and an `int` input on WebGL 2, which draws nothing.
+
+## @fact tsl-passes-a-bool-attribute-the-fragment-stage-reads-in-a-bool-varying
+
+> TSL passes `attribute(name, "bool")` that the fragment stage reads in a varying of type `bool`, which the vertex stage assigns `bool(...)` of the input. On WebGPU the device refuses the shader module, `cannot apply '@location' to declaration of type 'bool'`, and the draw shows nothing. On WebGL 2 the driver refuses the vertex shader, `'out' : cannot be bool`, and the draw shows nothing.
+
+This is how three.js's TSL behaves, run by `probes/bool-attribute/tsl-bool-attribute.ts` in three.js 0.186.1 and at commit `58c219b` of its dev branch (r187dev), on the same browsers as [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind), for a `Float32Array`, an `Int32Array` and a `Uint32Array` alike.
+
+## @fact tsl-gives-a-bool-attribute-its-geometry-lacks-a-constant-that-changed-in-r187
+
+> When a mesh's geometry lacks an attribute `attribute(name, "bool")` reads, TSL reads it false: a vertex stage that draws only where the attribute holds draws nothing, and one that draws only where its negation holds draws. For a `bvec4`, TSL 0.186.1 throws `TypeError: Cannot read properties of null (reading 'x')` as it builds the constant, logs it, and draws nothing. TSL r187dev writes `vec4<bool>(false, false, false, true)` on WebGPU, and reads w true and x false on WebGL 2 too.
+
+This is how three.js's TSL behaves, run by `probes/bool-attribute/tsl-bool-attribute.ts` in three.js 0.186.1 and at commit `58c219b` of its dev branch (r187dev), on the browsers of [`fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind`](#fact-tsl-reads-a-bool-attribute-through-an-input-of-its-arrays-kind).
 
 ## @fact tsl-takes-a-normal-node-as-a-view-space-normal
 
@@ -7208,6 +8258,12 @@ This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.18
 > GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
 
 This is a fact of the GLSL ES 3.00 specification, in its section on precision qualifiers.
+
+## @fact webgl-refuses-a-shader-that-declares-a-name-it-reserves
+
+> WebGL reserves the identifiers that start with `webgl_` or `_webgl_`, and refuses to compile a shader that declares one. Chromium 149's WebGL 2 answers `'webgl_flag' : reserved built-in name` on SwiftShader and on ANGLE's Metal backend alike.
+
+This is a fact of the [WebGL 1.0 specification](https://registry.khronos.org/webgl/specs/latest/1.0/#6.20), section Reserved Identifiers, which WebGL 2 keeps, and the browser's shader validator enforces it before any driver sees the shader. The probe `probes/driver-error/webgl-reserved-identifier.ts` runs it again.
 
 ## @fact glsl-links-a-uniform-of-both-stages-only-if-they-match
 
@@ -7371,6 +8427,98 @@ Chromium's WebGPU draws nothing, with no validation error, for a triangle at `x 
 
 Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with the default `cullMode`.
 
+## @fact webgpu-assembles-triangles-as-a-list-or-a-strip
+
+> WebGPU assembles triangles in two topologies, and has no triangle fan. A `triangle-list` makes a triangle of each three vertices in turn. A `triangle-strip` makes a triangle of each vertex after the second, with the two vertices before it. Vertices that complete no triangle draw nothing. A draw writes its triangles in the order it makes them. With no depth test and no blending, a later triangle's fragment replaces an earlier one's on a pixel both cover.
+
+This is a fact of the WebGPU specification. [`GPUPrimitiveTopology`](https://www.w3.org/TR/webgpu/#enumdef-gpuprimitivetopology) lists `point-list`, `line-list`, `line-strip`, `triangle-list` and `triangle-strip`. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) says "Any incomplete primitives are dropped". [Rasterization](https://www.w3.org/TR/webgpu/#rasterization) says that "the order of primitives affects later stages".
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. Strips of 3 to 6 vertices draw 1 to 4 triangles, and a strip of 2 vertices draws nothing. A list of 4 or 5 vertices draws its first triangle only. Two triangles over the same pixels, with no depth test or blending, leave the fragments of the second, in either order.
+
+## @fact webgl2-draws-a-triangle-fan
+
+> WebGL 2 draws a `TRIANGLE_FAN`, whose every triangle shares the first vertex, beside `TRIANGLES` and `TRIANGLE_STRIP`.
+
+This is a fact of the [OpenGL ES 3.0.6 specification](https://registry.khronos.org/OpenGL/specs/es/3.0/es_spec_3.0.pdf), section 2.7, "Triangle Fans", which WebGL 2 draws by. The probe `probes/index-strips-culling/webgl2.ts` draws a fan of 4 vertices as two triangles. It runs on Chromium 149's WebGL 2 through SwiftShader.
+
+## @fact webgpu-takes-an-odd-strip-triangle-in-reverse
+
+> WebGPU makes triangle `k` of a triangle strip, counted from 0, of its vertices `k`, `k + 1` and `k + 2`. An even triangle winds as `k`, `k + 1`, `k + 2` run, and an odd one as `k + 1`, `k`, `k + 2` run, the reverse. WebGPU decides the facing of each triangle from its own winding, as it does for any triangle. A strip that folds on screen has triangles of both facings, and a triangle of zero area decides nothing for the others. A restart counts `k` from 0 again.
+
+This is a fact of the WebGPU specification. [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3), then (vl.2, vl.3, vl.4)". This fact claims only the winding of that order. Chromium takes an odd triangle's flat value from vertex `k`, as [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k) states, so its order is `k`, `k + 2`, `k + 1`, which winds the same. A restart splits the indices into "sub-lists", and each assembles from its own start. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides the facing of each polygon from its own area.
+
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws under every `cullMode` and `frontFace`. Zigzag strips of 3 to 6 vertices read one `front_facing` in every triangle. A strip of 5 vertices whose third triangle doubles back reads front-facing in triangles 0 and 1, and back-facing in triangle 2. A cull drops only the triangles of its face. A strip whose first triangle has zero area faces by its second triangle's own winding there. A strip restarted after its first three indices faces the other way after the restart, as its new first triangle winds. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
+
+## @fact webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k
+
+> Dawn, in Chromium on Metal and on its fallback adapter, and wgpu, in Deno on Metal, give triangle `k` of a triangle strip, counted from 0, the flat varyings of strip vertex `k`. This holds for an odd `k` as for an even one.
+
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws strips of 3 to 6 vertices, and a strip that folds. Each vertex writes its own id and its `vertex_index` to flat `u32` varyings. Triangle `k` reads the id and the index of vertex `k`, in an indexed strip after a restart too. The probe `probes/index-strips-culling/wgpu/probe.js`, run by `deno run probes/index-strips-culling/wgpu/run-deno.js`, draws a strip of 5 vertices with distinct ids on wgpu in Deno 2.4.5, on Metal on an Apple M1. Triangles 0, 1 and 2 read the ids of vertices 0, 1 and 2, and a list control reads each triangle's first vertex. Its output is `output-deno.json` beside it.
+
+## @fact the-webgpu-specification-puts-vertex-k-plus-1-first-in-an-odd-strip-triangle
+
+> The WebGPU specification composes an odd triangle `k` of a strip with vertex `k + 1` first, and WGSL's `first` sampling, the default of a `flat` value, takes the first vertex of the primitive.
+
+This is a fact of the WebGPU specification: [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) composes a strip "from (vl.0, vl.1, vl.2), then (vl.2, vl.1, vl.3)", and [WGSL's `first` sampling](https://www.w3.org/TR/WGSL/#interpolation-sampling-first) takes "the first vertex of the primitive". Every implementation measured in [`fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k`](#fact-webgpu-implementations-take-a-strip-triangles-flat-value-from-strip-vertex-k) gives vertex `k` instead.
+
+## @fact webgpu-takes-the-vertices-of-an-indexed-draw-by-its-indices
+
+> A WebGPU indexed draw takes its vertices in the order of its indices, from `firstIndex` on. It runs each as the vertex its index names plus `baseVertex`, and its `vertex_index` is that sum. An index is a `uint16` or a `uint32`.
+
+This is a fact of the WebGPU specification. [Index Resolution](https://www.w3.org/TR/webgpu/#index-resolution) appends "drawCall.baseVertex + relativeVertexIndex" for each index. [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing) sets "the vertex_index builtin" to it. [`GPUIndexFormat`](https://www.w3.org/TR/webgpu/#enumdef-gpuindexformat) holds `uint16` and `uint32` only.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. A list indexed `0, 1, 2, 2, 1, 3, 5, 6, 7` draws three triangles, which read the ids and the vertex indices of the vertices named. A draw of indices `3, 4, 5` from `firstIndex` 3 with `baseVertex` 2 reads vertex 5's id and `vertex_index` 5.
+
+## @fact webgpu-restarts-only-a-strip-at-the-largest-index
+
+> A WebGPU indexed strip ends at the largest index of its format, `0xFFFF` for `uint16` and `0xFFFFFFFF` for `uint32`. It starts a new strip at the next index. A part of fewer than three indices between two restarts, or before the first or after the last, draws nothing. An indexed list takes that index as the index of a vertex, like any other.
+
+This is a fact of the WebGPU specification. [`GPUIndexFormat`](https://www.w3.org/TR/webgpu/#enumdef-gpuindexformat) names the "primitive restart value" of each format for "strip primitive topologies". [Primitive Assembly](https://www.w3.org/TR/webgpu/#primitive-assembly) splits the indices at it only "if the primitive topology is a strip".
+
+The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws both formats. A strip indexed `0, 1, 2, 3, max, 4, 5, 6, 7` draws the triangles of `0` to `3` and of `4` to `7`, and none across the restart. A restart first, a restart last, two restarts in a row, and a part of one or two indices before the first restart, between two or after the last each draw no triangle of their own. A list indexed `0, 1, 2, max, 3, 4, 5, 3, 4` draws three triangles, one of them through the vertex `max` names. With 65,537 vertices, a `uint16` list indexed `0xFFFF, 0, 1` draws its triangle through vertex 65,535, which reads that vertex's own id.
+
+## @fact webgl2-restarts-every-indexed-draw-at-the-largest-index
+
+> WebGL 2 ends an indexed draw of any mode at the largest index of its type: 255, 65535 or 4294967295. It starts the draw again at the next index, in a triangle list too.
+
+This is a fact of the [WebGL 2.0 specification](https://registry.khronos.org/webgl/specs/latest/2.0/#NO_PRIMITIVE_RESTART_FIXED_INDEX), section 5.18, "PRIMITIVE_RESTART_FIXED_INDEX is always enabled". Such an index "is not processed normally".
+
+The probe `probes/index-strips-culling/webgl2.ts` draws a list indexed `0, 1, 2, max, 3, 4, 5, 3, 4`, in all three index types. It runs on Chromium 149's WebGL 2 through SwiftShader. It draws the triangles `0, 1, 2` and `3, 4, 5` only, where WebGPU draws three. With 65,537 vertices, a `uint16` list indexed `0xFFFF, 0, 1` draws nothing, where WebGPU draws a triangle through vertex 65,535.
+
+## @fact webgpu-refuses-an-indexed-draw-past-its-index-buffer
+
+> A WebGPU indexed draw whose `firstIndex` plus `indexCount` passes the end of its index buffer is a validation error, with a count of 0 too. The encoder that records it becomes invalid, and nothing it records draws, the draws before it included.
+
+This is a fact of the WebGPU specification: [`drawIndexed`](https://www.w3.org/TR/webgpu/#dom-gpurendercommandsmixin-drawindexed) requires "firstIndex + indexCount ≤ this.[[index_buffer_size]] ÷ this.[[index_format]]’s byte size", and otherwise invalidates the encoder. The probe `probes/index-strips-culling/webgpu.ts` runs on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws 6 `uint16` indices after a valid draw of the first three, in the same pass, and reads the target back through an encoder of its own. From 0 for 7, from 4 for 3, from 7 for 0 and from 6 for 1 each report a validation error that the index range does not fit, and the target holds no pixel of the valid draw. From 6 for 0 and from 5 for 1 report none, and the valid draw shows. WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, reports `INVALID_OPERATION` for a count past the end and drops that draw alone. It reports nothing for a count of 0.
+
+## @fact webgpu-leaves-a-vertex-past-its-buffer-to-the-implementation
+
+> WebGPU leaves an indexed draw whose index names a vertex past the end of a vertex buffer to the implementation. It may cancel the draw, or read the vertex's attributes as WGSL reads memory out of bounds. Chromium's WebGPU draws the triangle with no error, and gives `vertex_index` the index itself. On Metal it reads a `uint32` attribute of such a vertex as the last element of its buffer, and on its fallback adapter as zero.
+
+This is a fact of the WebGPU specification. [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing) covers an attribute past its buffer. It lets the implementation "empty vertexIndexList and return, cancelling the draw call". Otherwise it loads the attribute "according to WGSL’s invalid memory reference behavior". `drawIndexed` checks the indices against the index buffer. It checks no vertex they name against the vertex buffers.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws 6 vertices through the indices 6, 1000, 65535 and 4294967295, inside an error scope for validation and internal errors. Each triangle through such an index draws, and none reports an error.
+
+## @fact webgpu-culls-by-the-winding-of-the-clipped-triangle
+
+> A WebGPU pipeline with `cullMode: "back"` draws only front-facing triangles, and one with `"front"` only back-facing ones. With `frontFace: "ccw"`, the default, a triangle is front-facing when its part inside the clip volume runs counter-clockwise in normalized device coordinates, with y up. With `"cw"`, it is front-facing when that part runs clockwise. A triangle of zero area is back-facing.
+
+This is a fact of the WebGPU specification. [Polygon Rasterization](https://www.w3.org/TR/webgpu/#polygon-rasterization) decides facing from "the sign of the area occupied by the polygon in framebuffer coordinates". The polygon is the one clipping leaves. For `"ccw"`, "area > 0 is considered front-facing, otherwise back-facing", and for `"cw"`, "area < 0". Framebuffer y runs down, and the formula signs the area so that a triangle counter-clockwise in normalized device coordinates has a positive area.
+
+The probe `probes/index-strips-culling/webgpu.ts` draws on Chromium 149's WebGPU, on Metal on an Apple M1 and on its fallback adapter, SwiftShader. It draws a triangle each way round under every `cullMode` and `frontFace`, and reads `front_facing`. It also draws a triangle with a vertex behind the eye, and its mirror image. In each, the vertices projected run one way and the part in front of the eye runs the other. Under every `cullMode` and `frontFace`, the part in front of the eye decides the facing. Chromium's WebGL 2 through SwiftShader, in `probes/index-strips-culling/webgl2.ts`, gives every case the same facing.
+
+## @fact webgpu-truncates-a-fractional-draw-range-and-refuses-a-negative-one
+
+> WebGPU takes the `firstIndex` and `indexCount` of `drawIndexed`, and the `firstVertex` and `vertexCount` of `draw`, as whole numbers from 0 to 4294967295. It drops the fraction of each, and throws a `TypeError` for one that is NaN, infinite, or outside that range once its fraction is dropped.
+
+This is a fact of the WebGPU and Web IDL specifications. [WebGPU](https://www.w3.org/TR/webgpu/#typedefdef-gpusize32) declares `typedef [EnforceRange] unsigned long GPUSize32;`, and [Web IDL's `ConvertToInt`](https://webidl.spec.whatwg.org/#abstract-opdef-converttoint) handles `[EnforceRange]`. It throws "If x is NaN, +∞, or −∞", sets "x to IntegerPart(x)", and throws "If x < lowerBound or x > upperBound". The probe `probes/index-strips-culling/webgpu-ranges.ts` runs on Chromium 149's WebGPU on Metal, on an Apple M1. A `firstIndex` or `firstVertex` of 2.9 draws from 2, and a count of 3.9 draws 3. A first of -0.5 draws from 0. A first of -1, a count of -3, a NaN and an infinity each throw a `TypeError`, and draw nothing.
+
+## @fact webgpu-may-shade-a-repeated-index-once-or-more
+
+> WebGPU guarantees neither that a vertex an indexed draw names several times runs the vertex stage once, nor that it runs it more than once.
+
+This is a fact of the WebGPU specification, in a note of [Vertex Processing](https://www.w3.org/TR/webgpu/#vertex-processing): "There is no guarantee that any vertexIndex that repeats more than once will result in multiple invocations. Similarly, there is no guarantee that a single vertexIndex will only be processed once."
+
 ## @fact a-webgpu-canvas-configured-opaque-drops-alpha
 
 > A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
@@ -7379,9 +8527,9 @@ Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, a
 
 ## @fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares
 
-> A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+> A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares. Each of those must hold every vertex up to `firstVertex` plus `vertexCount`, with a count of 0 too.
 
-This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, firstVertex, firstInstance)` in `GPURenderCommandsMixin`, and its validation of the bound vertex buffers against the draw's vertex range.
+This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, firstVertex, firstInstance)` in `GPURenderCommandsMixin` validates the bound vertex buffers against the draw's vertex range. For a buffer stepped by vertex, its "strideCount" is "firstVertex + vertexCount", and "If strideCount ≠ 0", the buffer must be large enough for it. The probe `probes/index-strips-culling/webgpu-ranges.ts` runs on Chromium 149's WebGPU on Metal, on an Apple M1, over 6 vertices. A draw of 0 vertices from vertex 7, and of 3 from vertex 4, each report a validation error, and a draw of 0 from vertex 6 reports none.
 
 ## @fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture
 

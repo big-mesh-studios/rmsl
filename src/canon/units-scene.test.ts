@@ -1707,7 +1707,7 @@ describe("a scene renderer manages what it uploads", () => {
    * The WebGPU renderer reads a normalized `Uint8Array` `vec4` as `unorm8x4`
    * with a 4-byte stride.
    *
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    */
   it("reads a normalized byte attribute as unorm8x4 on WebGPU", () => {
     const { device, canvas, pipelines } = stubDevice();
@@ -1739,7 +1739,7 @@ describe("a scene renderer manages what it uploads", () => {
    * differ by array type or by width, and a mesh's attributes that the
    * program never reads do not make another pipeline.
    *
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    */
   it("draws meshes that hold an attribute in different formats with a pipeline each on WebGPU", () => {
     const { device, canvas, pipelines, passes } = stubDevice();
@@ -2397,7 +2397,7 @@ describe("a scene renderer reads an attribute as the type it declares", () => {
   );
 
   /**
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    */
   it.each([
     ["int", new BufferAttribute(new Float32Array(4), 1)],

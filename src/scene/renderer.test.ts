@@ -702,7 +702,7 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.b).toBeLessThan(60);
   }, 60_000);
   /**
-   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   * @canon spec-a-float-or-integer-attribute-reaches-the-shader-as-its-declared-type
    */
   it("reads a packed attribute at its own width, not as floats", async () => {
     const page = await gpuPage();

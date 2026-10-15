@@ -24,6 +24,7 @@ import {
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileWasm, compileWasmRasterizer, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour, linkStages } from "../shared";
+import { CpuIndexArray, DrawAssemblyOptions, indexHolder } from "../assemble";
 import {
   compileWasmCompute,
   compileWasmGrid,
@@ -198,7 +199,7 @@ export function createWasmCompute(
  * own `WasmRasterRoutine` is the lower-level primitive that composability
  * is built on.
  */
-export interface WasmDrawOptions extends DrawCountOptions, DrawClearOptions {
+export interface WasmDrawOptions extends DrawCountOptions, DrawClearOptions, DrawAssemblyOptions {
   clearDepth?: boolean;
 }
 
@@ -212,6 +213,12 @@ export interface WasmDrawOptions extends DrawCountOptions, DrawClearOptions {
 export interface WasmAdapter extends Adapter<void, WasmDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: WasmDrawOptions): void;
+  /**
+   * Gives each later draw the indices it takes its vertices by, a
+   * `Uint16Array` or a `Uint32Array`, until `setIndex(null)` makes the draws
+   * take their vertices in order again.
+   */
+  setIndex(index: CpuIndexArray | null): void;
 }
 
 export function createWasm(
@@ -231,6 +238,7 @@ export function createWasm(
   const uniforms: Record<string, number | number[]> = {};
   const attributes: Record<string, TypedArray> = {};
   const textures: Record<string, CpuTextureData> = {};
+  const indices = indexHolder(CREATE_WASM);
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
@@ -262,9 +270,11 @@ export function createWasm(
       textures[slotOf(sampler)] = texture;
     },
 
+    setIndex: indices.set,
+
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new UsageError("not-attached", "createWasm: attach() was never called", CREATE_WASM);
-      const ctx: WasmRasterContext = { attributes, uniforms, textures };
+      const ctx: WasmRasterContext = { attributes, uniforms, textures, index: indices.index };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,
         first: drawOptions?.first,
@@ -273,6 +283,9 @@ export function createWasm(
         clear: drawOptions?.clear,
         clearColor: drawOptions?.clearColor,
         clearDepth: drawOptions?.clearDepth,
+        topology: drawOptions?.topology,
+        cullMode: drawOptions?.cullMode,
+        frontFace: drawOptions?.frontFace,
       });
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },

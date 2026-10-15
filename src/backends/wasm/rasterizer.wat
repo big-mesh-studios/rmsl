@@ -325,8 +325,14 @@
     (param $fragCoordAddress i32) (param $readsFragCoord i32)
     (param $fragDepthAddress i32) (param $usesDepth i32) (param $writesDepth i32)
     (param $discardAddress i32) (param $mayDiscard i32)
+    ;; The triangles to draw, three i32 vertex numbers each, wound as WebGPU winds
+    ;; them, the first giving the flat varyings. A $triangleBase of 0 takes each
+    ;; three vertices in turn instead.
+    (param $triangleBase i32) (param $triangleCount i32)
+    ;; The sign of the screen area of a triangle the draw culls, or 0 to cull none.
+    (param $cullSign f64)
 
-    (local $i i32) (local $t i32) (local $t1 i32) (local $t2 i32)
+    (local $i i32) (local $t i32) (local $t1 i32) (local $t2 i32) (local $tri i32) (local $entry i32)
     (local $widthF f64) (local $heightF f64)
     (local $outCount i32) (local $clippedVertexCount i32)
     (local $s0x f64) (local $s0y f64) (local $s1x f64) (local $s1y f64) (local $s2x f64) (local $s2y f64)
@@ -362,12 +368,21 @@
 
     ;; ---- clip pass ----
     (local.set $clippedVertexCount (i32.const 0))
-    (local.set $t (i32.const 0))
+    (local.set $tri (i32.const 0))
     (block $clipBreak
       (loop $clipContinue
-        (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
-        (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
-        (br_if $clipBreak (i32.ge_s (local.get $t2) (local.get $vertexCount)))
+        (if (i32.eqz (local.get $triangleBase))
+          (then
+            (local.set $t (i32.mul (local.get $tri) (i32.const 3)))
+            (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
+            (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
+            (br_if $clipBreak (i32.ge_s (local.get $t2) (local.get $vertexCount))))
+          (else
+            (br_if $clipBreak (i32.ge_s (local.get $tri) (local.get $triangleCount)))
+            (local.set $entry (i32.add (local.get $triangleBase) (i32.mul (local.get $tri) (i32.const 12))))
+            (local.set $t (i32.load (local.get $entry)))
+            (local.set $t1 (i32.load (i32.add (local.get $entry) (i32.const 4))))
+            (local.set $t2 (i32.load (i32.add (local.get $entry) (i32.const 8))))))
         (local.set $outCount (i32.const 0))
         (local.set $outCount
           (call $clipEdge (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
@@ -393,7 +408,7 @@
               (call $emitTriangleFromScratch (local.get $clipScratchBase) (local.get $varyingBytes)
                 (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
                 (local.get $clippedVertexCount) (i32.const 0) (i32.const 2) (i32.const 3)))))
-        (local.set $t (i32.add (local.get $t) (i32.const 3)))
+        (local.set $tri (i32.add (local.get $tri) (i32.const 1)))
         (br $clipContinue)))
 
     ;; ---- triangle pass ----
@@ -425,6 +440,8 @@
               (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
               (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (f64.sub (local.get $s2x) (local.get $s0x)))))
           (br_if $skipDegenerate (f64.eq (local.get $area) (f64.const 0)))
+          ;; A face the draw culls draws nothing.
+          (br_if $skipDegenerate (f64.gt (f64.mul (local.get $area) (local.get $cullSign)) (f64.const 0)))
           ;; A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
           ;; pixel outside it, which is what clipping there drops, as depth over w is affine in
           ;; screen space; one inside it draws every pixel, whatever the rounding of its depth.

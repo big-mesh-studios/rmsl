@@ -18,6 +18,7 @@ import {
   operandRefusal,
   someNode,
   swizzleWritePlace,
+  unsignedCarrierOf,
   var_,
   varying,
   vec4,
@@ -214,6 +215,12 @@ export interface CompileCtx extends BackendOrigin {
   reentrant: boolean;
   /** JS target: whether the program computes every float in 32 bits, as `float: "f32"` asks. */
   jsFloat32?: boolean;
+  /**
+   * JS target: the slot of one element each scalar varying of a vertex stage
+   * is handed back in, by the varying's slot, when the program is a stage of
+   * the JS rasterizer.
+   */
+  jsRasterSlots?: Map<string, string>;
   /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
   jsTarget?: unknown;
   /**
@@ -512,7 +519,7 @@ export function prepareRoots<T extends Node<ShaderType>>(
       origin,
     );
   }
-  roots = substituteNodes(roots, swizzleWrites);
+  roots = lowerBooleanAttributes(substituteNodes(roots, swizzleWrites), stageInputsInFns);
   if (stage === "fragment") {
     assertReadsNoAttribute(origin, roots);
     return fragmentColour(lowerOutputStruct(origin, roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
@@ -527,6 +534,46 @@ export function prepareRoots<T extends Node<ShaderType>>(
     );
   }
   return [...roots];
+}
+
+/**
+ * `roots` with each `bool` or boolean vector attribute read as the unsigned
+ * attribute of its slot, converted to its boolean type, which tests each
+ * component against zero. No GPU language takes a boolean vertex input, so
+ * every target declares the unsigned type and is given unsigned integers.
+ * The new node keeps the declared type in `declaredType`, which a refusal names.
+ * The varying {@link linkStages} makes to carry such an attribute takes the
+ * unsigned integer as it is, since the fragment stage compares it with zero.
+ */
+function lowerBooleanAttributes<T>(roots: T, intoCalls: boolean): T {
+  const reads = new Map<any, Node<ShaderType>>();
+  const unsignedRead = (n: any, carrier: ShaderType) => {
+    let read = reads.get(n);
+    if (read === undefined) {
+      read = node({
+        _t: carrier,
+        type: "attribute",
+        value: { ...n.value, shaderType: carrier, declaredType: n.value.shaderType },
+        name: n.name,
+      }) as Node<ShaderType>;
+      reads.set(n, read);
+    }
+    return read;
+  };
+  const replaced = new Map<any, any>();
+  someNode(roots, (n) => {
+    if (n.type === "attribute") {
+      const carrier = unsignedCarrierOf(n.value.shaderType);
+      if (carrier !== undefined && !replaced.has(n))
+        replaced.set(n, unsignedRead(n, carrier).convert(n.value.shaderType));
+    } else if (n.type === "assign" && n.params[0]?.value?.carries !== undefined) {
+      const [, value] = n.params;
+      const attribute = value.type === "construct" ? value.params[0] : undefined;
+      const carrier = attribute?.type === "attribute" ? unsignedCarrierOf(attribute.value.shaderType) : undefined;
+      if (carrier !== undefined && carrier === value._t) replaced.set(value, unsignedRead(attribute, carrier));
+    }
+  });
+  return substituteNodes(roots, replaced, intoCalls);
 }
 
 /**
@@ -579,15 +626,18 @@ export function linkStages<V, F>(
   const assignments: BaseNode<ShaderType>[] = [];
   for (const n of reads) {
     const { slot, shaderType } = n.value;
+    // No GPU language passes a boolean between stages, so a bool attribute travels in an unsigned varying, which is flat.
+    const carrierType = unsignedCarrierOf(shaderType);
     let carrier = varyings.get(slot);
     if (!carrier) {
-      carrier = varying(shaderType);
+      carrier = varying(carrierType ?? shaderType);
       // A refusal of the varying names the attribute it carries, which is what the application wrote.
       carrier.value.carries = slot;
       varyings.set(slot, carrier);
-      assignments.push(node({ _t: "void", type: "assign", params: [carrier, n] }) as BaseNode<ShaderType>);
+      const value = carrierType ? n.convert(carrierType) : n;
+      assignments.push(node({ _t: "void", type: "assign", params: [carrier, value] }) as BaseNode<ShaderType>);
     }
-    replaced.set(n, carrier);
+    replaced.set(n, carrierType ? carrier.convert(shaderType) : carrier);
   }
   if (replaced.size === 0) return { vertex: vertexRoot, fragment: fragmentRoot, carriers: new Map() };
   const last = Array.isArray(vertexRoot) ? vertexRoot[vertexRoot.length - 1] : vertexRoot;
@@ -832,7 +882,7 @@ function describeNamed(node: any): string | undefined {
   const precision = value?.precision ? ` of precision "${value.precision}"` : "";
   if (node.type === "uniform") return `${withArticle(value.shaderType)} uniform${precision}`;
   if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}${precision}`;
-  if (node.type === "attribute") return `${withArticle(value.shaderType)} attribute`;
+  if (node.type === "attribute") return `${withArticle(value.declaredType ?? value.shaderType)} attribute`;
   if (node.type === "varying") return `${withArticle(value.shaderType)} varying`;
   return undefined;
 }
