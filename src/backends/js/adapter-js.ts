@@ -24,6 +24,7 @@ import {
 import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileJS, compileJSRasterizer, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour, linkStages } from "../shared";
+import { assertIndexArray, CpuIndexArray, DrawAssemblyOptions } from "../assemble";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
 
 export interface CreateJsGridOptions {
@@ -163,7 +164,7 @@ export function createJsCompute(
  * own `JsRasterRoutine` is the lower-level primitive that composability
  * is built on.
  */
-export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions {
+export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions, DrawAssemblyOptions {
   clearDepth?: boolean;
 }
 
@@ -177,6 +178,12 @@ export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions {
 export interface JsAdapter extends Adapter<void, JsDrawOptions, Float32Array | Float64Array> {
   attach(canvas?: HTMLCanvasElement): void;
   draw(options?: JsDrawOptions): void;
+  /**
+   * Gives each later draw the indices it takes its vertices by, a
+   * `Uint16Array` or a `Uint32Array`, until `setIndex(null)` makes the draws
+   * take their vertices in order again.
+   */
+  setIndex(index: CpuIndexArray | null): void;
 }
 
 export function createJs(
@@ -196,6 +203,7 @@ export function createJs(
   const uniforms: Record<string, unknown> = {};
   const attributes: Record<string, TypedArray> = {};
   const textures: Record<string, CpuTextureData> = {};
+  let index: CpuIndexArray | undefined;
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
@@ -227,9 +235,17 @@ export function createJs(
       textures[slotOf(sampler)] = texture;
     },
 
+    setIndex(given) {
+      if (given === null) index = undefined;
+      else {
+        assertIndexArray(CREATE_JS, given);
+        index = given;
+      }
+    },
+
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new UsageError("not-attached", "createJs: attach() was never called", CREATE_JS);
-      const ctx: JsRasterContext = { attributes, uniforms, textures };
+      const ctx: JsRasterContext = { attributes, uniforms, textures, index };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,
         first: drawOptions?.first,
@@ -238,6 +254,9 @@ export function createJs(
         clear: drawOptions?.clear,
         clearColor: drawOptions?.clearColor,
         clearDepth: drawOptions?.clearDepth,
+        topology: drawOptions?.topology,
+        cullMode: drawOptions?.cullMode,
+        frontFace: drawOptions?.frontFace,
       });
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },

@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, vertexIndex } from "../rmsl";
 import { UsageError } from "../errors";
-import { compileJS } from "../js";
-import { compileWasm } from "../wasm";
+import { compileJS, createJs } from "../js";
+import { compileWasm, createWasm } from "../wasm";
 
 const rasterizers: [string, typeof compileJS][] = [
   ["JS", compileJS],
   ["WASM", compileWasm as unknown as typeof compileJS],
+];
+
+const adapters: [string, typeof createJs][] = [
+  ["JS", createJs],
+  ["WASM", createWasm as unknown as typeof createJs],
 ];
 
 const WIDTH = 64;
@@ -556,5 +561,106 @@ describe.each(rasterizers)("a CPU rasterizer on %s culls the faces a draw asks i
       idProgram(compile)(positions, { cullMode })([32, 10]) !== null;
     expect([shown(behind, "back"), shown(behind, "front")]).toEqual([true, false]);
     expect([shown(mirrored, "back"), shown(mirrored, "front")]).toEqual([false, true]);
+  });
+});
+
+describe.each(adapters)("the %s adapter draws with indices, a topology and a cull state", (_, create) => {
+  /** An adapter of a flat id program on a fake 64 by 16 canvas, and the bytes its last draw put there. */
+  function adapter() {
+    const position = attribute("vec4");
+    const id = attribute("int");
+    const k = varying("int");
+    const drawer = create(
+      () =>
+        Fn(() => {
+          k.assign(id);
+          builtinPosition().assign(position);
+        })(),
+      () => Fn(() => vec4(k.toFloat().div(255), 0, 0, 1))(),
+    );
+    let shown: Uint8ClampedArray | undefined;
+    const hadImageData = "ImageData" in globalThis;
+    if (!hadImageData)
+      (globalThis as any).ImageData = class {
+        data: Uint8ClampedArray;
+        constructor(
+          public width: number,
+          public height: number,
+        ) {
+          this.data = new Uint8ClampedArray(width * height * 4);
+        }
+      };
+    const canvas = {
+      width: WIDTH,
+      height: HEIGHT,
+      getContext: () => ({ putImageData: (image: ImageData) => (shown = image.data) }),
+    };
+    drawer.attach(canvas as unknown as HTMLCanvasElement);
+    const restore = () => {
+      if (!hadImageData) delete (globalThis as any).ImageData;
+    };
+    const red = ([x, y]: [number, number]) =>
+      shown![(y * WIDTH + x) * 4 + 3] === 0 ? null : shown![(y * WIDTH + x) * 4]!;
+    return { drawer, position, id, red, restore };
+  }
+
+  /**
+   * @canon spec-set-index-gives-a-cpu-adapter-the-indices-it-draws-by
+   */
+  it("draws by the indices setIndex gave it, until setIndex(null)", () => {
+    const { drawer, position, id, red, restore } = adapter();
+    try {
+      const positions = zigzag(6);
+      drawer.setAttribute(position, Float32Array.from(positions));
+      drawer.setAttribute(id, Int32Array.from([10, 11, 12, 13, 14, 15]));
+      drawer.setIndex(Uint16Array.of(3, 4, 5));
+      drawer.draw();
+      const triangles = () => [red(centroid(positions, 0, 1, 2)), red(centroid(positions, 3, 4, 5))];
+      expect(triangles()).toEqual([null, 13]);
+      drawer.setIndex(null);
+      drawer.draw();
+      expect(triangles()).toEqual([10, 13]);
+    } finally {
+      restore();
+    }
+  });
+
+  /**
+   * @canon spec-set-index-refuses-an-array-of-another-kind
+   */
+  it("refuses an index array of another kind where the host sets it", () => {
+    const { drawer, restore } = adapter();
+    try {
+      expect(() => drawer.setIndex(Int32Array.of(0, 1, 2) as any)).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
+      expect(() => drawer.setIndex(Uint8Array.of(0, 1, 2) as any)).toThrowRmsl(
+        UsageError,
+        "host-array-of-another-kind",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  /**
+   * @canon spec-a-cpu-adapter-draw-takes-a-topology-and-a-cull-state
+   */
+  it("takes a topology and a cull state among the options of each draw", () => {
+    const { drawer, position, id, red, restore } = adapter();
+    try {
+      const positions = zigzag(4);
+      drawer.setAttribute(position, Float32Array.from(positions));
+      drawer.setAttribute(id, Int32Array.from([10, 11, 12, 13]));
+      drawer.draw({ topology: "triangle-strip" });
+      expect(red(centroid(positions, 1, 2, 3))).toBe(11);
+      drawer.draw({ topology: "triangle-strip", cullMode: "back", frontFace: "cw" });
+      expect(red(centroid(positions, 1, 2, 3))).toBe(null);
+      drawer.draw();
+      expect(red(centroid(positions, 1, 2, 3))).toBe(null);
+    } finally {
+      restore();
+    }
   });
 });
