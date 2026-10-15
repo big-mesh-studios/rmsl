@@ -876,6 +876,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 - [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
 - [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+- [`@fact webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex`](#fact-webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex) — Chromium 149's WebGL 2 offers `WEBGL_provoking_vertex` through ANGLE's Metal backend on an Apple M1, which leaves the last vertex convention set. After `provokingVertexWEBGL(FIRST_VERTEX_CONVENTION_WEBGL)`, a flat `uint` varying takes the first vertex of a triangle. On SwiftShader, as the test suite's `gpuPage` runs it, the extension is not offered, and a flat varying takes the last vertex.
 - [`@fact three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex) — three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
 - [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
@@ -1579,9 +1580,9 @@ This follows because WebGPU takes a flat value from the first vertex, and a CPU 
 
 > On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
 
-Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex), [`fact-three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex)
+Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex), [`fact-three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex), [`fact-webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex`](#fact-webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex)
 
-This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRenderer` draw, and three.js leaves the provoking vertex where WebGL 2 sets it. Issue #232 settled this.
+This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRenderer` draw, and three.js leaves the provoking vertex where WebGL 2 sets it. Issue #232 settled this. A driver that offers `WEBGL_provoking_vertex` could take the first vertex, but SwiftShader does not offer it, so the difference would remain there.
 
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
@@ -6372,6 +6373,12 @@ This is a fact of the WGSL specification, section Interpolation, and Dawn gives 
 > GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
 
 This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
+
+## @fact webgl2-takes-a-flat-varying-from-the-first-vertex-only-where-it-offers-webgl-provoking-vertex
+
+> Chromium 149's WebGL 2 offers `WEBGL_provoking_vertex` through ANGLE's Metal backend on an Apple M1, which leaves the last vertex convention set. After `provokingVertexWEBGL(FIRST_VERTEX_CONVENTION_WEBGL)`, a flat `uint` varying takes the first vertex of a triangle. On SwiftShader, as the test suite's `gpuPage` runs it, the extension is not offered, and a flat varying takes the last vertex.
+
+This is how Chromium 149 behaves, measured by `probes/bool-attribute/webgl-provoking-vertex.ts`, which draws a triangle whose first vertex writes 1 and the other two 2.
 
 ## @fact three-js-asks-for-no-provoking-vertex
 
