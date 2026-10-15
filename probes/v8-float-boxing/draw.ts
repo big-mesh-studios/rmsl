@@ -37,6 +37,11 @@ const cases = [
   "vec3 uniform, after draws of it given in 4 other kinds of array",
   "mat3 uniform, after draws of it given in 4 other kinds of array",
   "vec4 uniform array element, after draws of it given in 4 other kinds of array",
+  "vec3 uniform in the vertex stage, after draws of it given in 4 other kinds of array",
+  "sampler in the vertex stage, after draws of it with texel data of 4 other kinds",
+  "linear-filtered sampler, after draws of it with texel data of 4 other kinds",
+  "textureLoad, after draws of it with texel data of 4 other kinds",
+  "float uniform, after draws given uniforms objects of 5 shapes",
 ] as const;
 
 /** Objects a case makes before its draw, kept alive for the whole of it. */
@@ -110,7 +115,80 @@ if (isMainThread) {
     for (let k = 0; k < 2000; k++) other.draw(ctx as any, { width: 4, height: 4 });
   };
   const someColours = () => Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01);
+  /** Warms with each texel kind after the first given to the sampler `t` by `give`, then gives the first back. */
+  const warmTexels = (give: (kind: () => ArrayLike<number>) => void) => (draw: (ctx: any) => void) => {
+    for (const kind of texelKinds.slice(1)) {
+      give(kind);
+      for (let k = 0; k < 2000; k++) draw({ attributes, uniforms, textures });
+    }
+    give(texelKinds[0]!);
+  };
   switch (name) {
+    case "vec3 uniform in the vertex stage, after draws of it given in 4 other kinds of array": {
+      const u = uniform("vec3");
+      const v = varying("vec3");
+      const give = (kind: (n: number) => ArrayLike<number>) => (uniforms[u.name] = kind(3));
+      warm = (draw) => {
+        for (const kind of vectorKinds.slice(1)) {
+          give(kind);
+          for (let k = 0; k < 2000; k++) draw({ attributes, uniforms, textures });
+        }
+        give(vectorKinds[0]!);
+      };
+      give(vectorKinds[0]!);
+      vertex = () => {
+        v.assign(u.mul(0.37));
+        place();
+      };
+      fragment = () => vec4(v, 1);
+      break;
+    }
+    case "sampler in the vertex stage, after draws of it with texel data of 4 other kinds":
+    case "linear-filtered sampler, after draws of it with texel data of 4 other kinds":
+    case "textureLoad, after draws of it with texel data of 4 other kinds": {
+      const { texture, textureLoad, fragCoord, ivec2, int } = rmsl as any;
+      const t = uniform("sampler2D");
+      const linear = name.startsWith("linear");
+      const give = (kind: () => ArrayLike<number>) =>
+        (textures[t.name] = { data: kind(), width: 2, height: 2, ...(linear ? { magFilter: "linear" } : {}) });
+      give(texelKinds[0]!);
+      warm = warmTexels(give);
+      if (name.includes("vertex stage")) {
+        const v = varying("vec4");
+        vertex = () => {
+          v.assign(texture(t, position.xy.mul(0.5).add(0.5)));
+          place();
+        };
+        fragment = () => v;
+      } else {
+        vertex = place;
+        fragment = () =>
+          name.startsWith("textureLoad")
+            ? textureLoad(t, ivec2(int(0), int(1)))
+            : texture(t, fragCoord().xy.mul(0.0625));
+      }
+      break;
+    }
+    case "float uniform, after draws given uniforms objects of 5 shapes": {
+      // Each uniforms object holds the uniform, after a key of its own in all but the first: five shapes.
+      const f = uniform("float");
+      const shape = (i: number) => {
+        const o: Record<string, unknown> = {};
+        if (i > 0) o["extra" + i] = 1;
+        o[f.name] = 0.37;
+        return o;
+      };
+      warm = (draw) => {
+        for (let i = 1; i < 5; i++) {
+          const ctx = { attributes, uniforms: shape(i), textures };
+          for (let k = 0; k < 2000; k++) draw(ctx);
+        }
+      };
+      Object.assign(uniforms, shape(0));
+      vertex = place;
+      fragment = () => vec4(f, 0, 0, 1);
+      break;
+    }
     case "one sampler, after draws of it with texel data of 4 other kinds":
     case "five samplers with texel data of five kinds, in one draw":
     case "five samplers with texel data of one kind, in one draw": {

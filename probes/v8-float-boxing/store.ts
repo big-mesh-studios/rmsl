@@ -125,6 +125,23 @@ function keyedReadOfSmallIntegers(keyCount: number): Case {
   };
 }
 
+/** Reads `o.x` for arithmetic from eight objects of `shapes` shapes: each but the first gains a key of its own before `x`. */
+function namedReadOfShapes(shapes: number): Case {
+  return (src, mul) => {
+    const objects = Array.from({ length: 8 }, (_, i) => {
+      const o: any = {};
+      if (i % shapes > 0) o["extra" + (i % shapes)] = 1;
+      o.x = src[i]! * mul;
+      return o;
+    });
+    return () => {
+      let s = 0;
+      for (let i = 0; i < N; i++) s += objects[i & 7].x * src[i & 7]!;
+      sink[0] = s;
+    };
+  };
+}
+
 const plain = () => ({});
 const dictionary = () => Object.create(null);
 
@@ -160,6 +177,8 @@ const cases: Record<string, Case> = {
   },
   "read o.x, o plain": namedRead(plain),
   "read o.x, o in dictionary mode": namedRead(dictionary),
+  "read o.x, o of four shapes": namedReadOfShapes(4),
+  "read o.x, o of five shapes": namedReadOfShapes(5),
   "read o[key], one key, o plain": keyedRead(plain, 1),
   "read o[key], two keys, o plain": keyedRead(plain, 2),
   "read o[key], four keys, o plain": keyedRead(plain, 4),
