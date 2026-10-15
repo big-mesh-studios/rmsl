@@ -1900,6 +1900,8 @@ describe("an attribute element the host's array does not hold", () => {
       );
     };
     for (const values of lacking(new Float32Array(0), 1)) expect(draw(values)).toBe(1);
+    // An array that ends after the first vertex: the other two read NaN, which every fragment then reads.
+    expect(draw(Float32Array.of(2.5))).toBe(1);
     // An array that holds its elements reads them.
     expect(draw(Float32Array.of(2.5, 2.5, 2.5))).toBe(0);
   });
@@ -1934,6 +1936,22 @@ describe("an attribute element the host's array does not hold", () => {
     for (const values of lacking(new Uint32Array(0), 1)) expect(drawUint(values)).toBe(1);
     expect(drawInt(Int32Array.of(7, 7, 7))).toBe(0);
     expect(drawUint(Uint32Array.of(7, 7, 7))).toBe(0);
+    // An array that ends after the first vertex, which holds 0. An integer varying is flat, from the first vertex,
+    // so the value goes through a float varying, which reads 0 in every fragment only if the two vertices the
+    // array lacks read 0 as well.
+    const drawThroughFloat = (type: "int" | "uint", values: ArrayLike<number>) => {
+      const c = attribute(type);
+      const v = varying("float");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c.toFloat()),
+        () => v.equal(float(0)),
+      );
+    };
+    expect(drawThroughFloat("int", Int32Array.of(0))).toBe(1);
+    expect(drawThroughFloat("uint", Uint32Array.of(0))).toBe(1);
   });
 
   /**
