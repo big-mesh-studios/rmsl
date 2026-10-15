@@ -174,18 +174,18 @@ export function compileJSRasterizer(
     float: options.float,
   };
   const linked = linkStages(origin, vertexFn(), fragmentFn(), true);
-  const vertexStage = compileJSProgram(
-    origin,
-    () => linked.vertex,
-    { ...stageOptions, name: "vtx", stage: "vertex" },
-    true,
-  );
-  const fragmentStage = compileJSProgram(
-    origin,
-    () => linked.fragment,
-    { ...stageOptions, name: "frag", stage: "fragment" },
-    true,
-  );
+  const vertexStage = compileJSProgram(origin, () => linked.vertex, {
+    ...stageOptions,
+    name: "vtx",
+    stage: "vertex",
+    rasterized: true,
+  });
+  const fragmentStage = compileJSProgram(origin, () => linked.fragment, {
+    ...stageOptions,
+    name: "frag",
+    stage: "fragment",
+    rasterized: true,
+  });
   const writesDepth = fragmentStage.writesDepth;
 
   /** The attribute slots the vertex stage reads, as its program declares them. */

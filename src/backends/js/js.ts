@@ -1346,11 +1346,7 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   }
   let read = result.expr;
   if (JS_INPUT_BY_NAME.test(read) && !jsIsArrayType(node?._t) && node?.type !== "uniformArray") {
-    result = jsScalarInput(
-      ctx.jsRasterSlots && JS_RASTER_INPUT.test(read) ? jsRasterScalar(read, ctx) : read,
-      node._t,
-      ctx,
-    );
+    result = jsScalarInput(jsReadsRasterSlot(node, ctx) ? jsRasterScalar(read, ctx) : read, node._t, ctx);
   } else {
     result = jsTypedInput(node, result, ctx);
     if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
@@ -1433,8 +1429,11 @@ function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
 /** A read of an input the host passes by name, which no statement of a call changes. */
 const JS_INPUT_BY_NAME = /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/;
 
-/** A read of an input the JS rasterizer passes a stage of its own: an attribute, or a varying in a fragment stage. */
-const JS_RASTER_INPUT = /^ctx\.(attributes|varyings)\[/;
+/** Whether `node` is an input the JS rasterizer passes a stage of its own: an attribute, or a varying in a fragment stage. */
+function jsReadsRasterSlot(node: any, ctx: CompileCtx): boolean {
+  if (!ctx.jsRasterSlots) return false;
+  return node?.type === "attribute" || (node?.type === "varying" && ctx.shaderStage === "fragment");
+}
 
 /**
  * `read`, a scalar attribute or varying the JS rasterizer passes its stage,
@@ -2641,6 +2640,14 @@ export type CompileJSOptions = CompileFnOptions & {
    * `"f32"`, which rounds every float value to 32 bits as a GPU holds it.
    */
   float?: "f64" | "f32";
+  /**
+   * Internal to rmsl: the program is a stage of the JS rasterizer. It reads
+   * each scalar attribute and varying as the element of an array of one
+   * element, hands each scalar varying other than a `bool` back in such an
+   * array under its slot, and reads and writes its depth in the array
+   * `ctx.depthSlot`.
+   */
+  rasterized?: boolean;
 };
 
 /**
@@ -2662,7 +2669,6 @@ function compileJSFnDetailed(
   origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-  rasterized = false,
 ): {
   source: string;
   resultType: ShaderType | undefined;
@@ -2709,7 +2715,7 @@ function compileJSFnDetailed(
     derivatives,
     reentrant,
     jsFloat32: options.float === "f32",
-    jsRasterSlots: rasterized ? new Map() : undefined,
+    jsRasterSlots: options.rasterized ? new Map() : undefined,
   };
 
   assertOneDeclarationPerName(origin, resultNodes);
@@ -2986,24 +2992,13 @@ function ownedCopy(value: unknown, type: string | undefined, float32: boolean): 
  * Also carries `draw()`, the whole-image entry point: one JS call per pixel,
  * feeding `fragCoord` in and packing every result into one flat row-major
  * buffer, and `compute()`, one call per invocation.
- *
- * With `rasterized`, the program is a stage of the JS rasterizer: it reads
- * each scalar attribute and varying as the element of an array of one element,
- * hands each scalar varying other than a `bool` back in such an array under its
- * slot, and reads and writes its depth in the array `ctx.depthSlot`.
  */
 export function compileJSProgram(
   origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-  rasterized = false,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(
-    origin,
-    fn,
-    options,
-    rasterized,
-  );
+  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(origin, fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
@@ -3102,7 +3097,7 @@ export function compileJSProgram(
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind">;
+export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind" | "rasterized">;
 
 /**
  * Compiles an `Fn` as a vertex stage: a function that returns the position and
