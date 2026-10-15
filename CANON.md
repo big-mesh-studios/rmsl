@@ -6126,7 +6126,7 @@ This follows because the stage loads texel data at the same places in its code o
 
 > After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #312
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw
 
@@ -6140,7 +6140,7 @@ This follows because one helper of the stage samples every one of its samplers, 
 
 > Each texel the stage reads from float data, a `Float32Array` or a plain array of floats, is boxed into a new heap number; texels of integer data are not: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #312
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array
 
@@ -6154,7 +6154,7 @@ This follows because the stage copies the uniform into a slot at one place in it
 
 > After those draws, the copy boxes each component it reads: about 12.4 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #313
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array
 
@@ -6168,7 +6168,7 @@ This follows because the stage copies a matrix uniform into a slot as it copies 
 
 > After those draws, the copy boxes each component it reads: about 37 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #313
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array
 
@@ -6182,7 +6182,7 @@ This follows because the stage copies an element it reads into a slot at one pla
 
 > After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #313
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
 
@@ -6196,7 +6196,7 @@ This follows because a vertex stage copies a uniform into a slot as a fragment s
 
 > After those draws, the copy boxes each component it reads, 16 bytes for each component of each vertex: about 300 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #313
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds
 
@@ -6210,7 +6210,7 @@ This follows because a vertex stage samples a texture with the same helper a fra
 
 > After those draws, each texel component the stage reads is boxed into a new heap number: about 390 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #312
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds
 
@@ -6224,7 +6224,7 @@ This follows because a linear filter loads texel data at places of its own, apar
 
 > After those draws, each texel the linear filter reads is boxed into a new heap number, several for each fragment: about 99 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #312
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds
 
@@ -6238,7 +6238,7 @@ This follows because `textureLoad` loads texel data at places of its own, which 
 
 > After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #312
+Issue: #328
 
 #### @spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes
 
@@ -6252,7 +6252,7 @@ This follows because the stage reads the uniform by its slot at one place in its
 
 > After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
-Issue: #316
+Issue: #328
 
 #### @spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
 
