@@ -138,8 +138,10 @@ same faces it shows unmirrored.
 ### WebGLRenderer
 
 `new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`
-(multisampling, default `false` as in three.js), `depth`, `precision`
-(`"highp" | "mediump" | "lowp"`, default `"highp"`), and `preserveState`.
+(multisampling of the canvas, default `false` as in three.js), `depth`,
+`precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
+`preserveState`. WebGL treats `antialias: true` as a request: a driver without
+multisampling draws with one sample anyway.
 
 A canvas has one WebGL2 context for its life, and the first call that makes it
 decides its multisampling. A renderer made on a canvas that already has a
@@ -148,8 +150,9 @@ three.js. So a renderer with `antialias: true` made after
 `createGlsl(...).attach(canvas)` draws with the single sample `createGlsl` asked
 for. The other way round, `createGlsl` attached to a canvas that already has a
 context keeps that context's attributes, multisampling included: a renderer
-made with `antialias: true`, or a plain `getContext("webgl2")`, which
-multisamples by default, gives it a multisampled context.
+made with `antialias: true`, or a plain `getContext("webgl2")`, which asks for
+multisampling by default, gives it a multisampled context, and a context made
+with `alpha: false` keeps no alpha for it either.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
 state the application left. Before a frame it sets the colour mask, blend
@@ -186,7 +189,9 @@ uniforms are uploaded per draw, grouped by scope:
   uniforms declared through the builder
 
 `render(scene, camera, target?)` draws onto a `WebGLRenderTarget` instead of
-the canvas when one is given, keeping its own color and depth. Read a
+the canvas when one is given, keeping its own color and depth. A target draws
+with one sample, whatever `antialias` asks: the option applies to the canvas
+only. Read a
 target's pixels back with `readPixels(target, out?)`, which copies the GPU's
 answer to a `Uint8Array` and stalls the pipeline until it is ready — fine for
 an occasional sample, not for every frame. `readPixelsAsync(target, out?)`
@@ -196,8 +201,9 @@ confirms the transfer landed, typically a frame or a few later.
 
 ### WebGPURenderer
 
-`await WebGPURenderer.init(canvas?)`. Same API, except that `readPixels(target,
-out?)` returns a promise, since WebGPU reads a texture back only
+`await WebGPURenderer.init(canvas?)`. Same API, except that it has no
+`antialias` option and draws with one sample, onto the canvas and into a
+target, and that `readPixels(target, out?)` returns a promise, since WebGPU reads a texture back only
 asynchronously; it gives the same RGBA bytes, the bottom row first, as the
 WebGL renderer's. Uniform values are packed into
 per-program ring buffers using the same layout the WGSL compiler emits, so

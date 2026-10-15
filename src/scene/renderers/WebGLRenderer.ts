@@ -138,6 +138,11 @@ export class WebGLRenderer {
   private vertexArray: WebGLVertexArrayObject | null = null;
 
   /**
+   * `antialias: true` asks the canvas's WebGL 2 context for multisampling,
+   * which the driver may grant or not; by default the renderer asks for none,
+   * as three.js's does. A `WebGLRenderTarget` draws with one sample either way,
+   * and a canvas that already has a context keeps its samples.
+   *
    * With `preserveState: true`, each call puts back the WebGL state it changed
    * before it returns, for code that shares the context. Without it, a call
    * leaves the state as it set it.
