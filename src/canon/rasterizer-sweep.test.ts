@@ -263,6 +263,21 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   });
 
   /**
+   * The first two vertices, 2^301 to either side, take their y, z and w for 0 and become the
+   * directions (∓1, 0, 0, 0), whose edge passes through vec4(0): a wedge to the centre, where the
+   * triangle as its vertices place it covers every pixel. At 2^299 it covers every pixel.
+   *
+   * @canon spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0
+   */
+  it("can turn a triangle into one in a plane with the eye by taking a component for 0", () => {
+    const lit = (image: Float64Array) => image.filter((_, i) => i % 4 === 3 && image[i] !== -1).length;
+    for (const draw of [js, wasm]) {
+      expect(lit(draw([-(2 ** 301), -1, 0.5, 1, 2 ** 301, -1, 0.5, 1, 0, 1, 0.5, 1], 16, 16))).toBe(36);
+      expect(lit(draw([-(2 ** 299), -1, 0.5, 1, 2 ** 299, -1, 0.5, 1, 0, 1, 0.5, 1], 16, 16))).toBe(256);
+    }
+  });
+
+  /**
    * The third vertex is minus a power of two times the first, plus a hair, so an edge passes a
    * hair from vec4(0), and a vertex the clip cuts there has a w of that hair: its projection is
    * rounding, and the pixels to test are all of the target's. The lines of such a triangle are

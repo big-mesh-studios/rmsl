@@ -764,7 +764,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
         - [`@spec a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it`](#spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it) — A pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0, goes by that edge and that depth as the triangle's own vertices place them, not as the vertices the clip makes place them.
         - [`@spec a-rasterizer-decides-a-pixel-centre-on-an-edge-on-a-target-of-any-size`](#spec-a-rasterizer-decides-a-pixel-centre-on-an-edge-on-a-target-of-any-size) — A pixel centre exactly on an edge goes by the top-left rule on a target whose width or height is not a power of two, as on one whose are.
-        - [`@spec a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0`](#spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0) — A component of a position smaller than 2^-300 of the largest component of its vertex counts as 0 in deciding which pixel centres the triangle covers.
+        - [`@spec a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0`](#spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0) — A component of a position smaller than 2^-300 of the largest component of its vertex counts as 0 in deciding which pixel centres the triangle covers. Such a position lies beyond what positions of 32-bit floats reach.
         - [`@spec a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre`](#spec-a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre) — A triangle whose vertices lie in one plane with the eye covers no pixel centre, unless the polygon the clip leaves of it has a vertex at `vec4(0)`.
         - [`@exception a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision`](#exception-a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision) — On WGSL and GLSL, a pixel centre exactly on an edge of a triangle, or exactly at depth 0, is decided by the precision of the driver, and some go the other way.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
@@ -1059,6 +1059,15 @@ The analysis found these places where the code or the documents do not hold the 
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 2. A matrix attribute that the fragment stage reads fails on WGSL, as it does in TSL. Whether rmsl should depart from TSL and give it a working path is open. Issue #290.
+
+### The floor of a component
+
+[`spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0`](#spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0) states today's behaviour: a component smaller than 2^-300 of the largest of its vertex counts as 0. No position of 32-bit floats reaches that, so the axioms leave the value to rmsl, and the owner has not picked it. The options:
+
+1. Keep the floor at 2^-300. It costs nothing, and a line's sign stays within what products of 64-bit floats hold. A position of 64-bit floats with components more than 2^300 apart can then draw another triangle than its exact one, as the spec's example shows.
+2. Track the exponents of products instead of flushing: an exact path that never takes a component for 0. Every position of 64-bit floats then draws its exact triangle, at the cost of a second, slower path for the exact sums and of the tests for it.
+
+Recommendation: keep option 1, as it lies wholly outside what a GPU can draw. A discuss issue for the owner's ruling is not filed yet.
 
 ### Coverage gaps
 
@@ -5652,11 +5661,11 @@ This follows because a pixel centre lies at a fraction with the width or the hei
 
 ###### @spec a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0
 
-> A component of a position smaller than 2^-300 of the largest component of its vertex counts as 0 in deciding which pixel centres the triangle covers.
+> A component of a position smaller than 2^-300 of the largest component of its vertex counts as 0 in deciding which pixel centres the triangle covers. Such a position lies beyond what positions of 32-bit floats reach.
 
 Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
-This follows because no position of 32-bit floats, which a GPU draws, holds a component that small beside another one, as their largest and smallest lie 2^277 apart. The sign of a line through such a component would need more digits than products of 64-bit floats keep. Outside the positions a GPU can draw, rmsl picks its own result.
+This follows because no position of 32-bit floats, which a GPU draws, holds a component that small beside another one, as their largest and smallest lie 2^277 apart. The sign of a line through such a component would need more digits than products of 64-bit floats keep. Outside the positions a GPU can draw, rmsl picks its own result. The value 2^-300 is today's pick, which the owner has not ruled on ([open question](#the-floor-of-a-component)). Taking a component for 0 can do more than decide a tie: it can turn a vertex into a direction, and the triangle into one in a plane with the eye. The triangle from `(-2^301, -1, 0.5, 1)` and `(2^301, -1, 0.5, 1)` to `(0, 1, 0.5, 1)`, wholly in front of the eye, covers all 256 pixels of a 16×16 target, but its first two vertices become the directions `(∓1, 0, 0, 0)`, whose edge passes through `vec4(0)`, and it draws a wedge of 36 pixels to the centre. With 2^299 in place of 2^301 it draws all 256.
 
 ###### @spec a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre
 
