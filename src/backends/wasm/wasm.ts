@@ -1105,7 +1105,8 @@ export function compileWasmModule(
   function clearPositionInMemory(): number[] {
     if (!positionWritten || positionAddress === undefined) return [];
     const bytes: number[] = [];
-    for (let k = 0; k < 4; k++) bytes.push(...storeComponent(positionAddress, "float", k * componentSizeOf("float"), f64ConstBytes(0)));
+    for (let k = 0; k < 4; k++)
+      bytes.push(...storeComponent(positionAddress, "float", k * componentSizeOf("float"), f64ConstBytes(0)));
     return bytes;
   }
 
