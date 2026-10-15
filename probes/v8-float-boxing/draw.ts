@@ -28,7 +28,14 @@ const cases = [
   "uint attribute",
   "uint attribute of 2^31 or more",
   "vec3 varying, both triangles crossing the near plane",
+  "float attribute, after draws from 4 kinds of host array",
+  "vec3 varying, after draws with varyings in slots of 4 kinds",
+  "vec3 varying, after a host object made alike with the fragment context held undefined in fragDepth",
+  "vec3 varying, after a host object made alike with the vertex context held undefined in vertexIndex",
 ] as const;
+
+/** Objects a case makes before its draw, kept alive for the whole of it. */
+const keep: unknown[] = [];
 
 if (isMainThread) {
   console.log(versions());
@@ -59,7 +66,121 @@ if (isMainThread) {
   let fragment: () => unknown;
   let float32 = false;
   const place = () => builtinPosition().assign(vec4(position, 1));
+  /**
+   * Draws 2000 times with another rasterizer from the attribute `values` of `type`. Its vertex stage
+   * writes the varying `write` gives, if any, and its fragment stage reads that varying's first component.
+   */
+  const drawOther = (type: string, values: ArrayLike<number>, write?: (p: any) => any, float?: "f32") => {
+    const p = attribute(type);
+    let written: any;
+    const other = compileJS(
+      () =>
+        Fn(() => {
+          written = write?.(p);
+          builtinPosition().assign(vec4(type === "vec3" ? p : position, 1));
+        })(),
+      () => Fn(() => (written ? vec4(written.x.toFloat(), 0, 0, 1) : vec4(1)))(),
+      { float: float ?? "f64" },
+    );
+    const ctx = { attributes: { [p.name]: values, [position.name]: positions } };
+    for (let k = 0; k < 2000; k++) other.draw(ctx as any, { width: 4, height: 4 });
+  };
+  const someColours = () => Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01);
   switch (name) {
+    case "float attribute, after draws from 4 kinds of host array": {
+      for (const make of [Float32Array, Int32Array, Uint32Array, Int16Array])
+        drawOther("float", (make as any).from([1, 2, 3, 4, 5, 6]));
+      const c = attribute("float");
+      const v = varying("vec3");
+      attributes[c.name] = fractions;
+      vertex = () => {
+        v.assign(vec4(c.mul(0.5), 0, 0, 0).xyz);
+        place();
+      };
+      fragment = () => vec4(v, 1);
+      break;
+    }
+    case "vec3 varying, after draws with varyings in slots of 4 kinds": {
+      // A vertex stage hands back an ivec3 in an Int32Array, a uvec3 in a Uint32Array, and a vec3 at f32 in a Float32Array.
+      const { ivec3, uvec3, varying: v2 } = rmsl as any;
+      const writes = (type: string, value: (p: any) => any) => (p: any) => {
+        const v = v2(type);
+        v.assign(value(p));
+        return v;
+      };
+      drawOther(
+        "vec3",
+        positions,
+        writes("ivec3", () => ivec3(1, 2, 3)),
+      );
+      drawOther(
+        "vec3",
+        positions,
+        writes("uvec3", () => uvec3(1, 2, 3)),
+      );
+      drawOther(
+        "vec3",
+        positions,
+        writes("vec3", (p) => p.mul(0.5)),
+        "f32",
+      );
+      const c = attribute("vec3");
+      const v = varying("vec3");
+      attributes[c.name] = someColours();
+      vertex = () => {
+        v.assign(c.mul(0.5));
+        place();
+      };
+      fragment = () => vec4(v, 1);
+      break;
+    }
+    case "vec3 varying, after a host object made alike with the fragment context held undefined in fragDepth":
+    case "vec3 varying, after a host object made alike with the vertex context held undefined in vertexIndex": {
+      // Made as the rasterizer makes its contexts: a literal, then uniforms and textures, then the per-call field.
+      if (name.includes("fragment")) {
+        const o: any = { varyings: {}, fragCoord: null };
+        o.uniforms = {};
+        o.textures = undefined;
+        o.fragDepth = undefined;
+        keep.push(o);
+      } else {
+        const o: any = { attributes: {} };
+        o.uniforms = {};
+        o.textures = undefined;
+        o.vertexIndex = undefined;
+        keep.push(o);
+      }
+      const c = attribute("vec3");
+      const v = varying("vec3");
+      attributes[c.name] = someColours();
+      // A depth that is not a whole number at any vertex, so every fragment's interpolated depth is a fraction.
+      attributes[position.name] = Float64Array.of(
+        -1,
+        -1,
+        0.13,
+        1,
+        -1,
+        0.37,
+        -1,
+        1,
+        0.61,
+        1,
+        -1,
+        0.37,
+        1,
+        1,
+        0.29,
+        -1,
+        1,
+        0.61,
+      );
+      vertex = () => {
+        v.assign(c.mul(0.5));
+        place();
+      };
+      fragment = () => vec4(v, 1);
+      break;
+    }
     case "vec3 varying": {
       const c = attribute("vec3");
       const v = varying("vec3");

@@ -1,6 +1,7 @@
 /**
  * What the same float stores and reads allocate in each tier V8 may run code
- * in. `--max-opt` caps the tier: 0 interprets only, 1 adds Sparkplug, 2 adds
+ * in. Each store writes the product of a float it loads from a Float64Array;
+ * the read multiplies a property by such a float. `--max-opt` caps the tier: 0 interprets only, 1 adds Sparkplug, 2 adds
  * Maglev, and the default adds TurboFan. Each tier runs in a process of its
  * own, and each case in a worker of that process.
  *
@@ -23,6 +24,13 @@ const cases: Record<string, () => () => void> = {
     const f = new Float64Array(1);
     return () => {
       for (let i = 0; i < N; i++) f[0] = fractions[i & 7]! * 1.5;
+    };
+  },
+  "store f[0] of small integers, f a Float64Array": () => {
+    const f = new Float64Array(1);
+    const ints = Float64Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+    return () => {
+      for (let i = 0; i < N; i++) f[0] = ints[i & 7]! * 2;
     };
   },
   "read o.x into a Float64Array": () => {
