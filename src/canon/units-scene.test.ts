@@ -36,7 +36,7 @@ import {
 } from "../scene";
 import { GPU_ENABLED, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { collectNodes } from "../scene/materials/nodes/graph";
-import { GL_STATE, READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
+import { GL_STATE, READ_IMAGE, READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { camera, offsetOf, sampling, stubDevice, stubGl, stubWebGl } from "./scene-stubs";
 import { drawToCanvas, GlStateKeeper } from "../backends/glsl/gl-state";
 
@@ -273,7 +273,9 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
  * The number of samples of the drawing buffer a `WebGLRenderer` draws into,
  * made with each `antialias`, on a fresh canvas and on a canvas that already
  * has a context: one made by `getContext` with or without multisampling, and
- * one made by `createGlsl`.
+ * one made by `createGlsl`. `plain` holds the samples of a context
+ * `getContext` makes with `antialias: true`, which is what the driver grants
+ * a request for multisampling.
  */
 const ENTRY_RENDERER_SAMPLES = `
 import { WebGLRenderer } from "../scene";
@@ -289,6 +291,10 @@ const withContext = (antialias) => {
   canvas.getContext("webgl2", { antialias });
   return canvas;
 };
+const plain = () => {
+  const gl = document.createElement("canvas").getContext("webgl2", { antialias: true });
+  return gl.getParameter(gl.SAMPLES);
+};
 globalThis.__rmslRendererSamples = () => {
   const attached = document.createElement("canvas");
   const pos = attribute("vec2");
@@ -301,6 +307,7 @@ globalThis.__rmslRendererSamples = () => {
     antialiasTrueOnASingleSampledContext: samples(new WebGLRenderer(withContext(false), { antialias: true })),
     antialiasTrueAfterCreateGlsl: samples(new WebGLRenderer(attached, { antialias: true })),
     byDefaultOnAMultisampledContext: samples(new WebGLRenderer(withContext(true))),
+    plain: plain(),
   };
 };
 `;
@@ -349,12 +356,16 @@ describe("the multisampling WebGLRenderer draws with", () => {
   });
 
   /**
+   * The driver may grant a request for multisampling or not, so the renderer
+   * is held to what it grants a plain context.
+   *
    * @canon exception-webgl-renderer-multisamples-when-antialias-is-true
    */
   it.skipIf(!GPU_ENABLED)(
-    "draws into a multisampled buffer when antialias is true, on a real driver",
+    "draws into a buffer of the samples the driver grants when antialias is true, on a real driver",
     async () => {
-      expect((await samples()).antialiasTrue).toBeGreaterThan(1);
+      const { antialiasTrue, plain } = await samples();
+      expect(antialiasTrue).toBe(plain);
     },
     60_000,
   );
@@ -371,7 +382,100 @@ describe("the multisampling WebGLRenderer draws with", () => {
       const result = await samples();
       expect(result.antialiasTrueOnASingleSampledContext).toBe(0);
       expect(result.antialiasTrueAfterCreateGlsl).toBe(0);
-      expect(result.byDefaultOnAMultisampledContext).toBeGreaterThan(1);
+      expect(result.byDefaultOnAMultisampledContext).toBe(result.plain);
+    },
+    60_000,
+  );
+});
+
+/**
+ * The alphas that occur when a renderer draws an opaque red plane from x 0.5 to
+ * 2.5 pixels, its edges through the centres of columns 0 and 2, over a 4×4
+ * surface cleared to transparent: on the canvas and into a
+ * `WebGLRenderTarget`. `__rmslSceneEdgesOnWebGl` draws with `WebGLRenderer`,
+ * by default and with `antialias: true`, with the `SAMPLES` of its canvas;
+ * `__rmslSceneEdgesOnWebGpu` draws with `WebGPURenderer`, with the errors its
+ * device raised. The camera sits near its far plane, so the plane is drawn
+ * whatever depth range the renderer maps the frustum to.
+ */
+const ENTRY_SCENE_EDGES = `
+import { WebGLRenderer, WebGPURenderer, WebGLRenderTarget, Scene, Mesh, PlaneGeometry,
+  MeshBasicMaterial, OrthographicCamera } from "../scene";
+${READ_IMAGE}
+const scene = () => {
+  const mesh = new Mesh(new PlaneGeometry(1, 4), new MeshBasicMaterial({ color: 0xff0000 }));
+  mesh.position.x = -0.25;
+  const scene = new Scene();
+  scene.add(mesh);
+  return scene;
+};
+const camera = () => {
+  const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  camera.position.z = 9;
+  return camera;
+};
+const alphaSet = (bytes) => [...new Set(Array.from(bytes).filter((_, i) => i % 4 === 3))].sort((a, b) => a - b);
+const surfaces = async (renderer, canvas) => {
+  renderer.setClearColor(0x000000, 0);
+  renderer.render(scene(), camera());
+  if (renderer.device) await renderer.device.queue.onSubmittedWorkDone();
+  const onCanvas = alphaSet(readImage(canvas));
+  const target = new WebGLRenderTarget(4, 4);
+  renderer.render(scene(), camera(), target);
+  return { canvas: onCanvas, target: alphaSet(await renderer.readPixels(target)) };
+};
+globalThis.__rmslSceneEdgesOnWebGl = async () => {
+  const result = {};
+  for (const [name, options] of [["byDefault", {}], ["antialiasTrue", { antialias: true }]]) {
+    const canvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+    const renderer = new WebGLRenderer(canvas, options);
+    const gl = renderer.gl;
+    result[name] = { samples: gl.getParameter(gl.SAMPLES), ...(await surfaces(renderer, canvas)) };
+  }
+  return result;
+};
+globalThis.__rmslSceneEdgesOnWebGpu = async () => {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+  const renderer = await WebGPURenderer.init(canvas);
+  const errors = [];
+  renderer.device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+  const drawn = await surfaces(renderer, canvas);
+  return { ...drawn, errors };
+};
+`;
+
+describe("a pixel an edge crosses in a scene", () => {
+  const dir = new URL(".", import.meta.url).pathname;
+
+  /**
+   * On the canvas the multisampled buffer gives the crossed columns a part of
+   * the colour where the driver grants samples, which shows the plane's edges
+   * cross pixel centres; the target holds each pixel whole or empty.
+   *
+   * @canon spec-webgl-renderer-draws-into-a-render-target-with-one-sample
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "is whole or empty in a render target of WebGLRenderer, whatever antialias asks",
+    async () => {
+      const result = await runInGpuPage(ENTRY_SCENE_EDGES, "__rmslSceneEdgesOnWebGl", dir);
+      for (const drawn of Object.values<any>(result)) expect(drawn.target, JSON.stringify(result)).toEqual([0, 255]);
+      if (result.antialiasTrue.samples > 0)
+        expect(
+          result.antialiasTrue.canvas.some((alpha: number) => alpha > 0 && alpha < 255),
+          JSON.stringify(result),
+        ).toBe(true);
+    },
+    60_000,
+  );
+
+  /**
+   * @canon spec-webgpu-renderer-draws-with-one-sample
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "is whole or empty on WebGPURenderer, on the canvas and in a render target",
+    async () => {
+      const result = await runInWebGpuPage(ENTRY_SCENE_EDGES, "__rmslSceneEdgesOnWebGpu", dir);
+      expect(result).toEqual({ canvas: [0, 255], target: [0, 255], errors: [] });
     },
     60_000,
   );
