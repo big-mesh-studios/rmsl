@@ -1568,8 +1568,10 @@ describe("the scalars and inputs of a JS function", { timeout: ALLOCATION_TIMEOU
   });
 
   /**
-   * The first triangle has a vertex behind the eye and the second one at
-   * `vec4(0)`, so the clip cuts each into a polygon and fans it out.
+   * The first triangle has a vertex behind the eye, so the clip cuts it into
+   * a polygon that bounds the pixels its own lines test. The second has a
+   * vertex at `vec4(0)` and the other two in the clip volume, so it is drawn
+   * by its lines with that vertex at the centre, and not clipped.
    *
    * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-it-clips
    */
@@ -2093,7 +2095,9 @@ describe("what a JS draw allocates for the scalars it passes its stages", { time
    */
   it("allocates nothing for a triangle with a vertex behind the eye, nor for each fragment of it", async () => {
     const clip = attribute("vec4");
-    // Each triangle has one vertex behind the eye, so the clip bounds the pixels of both.
+    // Each triangle's third vertex, behind the eye, is minus one of the other two, so an edge passes through vec4(0)
+    // and the triangle lies in one plane with the eye: the clip cuts it to a polygon with a vertex at vec4(0), and the
+    // rasterizer draws the fan of that polygon.
     const positions = Float64Array.of(-1, -1, 0, 1, 1, -1, 0, 1, -1, 1, 0, -1, 1, -1, 0, 1, 1, 1, 0, 1, -1, 1, 0, -1);
     const raster = compileJS(
       () => Fn(() => builtinPosition().assign(clip))(),
