@@ -5,7 +5,8 @@
  * Run with `node probes/index-strips-culling/webgpu-ranges.ts`. It draws a list
  * of six vertices, two triangles with ids 10 to 15, through raw WebGPU in the
  * WebGPU page of the test harness, and prints for each call what it threw, or
- * which triangles drew. A pixel shows the id of the first vertex of the triangle that covers it: pixel 0 is triangle 0, 1, 2; pixel 3 is triangle 3, 4, 5; pixel 2 is triangle 2, 3, 4.
+ * which triangles drew. The vertex buffers hold six vertices, so a draw from vertex 7, or of
+ * vertices 4 to 6, reaches past them. A pixel shows the id of the first vertex of the triangle that covers it: pixel 0 is triangle 0, 1, 2; pixel 3 is triangle 3, 4, 5; pixel 2 is triangle 2, 3, 4.
  */
 import { webgpuPage, releaseGpu } from "../../src/testing/gpu.ts";
 
@@ -51,6 +52,11 @@ async function inPage(shader: string) {
     ["draw", false, 3.9, 0],
     ["draw", false, 3, -1],
     ["draw", false, NaN, 0],
+    ["draw", false, 0, 6],
+    ["draw", false, 0, 7],
+    ["draw", false, 3, 4],
+    ["draw", false, 4294967295.5, 0],
+    ["draw", false, 4294967296, 0],
   ];
   const results: string[] = [];
   for (const [name, indexed, count, first] of calls) {
