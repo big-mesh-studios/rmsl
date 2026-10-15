@@ -155,21 +155,22 @@ export function attributeShape(type: string): { columns: number; kind: Attribute
 export function vertexFormatOf(origin: Origin, attr: VertexSource, type: string): VertexFormat {
   const { columns, kind } = attributeShape(type);
   const count = attr.itemSize / columns;
+  const boolean = componentKindOf(type) === "bool";
+  const anotherKind = (format?: string) =>
+    new UsageError(
+      "vertex-format-of-another-kind",
+      `${withArticle(type)} attribute takes an Int32Array or a Uint32Array in a sint32 or uint32 format, ` +
+        `not ${withArticle(arrayTypeName(attr.array))}${format ? ` in the format ${format}` : ""}.`,
+      origin,
+    );
+  // A boolean takes only the two 32-bit integer arrays, so any other is refused before a format is looked for it.
+  if (boolean && !(attr.array instanceof Int32Array || attr.array instanceof Uint32Array)) throw anotherKind(attr.format);
   const declared = attr.format ?? formatName(origin, attr, count);
   // A boolean reads a signed 32-bit integer's bits as unsigned, which are zero exactly where the integer is.
-  const boolean = componentKindOf(type) === "bool";
   const named = boolean && declared.startsWith("sint32") ? (`u${declared.slice(1)}` as VertexFormat) : declared;
   const format = VERTEX_FORMATS[named];
   if (format === undefined) throw new UsageError("unknown-vertex-format", `no vertex format "${declared}"`, origin);
-  const words = attr.array instanceof Int32Array || attr.array instanceof Uint32Array;
-  if (boolean && (!words || format.kind !== "uint" || format.bytes !== 4)) {
-    throw new UsageError(
-      "vertex-format-of-another-kind",
-      `${withArticle(type)} attribute takes an Int32Array or a Uint32Array in a sint32 or uint32 format, ` +
-        `not ${withArticle(arrayTypeName(attr.array))} in the format ${declared}.`,
-      origin,
-    );
-  }
+  if (boolean && (format.kind !== "uint" || format.bytes !== 4)) throw anotherKind(declared);
   if (format.kind !== kind) {
     throw new UsageError(
       "vertex-format-of-another-kind",

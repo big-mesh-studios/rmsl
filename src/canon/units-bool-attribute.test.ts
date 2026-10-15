@@ -507,6 +507,25 @@ describe("a bool attribute's vertex format on a scene renderer", () => {
   /**
    * @canon spec-a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies
    */
+  it("refuses an array other than an Int32Array or a Uint32Array, whatever its width, naming the type", () => {
+    for (const [array, itemSize] of [
+      [Float64Array.of(1), 1],
+      [Float32Array.of(1, 0), 2],
+      [Uint8Array.of(1), 1],
+      [Int16Array.of(1, 0, 0, 1, 1), 5],
+      [[1, 0], 2],
+    ] as const) {
+      expect(format(itemSize === 1 ? "bool" : `bvec${Math.min(itemSize, 4)}`, array, itemSize)).toThrowRmsl(
+        UsageError,
+        "vertex-format-of-another-kind",
+        /^an? b(ool|vec\d) attribute takes an Int32Array or a Uint32Array/,
+      );
+    }
+  });
+
+  /**
+   * @canon spec-a-scene-renderer-reads-a-bool-attribute-in-a-32-bit-integer-format-it-declares-or-its-array-implies
+   */
   it("refuses a normalized array and a width no format covers as it does any attribute", () => {
     expect(format("bool", Int32Array.of(1), 1, { normalized: true })).toThrowRmsl(
       UsageError,
