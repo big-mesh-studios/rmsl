@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
+  and,
   attributeRaw,
   bool,
   builtinFragDepth,
@@ -1843,75 +1844,150 @@ describe("what a JS draw allocates for the scalars it passes its stages", () => 
 });
 
 describe("an attribute element the host's array does not hold", () => {
-  type AttributeType = "float" | "int" | "uint" | "vec3" | "ivec3" | "uvec3";
   /**
-   * What a 1 by 1 draw of a triangle covering it shows for an attribute of
-   * `type` whose array is `values`, read at every vertex: red when its first
-   * component reads NaN for a float type and 0 for an integer one, and black otherwise.
+   * The red channel of a 1 by 1 draw, of a triangle covering it, of three
+   * vertices whose attribute `attr` has `values`: 1 where the fragment program
+   * `hit` holds, and 0 otherwise. The vertex program `pass` hands the attribute
+   * on in a varying.
    */
-  function drawsAs(compileRaster: typeof compileJS, type: AttributeType, values: ArrayLike<number>) {
+  function drawsRed(
+    compileRaster: typeof compileJS,
+    attr: { name: string },
+    values: ArrayLike<number>,
+    pass: () => void,
+    hit: () => Node<"bool">,
+  ): number {
     const position = attribute("vec3");
-    const c = attribute(type);
-    const scalar = type.startsWith("u") ? "uint" : type.startsWith("i") || type === "int" ? "int" : "float";
-    const v = varying(scalar);
     const raster = compileRaster(
       () =>
         Fn(() => {
-          v.assign(type.length > 4 ? (c as any).x : (c as any));
+          pass();
           builtinPosition().assign(vec4(position, 1));
-        })() as any,
-      () =>
-        Fn(() => {
-          // NaN is the one value that is not equal to itself.
-          const hit =
-            scalar === "float" ? (v as any).notEqual(v) : (v as any).equal(scalar === "uint" ? uint(0) : int(0));
-          return vec4(select(hit, float(1), float(0)), 0, 0, 1);
-        })() as any,
+        })(),
+      () => Fn(() => vec4(select(hit(), float(1), float(0)), 0, 0, 1))(),
     );
     const positions = Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
     const out = raster.draw(
-      { attributes: { [position.name]: positions, [c.name]: values as any } },
-      {
-        width: 1,
-        height: 1,
-        count: 3,
-      },
-    ) as ArrayLike<number>;
-    return out[0];
+      { attributes: { [position.name]: positions, [attr.name]: values as Float64Array } },
+      { width: 1, height: 1, count: 3 },
+    );
+    return out[0]!;
   }
 
-  /** The arrays that hold no element for any of three vertices of `width` components: one that ends before them, one of holes, and one of undefined. */
-  const lacking = (empty: () => ArrayLike<number>, width: number) =>
-    [empty(), new Array(3 * width), Array.from({ length: 3 * width }, () => undefined)] as any[];
+  /** Arrays that hold no element for any of three vertices of `width` components: one that ends before them, one of holes, and one of undefined. */
+  const lacking = (empty: ArrayLike<number>, width: number): ArrayLike<number>[] => [
+    empty,
+    new Array<number>(3 * width),
+    Array.from({ length: 3 * width }, () => undefined as unknown as number),
+  ];
+
+  /** Whether a float is NaN: the one value that is not equal to itself. */
+  const isNaN = (x: Node<"float">) => x.notEqual(x);
 
   /**
    * @canon spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
    */
   it.each(rasterizers)("%s: reads a float attribute element its array lacks as NaN", (_, compileRaster) => {
-    for (const values of lacking(() => new Float32Array(0), 1)) expect(drawsAs(compileRaster, "float", values)).toBe(1);
+    const draw = (values: ArrayLike<number>) => {
+      const c = attribute("float");
+      const v = varying("float");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => isNaN(v),
+      );
+    };
+    for (const values of lacking(new Float32Array(0), 1)) expect(draw(values)).toBe(1);
+    // An array that holds its elements reads them.
+    expect(draw(Float32Array.of(2.5, 2.5, 2.5))).toBe(0);
   });
 
   /**
    * @canon spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
    */
   it.each(rasterizers)("%s: reads an int or uint attribute element its array lacks as 0", (_, compileRaster) => {
-    for (const values of lacking(() => new Int32Array(0), 1)) expect(drawsAs(compileRaster, "int", values)).toBe(1);
-    for (const values of lacking(() => new Uint32Array(0), 1)) expect(drawsAs(compileRaster, "uint", values)).toBe(1);
+    const drawInt = (values: ArrayLike<number>) => {
+      const c = attribute("int");
+      const v = varying("int");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => v.equal(int(0)),
+      );
+    };
+    const drawUint = (values: ArrayLike<number>) => {
+      const c = attribute("uint");
+      const v = varying("uint");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => v.equal(uint(0)),
+      );
+    };
+    for (const values of lacking(new Int32Array(0), 1)) expect(drawInt(values)).toBe(1);
+    for (const values of lacking(new Uint32Array(0), 1)) expect(drawUint(values)).toBe(1);
+    expect(drawInt(Int32Array.of(7, 7, 7))).toBe(0);
+    expect(drawUint(Uint32Array.of(7, 7, 7))).toBe(0);
   });
 
   /**
    * @canon spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan
    */
-  it.each(rasterizers)("%s: reads a vec3 attribute component its array lacks as NaN", (_, compileRaster) => {
-    for (const values of lacking(() => new Float32Array(0), 3)) expect(drawsAs(compileRaster, "vec3", values)).toBe(1);
+  it.each(rasterizers)("%s: reads each vec3 attribute component its array lacks as NaN", (_, compileRaster) => {
+    const draw = (values: ArrayLike<number>) => {
+      const c = attribute("vec3");
+      const v = varying("vec3");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => and(isNaN(v.x), isNaN(v.y), isNaN(v.z)),
+      );
+    };
+    for (const values of lacking(new Float32Array(0), 3)) expect(draw(values)).toBe(1);
+    expect(draw(new Float32Array(9).fill(2.5))).toBe(0);
   });
 
   /**
    * @canon spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero
    */
-  it.each(rasterizers)("%s: reads an ivec3 or uvec3 attribute component its array lacks as 0", (_, compileRaster) => {
-    for (const values of lacking(() => new Int32Array(0), 3)) expect(drawsAs(compileRaster, "ivec3", values)).toBe(1);
-    for (const values of lacking(() => new Uint32Array(0), 3)) expect(drawsAs(compileRaster, "uvec3", values)).toBe(1);
+  it.each(rasterizers)("%s: reads each ivec3 or uvec3 attribute component its array lacks as 0", (_, compileRaster) => {
+    const drawInt = (values: ArrayLike<number>) => {
+      const c = attribute("ivec3");
+      const v = varying("ivec3");
+      const zero = int(0);
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => and(v.x.equal(zero), v.y.equal(zero), v.z.equal(zero)),
+      );
+    };
+    const drawUint = (values: ArrayLike<number>) => {
+      const c = attribute("uvec3");
+      const v = varying("uvec3");
+      const zero = uint(0);
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => and(v.x.equal(zero), v.y.equal(zero), v.z.equal(zero)),
+      );
+    };
+    for (const values of lacking(new Int32Array(0), 3)) expect(drawInt(values)).toBe(1);
+    for (const values of lacking(new Uint32Array(0), 3)) expect(drawUint(values)).toBe(1);
+    // Each component the array holds is read, so a draw whose first component alone is 0 stays black.
+    expect(drawInt(Int32Array.of(0, 7, 7, 0, 7, 7, 0, 7, 7))).toBe(0);
+    expect(drawUint(Uint32Array.of(0, 7, 7, 0, 7, 7, 0, 7, 7))).toBe(0);
   });
 });
 
