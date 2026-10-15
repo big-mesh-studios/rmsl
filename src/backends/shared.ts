@@ -214,6 +214,12 @@ export interface CompileCtx extends BackendOrigin {
   reentrant: boolean;
   /** JS target: whether the program computes every float in 32 bits, as `float: "f32"` asks. */
   jsFloat32?: boolean;
+  /**
+   * JS target: the slot of one element each scalar varying of a vertex stage
+   * is handed back in, by the varying's slot, when the program is a stage of
+   * the JS rasterizer.
+   */
+  jsRasterSlots?: Map<string, string>;
   /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
   jsTarget?: unknown;
   /**

@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
+  and,
   attributeRaw,
   bool,
   builtinFragDepth,
@@ -21,6 +22,8 @@ import {
   instancedArray,
   invocationIndex,
   ivec2,
+  ivec3,
+  uvec3,
   mat2,
   mix,
   normalize,
@@ -1428,7 +1431,7 @@ describe("the scalars and inputs of a JS function", () => {
   });
 
   /**
-   * @canon spec-a-js-draw-allocates-nothing-per-vertex-or-fragment
+   * @canon spec-a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying
    */
   it("allocates nothing per vertex or fragment of a rasterized draw", async () => {
     const position = attribute("vec3");
@@ -1455,14 +1458,889 @@ describe("the scalars and inputs of a JS function", () => {
   });
 });
 
+describe("what a JS draw allocates for the scalars it passes its stages", () => {
+  /** Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw. */
+  const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
+  /** Six fractions, one for each vertex of the quad. */
+  const fractions = () => Float64Array.of(0.1, 0.3, 0.7, 0.2, 0.9, 0.45);
+  const options = { width: 16, height: 16 };
+
+  /** What a draw of `vertex` and `fragment`, from `ctx` beside the quad's positions, allocates after 2000 warm-up draws. */
+  async function drawAllocates(
+    vertex: (place: () => void) => void,
+    fragment: () => any,
+    ctx: { attributes?: Record<string, any>; uniforms?: Record<string, unknown> } = {},
+    compileOptions: { float?: "f64" | "f32" } = {},
+    before?: () => void,
+  ): Promise<number> {
+    const position = attribute("vec3");
+    const place = () => builtinPosition().assign(vec4(position, 1));
+    const raster = compileJS(
+      () => Fn(() => vertex(place))(),
+      () => Fn(() => fragment())(),
+      compileOptions,
+    );
+    const attributes: Record<string, any> = { [position.name]: quad() };
+    for (const slot in ctx.attributes) attributes[slot] = ctx.attributes[slot];
+    const context = { attributes, uniforms: ctx.uniforms };
+    before?.();
+    return allocatedBy(() => raster.draw(context as any, options), 2000, 200);
+  }
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-attribute
+   */
+  it("allocates nothing per vertex for a float attribute", async () => {
+    const c = attribute("float");
+    const v = varying("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(vec3(c.mul(0.5), 0, 0));
+        place();
+      },
+      () => vec4(v, 1),
+      { attributes: { [c.name]: fractions() } },
+    );
+    // Six vertices: a box for each is 96 bytes.
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-an-int-attribute
+   */
+  it("allocates nothing per vertex for an int attribute", async () => {
+    const c = attribute("int");
+    const v = varying("float");
+    // The varying is 1 at every vertex, so only the attribute could allocate.
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.toFloat().mul(0).add(1));
+        place();
+      },
+      () => vec4(v, 0, 0, 1),
+      { attributes: { [c.name]: Int32Array.of(-1, 2, -3, 4, -5, 6) } },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-uint-attribute-no-small-integer-holds
+   */
+  it("allocates nothing per vertex for a uint attribute of 2^31 or more", async () => {
+    const c = attribute("uint");
+    const v = varying("float");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.toFloat().mul(0).add(1));
+        place();
+      },
+      () => vec4(v, 0, 0, 1),
+      {
+        attributes: {
+          [c.name]: Uint32Array.of(2 ** 31, 2 ** 31 + 1, 2 ** 31 + 2, 2 ** 32 - 1, 2 ** 31 + 3, 2 ** 31 + 4),
+        },
+      },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /** A draw whose vertex stage writes a float varying from a float attribute holding fractions, which the fragment stage reads. */
+  function floatVarying(float: "f64" | "f32", before?: () => void, attributeOf?: (c: any, v: any) => void) {
+    const c = attribute("float");
+    const v = varying("float");
+    attributeOf?.(c, v);
+    return drawAllocates(
+      (place) => {
+        v.assign(c.mul(0.5));
+        place();
+      },
+      () => vec4(v, 0, 0, 1),
+      { attributes: { [c.name]: fractions() } },
+      { float },
+      before,
+    );
+  }
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-varying-at-f64
+   */
+  it("allocates nothing per vertex or fragment for a float varying at f64", async () => {
+    // 256 fragments: a box for each is 4 KB.
+    expect(await floatVarying("f64")).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-varying-at-f32
+   */
+  it("allocates nothing per vertex or fragment for a float varying at f32", async () => {
+    expect(await floatVarying("f32")).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-an-int-varying
+   */
+  it("allocates nothing per vertex or fragment for an int varying", async () => {
+    const v = varying("int");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(int(-7));
+        place();
+      },
+      () => vec4(v.toFloat().mul(0.1), 0, 0, 1),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-bool-varying
+   */
+  it("allocates nothing per vertex or fragment for a bool varying", async () => {
+    const v = varying("bool");
+    const position = attribute("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(position.x.greaterThan(0));
+        place();
+      },
+      () => vec4(select(v, float(1), float(0)), 0, 0, 1),
+      { attributes: { [position.name]: quad() } },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-uint-varying-no-small-integer-holds
+   */
+  it("allocates nothing per vertex or fragment for a uint varying of 2^31 or more", async () => {
+    const v = varying("uint");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(uint(0xfffffff0));
+        place();
+      },
+      () => vec4(v.toFloat().mul(0), 0, 0, 1),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-uniform
+   */
+  it("allocates nothing per fragment for a float uniform", async () => {
+    const u = uniform("float");
+    const bytes = await drawAllocates(
+      (place) => place(),
+      () => vec4(u, 0, 0, 1),
+      { uniforms: { [u.name]: 0.37 } },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth
+   */
+  it("allocates nothing per fragment for a fragment stage that writes its depth", async () => {
+    const bytes = await drawAllocates(
+      (place) => place(),
+      () => {
+        builtinFragDepth().assign(fragCoord().x.mul(0.013));
+        return vec4(1);
+      },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn
+   */
+  it("allocates nothing per vertex or fragment after another rasterizer with other slots has drawn", async () => {
+    const bytes = await floatVarying("f64", undefined, () => {
+      const c = attribute("float");
+      const v = varying("float");
+      const position = attribute("vec3");
+      const other = compileJS(
+        () =>
+          Fn(() => {
+            v.assign(c.mul(0.25));
+            builtinPosition().assign(vec4(position, 1));
+          })(),
+        () => Fn(() => vec4(v, 0, 0, 1))(),
+      );
+      const ctx = { attributes: { [c.name]: fractions(), [position.name]: quad() } };
+      for (let k = 0; k < 2000; k++) other.draw(ctx, options);
+    });
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots
+   */
+  it("allocates nothing per vertex or fragment after the host keyed an object of its own by its slots", async () => {
+    const kept: object[] = [];
+    const bytes = await floatVarying("f64", undefined, (c, v) => {
+      for (const slot of [c.name, v.name]) {
+        const own: Record<string, unknown> = {};
+        own[slot] = undefined;
+        kept.push(own);
+      }
+    });
+    expect(bytes).toBeLessThan(64);
+    expect(kept).toHaveLength(2);
+  });
+
+  /** Draws 2000 times with another rasterizer whose attribute of `type` is `values`, which its vertex stage reads. */
+  function drawFrom(type: "float" | "vec3", values: ArrayLike<number>): void {
+    const c = attribute(type);
+    const position = attribute("vec3");
+    const other = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(type === "vec3" ? (c as any) : position, 1)))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const ctx = { attributes: { [c.name]: values, [position.name]: quad() } };
+    for (let k = 0; k < 2000; k++) other.draw(ctx as any, options);
+  }
+  /** The four kinds of array other than a Float64Array that the draws before the measured one come from. */
+  const otherKinds = [Float32Array, Int32Array, Uint32Array, Int16Array] as const;
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array
+   */
+  it("allocates nothing per vertex for a vec3 attribute after draws from four other kinds of array", async () => {
+    const c = attribute("vec3");
+    const v = varying("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.mul(0.5));
+        place();
+      },
+      () => vec4(v, 1),
+      { attributes: { [c.name]: Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01) } },
+      {},
+      () => otherKinds.forEach((kind) => drawFrom("vec3", kind.from(quad()))),
+    );
+    // Six vertices of two vec3 attributes: a box for each component is 576 bytes.
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array
+   */
+  it("allocates nothing per vertex for a float attribute after draws from four other kinds of array", async () => {
+    const bytes = await floatVarying("f64", () =>
+      otherKinds.forEach((kind) => drawFrom("float", kind.from([1, 2, 3, 4, 5, 6]))),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot
+   */
+  it("allocates nothing per vertex after draws whose varyings were kept in slots of every kind", async () => {
+    /** Draws 2000 times with a rasterizer whose vertex stage writes `make()` into a varying of `type`, which its fragment stage reads. */
+    const drawWith = (type: string, make: () => any, float: "f64" | "f32" = "f64") => {
+      const v = varying(type as any);
+      const position = attribute("vec3");
+      const other = compileJS(
+        () =>
+          Fn(() => {
+            v.assign(make());
+            builtinPosition().assign(vec4(position, 1));
+          })(),
+        () => Fn(() => vec4((v as any).x.toFloat(), 0, 0, 1))(),
+        { float },
+      );
+      const ctx = { attributes: { [position.name]: quad() } };
+      for (let k = 0; k < 2000; k++) other.draw(ctx, options);
+    };
+    const c = attribute("vec3");
+    const v = varying("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.mul(0.5));
+        place();
+      },
+      () => vec4(v, 1),
+      { attributes: { [c.name]: Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01) } },
+      {},
+      () => {
+        drawWith("ivec3", () => ivec3(1, 2, 3));
+        drawWith("uvec3", () => uvec3(1, 2, 3));
+        drawWith("vec3", () => vec3(0.1, 0.2, 0.3), "f32");
+      },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context
+   */
+  it("allocates nothing per fragment after the host made an object as the rasterizer makes its fragment context", async () => {
+    // Made as the rasterizer makes its fragment context, a literal that gains uniforms and textures for each draw,
+    // then given the depth a draw that stored it in a property would add.
+    const alike: Record<string, unknown> = { varyings: {}, fragCoord: null, depthSlot: null };
+    alike.uniforms = {};
+    alike.textures = undefined;
+    alike.fragDepth = undefined;
+    const position = attribute("vec3");
+    const v = varying("vec3");
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          v.assign(position.mul(0.5));
+          builtinPosition().assign(vec4(position, 1));
+        })(),
+      () => Fn(() => vec4(v, 1))(),
+    );
+    // A depth that is a fraction at every vertex, so every fragment's interpolated depth is one too.
+    const ctx = {
+      attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0.13, 1, -1, 0.37, -1, 1, 0.61, 1, -1, 0.37, 1, 1, 0.29, -1, 1, 0.61),
+      },
+    };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+    expect(alike.fragDepth).toBeUndefined();
+  });
+
+  /**
+   * @canon spec-a-reentrant-js-draw-draws-what-one-without-it-draws
+   */
+  it("draws with reentrant the image it draws without it", () => {
+    const position = attribute("vec3");
+    const c = attribute("float");
+    const v = varying("float");
+    const build = (reentrant: boolean) =>
+      compileJS(
+        () =>
+          Fn(() => {
+            v.assign(c.mul(0.5));
+            builtinPosition().assign(vec4(position, 1));
+          })(),
+        () => Fn(() => vec4(v, v.mul(2), 0, 1))(),
+        { reentrant },
+      );
+    const ctx = { attributes: { [position.name]: quad(), [c.name]: fractions() } };
+    const own = Array.from(build(true).draw(ctx, options));
+    expect(own).toEqual(Array.from(build(false).draw(ctx, options)));
+    expect(own.some((x) => x > 0 && x < 1)).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
+   */
+  it("allocates for a triangle a near-plane clip cuts, and nothing for each fragment of it", async () => {
+    const clip = attribute("vec4");
+    // Each triangle has one vertex behind the near plane, so the clip cuts both.
+    const positions = Float64Array.of(-1, -1, 0, 1, 1, -1, 0, 1, -1, 1, 0, -1, 1, -1, 0, 1, 1, 1, 0, 1, -1, 1, 0, -1);
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(clip))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const ctx = { attributes: { [clip.name]: positions } };
+    const small = await allocatedBy(() => raster.draw(ctx, { width: 16, height: 16 }), 2000, 200);
+    const large = await allocatedBy(() => raster.draw(ctx, { width: 64, height: 64 }), 2000, 200);
+    // Sixteen times the fragments: a box for each would add about 60 KB, where what the clip makes varies by a few hundred bytes.
+    expect(large - small).toBeLessThan(1024);
+  });
+});
+
+describe("an attribute element the host's array does not hold", () => {
+  /**
+   * The red channel of a 1 by 1 draw, of a triangle covering it, of three
+   * vertices whose attribute `attr` has `values`: 1 where the fragment program
+   * `hit` holds, and 0 otherwise. The vertex program `pass` hands the attribute
+   * on in a varying.
+   */
+  function drawsRed(
+    compileRaster: typeof compileJS,
+    attr: { name: string },
+    values: ArrayLike<number>,
+    pass: () => void,
+    hit: () => Node<"bool">,
+  ): number {
+    const position = attribute("vec3");
+    const raster = compileRaster(
+      () =>
+        Fn(() => {
+          pass();
+          builtinPosition().assign(vec4(position, 1));
+        })(),
+      () => Fn(() => vec4(select(hit(), float(1), float(0)), 0, 0, 1))(),
+    );
+    const positions = Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+    const out = raster.draw(
+      { attributes: { [position.name]: positions, [attr.name]: values as Float64Array } },
+      { width: 1, height: 1, count: 3 },
+    );
+    return out[0]!;
+  }
+
+  /** Arrays that hold no element for any of three vertices of `width` components: one that ends before them, one of holes, and one of undefined. */
+  const lacking = (empty: ArrayLike<number>, width: number): ArrayLike<number>[] => [
+    empty,
+    new Array<number>(3 * width),
+    Array.from({ length: 3 * width }, () => undefined as unknown as number),
+  ];
+
+  /** Whether a float is NaN: the one value that is not equal to itself. */
+  const isNaN = (x: Node<"float">) => x.notEqual(x);
+
+  /**
+   * @canon spec-a-cpu-draw-reads-a-float-attribute-element-its-array-lacks-as-nan
+   */
+  it.each(rasterizers)("%s: reads a float attribute element its array lacks as NaN", (_, compileRaster) => {
+    const draw = (values: ArrayLike<number>) => {
+      const c = attribute("float");
+      const v = varying("float");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => isNaN(v),
+      );
+    };
+    for (const values of lacking(new Float32Array(0), 1)) expect(draw(values)).toBe(1);
+    // An array that ends after the first vertex: the other two read NaN, which every fragment then reads.
+    expect(draw(Float32Array.of(2.5))).toBe(1);
+    // An array that holds its elements reads them.
+    expect(draw(Float32Array.of(2.5, 2.5, 2.5))).toBe(0);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-reads-an-integer-attribute-element-its-array-lacks-as-zero
+   */
+  it.each(rasterizers)("%s: reads an int or uint attribute element its array lacks as 0", (_, compileRaster) => {
+    const drawInt = (values: ArrayLike<number>) => {
+      const c = attribute("int");
+      const v = varying("int");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => v.equal(int(0)),
+      );
+    };
+    const drawUint = (values: ArrayLike<number>) => {
+      const c = attribute("uint");
+      const v = varying("uint");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => v.equal(uint(0)),
+      );
+    };
+    for (const values of lacking(new Int32Array(0), 1)) expect(drawInt(values)).toBe(1);
+    for (const values of lacking(new Uint32Array(0), 1)) expect(drawUint(values)).toBe(1);
+    expect(drawInt(Int32Array.of(7, 7, 7))).toBe(0);
+    expect(drawUint(Uint32Array.of(7, 7, 7))).toBe(0);
+    // An array that ends after the first vertex, which holds 0. An integer varying is flat, from the first vertex,
+    // so the value goes through a float varying, which reads 0 in every fragment only if the two vertices the
+    // array lacks read 0 as well.
+    const drawThroughFloat = (type: "int" | "uint", values: ArrayLike<number>) => {
+      const c = attribute(type);
+      const v = varying("float");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c.toFloat()),
+        () => v.equal(float(0)),
+      );
+    };
+    expect(drawThroughFloat("int", Int32Array.of(0))).toBe(1);
+    expect(drawThroughFloat("uint", Uint32Array.of(0))).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-reads-a-component-of-a-float-vector-attribute-its-array-lacks-as-nan
+   */
+  it.each(rasterizers)("%s: reads each vec3 attribute component its array lacks as NaN", (_, compileRaster) => {
+    const draw = (values: ArrayLike<number>) => {
+      const c = attribute("vec3");
+      const v = varying("vec3");
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => and(isNaN(v.x), isNaN(v.y), isNaN(v.z)),
+      );
+    };
+    for (const values of lacking(new Float32Array(0), 3)) expect(draw(values)).toBe(1);
+    expect(draw(new Float32Array(9).fill(2.5))).toBe(0);
+  });
+
+  /**
+   * @canon spec-a-cpu-draw-reads-a-component-of-an-integer-vector-attribute-its-array-lacks-as-zero
+   */
+  it.each(rasterizers)("%s: reads each ivec3 or uvec3 attribute component its array lacks as 0", (_, compileRaster) => {
+    const drawInt = (values: ArrayLike<number>) => {
+      const c = attribute("ivec3");
+      const v = varying("ivec3");
+      const zero = int(0);
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => and(v.x.equal(zero), v.y.equal(zero), v.z.equal(zero)),
+      );
+    };
+    const drawUint = (values: ArrayLike<number>) => {
+      const c = attribute("uvec3");
+      const v = varying("uvec3");
+      const zero = uint(0);
+      return drawsRed(
+        compileRaster,
+        c,
+        values,
+        () => v.assign(c),
+        () => and(v.x.equal(zero), v.y.equal(zero), v.z.equal(zero)),
+      );
+    };
+    for (const values of lacking(new Int32Array(0), 3)) expect(drawInt(values)).toBe(1);
+    for (const values of lacking(new Uint32Array(0), 3)) expect(drawUint(values)).toBe(1);
+    // Each component the array holds is read, so a draw whose first component alone is 0 stays black.
+    expect(drawInt(Int32Array.of(0, 7, 7, 0, 7, 7, 0, 7, 7))).toBe(0);
+    expect(drawUint(Uint32Array.of(0, 7, 7, 0, 7, 7, 0, 7, 7))).toBe(0);
+  });
+});
+
+describe("the options a host passes a JS compile", () => {
+  /**
+   * An option only the rasterizer's own stages take changes nothing when a host
+   * passes it, however it built its options.
+   *
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
+   */
+  it("reads a scalar attribute as a number whatever else the options hold", () => {
+    const c = attribute("float");
+    const options = { name: "vtx", params: [], stage: "vertex" as const, rasterized: true };
+    const build = () => Fn(() => builtinPosition().assign(vec4(c, 0, 0, 1)))();
+    const ctx = { attributes: { [c.name]: 0.25 } };
+    const source = new Function(compileJSFn(build, options))() as (ctx: object) => { position: ArrayLike<number> };
+    expect(source(ctx).position[0]).toBe(0.25);
+    expect(compileJSVertex(build, options)(ctx as any).position[0]).toBe(0.25);
+    const shade = varying("float");
+    const fragmentOptions = { ...options, stage: "fragment" as const };
+    const fragment = compileJSFragment(() => Fn(() => vec4(shade, 0, 0, 1))(), fragmentOptions);
+    expect((fragment({ varyings: { [shade.name]: 0.5 } }) as any).value[0]).toBe(0.5);
+  });
+});
+
+describe("what a JS draw costs for itself", () => {
+  const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size
+   */
+  it("allocates nothing per draw once it has drawn at that size or a larger one", async () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const ctx = { attributes: { [position.name]: quad() } };
+    const large = { width: 32, height: 32 };
+    const small = { width: 16, height: 16 };
+    raster.draw(ctx, large);
+    let k = 0;
+    // Each draw alternates between the two sizes, which the buffers the larger one made both hold.
+    expect(await allocatedBy(() => raster.draw(ctx, k++ % 2 ? large : small), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-reads-only-the-attribute-elements-of-its-vertices
+   */
+  it("reads each attribute array only at the elements of the vertices it draws", () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const read = new Set<number>();
+    // Ten vertices of three components; the draw takes the three from the fourth.
+    const values = Float64Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? 0 : i % 2 ? 1 : -1));
+    const counted = new Proxy(values, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) read.add(Number(key));
+        return Reflect.get(target, key, target === receiver ? receiver : target);
+      },
+    });
+    raster.draw({ attributes: { [position.name]: counted } }, { width: 4, height: 4, first: 3, count: 3 });
+    expect([...read].sort((a, b) => a - b)).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  });
+});
+
+describe("what a JS draw allocates for the kinds of array the host passes", () => {
+  /** Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw. */
+  const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
+  const options = { width: 16, height: 16 };
+  const texels = [0.1, 0.5, 0.9, 1, 0.2, 0.4, 0.6, 1, 0.3, 0.7, 0.8, 1, 0.15, 0.25, 0.35, 1];
+  /** Texel data in five kinds of array: a Float32Array first, then four others. */
+  const texelKinds = [
+    () => Float32Array.from(texels),
+    () => texels.slice(),
+    () => Uint8Array.from(texels, (v) => v * 255),
+    () => Uint8ClampedArray.from(texels, (v) => v * 255),
+    () => Uint16Array.from(texels, (v) => v * 255),
+  ];
+  /** The values of a vector or matrix of `n` components in five kinds of array: a Float64Array first, then four others. */
+  const vectorKinds = [
+    (n: number) => Float64Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Float32Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Array.from({ length: n }, (_, i) => 0.1 * (i + 1)),
+    (n: number) => Int32Array.from({ length: n }, (_, i) => i + 1),
+    (n: number) => Uint8Array.from({ length: n }, (_, i) => i + 1),
+  ];
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a sampler given texel data of a fifth kind", async () => {
+    const position = attribute("vec3");
+    const t = uniform("sampler2D");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => texture(t, fragCoord().xy.mul(0.0625)))(),
+    );
+    const attributes = { [position.name]: quad() };
+    const draw = (data: ArrayLike<number>) =>
+      raster.draw({ attributes, textures: { [t.name]: { data, width: 2, height: 2 } } }, options);
+    for (const kind of texelKinds.slice(1)) {
+      const data = kind();
+      for (let k = 0; k < 2000; k++) draw(data);
+    }
+    const data = texelKinds[0]!();
+    expect(await allocatedBy(() => draw(data), 2000, 200)).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw
+   */
+  it.fails("allocates nothing per fragment for five samplers whose texel data are of five kinds", async () => {
+    const position = attribute("vec3");
+    const samplers = texelKinds.map(() => uniform("sampler2D"));
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => samplers.reduce((sum: any, t) => sum.add(texture(t, fragCoord().xy.mul(0.0625))), vec4(0)))(),
+    );
+    const textures = Object.fromEntries(
+      samplers.map((t, i) => [t.name, { data: texelKinds[i]!(), width: 2, height: 2 }]),
+    );
+    const ctx = { attributes: { [position.name]: quad() }, textures };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+
+  /** A draw whose fragment stage reads `read(u)` of the uniform `u`, measured with `value(kind)` after draws with the four other kinds. */
+  async function afterFiveKinds(
+    u: any,
+    read: (u: any) => any,
+    value: (kind: (n: number) => ArrayLike<number>) => unknown,
+  ) {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => read(u))(),
+    );
+    const attributes = { [position.name]: quad() };
+    for (const kind of vectorKinds.slice(1)) {
+      const ctx = { attributes, uniforms: { [u.name]: value(kind) } };
+      for (let k = 0; k < 2000; k++) raster.draw(ctx, options);
+    }
+    const ctx = { attributes, uniforms: { [u.name]: value(vectorKinds[0]!) } };
+    return allocatedBy(() => raster.draw(ctx, options), 2000, 200);
+  }
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a vec3 uniform given in a fifth kind of array", async () => {
+    const u = uniform("vec3");
+    const bytes = await afterFiveKinds(
+      u,
+      (u) => vec4(u.mul(0.37), 1),
+      (kind) => kind(3),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a mat3 uniform given in a fifth kind of array", async () => {
+    const u = uniform("mat3");
+    const bytes = await afterFiveKinds(
+      u,
+      (u) => vec4(u.mul(vec3(0.5, 0.25, 1)), 1),
+      (kind) => kind(9),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a uniform array element given in a fifth kind of array", async () => {
+    const u = uniformArray("vec4", 2);
+    const bytes = await afterFiveKinds(
+      u,
+      (u) => u.element(int(1)).mul(0.5),
+      (kind) => [kind(4), kind(4)],
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /** A draw of a rasterizer from `vertex` and `fragment`, measured with `ctx(first)` after draws with `ctx(other)` of each of `others`. */
+  async function afterOthers<K>(
+    vertex: () => void,
+    fragment: () => any,
+    ctx: (kind: K) => object,
+    first: K,
+    others: readonly K[],
+  ): Promise<number> {
+    const raster = compileJS(
+      () => Fn(() => vertex())(),
+      () => Fn(() => fragment())(),
+    );
+    for (const kind of others) {
+      const c = ctx(kind);
+      for (let k = 0; k < 2000; k++) raster.draw(c as any, options);
+    }
+    const c = ctx(first);
+    return allocatedBy(() => raster.draw(c as any, options), 2000, 200);
+  }
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
+   */
+  it.fails(
+    "allocates nothing per vertex for a vec3 uniform of the vertex stage given in a fifth kind of array",
+    async () => {
+      const position = attribute("vec3");
+      const u = uniform("vec3");
+      const v = varying("vec3");
+      const attributes = { [position.name]: quad() };
+      const bytes = await afterOthers(
+        () => {
+          v.assign(u.mul(0.37));
+          builtinPosition().assign(vec4(position, 1));
+        },
+        () => vec4(v, 1),
+        (kind: (n: number) => ArrayLike<number>) => ({ attributes, uniforms: { [u.name]: kind(3) } }),
+        vectorKinds[0]!,
+        vectorKinds.slice(1),
+      );
+      // Six vertices of three components: a box for each is 288 bytes.
+      expect(bytes).toBeLessThan(64);
+    },
+  );
+
+  /** The context of a draw whose sampler `t` holds texel data of `kind`, with `extra` options of its texture. */
+  const texturedBy =
+    (t: any, attributes: object, extra: object = {}) =>
+    (kind: () => ArrayLike<number>) => ({
+      attributes,
+      textures: { [t.name]: { data: kind(), width: 2, height: 2, ...extra } },
+    });
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array
+   */
+  it.fails(
+    "allocates nothing per vertex for a sampler of the vertex stage given texel data of a fifth kind",
+    async () => {
+      const position = attribute("vec3");
+      const t = uniform("sampler2D");
+      const v = varying("vec4");
+      const bytes = await afterOthers(
+        () => {
+          v.assign(texture(t, position.xy.mul(0.5).add(0.5)));
+          builtinPosition().assign(vec4(position, 1));
+        },
+        () => v,
+        texturedBy(t, { [position.name]: quad() }),
+        texelKinds[0]!,
+        texelKinds.slice(1),
+      );
+      expect(bytes).toBeLessThan(64);
+    },
+  );
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array
+   */
+  it.fails(
+    "allocates nothing per fragment for a linear-filtered sampler given texel data of a fifth kind",
+    async () => {
+      const position = attribute("vec3");
+      const t = uniform("sampler2D");
+      const bytes = await afterOthers(
+        () => builtinPosition().assign(vec4(position, 1)),
+        () => texture(t, fragCoord().xy.mul(0.0625)),
+        texturedBy(t, { [position.name]: quad() }, { magFilter: "linear" }),
+        texelKinds[0]!,
+        texelKinds.slice(1),
+      );
+      expect(bytes).toBeLessThan(64);
+    },
+  );
+
+  /**
+   * @canon bug-a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array
+   */
+  it.fails("allocates nothing per fragment for a textureLoad given texel data of a fifth kind", async () => {
+    const position = attribute("vec3");
+    const t = uniform("sampler2D");
+    const bytes = await afterOthers(
+      () => builtinPosition().assign(vec4(position, 1)),
+      () => textureLoad(t, ivec2(int(0), int(1))),
+      texturedBy(t, { [position.name]: quad() }),
+      texelKinds[0]!,
+      texelKinds.slice(1),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes
+   */
+  it.fails("allocates nothing per fragment for a float uniform after uniforms objects of five shapes", async () => {
+    const position = attribute("vec3");
+    const f = uniform("float");
+    const attributes = { [position.name]: quad() };
+    // Each uniforms object holds the uniform, after a key of its own in all but the first: five shapes.
+    const shaped = (i: number) => {
+      const uniforms: Record<string, number> = {};
+      if (i > 0) uniforms["extra" + i] = 1;
+      uniforms[f.name] = 0.37;
+      return { attributes, uniforms };
+    };
+    const bytes = await afterOthers(
+      () => builtinPosition().assign(vec4(position, 1)),
+      () => vec4(f, 0, 0, 1),
+      shaped,
+      0,
+      [1, 2, 3, 4],
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+});
+
 describe("what a JS program keeps after a call", () => {
-  /** Whether the object `call` is given is collected once the call returns and nothing else holds it. */
-  async function collectedAfter(call: (input: object) => void): Promise<boolean> {
+  /** Whether the object `call` is given, which `make` makes, is collected once the call returns and nothing else holds it. */
+  async function collectedAfter<T extends object>(
+    call: (input: T) => void,
+    make: () => T = () => ({}) as T,
+  ): Promise<boolean> {
     setFlagsFromString("--expose-gc");
     const gc = runInNewContext("gc") as () => void;
     let ref!: WeakRef<object>;
     (() => {
-      const input = {};
+      const input = make();
       ref = new WeakRef(input);
       call(input);
     })();
@@ -1496,6 +2374,13 @@ describe("what a JS program keeps after a call", () => {
     const attributes = { [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0) };
     expect(
       await collectedAfter((uniforms) => raster.draw({ attributes, uniforms } as any, { width: 2, height: 2 })),
+    ).toBe(true);
+    // The draw reads the host's attribute arrays in place, so it must let go of them too.
+    expect(
+      await collectedAfter(
+        (positions) => raster.draw({ attributes: { [position.name]: positions } }, { width: 2, height: 2 }),
+        () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0),
+      ),
     ).toBe(true);
   });
 });
