@@ -1346,7 +1346,11 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   }
   let read = result.expr;
   if (JS_INPUT_BY_NAME.test(read) && !jsIsArrayType(node?._t) && node?.type !== "uniformArray") {
-    result = jsScalarInput(read, node._t, ctx);
+    result = jsScalarInput(
+      ctx.jsRasterSlots && JS_RASTER_INPUT.test(read) ? jsRasterScalar(read, ctx) : read,
+      node._t,
+      ctx,
+    );
   } else {
     result = jsTypedInput(node, result, ctx);
     if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
@@ -1428,6 +1432,20 @@ function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
 
 /** A read of an input the host passes by name, which no statement of a call changes. */
 const JS_INPUT_BY_NAME = /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/;
+
+/** A read of an input the JS rasterizer passes a stage of its own: an attribute, or a varying in a fragment stage. */
+const JS_RASTER_INPUT = /^ctx\.(attributes|varyings)\[/;
+
+/**
+ * `read`, a scalar attribute or varying the JS rasterizer passes its stage,
+ * as the element of the array of one element it passes it in. A property
+ * would box each float stored in it, and the stage reads a number from the
+ * array it is handed.
+ */
+function jsRasterScalar(read: string, ctx: CompileCtx): string {
+  jsRequireHelper(ctx, "zeros");
+  return `(${jsInputRead(read, ctx)} ?? _zeros)[0]`;
+}
 
 /** The node types whose vector or matrix the host passes in as an array of its own. */
 const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "var"]);
@@ -1860,8 +1878,18 @@ export function compileJSNode(
       // In a vertex stage a varying is an output, collected in the result so
       // the host can read it back; in a fragment stage it is an input.
       if (ctx.shaderStage === "vertex") {
-        ctx.varyings.set(slot, { id: 0, type: v.shaderType ?? node._t, slot });
-        return jsLeafRef(`res.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
+        let type = v.shaderType ?? node._t;
+        ctx.varyings.set(slot, { id: 0, type, slot });
+        // A stage of the rasterizer hands back a number varying in a slot of one element, which a store does not box.
+        if (ctx.jsRasterSlots && !jsIsArrayType(type) && type !== "bool") {
+          let held = ctx.jsRasterSlots.get(slot);
+          if (held === undefined) {
+            held = `_rmsl_h${ctx.nextId++}`;
+            ctx.jsRasterSlots.set(slot, held);
+          }
+          return { decls: [], body: [], expr: `${held}[0]` };
+        }
+        return jsLeafRef(`res.varyings[${JSON.stringify(slot)}]`, type, ctx);
       }
       return jsLeafRef(`ctx.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
     }
@@ -1886,7 +1914,8 @@ export function compileJSNode(
         );
       }
       ctx.fragDepthUsed = true;
-      return { decls: [], body: [], expr: "res.fragDepth" };
+      // A stage of the rasterizer reads and writes its depth in the slot of one element the rasterizer passes it.
+      return { decls: [], body: [], expr: ctx.jsRasterSlots ? "_rmsl_depth[0]" : "res.fragDepth" };
     }
 
     case "fragCoord": {
@@ -2633,6 +2662,7 @@ function compileJSFnDetailed(
   origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
+  rasterized = false,
 ): {
   source: string;
   resultType: ShaderType | undefined;
@@ -2679,6 +2709,7 @@ function compileJSFnDetailed(
     derivatives,
     reentrant,
     jsFloat32: options.float === "f32",
+    jsRasterSlots: rasterized ? new Map() : undefined,
   };
 
   assertOneDeclarationPerName(origin, resultNodes);
@@ -2711,15 +2742,24 @@ function compileJSFnDetailed(
   // The object a stage returns its outputs in is made once, as its slots are, or once a call with `reentrant`.
   // Every output it may hold is named from the start, so clearing them all as a call starts keeps its shape.
   const outputKeys = [...ctx.outputs.values()].map((o) => `${JSON.stringify(o.slot)}: undefined`).join(", ");
-  const varyingKeys = [...ctx.varyings.values()].map((v) => `${JSON.stringify(v.slot)}: undefined`).join(", ");
+  const rasterSlots = ctx.jsRasterSlots ?? new Map<string, string>();
+  const varyingKeys = [...ctx.varyings.values()]
+    .map((v) => `${JSON.stringify(v.slot)}: ${rasterSlots.get(v.slot) ?? "undefined"}`)
+    .join(", ");
+  // Each slot of one element a stage of the rasterizer hands a scalar varying back in, made before the object that holds it.
+  const rasterSlotDeclarations = [...rasterSlots.values()].map(
+    (name) => `${reentrant ? "var" : "const"} ${name} = new Float64Array(1);`,
+  );
   const res = needsRes
     ? `var res = { outputs: ${outputKeys ? `{ ${outputKeys} }` : "{}"}, varyings: ${varyingKeys ? `{ ${varyingKeys} }` : "{}"}, position: undefined, fragDepth: undefined, value: undefined };`
     : "";
   // A fragment's depth starts as the one its context holds, which a rasterizer sets to its interpolated depth.
-  const initialDepth = ctx.fragDepthUsed ? "ctx.fragDepth" : "undefined";
+  // A stage of the rasterizer keeps its depth in the slot of one element the rasterizer passes it instead.
+  const initialDepth = ctx.fragDepthUsed && !ctx.jsRasterSlots ? "ctx.fragDepth" : "undefined";
+  if (ctx.fragDepthUsed && ctx.jsRasterSlots) body.push("const _rmsl_depth = ctx.depthSlot;");
   if (res && reentrant) {
-    body.push(res);
-    if (ctx.fragDepthUsed) body.push(`res.fragDepth = ${initialDepth};`);
+    body.push(...rasterSlotDeclarations, res);
+    if (ctx.fragDepthUsed && !ctx.jsRasterSlots) body.push(`res.fragDepth = ${initialDepth};`);
   }
   if (res && !reentrant) {
     // A stage output the program does not write on a call is undefined in what that call returns.
@@ -2731,6 +2771,8 @@ function compileJSFnDetailed(
   const writtenFirst = jsVaryingsWrittenFirst(resultNodes);
   const varyingResets = [...ctx.varyings.values()].flatMap((v) => {
     if (writtenFirst.has(v.slot)) return [];
+    const held = rasterSlots.get(v.slot);
+    if (held !== undefined) return [`${held}[0] = 0;`];
     const key = `res.varyings[${JSON.stringify(v.slot)}]`;
     if (!jsIsArrayType(v.type)) return [`${key} = ${v.type === "bool" ? "false" : "0"};`];
     const zeros = jsNewTemp(ctx, v.type);
@@ -2765,7 +2807,9 @@ function compileJSFnDetailed(
 
   let scratch = reentrant
     ? ""
-    : [...(res ? [res] : []), ...(scalarResult ? [scalarResult] : []), ...slots.views].join("\n");
+    : [...rasterSlotDeclarations, ...(res ? [res] : []), ...(scalarResult ? [scalarResult] : []), ...slots.views].join(
+        "\n",
+      );
   let helpers = [...ctx.jsHelpers]
     .sort()
     .map((name) => jsHelperSource(name))
@@ -2942,13 +2986,24 @@ function ownedCopy(value: unknown, type: string | undefined, float32: boolean): 
  * Also carries `draw()`, the whole-image entry point: one JS call per pixel,
  * feeding `fragCoord` in and packing every result into one flat row-major
  * buffer, and `compute()`, one call per invocation.
+ *
+ * With `rasterized`, the program is a stage of the JS rasterizer: it reads
+ * each scalar attribute and varying as the element of an array of one element,
+ * hands each scalar varying other than a `bool` back in such an array under its
+ * slot, and reads and writes its depth in the array `ctx.depthSlot`.
  */
 export function compileJSProgram(
   origin: BackendOrigin,
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
+  rasterized = false,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(origin, fn, options);
+  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(
+    origin,
+    fn,
+    options,
+    rasterized,
+  );
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 

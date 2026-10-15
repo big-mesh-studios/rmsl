@@ -21,6 +21,8 @@ import {
   instancedArray,
   invocationIndex,
   ivec2,
+  ivec3,
+  uvec3,
   mat2,
   mix,
   normalize,
@@ -1428,7 +1430,7 @@ describe("the scalars and inputs of a JS function", () => {
   });
 
   /**
-   * @canon spec-a-js-draw-allocates-nothing-per-vertex-or-fragment
+   * @canon spec-a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying
    */
   it("allocates nothing per vertex or fragment of a rasterized draw", async () => {
     const position = attribute("vec3");
@@ -1452,6 +1454,370 @@ describe("the scalars and inputs of a JS function", () => {
     const options = { width: 16, height: 16, clear: true, clearDepth: true };
     // A draw calls a stage 262 times, and an object is 16 bytes at the least.
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+});
+
+describe("what a JS draw allocates for the scalars it passes its stages", () => {
+  /** Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw. */
+  const quad = () => Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0);
+  /** Six fractions, one for each vertex of the quad. */
+  const fractions = () => Float64Array.of(0.1, 0.3, 0.7, 0.2, 0.9, 0.45);
+  const options = { width: 16, height: 16 };
+
+  /** What a draw of `vertex` and `fragment`, from `ctx` beside the quad's positions, allocates after 2000 warm-up draws. */
+  async function drawAllocates(
+    vertex: (place: () => void) => void,
+    fragment: () => any,
+    ctx: { attributes?: Record<string, any>; uniforms?: Record<string, unknown> } = {},
+    compileOptions: { float?: "f64" | "f32" } = {},
+    before?: () => void,
+  ): Promise<number> {
+    const position = attribute("vec3");
+    const place = () => builtinPosition().assign(vec4(position, 1));
+    const raster = compileJS(
+      () => Fn(() => vertex(place))(),
+      () => Fn(() => fragment())(),
+      compileOptions,
+    );
+    const attributes: Record<string, any> = { [position.name]: quad() };
+    for (const slot in ctx.attributes) attributes[slot] = ctx.attributes[slot];
+    const context = { attributes, uniforms: ctx.uniforms };
+    before?.();
+    return allocatedBy(() => raster.draw(context as any, options), 2000, 200);
+  }
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-attribute
+   */
+  it("allocates nothing per vertex for a float attribute", async () => {
+    const c = attribute("float");
+    const v = varying("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(vec3(c.mul(0.5), 0, 0));
+        place();
+      },
+      () => vec4(v, 1),
+      { attributes: { [c.name]: fractions() } },
+    );
+    // Six vertices: a box for each is 96 bytes.
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-an-int-attribute
+   */
+  it("allocates nothing per vertex for an int attribute", async () => {
+    const c = attribute("int");
+    const v = varying("float");
+    // The varying is 1 at every vertex, so only the attribute could allocate.
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.toFloat().mul(0).add(1));
+        place();
+      },
+      () => vec4(v, 0, 0, 1),
+      { attributes: { [c.name]: Int32Array.of(-1, 2, -3, 4, -5, 6) } },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-uint-attribute-no-small-integer-holds
+   */
+  it("allocates nothing per vertex for a uint attribute of 2^31 or more", async () => {
+    const c = attribute("uint");
+    const v = varying("float");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.toFloat().mul(0).add(1));
+        place();
+      },
+      () => vec4(v, 0, 0, 1),
+      {
+        attributes: {
+          [c.name]: Uint32Array.of(2 ** 31, 2 ** 31 + 1, 2 ** 31 + 2, 2 ** 32 - 1, 2 ** 31 + 3, 2 ** 31 + 4),
+        },
+      },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /** A draw whose vertex stage writes a float varying from a float attribute holding fractions, which the fragment stage reads. */
+  function floatVarying(float: "f64" | "f32", before?: () => void, attributeOf?: (c: any, v: any) => void) {
+    const c = attribute("float");
+    const v = varying("float");
+    attributeOf?.(c, v);
+    return drawAllocates(
+      (place) => {
+        v.assign(c.mul(0.5));
+        place();
+      },
+      () => vec4(v, 0, 0, 1),
+      { attributes: { [c.name]: fractions() } },
+      { float },
+      before,
+    );
+  }
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-varying-at-f64
+   */
+  it("allocates nothing per vertex or fragment for a float varying at f64", async () => {
+    // 256 fragments: a box for each is 4 KB.
+    expect(await floatVarying("f64")).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-varying-at-f32
+   */
+  it("allocates nothing per vertex or fragment for a float varying at f32", async () => {
+    expect(await floatVarying("f32")).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-an-int-varying
+   */
+  it("allocates nothing per vertex or fragment for an int varying", async () => {
+    const v = varying("int");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(int(-7));
+        place();
+      },
+      () => vec4(v.toFloat().mul(0.1), 0, 0, 1),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-bool-varying
+   */
+  it("allocates nothing per vertex or fragment for a bool varying", async () => {
+    const v = varying("bool");
+    const position = attribute("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(position.x.greaterThan(0));
+        place();
+      },
+      () => vec4(select(v, float(1), float(0)), 0, 0, 1),
+      { attributes: { [position.name]: quad() } },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-uint-varying-no-small-integer-holds
+   */
+  it("allocates nothing per vertex or fragment for a uint varying of 2^31 or more", async () => {
+    const v = varying("uint");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(uint(0xfffffff0));
+        place();
+      },
+      () => vec4(v.toFloat().mul(0), 0, 0, 1),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-uniform
+   */
+  it("allocates nothing per fragment for a float uniform", async () => {
+    const u = uniform("float");
+    const bytes = await drawAllocates(
+      (place) => place(),
+      () => vec4(u, 0, 0, 1),
+      { uniforms: { [u.name]: 0.37 } },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth
+   */
+  it("allocates nothing per fragment for a fragment stage that writes its depth", async () => {
+    const bytes = await drawAllocates(
+      (place) => place(),
+      () => {
+        builtinFragDepth().assign(fragCoord().x.mul(0.013));
+        return vec4(1);
+      },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn
+   */
+  it("allocates nothing per vertex or fragment after another rasterizer with other slots has drawn", async () => {
+    const bytes = await floatVarying("f64", undefined, () => {
+      const c = attribute("float");
+      const v = varying("float");
+      const position = attribute("vec3");
+      const other = compileJS(
+        () =>
+          Fn(() => {
+            v.assign(c.mul(0.25));
+            builtinPosition().assign(vec4(position, 1));
+          })(),
+        () => Fn(() => vec4(v, 0, 0, 1))(),
+      );
+      const ctx = { attributes: { [c.name]: fractions(), [position.name]: quad() } };
+      for (let k = 0; k < 2000; k++) other.draw(ctx, options);
+    });
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots
+   */
+  it("allocates nothing per vertex or fragment after the host keyed an object of its own by its slots", async () => {
+    const kept: object[] = [];
+    const bytes = await floatVarying("f64", undefined, (c, v) => {
+      for (const slot of [c.name, v.name]) {
+        const own: Record<string, unknown> = {};
+        own[slot] = undefined;
+        kept.push(own);
+      }
+    });
+    expect(bytes).toBeLessThan(64);
+    expect(kept).toHaveLength(2);
+  });
+
+  /** Draws 2000 times with another rasterizer whose attribute of `type` is `values`, which its vertex stage reads. */
+  function drawFrom(type: "float" | "vec3", values: ArrayLike<number>): void {
+    const c = attribute(type);
+    const position = attribute("vec3");
+    const other = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(type === "vec3" ? (c as any) : position, 1)))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const ctx = { attributes: { [c.name]: values, [position.name]: quad() } };
+    for (let k = 0; k < 2000; k++) other.draw(ctx as any, options);
+  }
+  /** The four kinds of array other than a Float64Array that the draws before the measured one come from. */
+  const otherKinds = [Float32Array, Int32Array, Uint32Array, Int16Array] as const;
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array
+   */
+  it("allocates nothing per vertex for a vec3 attribute after draws from four other kinds of array", async () => {
+    const c = attribute("vec3");
+    const v = varying("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.mul(0.5));
+        place();
+      },
+      () => vec4(v, 1),
+      { attributes: { [c.name]: Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01) } },
+      {},
+      () => otherKinds.forEach((kind) => drawFrom("vec3", kind.from(quad()))),
+    );
+    // Six vertices of two vec3 attributes: a box for each component is 576 bytes.
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * Today this fails through the store of the attribute into a property, which
+   * allocates whatever the load does; once that is gone, only the load could.
+   *
+   * @canon spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array
+   */
+  it("allocates nothing per vertex for a float attribute after draws from four other kinds of array", async () => {
+    const bytes = await floatVarying("f64", () =>
+      otherKinds.forEach((kind) => drawFrom("float", kind.from([1, 2, 3, 4, 5, 6]))),
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-draws-with-varyings-of-every-kind-of-slot
+   */
+  it("allocates nothing per vertex after draws whose varyings were kept in slots of every kind", async () => {
+    /** Draws 2000 times with a rasterizer whose vertex stage writes `make()` into a varying of `type`, which its fragment stage reads. */
+    const drawWith = (type: string, make: () => any, float: "f64" | "f32" = "f64") => {
+      const v = varying(type as any);
+      const position = attribute("vec3");
+      const other = compileJS(
+        () =>
+          Fn(() => {
+            v.assign(make());
+            builtinPosition().assign(vec4(position, 1));
+          })(),
+        () => Fn(() => vec4((v as any).x.toFloat(), 0, 0, 1))(),
+        { float },
+      );
+      const ctx = { attributes: { [position.name]: quad() } };
+      for (let k = 0; k < 2000; k++) other.draw(ctx, options);
+    };
+    const c = attribute("vec3");
+    const v = varying("vec3");
+    const bytes = await drawAllocates(
+      (place) => {
+        v.assign(c.mul(0.5));
+        place();
+      },
+      () => vec4(v, 1),
+      { attributes: { [c.name]: Float64Array.from({ length: 18 }, (_, i) => 0.05 * i + 0.01) } },
+      {},
+      () => {
+        drawWith("ivec3", () => ivec3(1, 2, 3));
+        drawWith("uvec3", () => uvec3(1, 2, 3));
+        drawWith("vec3", () => vec3(0.1, 0.2, 0.3), "f32");
+      },
+    );
+    expect(bytes).toBeLessThan(64);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-after-the-host-made-an-object-alike-with-its-fragment-context
+   */
+  it("allocates nothing per fragment after the host made an object as the rasterizer makes its fragment context", async () => {
+    // Made as the rasterizer makes its fragment context: a literal, then uniforms and textures, then the depth.
+    const alike: Record<string, unknown> = { varyings: {}, fragCoord: null };
+    alike.uniforms = {};
+    alike.textures = undefined;
+    alike.fragDepth = undefined;
+    const position = attribute("vec3");
+    const v = varying("vec3");
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          v.assign(position.mul(0.5));
+          builtinPosition().assign(vec4(position, 1));
+        })(),
+      () => Fn(() => vec4(v, 1))(),
+    );
+    // A depth that is a fraction at every vertex, so every fragment's interpolated depth is one too.
+    const ctx = {
+      attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0.13, 1, -1, 0.37, -1, 1, 0.61, 1, -1, 0.37, 1, 1, 0.29, -1, 1, 0.61),
+      },
+    };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+    expect(alike.fragDepth).toBeUndefined();
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
+   */
+  it("allocates for a triangle a near-plane clip cuts, and nothing for each fragment of it", async () => {
+    const clip = attribute("vec4");
+    // Each triangle has one vertex behind the near plane, so the clip cuts both.
+    const positions = Float64Array.of(-1, -1, 0, 1, 1, -1, 0, 1, -1, 1, 0, -1, 1, -1, 0, 1, 1, 1, 0, 1, -1, 1, 0, -1);
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(clip))(),
+      () => Fn(() => vec4(1))(),
+    );
+    const ctx = { attributes: { [clip.name]: positions } };
+    const small = await allocatedBy(() => raster.draw(ctx, { width: 16, height: 16 }), 2000, 200);
+    const large = await allocatedBy(() => raster.draw(ctx, { width: 64, height: 64 }), 2000, 200);
+    // Sixteen times the fragments: a box for each would add about 60 KB, where what the clip makes varies by a few hundred bytes.
+    expect(large - small).toBeLessThan(1024);
   });
 });
 
