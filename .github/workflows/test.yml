@@ -1,0 +1,67 @@
+# Runs the type checks and the test suite on every commit on main and every
+# pull request.
+#
+# `checks` runs without a graphics device (`RMSL_SKIP_GPU=1`): the type checks,
+# the type-level tests, and every test that needs no GPU.
+#
+# `gpu` runs the whole suite. GLSL goes through Playwright's Chromium, which
+# renders WebGL 2 on SwiftShader, and WGSL through @kmamal/gpu's Dawn on
+# Mesa's software Vulkan driver (lavapipe). A test that needs a device the
+# runner lacks skips, naming it.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The only install script is @kmamal/gpu's Dawn download, which this job
+      # does not use.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - run: pnpm type-check
+      - run: pnpm type-check:demos
+      - run: pnpm test:types
+      - run: pnpm test:fast
+        env:
+          RMSL_SKIP_GPU: "1"
+
+  gpu:
+    runs-on: ubuntu-latest
+    # Reports without failing the run until #344 is fixed: Dawn on lavapipe
+    # computes atan within WGSL's accuracy but outside the suite's tolerance.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm test
