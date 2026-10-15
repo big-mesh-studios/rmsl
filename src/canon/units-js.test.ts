@@ -1453,6 +1453,26 @@ describe("the scalars and inputs of a JS function", () => {
     // A draw calls a stage 262 times, and an object is 16 bytes at the least.
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
   });
+
+  /**
+   * The same two triangles as an indexed strip of four vertices, culled, so a
+   * draw makes slots and triangles for its indices on each call.
+   *
+   * @canon spec-a-js-draw-allocates-nothing-per-vertex-or-fragment
+   */
+  it("allocates nothing per vertex or fragment of an indexed strip it culls", async () => {
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1, 0, 0, 1))(),
+    );
+    const ctx = {
+      attributes: { [position.name]: Float64Array.of(-1, 1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 0) },
+      index: Uint16Array.of(0, 1, 2, 3),
+    };
+    const options = { width: 16, height: 16, topology: "triangle-strip" as const, cullMode: "back" as const };
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
 });
 
 describe("what a JS program keeps after a call", () => {

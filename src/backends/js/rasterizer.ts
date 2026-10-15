@@ -3,6 +3,7 @@ import { Node, ShaderType, componentCountOf, componentKindOf, type ScalarKind } 
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray, missingAttributeError } from "../adapter";
 import { CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { linkStages } from "../shared";
+import { CpuIndexArray, cullSign, DrawAssemblyOptions, TriangleAssembly } from "../assemble";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -25,6 +26,8 @@ export interface CompileJSRasterOptions {
  */
 export interface JsRasterContext {
   attributes: Record<string, TypedArray>;
+  /** The indices the draw takes its vertices by, or none to take them in order. */
+  index?: CpuIndexArray;
   uniforms?: Record<string, unknown>;
   textures?: CpuShaderContext["textures"];
 }
@@ -37,7 +40,7 @@ export interface JsRasterContext {
  * declares `loadOp`/`depthLoadOp` together, per pass, rather than clearing
  * as a separate operation.
  */
-export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions {
+export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions, DrawAssemblyOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
@@ -207,6 +210,10 @@ export function compileJSRasterizer(
   const fragmentCtx: CpuShaderContext = { varyings: fragmentVaryings, fragCoord };
   /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
   const vertices: ClipVertex[] = [];
+  /** The vertices each draw shades and the triangles it makes of them. */
+  const assembly = new TriangleAssembly();
+  /** The sign of the screen area of a triangle the draw being made culls, or 0. */
+  let cull = 0;
 
   // Persists across draw() calls of one size, like WasmRasterRoutine's depth
   // buffer: a draw of another width or height clears it, as its pixels lie elsewhere.
@@ -246,6 +253,7 @@ export function compileJSRasterizer(
 
     const area = (s1x - s0x) * (s2y - s0y) - (s1y - s0y) * (s2x - s0x);
     if (area === 0) return; // degenerate (zero-area) triangle: skip it
+    if (area * cull > 0) return; // a face the draw culls
     // Each edge function, times `wind`, is positive inside whichever way the triangle winds.
     const wind = area > 0 ? 1 : -1;
     const owns0 = ownsEdge((s2x - s1x) * wind, (s2y - s1y) * wind);
@@ -365,31 +373,48 @@ export function compileJSRasterizer(
       if (!attributes[slot]) throw missingAttributeError(origin, slot);
     }
     // An attribute the program does not read counts for nothing, as a WebGPU
-    // draw reads no buffer its shader does not declare.
-    let firstSlot: string | undefined;
-    for (const slot in attributes) {
-      if (widths[slot] === undefined) continue;
-      firstSlot = slot;
-      break;
+    // draw reads no buffer its shader does not declare. A draw that names its
+    // count, or takes its vertices by indices, counts none.
+    let inferredCount = 0;
+    if (!ctx.index && options.count === undefined) {
+      for (const slot in attributes) {
+        if (widths[slot] === undefined) continue;
+        inferredCount = Math.floor(attributes[slot]!.length / widths[slot]!) - first;
+        break;
+      }
     }
-    const inferredCount = firstSlot ? Math.floor(attributes[firstSlot]!.length / widths[firstSlot]!) - first : 0;
-    const vertexCount = options.count ?? inferredCount;
+    // The vertices the longest attribute holds; an index past them reads every attribute as zero.
+    let held = 0;
+    for (let a = 0; a < attributeSlots.length; a++) {
+      held = Math.max(held, Math.floor(attributes[attributeSlots[a]!]!.length / attributeWidths[a]!));
+    }
+    assembly.assemble(
+      origin,
+      ctx.index,
+      first,
+      ctx.index ? options.count : (options.count ?? inferredCount),
+      options.topology,
+      held,
+    );
 
-    // vertex pass
-    for (let i = 0; i < vertexCount; i++) {
+    // vertex pass: once for each vertex the draw names
+    for (let i = 0; i < assembly.slotCount; i++) {
+      const v = assembly.vertexOfSlot[i]!;
       for (let a = 0; a < attributeSlots.length; a++) {
         const slot = attributeSlots[a]!;
-        const buffer = attributes[slot];
+        const buffer = attributes[slot]!;
         const w = attributeWidths[a]!;
         const kind = attributeKinds[a]!;
-        if (w === 1) vertexAttributes[slot] = attributeComponent(kind, buffer[i + first]!);
+        // A vertex past the end of an attribute reads it as zero.
+        const past = (v + 1) * w > buffer.length;
+        if (w === 1) vertexAttributes[slot] = past ? 0 : attributeComponent(kind, buffer[v]!);
         else {
           let into = vertexAttributes[slot];
           if (!(into instanceof Float64Array)) into = vertexAttributes[slot] = new Float64Array(w);
-          for (let k = 0; k < w; k++) into[k] = attributeComponent(kind, buffer[(i + first) * w + k]!);
+          for (let k = 0; k < w; k++) into[k] = past ? 0 : attributeComponent(kind, buffer[v * w + k]!);
         }
       }
-      vertexCtx.vertexIndex = i + first;
+      vertexCtx.vertexIndex = v;
       const raw = vertexStage.runInPlace(vertexCtx);
       const position = vertexPosition(raw);
       const varyings = isResultObject(raw) ? raw.varyings : undefined;
@@ -435,10 +460,12 @@ export function compileJSRasterizer(
     target = result;
     targetWidth = width;
     targetHeight = height;
-    for (let t = 0; t + 2 < vertexCount; t += 3) {
-      const v0 = vertices[t]!,
-        v1 = vertices[t + 1]!,
-        v2 = vertices[t + 2]!;
+    cull = cullSign(options);
+    const triangles = assembly.triangles;
+    for (let t = 0; t < assembly.triangleCount; t++) {
+      const v0 = vertices[triangles[t * 3]!]!,
+        v1 = vertices[triangles[t * 3 + 1]!]!,
+        v2 = vertices[triangles[t * 3 + 2]!]!;
       // A triangle wholly in front of the near plane is rasterized as it is; only one that crosses it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
         rasterize(v0, v1, v2, v0);

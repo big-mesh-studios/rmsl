@@ -756,6 +756,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count and no index array takes its count from the first attribute its program reads. The order the host passed them in decides which is first. An attribute the program does not read is taken and counts for nothing.
+      - [`@spec a-cpu-draw-whose-count-passes-an-attribute-is-refused`](#spec-a-cpu-draw-whose-count-passes-an-attribute-is-refused) — A CPU rasterizer draw without indices whose count reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+        - [`@bug a-cpu-draw-whose-count-passes-an-attribute-reads-it-as-zero`](#bug-a-cpu-draw-whose-count-passes-an-attribute-reads-it-as-zero) — A CPU rasterizer draw without indices whose count passes the end of an attribute draws, and reads that attribute as zero, on JS and WASM alike.
       - [`@spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage`](#spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage) — `compileJS` and `compileWasm` read which attributes the vertex stage reads, and the type of each, from the compiled stage. The host names neither.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
@@ -5631,6 +5633,20 @@ This follows because a stage that does not write its depth cannot change what th
 Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares)
 
 This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
+
+##### @spec a-cpu-draw-whose-count-passes-an-attribute-is-refused
+
+> A CPU rasterizer draw without indices whose count reaches a vertex past the end of an attribute the vertex stage reads is refused with a `UsageError`.
+
+Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`spec-a-mistake-found-while-running-is-a-usage-error`](#spec-a-mistake-found-while-running-is-a-usage-error)
+
+This follows because WebGPU requires each vertex buffer to hold the vertices a draw reads, and refuses a draw that reaches past one. An indexed draw is another case: WebGPU checks no index against the vertex buffers, and leaves the vertex to the implementation.
+
+###### @bug a-cpu-draw-whose-count-passes-an-attribute-reads-it-as-zero
+
+> A CPU rasterizer draw without indices whose count passes the end of an attribute draws, and reads that attribute as zero, on JS and WASM alike.
+
+The defect was on main before #233, where a float attribute past its end read as a missing value. It is an issue candidate of its own: the fix adds a check to each draw that names a count.
 
 ##### @spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
 
