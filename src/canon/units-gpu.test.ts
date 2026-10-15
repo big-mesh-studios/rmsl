@@ -984,18 +984,23 @@ const drawEach = async (create, settle) => {
   return drawn;
 };
 globalThis.__rmslThroughZeroJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
-globalThis.__rmslThroughZeroWgsl = () =>
-  drawEach(
+globalThis.__rmslThroughZeroWgsl = async () => {
+  const drawn = await drawEach(
     (vertex, fragment) => createWgsl({ vertex, fragment }),
     (adapter) => adapter.device().queue.onSubmittedWorkDone(),
   );
+  const adapter = await navigator.gpu.requestAdapter();
+  drawn.adapter = adapter ? adapter.info.vendor + " " + adapter.info.architecture : "";
+  return drawn;
+};
 `;
 
 describe("a triangle through vec4(0) with a vertex outside the clip volume", () => {
   /**
    * The JS target draws the part inside the clip volume: 64 pixels for the
    * first triangle and none for the second. WebGPU lights those 64 and more,
-   * and lights pixels for the second.
+   * and lights pixels for the second. On Apple's Metal adapter, the one the
+   * counts were measured on, it lights 79 and 15.
    *
    * @canon exception-a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it
    */
@@ -1011,6 +1016,10 @@ describe("a triangle through vec4(0) with a vertex outside the clip volume", () 
       for (let p = 0; p < 256; p++) if (cpu.throughOrigin![p] === "#") expect(webgpu.throughOrigin![p]).toBe("#");
       expect(count(webgpu.throughOrigin!)).toBeGreaterThan(64);
       expect(count(webgpu.originBehind!)).toBeGreaterThan(0);
+      if (webgpu.adapter === "apple metal-3") {
+        expect(count(webgpu.throughOrigin!)).toBe(79);
+        expect(count(webgpu.originBehind!)).toBe(15);
+      }
     },
     120_000,
   );

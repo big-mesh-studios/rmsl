@@ -172,6 +172,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero) — In an indexed draw of a CPU rasterizer, a vertex past the end of an attribute the vertex stage reads reads that attribute as zero, on JS and WASM alike.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end`](#exception-a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end) — On GLSL and WGSL, an indexed draw through a vertex past the end of an attribute reads whatever the driver gives.
     - [`@spec round-takes-a-half-to-the-even-integer`](#spec-round-takes-a-half-to-the-even-integer) — `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
+    - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A draw draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
+      - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
+      - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+      - [`@exception a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0`](#exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0) — On GLSL, a triangle with a vertex at `vec4(0)` draws no fragment on the edge opposite that vertex. On SwiftShader, its fragments blend the varyings of its three vertices, where WebGPU gives them the varyings of the vertex at `vec4(0)`.
+      - [`@spec a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume) — A triangle that reaches `vec4(0)`, at a vertex or along an edge, and has a vertex outside the clip volume draws the part of it inside that volume, with `vec4(0)` at the centre.
+      - [`@exception a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it`](#exception-a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it) — On WGSL, a triangle that reaches `vec4(0)` and has a vertex outside the clip volume lights pixels besides those its part inside that volume covers. On a 16×16 target, Chromium's WebGPU on Metal, on an Apple M1, lights 79 pixels for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`: the 64 of that part, and 15 more to their right. It lights 15 for the triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, -1)`, whose part inside the volume has no area.
   - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
     - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
     - [`@spec evaluation-reads-back-every-shape`](#spec-evaluation-reads-back-every-shape) — The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
@@ -779,12 +785,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) — The rasterizer clips a triangle with a vertex near or behind the eye to WebGPU's clip volume, and draws the part inside it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume`](#spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume) — The polygon the clip leaves lies inside the clip volume, where it lies without rounding. A cut vertex whose four components are all no more than 2^-48 of the largest sum the cut takes, a component of the vertex the cut starts from and its step towards the other added by size, is `vec4(0)`. A triangle that meets the clip volume only at `vec4(0)` then draws nothing. A cut vertex whose w alone is 0 lies on one plane and outside another, and keeps its x, y and z for the next plane to cut.
-      - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A CPU rasterizer draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
-        - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
-        - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
-        - [`@exception a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0`](#exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0) — On GLSL, a triangle with a vertex at `vec4(0)` draws no fragment on the edge opposite that vertex. On SwiftShader, its fragments blend the varyings of its three vertices, where WebGPU gives them the varyings of the vertex at `vec4(0)`.
-        - [`@spec a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume) — A triangle that reaches `vec4(0)`, at a vertex or along an edge, and has a vertex outside the clip volume draws the part of it inside that volume, with `vec4(0)` at the centre.
-        - [`@exception a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it`](#exception-a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it) — On WGSL, a triangle that reaches `vec4(0)` and has a vertex outside the clip volume lights the pixels its driver gives it. Chromium's WebGPU on Metal lights others along its edges, and a sliver where its part inside the volume has no area.
       - [`@spec a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale`](#spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale) — A CPU rasterizer weighs each vertex of a triangle in perspective by its barycentric over its w, for any w a 64-bit float holds. Positions whose four components all scale by one factor give the same fragments, however large or small that factor.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
@@ -1166,6 +1166,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space) — WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
 - [`@fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings.
 - [`@fact webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge`](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge) — Chromium's WebGL 2 lights the 64 pixels that WebGPU lights for a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)`, and none of the 16 centres of an edge opposite `vec4(0)` that WebGPU lights in that vertex's colour. On SwiftShader the fragments of the first triangle blend the colours of its three vertices; on ANGLE's Metal renderer they take the colour of the `vec4(0)` vertex.
+- [`@fact webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it`](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it) — On a 16×16 target, Chromium's WebGL 2 lights, for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, the 64 pixels of its part inside the clip volume on SwiftShader, and on ANGLE's Metal renderer on an Apple M1 the 79 that Chromium's WebGPU lights on Metal.
 - [`@fact webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision) — WebGPU leaves open whether a pixel centre on an edge of a polygon is drawn: "If a pixel center is on the edge of the polygon, whether or not it's included is not defined. Note: this becomes a subject of precision for the rasterizer." Chromium's WebGPU on Metal lights what the top-left rule applied to the triangle as its vertices place it lights for most triangles, and other pixels for a few in a hundred, whether the clip cuts the triangle or not. It differs about as often from that rule applied to the vertices' projections rounded to 64 bits, or more often.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
@@ -2203,6 +2204,50 @@ Chromium's WebGPU reads such an attribute as its last element on Metal, and as z
 Derives from: [`fact-wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer)
 
 This follows because WGSL's `round` takes a half to the even integer, and a CPU target gives what WebGPU gives.
+
+#### @spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre
+
+> A draw draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+This follows because WebGPU clips only what lies outside its clip volume, and a CPU target gives what WebGPU gives. Where WebGPU leaves the result open, rmsl picks one for the program, and a GPU target that departs from the pick is an exception inside it. A vertex at `vec4(0)` is the position a path of a vertex stage that writes none gives, so such a triangle is easy to draw. Issue #299 settled this.
+
+##### @spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
+
+> Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
+
+This follows because WebGPU clips only what lies outside its clip volume. A cut at a plane of constant w through a vertex inside the volume drops pixels that WebGPU draws.
+
+##### @spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+
+> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+
+This follows because Chromium's WebGPU draws such a vertex there, with its varyings and that depth.
+
+##### @exception a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0
+
+> On GLSL, a triangle with a vertex at `vec4(0)` draws no fragment on the edge opposite that vertex. On SwiftShader, its fragments blend the varyings of its three vertices, where WebGPU gives them the varyings of the vertex at `vec4(0)`.
+
+Derives from: [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), [`fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge`](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge)
+
+It narrows the parent's pick where the spec it names first states it, and sits beside that spec, which stays a leaf for the tests of the CPU targets.
+
+##### @spec a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
+
+> A triangle that reaches `vec4(0)`, at a vertex or along an edge, and has a vertex outside the clip volume draws the part of it inside that volume, with `vec4(0)` at the centre.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre), [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume)
+
+This follows because WebGPU gives no result for dividing `vec4(0)` by its w, so rmsl picks one, and the units that place a vertex at `vec4(0)` already pick it: such a triangle is [clipped](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) as any other is, and a vertex at `vec4(0)`, given or [cut](#spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume), lies [at the centre](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings). A triangle from `vec4(0)` to a vertex in front and a vertex behind the eye keeps only an edge, which draws nothing. A triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to minus its first vertex, behind the eye, has an edge through `vec4(0)`. It keeps the triangle from the first two to the centre, 64 pixels. Chromium's WebGL 2 on SwiftShader, where the GLSL tests run, lights those 64 too ([fact](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it)).
+
+##### @exception a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it
+
+> On WGSL, a triangle that reaches `vec4(0)` and has a vertex outside the clip volume lights pixels besides those its part inside that volume covers. On a 16×16 target, Chromium's WebGPU on Metal, on an Apple M1, lights 79 pixels for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`: the 64 of that part, and 15 more to their right. It lights 15 for the triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, -1)`, whose part inside the volume has no area.
+
+Derives from: [`spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+It narrows the parent's pick where the spec it names first states it, and sits beside that spec, as [the GLSL exception](#exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0) does. WebGPU gives no result for dividing `vec4(0)` by its w, and its driver divides it as it does. Which way the pixels it lights there face, no probe has read, so a draw that culls such a triangle may differ from a CPU target's too. Chromium's WebGL 2 on ANGLE's Metal renderer lights the same 79 pixels, but on SwiftShader the 64 of the part inside the volume ([fact](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it)). The GLSL tests run on SwiftShader, where no test could see a departure, so no exception names GLSL.
 
 ### @spec the-test-suite-holds-every-target-to-the-program
 
@@ -5920,50 +5965,6 @@ Derives from: [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-
 
 This follows because a cut vertex whose x, y and w are all rounding has an x and y over w that place it anywhere, on the target or far off it, though the point it stands for lies within that rounding of `vec4(0)`. A triangle the clip leaves no area then drew a wedge of pixels. A cut at w + x = 0 can leave a point such as `(0, 0.5, 0.5, 0)`, the direction of an edge towards the eye; taken for `vec4(0)`, it shrank a wedge WebGPU draws to a line.
 
-##### @spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre
-
-> A CPU rasterizer draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
-
-Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
-
-This follows because WebGPU clips only what lies outside its clip volume, and a CPU target gives what WebGPU gives. A vertex at `vec4(0)` is the position a path of a vertex stage that writes none gives, so such a triangle is easy to draw. Issue #299 settled this.
-
-###### @spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
-
-> Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
-
-This follows because WebGPU clips only what lies outside its clip volume. A cut at a plane of constant w through a vertex inside the volume drops pixels that WebGPU draws.
-
-###### @spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
-
-> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
-
-This follows because Chromium's WebGPU draws such a vertex there, with its varyings and that depth.
-
-###### @exception a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0
-
-> On GLSL, a triangle with a vertex at `vec4(0)` draws no fragment on the edge opposite that vertex. On SwiftShader, its fragments blend the varyings of its three vertices, where WebGPU gives them the varyings of the vertex at `vec4(0)`.
-
-Derives from: [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), [`fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge`](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge)
-
-It narrows the spec it names first, in which it would sit seven levels deep.
-
-###### @spec a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
-
-> A triangle that reaches `vec4(0)`, at a vertex or along an edge, and has a vertex outside the clip volume draws the part of it inside that volume, with `vec4(0)` at the centre.
-
-Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre), [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume)
-
-This follows because WebGPU gives no result for dividing `vec4(0)` by its w, so rmsl picks one, and the units that place a vertex at `vec4(0)` already pick it: such a triangle is [clipped](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) as any other is, and a vertex at `vec4(0)`, given or [cut](#spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume), lies [at the centre](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings). A triangle from `vec4(0)` to a vertex in front and a vertex behind the eye keeps only an edge, which draws nothing. A triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to minus its first vertex, behind the eye, has an edge through `vec4(0)`. It keeps the triangle from the first two to the centre, 64 pixels.
-
-###### @exception a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it
-
-> On WGSL, a triangle that reaches `vec4(0)` and has a vertex outside the clip volume lights the pixels its driver gives it. Chromium's WebGPU on Metal lights others along its edges, and a sliver where its part inside the volume has no area.
-
-Derives from: [`spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
-
-It narrows the spec it names first, in which it would sit seven levels deep. The triangle through `vec4(0)` above lights 79 pixels there: the 64 and 15 more to their right. The triangle from `vec4(0)` to a vertex in front and a vertex behind the eye lights 15. Chromium's WebGL 2 on ANGLE's Metal renderer lights the same 79, and on SwiftShader the 64 ([fact](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge)).
-
 ##### @spec a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
 
 > A CPU rasterizer weighs each vertex of a triangle in perspective by its barycentric over its w, for any w a 64-bit float holds. Positions whose four components all scale by one factor give the same fragments, however large or small that factor.
@@ -8400,7 +8401,13 @@ A triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, 
 
 > Chromium's WebGL 2 lights the 64 pixels that WebGPU lights for a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)`, and none of the 16 centres of an edge opposite `vec4(0)` that WebGPU lights in that vertex's colour. On SwiftShader the fragments of the first triangle blend the colours of its three vertices; on ANGLE's Metal renderer they take the colour of the `vec4(0)` vertex.
 
-`probes/vec4-zero/gpu.probe.ts` draws through raw WebGL 2 calls in Chromium 149, with one sample, on SwiftShader (the browser the GLSL tests use) and on ANGLE's Metal renderer on an Apple M1, and reports no GL error. The edge opposite `vec4(0)` is the one from `(-1, 0.0625, 0.5, 1)` to `(1, 0.0625, 0.5, 1)`, on the centres of row 7 of a 16×16 target. A triangle whose edge passes through `vec4(0)`, from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, lights the 64 pixels of the triangle from the base to the centre in the colour of its third vertex on SwiftShader, and the 79 that WebGPU lights on Metal.
+`probes/vec4-zero/gpu.probe.ts` draws through raw WebGL 2 calls in Chromium 149, with one sample, on SwiftShader (the browser the GLSL tests use) and on ANGLE's Metal renderer on an Apple M1, and reports no GL error. The edge opposite `vec4(0)` is the one from `(-1, 0.0625, 0.5, 1)` to `(1, 0.0625, 0.5, 1)`, on the centres of row 7 of a 16×16 target.
+
+## @fact webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it
+
+> On a 16×16 target, Chromium's WebGL 2 lights, for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, the 64 pixels of its part inside the clip volume on SwiftShader, and on ANGLE's Metal renderer on an Apple M1 the 79 that Chromium's WebGPU lights on Metal.
+
+The triangle's third vertex is minus its first, behind the eye, so its edge from the first to the third passes through `vec4(0)` and no vertex lies there. `probes/vec4-zero/gpu.probe.ts` draws it through raw WebGL 2 calls in Chromium 149, with one sample, on SwiftShader (the browser the GLSL tests use) and on ANGLE's Metal renderer, and reports no GL error. SwiftShader lights the 64 pixels of the triangle from the base to the centre, in the colour of the third vertex. ANGLE's Metal renderer lights those and 15 more to their right, the pixels WebGPU lights on the same machine (`probes/vec4-zero/gpu.probe.json`). The probe draws no other triangle through `vec4(0)` with a vertex outside the clip volume on WebGL 2.
 
 ## @fact webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision
 
