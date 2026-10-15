@@ -482,16 +482,17 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGPU device", () => {
 });
 
 /**
- * A `bool` attribute, which GLSL ES 3.00 does not allow as a vertex input, so
- * the driver refuses the vertex shader rmsl writes for it.
+ * A vertex stage that reads a uniform array of 5000 `vec4`s, more than the
+ * 4096 uniform vectors a vertex shader holds on SwiftShader, so the driver
+ * refuses to link the program rmsl writes for it. rmsl leaves that limit to
+ * the device.
  */
 const DRIVER_SCENE = `
-import { Fn, attributeRaw, builtinPosition, float, vec4 } from "../rmsl";
+import { Fn, builtinPosition, int, uniformArray, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 globalThis.__rmslDriverError = () => {
-  const pos = attributeRaw("pos", "vec3");
-  const flag = attributeRaw("flag", "bool");
-  const vertex = Fn(() => builtinPosition().assign(vec4(pos, flag.select(float(1), float(0)))))();
+  const values = uniformArray("vec4", 5000);
+  const vertex = Fn(() => builtinPosition().assign(values.element(int(3))))();
   const fragment = Fn(() => vec4(0, 1, 0, 1))();
   const canvas = document.createElement("canvas");
   try {
@@ -511,9 +512,9 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGL 2 driver", () => {
   /**
    * @canon spec-a-driver-refusal-is-a-driver-error
    */
-  it("throws a DriverError for a vertex shader the driver does not compile", async () => {
+  it("throws a DriverError for a program the driver does not link", async () => {
     const result = await runInGpuPage(DRIVER_SCENE, "__rmslDriverError", import.meta.dirname);
-    expect(result).toMatchObject({ name: "DriverError", code: "shader-compile", target: "glsl" });
+    expect(result).toMatchObject({ name: "DriverError", code: "program-link", target: "glsl" });
   }, 120_000);
 
   /**
@@ -521,7 +522,7 @@ describe.skipIf(!GPU_ENABLED)("errors of a WebGL 2 driver", () => {
    */
   it("gives the driver's log", async () => {
     const result = await runInGpuPage(DRIVER_SCENE, "__rmslDriverError", import.meta.dirname);
-    expect(result.log).toMatch(/bool/);
+    expect(result.log).toMatch(/MAX_VERTEX_UNIFORM_VECTORS/);
   }, 120_000);
 });
 
