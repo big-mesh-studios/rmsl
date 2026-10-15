@@ -826,13 +826,23 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-sampler-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in four other kinds of array: a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
       - [`@bug a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-after-a-sampler-was-given-five-kinds-of-array) — After those draws, each texel the stage reads is boxed into a new heap number, 16 bytes for each component of each fragment: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw`](#spec-a-js-draw-allocates-nothing-for-samplers-with-texel-data-of-five-kinds-in-one-draw) — A JS draw whose fragment stage samples five `sampler2D` uniforms, whose texel data are a `Float32Array`, a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`, allocates nothing for each fragment.
-      - [`@bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw`](#bug-a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw) — Each texel the stage reads is boxed into a new heap number: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+      - [`@bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw`](#bug-a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw) — Each texel the stage reads from float data, a `Float32Array` or a plain array of floats, is boxed into a new heap number; texels of integer data are not: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-uniform-given-five-kinds-of-array) — A JS draw whose fragment stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
       - [`@bug a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-vector-uniform-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 12.4 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-matrix-uniform-given-five-kinds-of-array) — A JS draw whose fragment stage reads a `mat3` uniform given as a `Float64Array` allocates nothing for each fragment after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
       - [`@bug a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-matrix-uniform-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 37 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-uniform-array-element-given-five-kinds-of-array) — A JS draw whose fragment stage reads an element of a `vec4` uniform array, whose elements are given as `Float64Array`s, allocates nothing for each fragment after draws of the same rasterizer that gave its elements as `Float32Array`s, plain arrays, `Int32Array`s and `Uint8Array`s.
       - [`@bug a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-uniform-array-element-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array) — A JS draw whose vertex stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each vertex after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+      - [`@bug a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array`](#bug-a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array) — After those draws, the copy boxes each component it reads, 16 bytes for each component of each vertex: about 300 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds) — A JS draw whose vertex stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each vertex after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array) — After those draws, each texel component the stage reads is boxed into a new heap number: about 390 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage samples a `sampler2D` whose `magFilter` is `"linear"`, with texel data in a `Float32Array`, allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array) — After those draws, each texel the linear filter reads is boxed into a new heap number, several for each fragment: about 99 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds`](#spec-a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds) — A JS draw whose fragment stage reads a texel with `textureLoad` from a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+      - [`@bug a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array) — After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+    - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes) — A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
+      - [`@bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes`](#bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes) — After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts`](#spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts) — A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
   - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
@@ -6079,7 +6089,7 @@ This follows because one helper of the stage samples every one of its samplers, 
 
 ##### @bug a-js-draw-boxes-texels-of-samplers-of-five-kinds-in-one-draw
 
-> Each texel the stage reads is boxed into a new heap number: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+> Each texel the stage reads from float data, a `Float32Array` or a plain array of floats, is boxed into a new heap number; texels of integer data are not: about 33 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
 Issue: #312
 
@@ -6124,6 +6134,76 @@ This follows because the stage copies an element it reads into a slot at one pla
 > After those draws, the copy boxes each component it reads: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
 
 Issue: #313
+
+#### @spec a-js-draw-allocates-nothing-for-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
+
+> A JS draw whose vertex stage reads a `vec3` uniform given as a `Float64Array` allocates nothing for each vertex after draws of the same rasterizer that gave it as a `Float32Array`, a plain array, an `Int32Array` and a `Uint8Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a vertex stage copies a uniform into a slot as a fragment stage does, at one place in its code on every draw.
+
+##### @bug a-js-draw-boxes-a-vector-uniform-of-the-vertex-stage-given-five-kinds-of-array
+
+> After those draws, the copy boxes each component it reads, 16 bytes for each component of each vertex: about 300 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #313
+
+#### @spec a-js-draw-allocates-nothing-for-a-sampler-of-the-vertex-stage-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose vertex stage samples a `sampler2D` with texel data in a `Float32Array` allocates nothing for each vertex after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a vertex stage samples a texture with the same helper a fragment stage does, which loads texel data at the same places on every draw.
+
+##### @bug a-js-draw-boxes-texels-of-a-sampler-of-the-vertex-stage-given-five-kinds-of-array
+
+> After those draws, each texel component the stage reads is boxed into a new heap number: about 390 bytes a draw of 6 vertices, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #312
+
+#### @spec a-js-draw-allocates-nothing-for-a-linear-filtered-sampler-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose fragment stage samples a `sampler2D` whose `magFilter` is `"linear"`, with texel data in a `Float32Array`, allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a linear filter loads texel data at places of its own, apart from the nearest filter, which see every kind of array the host gave the stage's samplers.
+
+##### @bug a-js-draw-boxes-texels-of-a-linear-filtered-sampler-given-five-kinds-of-array
+
+> After those draws, each texel the linear filter reads is boxed into a new heap number, several for each fragment: about 99 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #312
+
+#### @spec a-js-draw-allocates-nothing-for-a-texture-load-after-draws-with-texel-data-of-five-kinds
+
+> A JS draw whose fragment stage reads a texel with `textureLoad` from a `sampler2D` with texel data in a `Float32Array` allocates nothing for each fragment after draws of the same rasterizer that gave that sampler texel data in a plain array, a `Uint8Array`, a `Uint8ClampedArray` and a `Uint16Array`.
+
+Derives from: [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because `textureLoad` loads texel data at places of its own, which see every kind of array the host gave the sampler.
+
+##### @bug a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array
+
+> After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #312
+
+#### @spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes
+
+> A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
+
+Derives from: [`fact-v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key)
+
+This follows because the stage reads the uniform by its slot at one place in its code on every draw, so that place sees the shape of every uniforms object the host passed.
+
+##### @bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes
+
+> After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
+
+Issue: #316
 
 #### @spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
 
@@ -6581,7 +6661,7 @@ This is a fact of three specifications, not a choice. ECMAScript defines `ToNumb
 
 > In code V8 has optimized, a read of a float from a property of an ordinary object, by a key held in a variable, at a place in the code that has seen more than one key, allocates a new heap number each time, while the property has held only numbers. A read of a property that has held something else, a read of a small integer, a read by a key the code names, and a read at a place that has seen only one key allocate nothing. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and a read from it allocates nothing by any key.
 
-This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/store.ts`, in its rows that read. A read by a variable key allocated 16 bytes with two or four keys at the place, and nothing with one; nothing where the properties had held `undefined` before their floats, or held small integers; and nothing from an object in dictionary mode. A read by a named key allocated nothing. What a place has seen counts every function made there ([`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there)). Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)).
+This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/store.ts`, in its rows that read. A read by a variable key allocated 16 bytes with two or four keys at the place, and nothing with one; nothing where the properties had held `undefined` before their floats, or held small integers; and nothing from an object in dictionary mode. A read by a named key allocated nothing from objects of four shapes, and 16 bytes from objects of five, each shape a key of its own added before the one read. What a place has seen counts every function made there ([`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there)). Every result is of code V8 had optimized ([`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)).
 
 ## @fact v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number
 
