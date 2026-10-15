@@ -1213,10 +1213,10 @@ describe("a pixel an edge of a triangle crosses", () => {
   );
 
   /**
-   * The canvas's context was made with the defaults, which ask for
-   * multisampling. Where the driver grants it, the rectangle's edges cross the
-   * centres of columns 0 and 2, which take a part of the colour; how large a
-   * part depends on the sample pattern. Where it does not, they are whole.
+   * The canvas's context was made with the defaults, whose `antialias: true`
+   * WebGL 2 must obey, so it multisamples on the drivers measured. The
+   * rectangle's edges cross the centres of columns 0 and 2, which take a part
+   * of the colour; how large a part depends on the sample pattern.
    *
    * @canon spec-the-glsl-adapter-draws-with-the-context-a-canvas-has
    */
@@ -1224,17 +1224,14 @@ describe("a pixel an edge of a triangle crosses", () => {
     "takes the samples of a context the canvas already has on createGlsl",
     async () => {
       const { samples, alphas } = (await drawnOnEach()).multisampled;
+      expect(samples, alphas).toBeGreaterThan(0);
       for (const row of alphas.split("/")) {
         const [first, second, third, fourth] = row.split(" ").map(Number);
         expect(second, alphas).toBe(255);
         expect(fourth, alphas).toBe(0);
-        if (samples > 0) {
-          for (const crossed of [first, third]) {
-            expect(crossed, alphas).toBeGreaterThan(0);
-            expect(crossed, alphas).toBeLessThan(255);
-          }
-        } else {
-          for (const crossed of [first, third]) expect([0, 255], alphas).toContain(crossed);
+        for (const crossed of [first, third]) {
+          expect(crossed, alphas).toBeGreaterThan(0);
+          expect(crossed, alphas).toBeLessThan(255);
         }
       }
     },

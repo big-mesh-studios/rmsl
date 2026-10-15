@@ -274,8 +274,8 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
  * made with each `antialias`, on a fresh canvas and on a canvas that already
  * has a context: one made by `getContext` with or without multisampling, and
  * one made by `createGlsl`. `plain` holds the samples of a context
- * `getContext` makes with `antialias: true`, which is what the driver grants
- * a request for multisampling.
+ * `getContext` makes with `antialias: true`, which WebGL 2 must obey; how many
+ * samples that is, is the implementation's.
  */
 const ENTRY_RENDERER_SAMPLES = `
 import { WebGLRenderer } from "../scene";
@@ -356,15 +356,16 @@ describe("the multisampling WebGLRenderer draws with", () => {
   });
 
   /**
-   * The driver may grant a request for multisampling or not, so the renderer
-   * is held to what it grants a plain context.
+   * WebGL 2 must obey `antialias: true`, so the buffer has samples; how many
+   * is the implementation's, so the renderer is held to a plain context's.
    *
    * @canon exception-webgl-renderer-multisamples-when-antialias-is-true
    */
   it.skipIf(!GPU_ENABLED)(
-    "draws into a buffer of the samples the driver grants when antialias is true, on a real driver",
+    "draws into a multisampled buffer when antialias is true, on a real driver",
     async () => {
       const { antialiasTrue, plain } = await samples();
+      expect(antialiasTrue).toBeGreaterThan(0);
       expect(antialiasTrue).toBe(plain);
     },
     60_000,
@@ -449,8 +450,8 @@ describe("a pixel an edge crosses in a scene", () => {
 
   /**
    * On the canvas the multisampled buffer gives the crossed columns a part of
-   * the colour where the driver grants samples, which shows the plane's edges
-   * cross pixel centres; the target holds each pixel whole or empty.
+   * the colour, which shows the plane's edges cross pixel centres; the target
+   * holds each pixel whole or empty.
    *
    * @canon spec-webgl-renderer-draws-into-a-render-target-with-one-sample
    */
@@ -459,11 +460,11 @@ describe("a pixel an edge crosses in a scene", () => {
     async () => {
       const result = await runInGpuPage(ENTRY_SCENE_EDGES, "__rmslSceneEdgesOnWebGl", dir);
       for (const drawn of Object.values<any>(result)) expect(drawn.target, JSON.stringify(result)).toEqual([0, 255]);
-      if (result.antialiasTrue.samples > 0)
-        expect(
-          result.antialiasTrue.canvas.some((alpha: number) => alpha > 0 && alpha < 255),
-          JSON.stringify(result),
-        ).toBe(true);
+      expect(result.antialiasTrue.samples, JSON.stringify(result)).toBeGreaterThan(0);
+      expect(
+        result.antialiasTrue.canvas.some((alpha: number) => alpha > 0 && alpha < 255),
+        JSON.stringify(result),
+      ).toBe(true);
     },
     60_000,
   );

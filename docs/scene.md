@@ -140,8 +140,8 @@ same faces it shows unmirrored.
 `new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`
 (multisampling of the canvas, default `false` as in three.js), `depth`,
 `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
-`preserveState`. WebGL treats `antialias: true` as a request: a driver without
-multisampling draws with one sample anyway.
+`preserveState`. WebGL 2, unlike WebGL 1, must obey `antialias: true`, so the
+canvas is always antialiased; how many samples it takes is the implementation's.
 
 A canvas has one WebGL2 context for its life, and the first call that makes it
 decides its multisampling. A renderer made on a canvas that already has a

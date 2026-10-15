@@ -46,7 +46,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec webgl-renderer-draws-with-one-sample-by-default`](#spec-webgl-renderer-draws-with-one-sample-by-default) — `WebGLRenderer` asks its WebGL 2 context for no multisampling when its `antialias` option is not true, as three.js's `WebGLRenderer` does.
     - [`@spec webgl-renderer-draws-into-a-render-target-with-one-sample`](#spec-webgl-renderer-draws-into-a-render-target-with-one-sample) — `WebGLRenderer` draws into a `WebGLRenderTarget` with one sample, whatever its `antialias` option asks.
     - [`@spec webgpu-renderer-draws-with-one-sample`](#spec-webgpu-renderer-draws-with-one-sample) — `WebGPURenderer` draws a scene with one sample, onto its canvas and into a render target.
-    - [`@exception webgl-renderer-multisamples-when-antialias-is-true`](#exception-webgl-renderer-multisamples-when-antialias-is-true) — `WebGLRenderer` given `antialias: true` and made on a canvas that has no context yet asks for a WebGL 2 context with multisampling. Where the implementation grants it, a pixel of the canvas that an edge crosses takes part of the triangle's colour.
+    - [`@exception webgl-renderer-multisamples-when-antialias-is-true`](#exception-webgl-renderer-multisamples-when-antialias-is-true) — `WebGLRenderer` given `antialias: true` and made on a canvas that has no context yet makes a WebGL 2 context with `antialias: true`, which WebGL 2 must obey, so a pixel of the canvas that an edge crosses takes part of the triangle's colour. How many samples it takes is the implementation's.
     - [`@spec webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has`](#spec-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has) — `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context, and with its samples, whatever its `antialias` option asks. It neither warns nor refuses, as three.js's `WebGLRenderer` does neither.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
@@ -1012,7 +1012,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 - [`@fact opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation`](#fact-opengl-es-leaves-the-owner-of-a-pixel-centre-on-a-shared-edge-to-the-implementation) — OpenGL ES 3.0 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, and leaves to the implementation which.
 - [`@fact webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above`](#fact-webgl-on-swiftshader-and-metal-gives-a-pixel-centre-on-a-horizontal-edge-to-the-triangle-above) — Chromium's WebGL 2 on SwiftShader, and on Metal on an Apple M1, shades a pixel centre that lies exactly on a horizontal edge for the triangle above that edge, and not for the one below. A pixel centre on any other edge it shades by the top-left rule.
-- [`@fact a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default) — A WebGL 2 context asks for multisampling unless `getContext` is given `antialias: false`, which gives it none. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
+- [`@fact a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default) — A WebGL 2 context antialiases its drawing buffer unless `getContext` is given `antialias: false`, which gives it none. The implementation chooses the technique and the number of samples, and Chromium 149's WebGL 2 on SwiftShader and on Metal on an Apple M1 multisamples, with 4 samples. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
 - [`@fact get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has) — `canvas.getContext("webgl2", attributes)` on a canvas that already has a WebGL 2 context returns that context, and ignores the attributes it is given. A context keeps the attributes it was made with for its life.
 - [`@fact three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default) — three.js's `WebGLRenderer` takes an `antialias` option that is false by default, draws with one sample then, and multisamples with `antialias: true`. Its WebGPU `Renderer` takes the same option, and sets its `samples` to 0 by default and to 4 with `antialias: true`.
 - [`@fact three-js-webgl-renderer-draws-with-the-context-a-canvas-has`](#fact-three-js-webgl-renderer-draws-with-the-context-a-canvas-has) — three.js's `WebGLRenderer` made on a canvas that already has a WebGL 2 context draws with that context and its samples, whatever its `antialias` option asks, and neither warns nor throws.
@@ -1393,7 +1393,7 @@ The CPU targets draw only triangles. Which pixels a line or a point shades is an
 
 Derives from: [`fact-a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default), [`fact-get-context-gives-back-the-context-a-canvas-has`](#fact-get-context-gives-back-the-context-a-canvas-has)
 
-This follows because a WebGL 2 context asks for multisampling unless told not to, WebGPU draws with one sample, and `getContext` hands back the context a canvas already has.
+This follows because a WebGL 2 context antialiases unless told not to, WebGPU draws with one sample, and `getContext` hands back the context a canvas already has.
 
 ##### @spec the-glsl-adapter-makes-its-context-with-one-sample
 
@@ -1453,11 +1453,11 @@ This follows because its pipelines set no `multisample.count`, and three.js's We
 
 #### @exception webgl-renderer-multisamples-when-antialias-is-true
 
-> `WebGLRenderer` given `antialias: true` and made on a canvas that has no context yet asks for a WebGL 2 context with multisampling. Where the implementation grants it, a pixel of the canvas that an edge crosses takes part of the triangle's colour.
+> `WebGLRenderer` given `antialias: true` and made on a canvas that has no context yet makes a WebGL 2 context with `antialias: true`, which WebGL 2 must obey, so a pixel of the canvas that an edge crosses takes part of the triangle's colour. How many samples it takes is the implementation's.
 
 Derives from: [`fact-three-js-renderers-draw-without-multisampling-by-default`](#fact-three-js-renderers-draw-without-multisampling-by-default), [`fact-a-webgl-context-asks-for-multisampling-by-default`](#fact-a-webgl-context-asks-for-multisampling-by-default), [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
 
-three.js's `WebGLRenderer` multisamples when its `antialias` option is true, and a three.js scene ports by changing its import. The application asks for the departure by name. WebGL makes `antialias: true` a request, which an implementation without antialiasing may leave unmet, and a render target keeps its one sample.
+three.js's `WebGLRenderer` multisamples when its `antialias` option is true, and a three.js scene ports by changing its import. The application asks for the departure by name. WebGL 2 must obey `antialias: true`, so the canvas antialiases on every implementation, with the technique and the number of samples the implementation chooses. A render target keeps its one sample.
 
 #### @spec webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
 
@@ -7455,9 +7455,9 @@ On Chromium 149, WebGL 2 through ANGLE on SwiftShader and through ANGLE on Metal
 
 ## @fact a-webgl-context-asks-for-multisampling-by-default
 
-> A WebGL 2 context asks for multisampling unless `getContext` is given `antialias: false`, which gives it none. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
+> A WebGL 2 context antialiases its drawing buffer unless `getContext` is given `antialias: false`, which gives it none. The implementation chooses the technique and the number of samples, and Chromium 149's WebGL 2 on SwiftShader and on Metal on an Apple M1 multisamples, with 4 samples. A WebGPU render pipeline draws with one sample unless its `multisample.count` says otherwise.
 
-WebGL 2 inherits the `antialias` attribute of WebGL 1, whose default is true (WebGL 1.0, section 5.2.1). With `true`, the drawing buffer antialiases only if the implementation supports antialiasing, so it is a request. With `false`, no antialiasing is performed. The WebGPU specification makes `GPUMultisampleState.count` 1 by default.
+WebGL 2 inherits the `antialias` attribute of WebGL 1, whose default is true (WebGL 1.0, section 5.2.1). WebGL 1.0 makes `true` a request, and leaves the technique (multisampling or supersampling) and its quality to the implementation. WebGL 2.0 does not inherit the request: its section "The Drawing Buffer" says "Different from WebGL 1.0, the `depth`, `stencil`, and `antialias` attributes in WebGL 2.0 must be obeyed by the WebGL implementation." So a WebGL 2 context made without `antialias: false` antialiases. With `false`, no antialiasing is performed. The WebGPU specification makes `GPUMultisampleState.count` 1 by default.
 
 Measured on Chromium 149 through ANGLE on SwiftShader and through ANGLE on Metal (Apple M1): a context made with no attributes, with `{}` or with `antialias: true` reports `SAMPLES` 4, and one made with `antialias: false` reports 0. On a 4×4 and a 5×5 target, a rectangle from x 0.5 to 2.5 gives alphas 128, 255 and 128 in columns 0 to 2 with 4 samples, and 255, 255 and 0 with none. WebGPU on Metal gives 255, 255 and 0 with no `multisample` state, and 128, 255 and 128 with `count: 4`. The probe is `probes/single-sample/multisampling-by-antialias.ts`.
 
