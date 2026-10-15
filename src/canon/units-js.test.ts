@@ -2225,7 +2225,7 @@ describe("the fragments a CPU rasterizer draws", () => {
   );
 
   /**
-   * @canon exception-a-cpu-rasterizer-clips-a-triangle-through-vec4-0-to-the-clip-volume
+   * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
    */
   it.each(rasterizers)("%s: clips a triangle through vec4(0) to the clip volume", (_, compileRaster) => {
     const behind = drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1]);

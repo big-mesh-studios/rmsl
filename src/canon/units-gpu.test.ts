@@ -946,6 +946,77 @@ describe("a triangle with a vertex at or near vec4(0)", () => {
 });
 
 /**
+ * One entry of a GPU page for each adapter. Each draws, on a 16×16 canvas, a
+ * triangle with an edge through `vec4(0)` and a vertex behind the eye, and a
+ * triangle from `vec4(0)` to a vertex in front and one behind the eye, and
+ * returns for each whether each pixel is lit, one character per pixel.
+ */
+const THROUGH_ZERO = `
+import { Fn, attribute, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+const CASES = {
+  throughOrigin: [-1, -1, 0.5, 1, 1, -1, 0.5, 1, 1, 1, -0.5, -1],
+  originBehind: [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1],
+};
+const drawEach = async (create, settle) => {
+  const drawn = {};
+  for (const [name, positions] of Object.entries(CASES)) {
+    const position = attribute("vec4");
+    const vertex = Fn(() => vec4(position))();
+    const fragment = Fn(() => vec4(1, 1, 1, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, Float32Array.from(positions));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    const flat = document.createElement("canvas");
+    flat.width = 16;
+    flat.height = 16;
+    const context = flat.getContext("2d");
+    context.drawImage(canvas, 0, 0);
+    const data = context.getImageData(0, 0, 16, 16).data;
+    drawn[name] = Array.from({ length: 256 }, (_, p) => (data[p * 4] > 0 ? "#" : ".")).join("");
+  }
+  return drawn;
+};
+globalThis.__rmslThroughZeroJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslThroughZeroWgsl = () =>
+  drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+describe("a triangle through vec4(0) with a vertex outside the clip volume", () => {
+  /**
+   * The JS target draws the part inside the clip volume: 64 pixels for the
+   * first triangle and none for the second. WebGPU lights those 64 and more,
+   * and lights pixels for the second.
+   *
+   * @canon exception-a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "lights on WGSL other pixels than the part inside the clip volume",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const cpu: Record<string, string> = await runInGpuPage(THROUGH_ZERO, "__rmslThroughZeroJs", dir);
+      const webgpu: Record<string, string> = await runInWebGpuPage(THROUGH_ZERO, "__rmslThroughZeroWgsl", dir);
+      const count = (mask: string) => mask.split("").filter((c) => c === "#").length;
+      expect(count(cpu.throughOrigin!)).toBe(64);
+      expect(count(cpu.originBehind!)).toBe(0);
+      for (let p = 0; p < 256; p++) if (cpu.throughOrigin![p] === "#") expect(webgpu.throughOrigin![p]).toBe("#");
+      expect(count(webgpu.throughOrigin!)).toBeGreaterThan(64);
+      expect(count(webgpu.originBehind!)).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+});
+
+/**
  * One entry of a GPU page for each adapter. Each draws a triangle that every
  * plane of the clip volume cuts, into a polygon of 9 vertices, on a 16×16
  * canvas: red and green from a colour each vertex has, and blue from an
