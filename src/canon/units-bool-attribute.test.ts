@@ -23,7 +23,7 @@ const TARGETS = ["glsl", "wgsl", "js", "wasm"] as const;
  * the fragment stage reads `read(flag)` true and black where it reads false.
  */
 const BOOL_ATTRIBUTE = `
-import { Fn, attributeRaw, builtinPosition, float, vec4 } from "../rmsl";
+import { Fn, attributeRaw, bool, builtinPosition, bvec2, float, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 import { createJs } from "../js";
@@ -69,6 +69,32 @@ globalThis.__rmslBoolVector = async () => ({
   bvec2: await drawFlag("bvec2", Uint32Array.of(...each([0, 2 ** 32 - 1]).flat()), (f) => f.x.not().and(f.y)),
   bvec3: await drawFlag("bvec3", Int32Array.of(...each([-1, 0, 7]).flat()), (f) => f.x.and(f.y.not()).and(f.z)),
   bvec4: await drawFlag("bvec4", Int32Array.of(...each([1, 0, 0, -1]).flat()), (f) => f.x.and(f.y.not()).and(f.z.not()).and(f.w)),
+});
+// Each integer is true, and none of them is 1, so a target that keeps the integer instead of the boolean reads false.
+globalThis.__rmslBoolLogic = async () => ({
+  and: await drawFlag("bool", Int32Array.of(...each(2)), (f) => f.and(bool(true))),
+  or: await drawFlag("bool", Int32Array.of(...each(2)), (f) => f.or(f).equal(bool(true))),
+  equal: await drawFlag("bool", Uint32Array.of(...each(6)), (f) => f.equal(bool(true))),
+  notEqual: await drawFlag("bool", Int32Array.of(...each(-2)), (f) => f.notEqual(bool(true)).not()),
+  not: await drawFlag("bool", Int32Array.of(...each(2)), (f) => f.not().not()),
+  xor: await drawFlag("bool", Int32Array.of(...each(2)), (f) => f.xor(bool(true)).not()),
+  vectorEqual: await drawFlag("bvec2", Int32Array.of(...each([-1, 7]).flat()), (f) => f.equal(bvec2(true, true)).all()),
+  vectorAll: await drawFlag("bvec2", Int32Array.of(...each([2, 4]).flat()), (f) => f.all()),
+  componentAnd: await drawFlag("bvec2", Uint32Array.of(...each([2, 4]).flat()), (f) => f.x.and(f.y)),
+});
+// The same, read in the body of an Fn with a layout, which only GLSL, JS and WASM let read an attribute.
+globalThis.__rmslBoolLayoutFn = async () => ({
+  vertex: await drawFlag("bool", Int32Array.of(...each(2)), (f) =>
+    Fn(() => f.and(bool(true))).setLayout({ name: "readsFlag", type: "bool", inputs: [] })(),
+  ),
+  fragment: await drawFragmentFlag("bvec2", Int32Array.of(...each([-1, 7]).flat()), (f) =>
+    Fn(() => f.equal(bvec2(true, true)).all()).setLayout({ name: "readsFlags", type: "bool", inputs: [] })(),
+  ),
+});
+// The same, read by the fragment stage.
+globalThis.__rmslBoolFragmentLogic = async () => ({
+  and: await drawFragmentFlag("bool", Int32Array.of(...each(2)), (f) => f.and(bool(true))),
+  vectorEqual: await drawFragmentFlag("bvec2", Int32Array.of(...each([-1, 7]).flat()), (f) => f.equal(bvec2(true, true)).all()),
 });
 // The first vertex holds false, and the other two true.
 globalThis.__rmslBoolFragment = async () => drawFragmentFlag("bool", Int32Array.of(0, 1, 1), (f) => f);
@@ -195,6 +221,64 @@ describe.skipIf(!GPU_ENABLED)("a bool attribute drawn", () => {
       expect(await run(target, "__rmslBool")).toEqual({ minusOne: GREEN, largest: GREEN, zero: NOTHING });
     }, 120_000);
   }
+
+  for (const target of TARGETS) {
+    /**
+     * Every integer is true and none is 1, so `and`, `or`, `equal`,
+     * `notEqual`, `not`, `xor`, a vector `equal` and `all` read it as a
+     * boolean only where the target compares it with zero.
+     *
+     * @canon spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero
+     * @canon spec-a-boolean-vector-attribute-reads-each-component-against-zero
+     */
+    it.skipIf(target === "wgsl" && !WEBGPU)(
+      `reads an integer other than 1 as true in every boolean operation on ${target}`,
+      async () => {
+        const green = { and: GREEN, or: GREEN, equal: GREEN, notEqual: GREEN, not: GREEN, xor: GREEN };
+        expect(await run(target, "__rmslBoolLogic")).toEqual({
+          ...green,
+          vectorEqual: GREEN,
+          vectorAll: GREEN,
+          componentAnd: GREEN,
+        });
+      },
+      120_000,
+    );
+  }
+
+  for (const target of ["glsl", "js", "wasm"]) {
+    /**
+     * @canon spec-a-bool-attribute-reads-true-where-its-integer-is-not-zero
+     * @canon spec-a-boolean-vector-attribute-reads-each-component-against-zero
+     */
+    it(`reads an integer other than 1 as true in the body of a layout Fn on ${target}`, async () => {
+      expect(await run(target, "__rmslBoolLayoutFn")).toEqual({ vertex: GREEN, fragment: GREEN });
+    }, 120_000);
+  }
+
+  for (const target of ["wgsl", "js", "wasm"]) {
+    /**
+     * Every vertex holds the same integers, so the provoking vertex does not
+     * matter, and GLSL reads them too.
+     *
+     * @canon spec-a-fragment-stage-reads-a-bool-attribute-of-the-first-vertex
+     * @canon spec-a-fragment-stage-reads-each-component-of-a-boolean-vector-attribute-of-the-first-vertex
+     */
+    it.skipIf(target === "wgsl" && !WEBGPU)(
+      `reads an integer other than 1 as true in the fragment stage on ${target}`,
+      async () => {
+        expect(await run(target, "__rmslBoolFragmentLogic")).toEqual({ and: GREEN, vectorEqual: GREEN });
+      },
+      120_000,
+    );
+  }
+
+  /**
+   * @canon exception-a-glsl-fragment-stage-reads-a-bool-attribute-of-the-last-vertex
+   */
+  it("reads an integer other than 1 as true in the fragment stage on glsl", async () => {
+    expect(await run("glsl", "__rmslBoolFragmentLogic")).toEqual({ and: GREEN, vectorEqual: GREEN });
+  }, 120_000);
 
   for (const target of ["glsl", "wgsl"]) {
     /**

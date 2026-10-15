@@ -4985,6 +4985,16 @@ export function componentKindOf(t: string | undefined): ScalarKind {
   return "float";
 }
 
+/**
+ * The unsigned type a `bool` or boolean vector travels as where a target
+ * takes no boolean, `uint` or the `uvecN` of its width, or undefined for any
+ * other type. A component reads true where its integer is not zero.
+ */
+export function unsignedCarrierOf(t: string): ShaderType | undefined {
+  if (componentKindOf(t) !== "bool") return undefined;
+  return (t === "bool" ? "uint" : `uvec${t.slice(-1)}`) as ShaderType;
+}
+
 /** Component count: 1 for scalars, TYPE_WIDTH for vectors, rows*cols for matrices. */
 export function componentCountOf(t: string): number {
   const width = TYPE_WIDTH[t];
