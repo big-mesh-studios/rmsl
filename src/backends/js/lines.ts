@@ -21,6 +21,15 @@ const LINE_ROUNDING = 2 ** -48;
  */
 const LINE_FILTER = 2 ** -16;
 
+/**
+ * The bound of rounding of the plane of depth's value, over the sum of its terms' sizes: its three
+ * coefficients each rounded once from an exact sum, and the sum of their products.
+ */
+const PLANE_ROUNDING = 2 ** -50;
+
+/** The most a depth kept from the float value of its plane may round by, over the point's w: 2^-32 of the depth range. */
+const DEPTH_FILTER = 2 ** -32;
+
 /** Dekker's splitter for a 64-bit float, `2^27 + 1`. */
 const SPLITTER = 134217729;
 
@@ -332,10 +341,21 @@ function exactLineSign(lines: Lines, e: number, X: number, Y: number, W: number)
   return signOf(expansions, e * EXPANSION, length);
 }
 
-/** The depth at the ray `(X, Y, W)` by the triangle's {@link Lines.plane}, held to 0 to 1, where coverage put it. */
+/**
+ * The depth at the ray `(X, Y, W)` whose lines {@link lineSign} has tested, held to 0 to 1, where coverage
+ * put it: the point's z by the triangle's {@link Lines.plane}, over its w. The float value of the plane is
+ * kept when its bound of rounding is within {@link DEPTH_FILTER} of that w; any other z is summed exactly.
+ */
 export function depthAt(lines: Lines, X: number, Y: number, W: number): number {
   const { plane } = lines;
-  return Math.min(1, Math.max(0, (plane[0]! * X + plane[1]! * Y + plane[2]! * W) / (plane[3]! * W)));
+  const x = plane[0]! * X,
+    y = plane[1]! * Y,
+    w = plane[2]! * W;
+  const divisor = plane[3]! * W;
+  let z = x + y + w;
+  if (PLANE_ROUNDING * (Math.abs(x) + Math.abs(y) + Math.abs(w)) > DEPTH_FILTER * Math.abs(divisor))
+    z = estimateOf(lines.sum, 0, expandPoint(lines, 2, X, Y, W));
+  return Math.min(1, Math.max(0, z / divisor));
 }
 
 /**
@@ -359,7 +379,7 @@ export function liesInDepthRange(lines: Lines): boolean {
  * the vertex's line. The same sum of w is the triangle's sign times `W`, so it needs no test.
  */
 export function pointSign(lines: Lines, component: number, X: number, Y: number, W: number): number {
-  const { points, sizes, rows, values, expansions, pending, sum } = lines;
+  const { points, sizes, rows, values, sum } = lines;
   // Each vertex's component c, and the size of its terms, which for w minus z is |w| + |z|.
   const z = component === -1 ? 2 : component,
     w = component === -1 ? 3 : component,
@@ -381,6 +401,16 @@ export function pointSign(lines: Lines, component: number, X: number, Y: number,
   if (value < -bound) return -1;
   // A bound of 0 leaves every component 0, as a line of a triangle that is not flat is not 0: so is the sum.
   if (bound === 0) return 0;
+  return signOf(sum, 0, expandPoint(lines, component, X, Y, W));
+}
+
+/**
+ * Writes into `sum` the exact expansion, at the ray `(X, Y, W)`, of the point's z (`component` 2) or
+ * its w minus its z (-1): the sum over the vertices of that component times the vertex's line. Gives
+ * its length.
+ */
+function expandPoint(lines: Lines, component: number, X: number, Y: number, W: number): number {
+  const { points, expansions, pending, sum } = lines;
   // Each line's expansion first, as an expansion takes `pending` for its own terms.
   for (let e = 0; e < 3; e++) expandLine(lines, e, X, Y, W);
   let n = 0;
@@ -400,5 +430,5 @@ export function pointSign(lines: Lines, component: number, X: number, Y: number,
       }
     }
   }
-  return signOf(sum, 0, addExactly(pending, n, sum, 0));
+  return addExactly(pending, n, sum, 0);
 }

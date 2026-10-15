@@ -466,9 +466,8 @@
   ;; The exact sign, at the ray ($X, $Y, $W) whose lines $lineSign has tested, of the point's z
   ;; ($component 2) or its w minus its z (-1), as lines.ts's pointSign gives it.
   (func $pointSign (param $component i32) (param $X f64) (param $Y f64) (param $W f64) (result i32)
-    (local $l i32) (local $z i32) (local $w i32) (local $minus f64) (local $e i32) (local $i i32) (local $n i32) (local $length i32)
+    (local $l i32) (local $z i32) (local $w i32) (local $minus f64)
     (local $c0 f64) (local $c1 f64) (local $c2 f64) (local $m0 f64) (local $m1 f64) (local $m2 f64) (local $value f64) (local $bound f64)
-    (local $at i32)
     (local.set $l (global.get $lines))
     (local.set $z (i32.shl (select (i32.const 2) (local.get $component) (i32.eq (local.get $component) (i32.const -1))) (i32.const 3)))
     (local.set $w (i32.shl (select (i32.const 3) (local.get $component) (i32.eq (local.get $component) (i32.const -1))) (i32.const 3)))
@@ -497,6 +496,16 @@
     (if (f64.lt (local.get $value) (f64.neg (local.get $bound))) (then (return (i32.const -1))))
     ;; A bound of 0 leaves every component 0, as a line of a triangle that is not flat is not 0: so is the sum.
     (if (f64.eq (local.get $bound) (f64.const 0)) (then (return (i32.const 0))))
+    (call $signOf (i32.add (local.get $l) (i32.const 4144))
+      (call $expandPoint (local.get $component) (local.get $X) (local.get $Y) (local.get $W))))
+
+  ;; Writes into the sum at +4144 the exact expansion, at the ray ($X, $Y, $W), of the point's z
+  ;; ($component 2) or its w minus its z (-1), as lines.ts's expandPoint does, and gives its length.
+  (func $expandPoint (param $component i32) (param $X f64) (param $Y f64) (param $W f64) (result i32)
+    (local $l i32) (local $z i32) (local $w i32) (local $e i32) (local $i i32) (local $n i32) (local $length i32) (local $at i32)
+    (local.set $l (global.get $lines))
+    (local.set $z (i32.shl (select (i32.const 2) (local.get $component) (i32.eq (local.get $component) (i32.const -1))) (i32.const 3)))
+    (local.set $w (i32.shl (select (i32.const 3) (local.get $component) (i32.eq (local.get $component) (i32.const -1))) (i32.const 3)))
     ;; Each line's expansion first, as an expansion takes the terms to sum for its own.
     (drop (call $expandLine (i32.const 0) (local.get $X) (local.get $Y) (local.get $W)))
     (drop (call $expandLine (i32.const 1) (local.get $X) (local.get $Y) (local.get $W)))
@@ -524,8 +533,27 @@
             (br $nextComponent)))
         (local.set $e (i32.add (local.get $e) (i32.const 1)))
         (br $nextLine)))
-    (call $signOf (i32.add (local.get $l) (i32.const 4144))
-      (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (local.get $n) (i32.add (local.get $l) (i32.const 4144)))))
+    (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (local.get $n) (i32.add (local.get $l) (i32.const 4144))))
+
+  ;; The depth at the ray ($X, $Y, $W) whose lines $lineSign has tested, held to 0 to 1, as
+  ;; lines.ts's depthAt gives it: the plane of depth's float value where its bound of rounding,
+  ;; 2^-50 of its terms, is within 2^-32 of the point's w, and the point's z summed exactly elsewhere.
+  (func $depthAt (param $X f64) (param $Y f64) (param $W f64) (result f64)
+    (local $l i32) (local $x f64) (local $y f64) (local $w f64) (local $divisor f64) (local $z f64)
+    (local.set $l (global.get $lines))
+    (local.set $x (f64.mul (f64.load offset=6744 (local.get $l)) (local.get $X)))
+    (local.set $y (f64.mul (f64.load offset=6752 (local.get $l)) (local.get $Y)))
+    (local.set $w (f64.mul (f64.load offset=6760 (local.get $l)) (local.get $W)))
+    (local.set $divisor (f64.mul (f64.load offset=6768 (local.get $l)) (local.get $W)))
+    (local.set $z (f64.add (f64.add (local.get $x) (local.get $y)) (local.get $w)))
+    (if (f64.gt
+          (f64.mul (f64.const 0x1p-50) (f64.add (f64.add (f64.abs (local.get $x)) (f64.abs (local.get $y))) (f64.abs (local.get $w))))
+          (f64.mul (f64.const 0x1p-32) (f64.abs (local.get $divisor))))
+      (then
+        (local.set $z
+          (call $estimateOf (i32.add (local.get $l) (i32.const 4144))
+            (call $expandPoint (i32.const 2) (local.get $X) (local.get $Y) (local.get $W))))))
+    (f64.min (f64.const 1) (f64.max (f64.const 0) (f64.div (local.get $z) (local.get $divisor)))))
 
   ;; ---- vertex pass ----
   (func $copyAttributesIn
@@ -1110,14 +1138,8 @@
               (local.set $l0 (f64.load offset=752 (local.get $l)))
               (local.set $l1 (f64.load offset=760 (local.get $l)))
               (local.set $l2 (f64.load offset=768 (local.get $l)))
-              ;; The plane of depth there, held to 0 to 1, where coverage put it.
-              (f64.store offset=6736 (local.get $l)
-                (f64.min (f64.const 1) (f64.max (f64.const 0)
-                  (f64.div
-                    (f64.add
-                      (f64.add (f64.mul (f64.load offset=6744 (local.get $l)) (local.get $X)) (f64.mul (f64.load offset=6752 (local.get $l)) (local.get $Y)))
-                      (f64.mul (f64.load offset=6760 (local.get $l)) (local.get $W)))
-                    (f64.mul (f64.load offset=6768 (local.get $l)) (local.get $W))))))
+              ;; The depth there, held to 0 to 1, where coverage put it.
+              (f64.store offset=6736 (local.get $l) (call $depthAt (local.get $X) (local.get $Y) (local.get $W)))
               (if (i32.ge_s (local.get $centre) (i32.const 0))
                 (then
                   (f64.store offset=6704 (local.get $l) (f64.convert_i32_u (i32.eqz (local.get $centre))))

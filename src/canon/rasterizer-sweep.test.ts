@@ -337,6 +337,38 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   });
 
   /**
+   * Hair triangles whose third vertex is 4 or -4 times the first plus a hair from 2^-23 to 2^-26,
+   * each vertex scaled by a factor of many digits. The plane of depth then has terms far larger than
+   * the depth they cancel to at some centres, and its float value there misses the depth by up to
+   * 2.4e-7, so the depth is summed exactly from the lines' values instead.
+   *
+   * @canon spec-a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray
+   */
+  it("gives the depth of the triangle's point where its plane of depth cancels at a centre", () => {
+    drawsAsTheReference(
+      [
+        -0.333143151448812, -1.2215254534639006, -0.3886678925521396, -1.221526300691285, 0.5580732219968922,
+        2.0462684806552716, 0.651085425663041, 2.0462684806552716, -0.38927921222057194, -0.5839188183308579,
+        0.6812386213860009, 0.6812386213860009,
+      ],
+      16,
+      16,
+    );
+    for (const k of [4, -4]) {
+      const next = random(59);
+      for (let n = 0; n < 3000; n++) {
+        const p0 = gridVertex(next, false),
+          p1 = gridVertex(next, false);
+        const hair = 2 ** -(23 + (n % 4));
+        const p2 = p0.map((c) => -k * c + hair * (Math.round(next() * 64) - 32));
+        const t = n % 2 ? [...p0, ...p1, ...p2] : [...p2, ...p0, ...p1];
+        const messy = scaled(t, [messyFactor(next), messyFactor(next), messyFactor(next)]);
+        if (!inPlaneWithTheEye(messy)) drawsAsTheReference(messy, 16, 16);
+      }
+    }
+  });
+
+  /**
    * @canon spec-a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre
    */
   it("lights nothing for a triangle in one plane with the eye that does not reach vec4(0)", () => {
@@ -370,6 +402,62 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   });
 
   /**
+   * Thin triangles from `vec4(0)`, at the centre, to a vertex in the clip volume and one that a hair
+   * from 2^-30 to 2^-37 moves off its ray, at a depth of its own, each scaled by a factor of many
+   * digits. The terms of the plane of depth are up to 4e11 times
+   * the depth they cancel to, and its float value misses it by up to 3.8e-5, so the depth is summed
+   * exactly from the lines' values instead.
+   *
+   * @canon spec-a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre
+   */
+  it("gives the depth of the triangle to the centre where its plane of depth cancels at a centre", () => {
+    drawsAsTheReference(
+      [
+        0, 0, 0, 0, 0.36513219829263566, -0.36513219829263566, 0.23119557268577942, 0.36513219829263566,
+        3.092152744602931, -3.092152744598522, 0.9740903934770404, 3.0921527446207753,
+      ],
+      15,
+      15,
+    );
+    const next = random(66);
+    let drawn = 0;
+    while (drawn < 400) {
+      const p1 = gridVertex(next, false);
+      if (!(Math.abs(p1[0]!) <= p1[3]! && Math.abs(p1[1]!) <= p1[3]! && p1[2]! <= p1[3]!)) continue;
+      const hair = 2 ** -(30 + (drawn % 8));
+      const w = p1[3]! * (drawn % 2 ? 4 : 1.5);
+      const p2 = [0, 1].map((c) => (p1[c]! / p1[3]!) * w + hair * (Math.round(next() * 64) - 32));
+      p2.push(Math.abs(onGrid(next, w)) % w, w);
+      if (!(Math.abs(p2[0]!) <= p2[3]! && Math.abs(p2[1]!) <= p2[3]! && p2[2]! >= 0 && p2[2]! <= p2[3]!)) continue;
+      const v = [p1, p2].map((p) => {
+        const f = messyFactor(next);
+        return p.map((c) => c * f);
+      });
+      v.splice(drawn % 3, 0, [0, 0, 0, 0]);
+      drawsAsTheReference(v.flat(), drawn % 2 ? 15 : 16, 16);
+      drawn++;
+    }
+  });
+
+  /**
+   * A thin triangle with an edge through `vec4(0)`, drawn by its fan: the fan takes its depth from
+   * the projections of the vertices the clip cuts, which round.
+   *
+   * @canon bug-a-thin-triangle-drawn-by-its-fan-misses-its-depth
+   */
+  it.fails("gives the depth of its fan to a thin triangle with an edge through vec4(0)", () => {
+    drawsAsTheReference(
+      [
+        -0.1326217944478656, -0.2506588228475079, 0.27140405480275104, 0.6166635713950581, -0.11629018860897772,
+        -0.21979164063341755, 0.23798221743141051, 0.5407250243048016, 0.5304871777914624, 1.0026352913900316,
+        -1.0856162192110042, -2.4666542855802325,
+      ],
+      64,
+      48,
+    );
+  });
+
+  /**
    * Each triangle lies in one plane with the eye and reaches `vec4(0)`: at a vertex, the other two
    * not both in the clip volume, or along an edge, its third vertex a negative multiple of another.
    * The rasterizers draw the fan of the polygon the clip leaves, which the reference clips exactly:
@@ -377,6 +465,7 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
    * in each triangle of the fan. A centre exactly on an edge of what it draws is left open.
    *
    * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
+   * @canon spec-a-triangle-drawn-by-its-fan-gets-the-depth-of-its-fan
    */
   it("draws the part inside the clip volume of a triangle in one plane with the eye through vec4(0)", () => {
     const next = random(65);

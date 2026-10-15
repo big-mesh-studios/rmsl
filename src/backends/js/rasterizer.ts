@@ -500,7 +500,8 @@ export function compileJSRasterizer(
    * covered where each line's exact sign puts its centre inside, or on an edge the triangle owns,
    * and where the point there lies at a depth from 0 to 1. The weight of each
    * vertex is its line there, scaled; one at `centre` takes all of it. The depth is the
-   * triangle's plane of depth there, which {@link prepareLines} summed exactly once. A triangle whose
+   * triangle's plane of depth there, which {@link prepareLines} summed exactly once, or near a tie of
+   * its terms the point's z summed exactly. A triangle whose
    * vertices all lie at a depth from 0 to 1 needs no test of depth. The pixels tested are those
    * of the projections of the vertices, or of the polygon the clip leaves of a triangle with a
    * vertex at or behind the eye.

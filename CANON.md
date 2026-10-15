@@ -172,6 +172,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero) — In an indexed draw of a CPU rasterizer, a vertex past the end of an attribute the vertex stage reads reads that attribute as zero, on JS and WASM alike.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end`](#exception-a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end) — On GLSL and WGSL, an indexed draw through a vertex past the end of an attribute reads whatever the driver gives.
     - [`@spec round-takes-a-half-to-the-even-integer`](#spec-round-takes-a-half-to-the-even-integer) — `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
+    - [`@spec a-rasterizer-gives-a-fragment-the-depth-of-its-point-on-the-triangle`](#spec-a-rasterizer-gives-a-fragment-the-depth-of-its-point-on-the-triangle) — A CPU rasterizer gives a fragment, as its interpolated depth, the z over w of the point of the triangle it draws on the ray through its pixel centre, within 1e-9 of it. A vertex at `vec4(0)` stands there for the point `(0, 0, 0, 1)`, at the centre at depth 0.
+      - [`@spec a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray`](#spec-a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray) — A triangle whose vertices do not lie in one plane with the eye gets that depth at every centre it covers, at a centre where the terms of its depth nearly cancel too.
+      - [`@spec a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre`](#spec-a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre) — A triangle with a vertex at `vec4(0)` and the other two in the clip volume gets the depth of the triangle from `(0, 0, 0, 1)` to those two, at every centre it covers.
+      - [`@spec a-triangle-drawn-by-its-fan-gets-the-depth-of-its-fan`](#spec-a-triangle-drawn-by-its-fan-gets-the-depth-of-its-fan) — A triangle in one plane with the eye that reaches `vec4(0)` gets, at each centre it covers, the depth of the triangle of its fan that covers that centre: the triangle from `(0, 0, 0, 1)` to two neighbouring vertices of the polygon the clip leaves of it.
+        - [`@bug a-thin-triangle-drawn-by-its-fan-misses-its-depth`](#bug-a-thin-triangle-drawn-by-its-fan-misses-its-depth) — The fan takes its depth from the projections of the vertices the clip cuts, which a thin triangle rounds. On a 64×48 target, the triangle from `(-0.1326217944478656, -0.2506588228475079, 0.27140405480275104, 0.6166635713950581)` and `(-0.11629018860897772, -0.21979164063341755, 0.23798221743141051, 0.5407250243048016)` to minus four times its first vertex, whose edge runs through `vec4(0)`, misses the depth by up to 2.0e-3 at each of the 3 centres it covers.
     - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A draw draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
       - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
       - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
@@ -1165,6 +1170,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU shades a pixel centre that lies exactly on a top or a left edge of a triangle at w 1 whose vertices lie on multiples of half a pixel, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 - [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
 - [`@fact webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space) — WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
+- [`@fact webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen`](#fact-webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen) — WebGPU gives a fragment of a polygon the depth Σ bᵢ dᵢ, where bᵢ are the barycentric coordinates of its pixel centre in framebuffer space and dᵢ is the depth of each vertex of the clipped polygon: its z over w, mapped linearly to the viewport's depth range.
 - [`@fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings.
 - [`@fact webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge`](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge) — Chromium's WebGL 2 lights the 64 pixels that WebGPU lights for a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)`, and none of the 16 centres of an edge opposite `vec4(0)` that WebGPU lights in that vertex's colour. On SwiftShader the fragments of the first triangle blend the colours of its three vertices; on ANGLE's Metal renderer they take the colour of the `vec4(0)` vertex.
 - [`@fact webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it`](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it) — On a 16×16 target, Chromium's WebGL 2 lights, for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, the 64 pixels of its part inside the clip volume on SwiftShader, and on ANGLE's Metal renderer on an Apple M1 the 79 that Chromium's WebGPU lights on Metal.
@@ -2205,6 +2211,34 @@ Chromium's WebGPU reads such an attribute as its last element on Metal, and as z
 Derives from: [`fact-wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer)
 
 This follows because WGSL's `round` takes a half to the even integer, and a CPU target gives what WebGPU gives.
+
+#### @spec a-rasterizer-gives-a-fragment-the-depth-of-its-point-on-the-triangle
+
+> A CPU rasterizer gives a fragment, as its interpolated depth, the z over w of the point of the triangle it draws on the ray through its pixel centre, within 1e-9 of it. A vertex at `vec4(0)` stands there for the point `(0, 0, 0, 1)`, at the centre at depth 0.
+
+Derives from: [`fact-webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen`](#fact-webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre), [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings)
+
+This follows because WebGPU's depth at a pixel centre is the sum of the depths of the polygon's vertices by their barycentrics on the screen, which over a triangle is the z over w of its point there. A CPU target computes in 64 bits, where that depth can be held far finer than the 2^-24 of a 32-bit float, so how its terms happen to round must not decide which of two close fragments a depth test keeps. Where the triangle reaches `vec4(0)`, it is drawn with that vertex [at the centre](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), and the triangle it draws is the one with `(0, 0, 0, 1)` in its place.
+
+##### @spec a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray
+
+> A triangle whose vertices do not lie in one plane with the eye gets that depth at every centre it covers, at a centre where the terms of its depth nearly cancel too.
+
+##### @spec a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre
+
+> A triangle with a vertex at `vec4(0)` and the other two in the clip volume gets the depth of the triangle from `(0, 0, 0, 1)` to those two, at every centre it covers.
+
+##### @spec a-triangle-drawn-by-its-fan-gets-the-depth-of-its-fan
+
+> A triangle in one plane with the eye that reaches `vec4(0)` gets, at each centre it covers, the depth of the triangle of its fan that covers that centre: the triangle from `(0, 0, 0, 1)` to two neighbouring vertices of the polygon the clip leaves of it.
+
+Derives from: [`spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume)
+
+###### @bug a-thin-triangle-drawn-by-its-fan-misses-its-depth
+
+> The fan takes its depth from the projections of the vertices the clip cuts, which a thin triangle rounds. On a 64×48 target, the triangle from `(-0.1326217944478656, -0.2506588228475079, 0.27140405480275104, 0.6166635713950581)` and `(-0.11629018860897772, -0.21979164063341755, 0.23798221743141051, 0.5407250243048016)` to minus four times its first vertex, whose edge runs through `vec4(0)`, misses the depth by up to 2.0e-3 at each of the 3 centres it covers.
+
+Issue: #299
 
 #### @spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre
 
@@ -8393,6 +8427,12 @@ This is a fact of the WebGPU specification, section Fragment Processing.
 > WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
 
 This is a fact of the WebGPU specification, section Primitive Clipping: "The value is linearly interpolated in clip space, producing perspective-correct values." The weights depend only on the ratios of the three w, so scaling every component of the three positions by one factor changes no fragment.
+
+## @fact webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen
+
+> WebGPU gives a fragment of a polygon the depth Σ bᵢ dᵢ, where bᵢ are the barycentric coordinates of its pixel centre in framebuffer space and dᵢ is the depth of each vertex of the clipped polygon: its z over w, mapped linearly to the viewport's depth range.
+
+This is a fact of the [WebGPU specification](https://www.w3.org/TR/2026/CRD-webgpu-20260915/), Candidate Recommendation Draft of 15 September 2026. Section 23.2.5.4, Polygon Rasterization: "Let di be the depth value of vi. Set rp.depth to ∑ (bi × di)". Section 23.2.5.3, Barycentric coordinates: they are "defined for a point p inside a convex polygon with n vertices vi in framebuffer space". Section 23.2.5, Rasterization: "depth(n) = vp.minDepth + n.z × ( vp.maxDepth - vp.minDepth )", where n is the vertex divided by its w. With the default depth range of 0 to 1, a vertex's depth is its z over w. Z over w is affine on the screen over a triangle, so the depth at a pixel centre is the z over w of the point of the triangle on the ray through that centre, however the polygon is split, for a triangle whose vertices do not lie in one plane with the eye. Section 23.2.5 interpolates the user-defined attributes as clipping does, in perspective; the depth is not one of them, and section 23.2.5.4 alone decides it.
 
 ## @fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre
 
