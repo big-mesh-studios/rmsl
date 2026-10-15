@@ -1863,7 +1863,8 @@ export function compileJSNode(
       assertNotInAComputeStage(ctx, ctx.shaderStage, COMPUTE_REFUSES.attribute);
       ctx.attributes.set(v.slot, {
         id: v.id,
-        type: v.shaderType ?? node._t,
+        // A bool attribute is reported by the type the program declares, not the unsigned one it is read as.
+        type: v.declaredType ?? v.shaderType ?? node._t,
         shaderType: v.shaderType ?? node._t,
         slot: v.slot,
       });

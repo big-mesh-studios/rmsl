@@ -605,7 +605,7 @@ describe("a varying a CPU vertex stage does not write", () => {
 
 describe("the varyings a JS rasterizer interpolates", () => {
   /**
-   * @canon spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes
+   * @canon spec-a-js-rasterizer-interpolates-every-float-varying-the-vertex-stage-writes
    */
   it("interpolates a varying the first vertex does not write, as 0 at that vertex", () => {
     const position = attribute("vec3");
@@ -3105,7 +3105,8 @@ describe("the array a CPU adapter takes for an attribute", () => {
   ];
 
   /**
-   * @canon spec-an-attribute-takes-only-an-array-of-its-own-kind
+   * @canon spec-an-adapter-takes-only-the-array-of-a-numeric-attributes-kind
+   * @canon spec-an-adapter-checks-an-attribute-named-by-its-slot-where-set-attribute-is-called
    */
   it.each(adapters)("%s refuses an array of another kind, named by node or by slot", (_, create) => {
     const position = attribute("vec2");

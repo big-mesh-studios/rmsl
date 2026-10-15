@@ -1,0 +1,52 @@
+{
+  "environment": {
+    "node": "v24.12.0",
+    "platform": "darwin arm64"
+  },
+  "swiftshader": {
+    "chromium": "149.0.7827.55",
+    "results": {
+      "webgl_ prefix": {
+        "compiles": false,
+        "log": "ERROR: 0:2: 'webgl_flag' : reserved built-in name\nERROR: 0:3: 'webgl_flag' : undeclared identifier\n"
+      },
+      "_webgl_ prefix": {
+        "compiles": false,
+        "log": "ERROR: 0:2: '_webgl_flag' : reserved built-in name\nERROR: 0:3: '_webgl_flag' : undeclared identifier\n"
+      },
+      "1024 characters": {
+        "compiles": true,
+        "log": ""
+      },
+      "1025 characters": {
+        "compiles": false,
+        "log": "ERROR: 0:2: '<1025 a's>' : token too long\nERROR: 0:3: '<1025 a's>' : token too long\n"
+      }
+    },
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36"
+  },
+  "metal": {
+    "chromium": "149.0.7827.55",
+    "results": {
+      "webgl_ prefix": {
+        "compiles": false,
+        "log": "ERROR: 0:2: 'webgl_flag' : reserved built-in name\nERROR: 0:3: 'webgl_flag' : undeclared identifier\n"
+      },
+      "_webgl_ prefix": {
+        "compiles": false,
+        "log": "ERROR: 0:2: '_webgl_flag' : reserved built-in name\nERROR: 0:3: '_webgl_flag' : undeclared identifier\n"
+      },
+      "1024 characters": {
+        "compiles": true,
+        "log": ""
+      },
+      "1025 characters": {
+        "compiles": false,
+        "log": "ERROR: 0:2: '<1025 a's>' : token too long\nERROR: 0:3: '<1025 a's>' : token too long\n"
+      }
+    },
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
+  }
+}
