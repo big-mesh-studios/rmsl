@@ -167,7 +167,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
         - [`@spec wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) — A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
-        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero, and further by the error WGSL allows each built-in function the program calls at run time. Where WGSL gives such a call no bound, the difference has none.
       - [`@spec a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) — A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
       - [`@spec a-cpu-target-at-f32-rounds-every-float-value-it-computes`](#spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes) — At `float: "f32"`, a CPU target rounds every float value of its program to 32 bits: each input as it reads it, each literal, each constant it folds, and the value of each operation. A storage element it does not write keeps the value the host gave it. A built-in function, such as `dot`, `normalize`, `sin` or a texture sample, computes its value at 64 bits and rounds it once.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
@@ -199,7 +199,23 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver) — On WGSL, the driver decides which of the triangles that share an edge shades a pixel centre lying exactly on that edge.
       - [`@exception a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver) — On GLSL, the driver decides which of two triangles that share an edge shades a pixel centre lying exactly on that edge. Exactly one of them shades it, whichever way they wind.
   - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
-    - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+    - [`@spec a-gpu-as-accurate-as-wgsl-requires-passes-the-evaluation`](#spec-a-gpu-as-accurate-as-wgsl-requires-passes-the-evaluation) — The evaluation harness passes a GPU result whose built-in calls are each as accurate as WGSL requires, on GLSL as on WGSL, as far as a first-order carry of each call's error through the rest of the program reaches. A program with a built-in call WGSL gives no bound runs on the CPU targets alone.
+      - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result, before a built-in call widens it, allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+      - [`@spec atan-and-atan2-widen-the-tolerance-by-4096-units-in-the-last-place`](#spec-atan-and-atan2-widen-the-tolerance-by-4096-units-in-the-last-place) — A call of `atan`, or of `atan2(y, x)` with `|x|` from 2⁻¹²⁶ to 2¹²⁶ and `y` finite and normal, widens the tolerance by 4096 units in the last place of the call's value. Any other call of `atan2` has no bound.
+      - [`@spec asin-and-acos-widen-the-tolerance-by-the-worse-of-their-absolute-error-and-atan2s`](#spec-asin-and-acos-widen-the-tolerance-by-the-worse-of-their-absolute-error-and-atan2s) — A call of `asin` widens the tolerance by the worse of 6.81×10⁻⁵ and the bound of `atan2(x, sqrt(1 - x²))`, and one of `acos` by the worse of 6.77×10⁻⁵ and the bound of `atan2(sqrt(1 - x²), x)`, the rounding of the `sqrt` and its argument carried through that `atan2`. Where that `atan2` has no bound, as for `asin(0)` or `acos(1)`, the call has none.
+      - [`@spec sin-and-cos-widen-the-tolerance-by-2-to-the-minus-11`](#spec-sin-and-cos-widen-the-tolerance-by-2-to-the-minus-11) — A call of `sin` or `cos` with `x` from −π to π widens the tolerance by 2⁻¹¹. Outside that range the call has no bound.
+      - [`@spec tan-widens-the-tolerance-by-the-error-of-sin-over-cos`](#spec-tan-widens-the-tolerance-by-the-error-of-sin-over-cos) — A call of `tan` with `x` from −π to π widens the tolerance by the widest the quotient of `sin(x)` and `cos(x)` can move when each is off by 2⁻¹¹, and by 2.5 units in the last place of the call's value more. Outside that range, or where `cos(x)` lies within 2⁻¹¹ of zero, the call has no bound.
+      - [`@spec exp-and-exp2-widen-the-tolerance-by-3-plus-twice-the-argument-in-units-in-the-last-place`](#spec-exp-and-exp2-widen-the-tolerance-by-3-plus-twice-the-argument-in-units-in-the-last-place) — A call of `exp` or `exp2` widens the tolerance by 3 + 2·|x| units in the last place of the call's value.
+      - [`@spec log-and-log2-widen-the-tolerance-by-their-absolute-or-relative-bound`](#spec-log-and-log2-widen-the-tolerance-by-their-absolute-or-relative-bound) — A call of `log` or `log2` with `x` from 0.5 to 2 widens the tolerance by 2⁻²¹, and one with any other positive `x` by 3 units in the last place of the call's value.
+      - [`@spec pow-widens-the-tolerance-by-the-error-of-exp2-of-y-times-log2-x`](#spec-pow-widens-the-tolerance-by-the-error-of-exp2-of-y-times-log2-x) — A call of `pow(x, y)` with `x` above zero widens the tolerance by the error of `exp2(y * log2(x))`: the bound of `log2(x)`, times `|y|`, with a unit in the last place of the product, carried through `exp2`, and the bound of `exp2` at the product. A call with `x` at or below zero has no bound.
+      - [`@spec sinh-and-cosh-widen-the-tolerance-by-the-error-of-their-exponentials`](#spec-sinh-and-cosh-widen-the-tolerance-by-the-error-of-their-exponentials) — A call of `sinh` or `cosh` widens the tolerance by half the sum of the bounds of `exp(x)` and `exp(-x)`, and a unit in the last place of their sum or difference.
+      - [`@spec tanh-widens-the-tolerance-by-the-worse-of-1e-5-and-the-error-of-sinh-over-cosh`](#spec-tanh-widens-the-tolerance-by-the-worse-of-1e-5-and-the-error-of-sinh-over-cosh) — A call of `tanh` widens the tolerance by the worse of 10⁻⁵ and the error of `sinh(x)` over `cosh(x)`, each off by its own bound, with 2.5 units in the last place of the call's value. Where `sinh(x)` or `cosh(x)` is not finite as a 32-bit float, the call has no bound.
+      - [`@spec the-inverse-hyperbolic-functions-widen-the-tolerance-by-the-error-of-their-logarithm`](#spec-the-inverse-hyperbolic-functions-widen-the-tolerance-by-the-error-of-their-logarithm) — A call of `asinh`, `acosh` or `atanh` widens the tolerance by the bound of the `log` that defines it, at the argument that `log` takes, with that argument's own rounding carried through the `log`, and halved for `atanh`. A call whose `log` argument, off by its rounding, can reach zero or below has no bound, as `asinh(-1e4)` has none.
+      - [`@spec each-call-widens-the-tolerance-by-what-its-error-moves-the-result`](#spec-each-call-widens-the-tolerance-by-what-its-error-moves-the-result) — The tolerance of each component of a result is the tolerance of its size, widened by the sum, over the program's built-in calls, of the most the component moves when the JavaScript run gives that call its value plus or minus the call's bound. Where that moves a component to a value that is not finite, the program has no bound.
+      - [`@spec a-call-whose-value-is-not-finite-has-no-bound`](#spec-a-call-whose-value-is-not-finite-has-no-bound) — A built-in call whose value is not finite as a 32-bit float has no bound.
+      - [`@spec a-determinant-has-no-bound`](#spec-a-determinant-has-no-bound) — A program that computes a `determinant` at run time has no bound.
+      - [`@spec an-unbounded-program-that-names-no-reason-fails-the-run`](#spec-an-unbounded-program-that-names-no-reason-fails-the-run) — A recorded program with a built-in call that has no bound fails the run, unless it runs on the CPU targets alone. Where it has no other reason to, it names `"unbounded-builtin"`.
+      - [`@spec a-bounded-program-that-names-the-unbounded-reason-fails-the-run`](#spec-a-bounded-program-that-names-the-unbounded-reason-fails-the-run) — A recorded program that names `"unbounded-builtin"` and makes no built-in call without a bound fails the run.
     - [`@spec evaluation-reads-back-every-shape`](#spec-evaluation-reads-back-every-shape) — The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
     - [`@spec evaluation-reports-a-shader-that-does-not-compile`](#spec-evaluation-reports-a-shader-that-does-not-compile) — The evaluation harness reports a shader that does not parse or type-check, instead of reading back zero.
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
@@ -1007,6 +1023,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver) — TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
 - [`@fact wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion) — WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
 - [`@fact a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64) — GLSL and WGSL compute `float` in 32 bits. JavaScript numbers, and the `f64` type of WebAssembly, are 64 bits.
+- [`@fact wgsl-bounds-the-error-of-each-float-built-in`](#fact-wgsl-bounds-the-error-of-each-float-built-in) — WGSL bounds the error of each `f32` built-in function, against the exact result for its arguments, and leaves some without a bound. `atan` is within 4096 units in the last place, and so is `atan2(y, x)` for `|x|` from 2⁻¹²⁶ to 2¹²⁶ and `y` finite and normal. `asin` is within the worse of an absolute error of 6.81×10⁻⁵ and the error of the `atan2` that defines it, and `acos` the worse of 6.77×10⁻⁵ and the error of its `atan2`. `sin` and `cos` are within an absolute error of 2⁻¹¹ for `x` from −π to π. `exp` and `exp2` are within 3 + 2·|x| units in the last place. `log` and `log2` are within an absolute error of 2⁻²¹ for `x` from 0.5 to 2, and within 3 units in the last place elsewhere. `inverseSqrt` is within 2 units in the last place, and a division within 2.5 for a divisor of size from 2⁻¹²⁶ to 2¹²⁶. `tanh` is within the worse of an absolute error of 10⁻⁵ and the error of `sinh(x) / cosh(x)`. `tan`, `pow`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh` and `sqrt` take the error of the formula that defines them, such as `exp2(y * log2(x))` for `pow`, and a formula takes the errors of its parts. `determinant` and the derivatives have no bound.
+- [`@fact glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision`](#fact-glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision) — GLSL ES 3.00 bounds the error of `pow`, `exp`, `exp2`, `log`, `log2`, `sqrt` and `inversesqrt` at `highp` as WGSL bounds them. It leaves the precision of the trigonometric functions and of `determinant` undefined.
 - [`@fact wasm-traps-on-an-integer-division-by-zero`](#fact-wasm-traps-on-an-integer-division-by-zero) — A WebAssembly integer division or remainder by zero traps, and so does a float-to-integer truncation of NaN or of a value out of range.
 - [`@fact wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-allows-twelve-uniform-buffers-per-stage) — WebGPU guarantees 12 uniform buffers per shader stage, and a device may give no more.
 - [`@fact wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host) — A WGSL `bool` is not host-shareable: it can be neither a member of a uniform buffer nor an element of a storage buffer.
@@ -2223,11 +2241,11 @@ This follows because both CPU targets compute in 64 bits, so nothing keeps them 
 
 ###### @exception a-cpu-target-computes-floats-in-64-bits
 
-> A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+> A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero, and further by the error WGSL allows each built-in function the program calls at run time. Where WGSL gives such a call no bound, the difference has none.
 
-Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64), [`fact-wgsl-bounds-the-error-of-each-float-built-in`](#fact-wgsl-bounds-the-error-of-each-float-built-in), [`fact-glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision`](#fact-glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision)
 
-The bound is about eight units in the last place of a 32-bit float. A compile that asks for 32 bits gives a basic operation the GPU's result exactly, as [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) states.
+The bound of a millionth is about eight units in the last place of a 32-bit float. A transcendental function such as `atan` may err on a GPU by far more, 4096 units in the last place for `atan`, and that error reaches the result. A GLSL driver is held to the same bounds as a WGSL one, as [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) follows WebGPU, though GLSL ES 3.00 leaves the trigonometric functions without a precision. A compile that asks for 32 bits gives a basic operation the GPU's result exactly, as [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) states.
 
 ##### @spec a-cpu-compile-can-run-a-program-at-64-bit-precision
 
@@ -2441,9 +2459,85 @@ GLSL draws through WebGL 2, which takes its rule from OpenGL ES, and a shader ca
 
 This follows because most mistakes in a shader are silent, and a target nobody runs can drift from the others unseen.
 
-#### @spec the-float-tolerance-allows-a-few-units-in-the-last-place
+#### @spec a-gpu-as-accurate-as-wgsl-requires-passes-the-evaluation
 
-> The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+> The evaluation harness passes a GPU result whose built-in calls are each as accurate as WGSL requires, on GLSL as on WGSL, as far as a first-order carry of each call's error through the rest of the program reaches. A program with a built-in call WGSL gives no bound runs on the CPU targets alone.
+
+Derives from: [`fact-wgsl-bounds-the-error-of-each-float-built-in`](#fact-wgsl-bounds-the-error-of-each-float-built-in), [`fact-glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision`](#fact-glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because a GPU that meets WGSL's accuracy computes the program as WebGPU defines it, so a suite that fails it reports a defect that is not there. GLSL is held to WGSL's bounds because rmsl follows WebGPU where WebGL differs, though GLSL ES 3.00 leaves the trigonometric functions without a precision ([fact](#fact-glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision)). A tolerance as wide as an unbounded call would prove nothing, so such a program does not reach the GPU comparison.
+
+The harness learns each built-in call from the JavaScript run of the program: its arguments and its value. These are the calls a GPU makes, because every target folds the same literals, as [`spec-folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) states. A call's bound is an absolute error at that call, and the range a bound holds over is checked on the call's arguments rounded to 32 bits, as a GPU holds them: `sin(Math.PI)` reaches a GPU as a number above π. The harness carries each bound to the result by running the program again with that call's value moved by it, so a program that magnifies an error, such as `atan(x) * 1000 - 785`, gets a tolerance as magnified. The carry is of first order: it moves one call at a time, and the error of the basic operations stays within the tolerance of the result's size.
+
+##### @spec the-float-tolerance-allows-a-few-units-in-the-last-place
+
+> The tolerance for a float result, before a built-in call widens it, allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+
+##### @spec atan-and-atan2-widen-the-tolerance-by-4096-units-in-the-last-place
+
+> A call of `atan`, or of `atan2(y, x)` with `|x|` from 2⁻¹²⁶ to 2¹²⁶ and `y` finite and normal, widens the tolerance by 4096 units in the last place of the call's value. Any other call of `atan2` has no bound.
+
+##### @spec asin-and-acos-widen-the-tolerance-by-the-worse-of-their-absolute-error-and-atan2s
+
+> A call of `asin` widens the tolerance by the worse of 6.81×10⁻⁵ and the bound of `atan2(x, sqrt(1 - x²))`, and one of `acos` by the worse of 6.77×10⁻⁵ and the bound of `atan2(sqrt(1 - x²), x)`, the rounding of the `sqrt` and its argument carried through that `atan2`. Where that `atan2` has no bound, as for `asin(0)` or `acos(1)`, the call has none.
+
+##### @spec sin-and-cos-widen-the-tolerance-by-2-to-the-minus-11
+
+> A call of `sin` or `cos` with `x` from −π to π widens the tolerance by 2⁻¹¹. Outside that range the call has no bound.
+
+##### @spec tan-widens-the-tolerance-by-the-error-of-sin-over-cos
+
+> A call of `tan` with `x` from −π to π widens the tolerance by the widest the quotient of `sin(x)` and `cos(x)` can move when each is off by 2⁻¹¹, and by 2.5 units in the last place of the call's value more. Outside that range, or where `cos(x)` lies within 2⁻¹¹ of zero, the call has no bound.
+
+##### @spec exp-and-exp2-widen-the-tolerance-by-3-plus-twice-the-argument-in-units-in-the-last-place
+
+> A call of `exp` or `exp2` widens the tolerance by 3 + 2·|x| units in the last place of the call's value.
+
+##### @spec log-and-log2-widen-the-tolerance-by-their-absolute-or-relative-bound
+
+> A call of `log` or `log2` with `x` from 0.5 to 2 widens the tolerance by 2⁻²¹, and one with any other positive `x` by 3 units in the last place of the call's value.
+
+##### @spec pow-widens-the-tolerance-by-the-error-of-exp2-of-y-times-log2-x
+
+> A call of `pow(x, y)` with `x` above zero widens the tolerance by the error of `exp2(y * log2(x))`: the bound of `log2(x)`, times `|y|`, with a unit in the last place of the product, carried through `exp2`, and the bound of `exp2` at the product. A call with `x` at or below zero has no bound.
+
+##### @spec sinh-and-cosh-widen-the-tolerance-by-the-error-of-their-exponentials
+
+> A call of `sinh` or `cosh` widens the tolerance by half the sum of the bounds of `exp(x)` and `exp(-x)`, and a unit in the last place of their sum or difference.
+
+##### @spec tanh-widens-the-tolerance-by-the-worse-of-1e-5-and-the-error-of-sinh-over-cosh
+
+> A call of `tanh` widens the tolerance by the worse of 10⁻⁵ and the error of `sinh(x)` over `cosh(x)`, each off by its own bound, with 2.5 units in the last place of the call's value. Where `sinh(x)` or `cosh(x)` is not finite as a 32-bit float, the call has no bound.
+
+##### @spec the-inverse-hyperbolic-functions-widen-the-tolerance-by-the-error-of-their-logarithm
+
+> A call of `asinh`, `acosh` or `atanh` widens the tolerance by the bound of the `log` that defines it, at the argument that `log` takes, with that argument's own rounding carried through the `log`, and halved for `atanh`. A call whose `log` argument, off by its rounding, can reach zero or below has no bound, as `asinh(-1e4)` has none.
+
+##### @spec each-call-widens-the-tolerance-by-what-its-error-moves-the-result
+
+> The tolerance of each component of a result is the tolerance of its size, widened by the sum, over the program's built-in calls, of the most the component moves when the JavaScript run gives that call its value plus or minus the call's bound. Where that moves a component to a value that is not finite, the program has no bound.
+
+##### @spec a-call-whose-value-is-not-finite-has-no-bound
+
+> A built-in call whose value is not finite as a 32-bit float has no bound.
+
+##### @spec a-determinant-has-no-bound
+
+> A program that computes a `determinant` at run time has no bound.
+
+##### @spec an-unbounded-program-that-names-no-reason-fails-the-run
+
+> A recorded program with a built-in call that has no bound fails the run, unless it runs on the CPU targets alone. Where it has no other reason to, it names `"unbounded-builtin"`.
+
+Derives from: [`spec-a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason)
+
+##### @spec a-bounded-program-that-names-the-unbounded-reason-fails-the-run
+
+> A recorded program that names `"unbounded-builtin"` and makes no built-in call without a bound fails the run.
+
+Derives from: [`spec-a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason)
+
+This follows because a program the GPU could check must not escape the check under a reason that does not hold.
 
 #### @spec evaluation-reads-back-every-shape
 
@@ -7482,6 +7576,18 @@ This is a fact of the WGSL specification, not a choice.
 > GLSL and WGSL compute `float` in 32 bits. JavaScript numbers, and the `f64` type of WebAssembly, are 64 bits.
 
 This is a fact of the platforms, not a choice.
+
+## @fact wgsl-bounds-the-error-of-each-float-built-in
+
+> WGSL bounds the error of each `f32` built-in function, against the exact result for its arguments, and leaves some without a bound. `atan` is within 4096 units in the last place, and so is `atan2(y, x)` for `|x|` from 2⁻¹²⁶ to 2¹²⁶ and `y` finite and normal. `asin` is within the worse of an absolute error of 6.81×10⁻⁵ and the error of the `atan2` that defines it, and `acos` the worse of 6.77×10⁻⁵ and the error of its `atan2`. `sin` and `cos` are within an absolute error of 2⁻¹¹ for `x` from −π to π. `exp` and `exp2` are within 3 + 2·|x| units in the last place. `log` and `log2` are within an absolute error of 2⁻²¹ for `x` from 0.5 to 2, and within 3 units in the last place elsewhere. `inverseSqrt` is within 2 units in the last place, and a division within 2.5 for a divisor of size from 2⁻¹²⁶ to 2¹²⁶. `tanh` is within the worse of an absolute error of 10⁻⁵ and the error of `sinh(x) / cosh(x)`. `tan`, `pow`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh` and `sqrt` take the error of the formula that defines them, such as `exp2(y * log2(x))` for `pow`, and a formula takes the errors of its parts. `determinant` and the derivatives have no bound.
+
+This is a fact of the WGSL specification, section 15.7.4.1, [Accuracy of Concrete Floating Point Expressions](https://www.w3.org/TR/WGSL/#concrete-float-accuracy), in the W3C Candidate Recommendation Draft read on 2026-10-16. Addition, subtraction and multiplication are correctly rounded. A bound in units in the last place is relative to the size of the exact result. Outside the ranges each bound names, the table gives no bound. The table defines `tan` as `sin(x) / cos(x)`, `sinh` and `cosh` as `(exp(x) ∓ exp(-x)) * 0.5`, `asinh` and `acosh` as `log(x + sqrt(x * x ± 1.0))`, `atanh` as `log((1.0 + x) / (1.0 - x)) * 0.5`, `asin` as `atan2(x, sqrt(1.0 - x * x))`, `acos` as `atan2(sqrt(1.0 - x * x), x)` and `sqrt` as `1.0 / inverseSqrt(x)`.
+
+## @fact glsl-es-300-leaves-trigonometry-and-determinant-without-a-precision
+
+> GLSL ES 3.00 bounds the error of `pow`, `exp`, `exp2`, `log`, `log2`, `sqrt` and `inversesqrt` at `highp` as WGSL bounds them. It leaves the precision of the trigonometric functions and of `determinant` undefined.
+
+This is a fact of the GLSL ES 3.00 specification, revision 6, section 4.5.1, not a choice. Its table defines `pow` as inherited from `exp2(x * log2(y))` and `sqrt` from `1.0 / inversesqrt()`. It says that a built-in function neither in the table nor defined by an equation of its operations has undefined precision, and names the trigonometric functions and `determinant`.
 
 ## @fact wasm-traps-on-an-integer-division-by-zero
 
