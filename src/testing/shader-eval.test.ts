@@ -3,13 +3,17 @@ import {
   runWGSL,
   closeEvaluators,
   floatTolerance,
+  transcendentalTolerance,
+  callsTranscendental,
+  valuesWithinTolerance,
   EVALUATION_SKIPPED,
   evaluateJS,
   evaluateGLSL,
   evaluateWGSL,
   evaluateWASM,
 } from "./shader-eval";
-import { vec3, mat3 } from "../rmsl";
+import { vec3, mat3, atan, exp2, float, length, sin } from "../rmsl";
+import { compileJSFn } from "../js";
 
 afterAll(async () => {
   await closeEvaluators();
@@ -61,6 +65,69 @@ describe("float tolerance", () => {
   it("stays tight enough to catch a wrong answer", () => {
     expect(floatTolerance(1)).toBeLessThan(0.5);
     expect(floatTolerance(1024)).toBeLessThan(0.5);
+  });
+});
+
+describe("transcendental tolerance", () => {
+  const ulp = (x: number) => Math.abs(x) * Math.pow(2, -23);
+  const source = (build: (a: any, b: any) => any) =>
+    compileJSFn(build, {
+      name: "f",
+      params: [
+        { name: "a", type: "float" },
+        { name: "b", type: "float" },
+      ],
+    });
+
+  /**
+   * The bounds WGSL gives `atan` and `sin`, in `fact-wgsl-bounds-the-error-of-each-float-built-in`.
+   *
+   * @canon spec-a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth
+   */
+  it("is wider than WGSL allows atan and sin", () => {
+    for (const magnitude of [0.1, 1, Math.PI / 2, 100]) {
+      expect(transcendentalTolerance(magnitude), `magnitude ${magnitude}`).toBeGreaterThan(4096 * ulp(magnitude));
+    }
+    expect(transcendentalTolerance(0)).toBeGreaterThan(Math.pow(2, -11));
+  });
+
+  /**
+   * The case of #344: lavapipe's `atan(1, 1)`, 55 units in the last place from the CPU's.
+   *
+   * @canon spec-a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth
+   */
+  it("accepts lavapipe's atan(1, 1), which the float tolerance refuses", () => {
+    expect(valuesWithinTolerance(0.7853949069976807, Math.PI / 4, true)).toBe(true);
+    expect(valuesWithinTolerance(0.7853949069976807, Math.PI / 4)).toBe(false);
+  });
+
+  /**
+   * `sin` emitted as `cos`, the nearest wrong built-in at 0.5, is off by 0.4.
+   *
+   * @canon spec-a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth
+   */
+  it("stays tight enough to catch a wrong built-in", () => {
+    expect(valuesWithinTolerance(Math.cos(0.5), Math.sin(0.5), true)).toBe(false);
+    expect(transcendentalTolerance(1)).toBeLessThan(0.01);
+  });
+
+  /**
+   * @canon spec-a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth
+   */
+  it("applies to a program that calls a transcendental built-in, exp2 included", () => {
+    expect(callsTranscendental(source((a, b) => atan(a, b)))).toBe(true);
+    expect(callsTranscendental(source((a) => sin(a).add(1)))).toBe(true);
+    expect(callsTranscendental(source((a) => exp2(a)))).toBe(true);
+  });
+
+  /**
+   * `length` takes a square root, which WGSL bounds as tightly as a division.
+   *
+   * @canon spec-a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth
+   */
+  it("leaves a program of exact operations to the float tolerance", () => {
+    expect(callsTranscendental(source((a, b) => a.mul(b).add(float(1))))).toBe(false);
+    expect(callsTranscendental(source((a, b) => length(vec3(a, b, a))))).toBe(false);
   });
 });
 

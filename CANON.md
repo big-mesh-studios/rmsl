@@ -167,7 +167,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
         - [`@spec wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) — A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
-        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. For a program of basic operations, its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero. For a program that calls a transcendental built-in, it can differ by as much as the GPU's built-in may err.
       - [`@spec a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) — A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
       - [`@spec a-cpu-target-at-f32-rounds-every-float-value-it-computes`](#spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes) — At `float: "f32"`, a CPU target rounds every float value of its program to 32 bits: each input as it reads it, each literal, each constant it folds, and the value of each operation. A storage element it does not write keeps the value the host gave it. A built-in function, such as `dot`, `normalize`, `sin` or a texture sample, computes its value at 64 bits and rounds it once.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
@@ -200,6 +200,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-glsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver) — On GLSL, the driver decides which of two triangles that share an edge shades a pixel centre lying exactly on that edge. Exactly one of them shades it, whichever way they wind.
   - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
     - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+    - [`@spec a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth`](#spec-a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth) — A GPU result of a program that calls a transcendental built-in, such as `sin`, `atan`, `exp`, `exp2`, `log` or `pow`, is held to the CPU result within a thousandth of its size, and within a thousandth near zero, in place of the float tolerance. The tolerance tells a wrong built-in from a right one; it does not check how accurate a driver is.
     - [`@spec evaluation-reads-back-every-shape`](#spec-evaluation-reads-back-every-shape) — The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
     - [`@spec evaluation-reports-a-shader-that-does-not-compile`](#spec-evaluation-reports-a-shader-that-does-not-compile) — The evaluation harness reports a shader that does not parse or type-check, instead of reading back zero.
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
@@ -2225,9 +2226,9 @@ This follows because both CPU targets compute in 64 bits, so nothing keeps them 
 
 ###### @exception a-cpu-target-computes-floats-in-64-bits
 
-> A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+> A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. For a program of basic operations, its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero. For a program that calls a transcendental built-in, it can differ by as much as the GPU's built-in may err.
 
-Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64), [`fact-wgsl-bounds-the-error-of-each-float-built-in`](#fact-wgsl-bounds-the-error-of-each-float-built-in)
 
 The bound is about eight units in the last place of a 32-bit float. A compile that asks for 32 bits gives a basic operation the GPU's result exactly, as [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) states.
 
@@ -2446,6 +2447,14 @@ This follows because most mistakes in a shader are silent, and a target nobody r
 #### @spec the-float-tolerance-allows-a-few-units-in-the-last-place
 
 > The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+
+#### @spec a-program-that-calls-a-transcendental-built-in-is-held-to-a-thousandth
+
+> A GPU result of a program that calls a transcendental built-in, such as `sin`, `atan`, `exp`, `exp2`, `log` or `pow`, is held to the CPU result within a thousandth of its size, and within a thousandth near zero, in place of the float tolerance. The tolerance tells a wrong built-in from a right one; it does not check how accurate a driver is.
+
+Derives from: [`fact-wgsl-bounds-the-error-of-each-float-built-in`](#fact-wgsl-bounds-the-error-of-each-float-built-in), [`fact-glsl-es-300-bounds-the-error-of-some-float-built-ins`](#fact-glsl-es-300-bounds-the-error-of-some-float-built-ins)
+
+This follows because WGSL lets `atan` err by 4096 units in the last place and `sin` and `cos` by an absolute 2⁻¹¹, each about 5×10⁻⁴, and GLSL ES leaves the precision of the trigonometric functions undefined. A tolerance of a few units would fail a conforming GPU, as Dawn on lavapipe fails it with an `atan(1, 1)` 55 units from the CPU's (#344). A thousandth is wider than the WGSL bounds for arguments in their ranges, and far narrower than what a wrong built-in gives: `cos(0.5)` is 0.4 from `sin(0.5)`. On GLSL, and for an argument outside a range WGSL bounds, it is a working bound, not one a specification gives. A test whose program leans on a badly conditioned call, such as `sin` of a large argument, keeps its argument where the bound holds.
 
 #### @spec evaluation-reads-back-every-shape
 
@@ -7485,13 +7494,11 @@ This is a fact of the WGSL specification, not a choice.
 
 This is a fact of the platforms, not a choice.
 
-
 ## @fact wgsl-bounds-the-error-of-each-float-built-in
 
 > WGSL bounds the error of each `f32` built-in function, against the exact result for its arguments, and leaves some without a bound. `atan` is within 4096 units in the last place, and so is `atan2(y, x)` for `|x|` from 2⁻¹²⁶ to 2¹²⁶ and `y` finite and normal. `asin` is within the worse of an absolute error of 6.81×10⁻⁵ and the error of the `atan2` that defines it, and `acos` the worse of 6.77×10⁻⁵ and the error of its `atan2`. `sin` and `cos` are within an absolute error of 2⁻¹¹ for `x` from −π to π. `exp` and `exp2` are within 3 + 2·|x| units in the last place. `log` and `log2` are within an absolute error of 2⁻²¹ for `x` from 0.5 to 2, and within 3 units in the last place elsewhere. `inverseSqrt` is within 2 units in the last place, and a division within 2.5 for a divisor of size from 2⁻¹²⁶ to 2¹²⁶. `tanh` is within the worse of an absolute error of 10⁻⁵ and the error of `sinh(x) / cosh(x)`. `tan`, `pow`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh` and `sqrt` take the error of the formula that defines them, such as `exp2(y * log2(x))` for `pow`, and a formula takes the errors of its parts. `determinant` and the derivatives have no bound. An addition, subtraction or multiplication is correctly rounded, which WGSL defines as either of the two floats nearest the exact result, with no rounding mode specified.
 
 This is a fact of the WGSL specification, sections 15.7.4, [Floating Point Accuracy](https://www.w3.org/TR/WGSL/#floating-point-accuracy), and 15.7.4.1, [Accuracy of Concrete Floating Point Expressions](https://www.w3.org/TR/WGSL/#concrete-float-accuracy), in the W3C Candidate Recommendation Draft of 21 September 2026, read on 2026-10-16. The probe `probes/float-accuracy/wgsl-accuracy-table.ts` reads the draft again and checks each bound named here; its result is `probes/float-accuracy/results/wgsl-accuracy-table.json`. A bound in units in the last place is relative to the size of the exact result. Outside the ranges each bound names, the table gives no bound. The table defines `tan` as `sin(x) / cos(x)`, `sinh` and `cosh` as `(exp(x) ∓ exp(-x)) * 0.5`, `asinh` and `acosh` as `log(x + sqrt(x * x ± 1.0))`, `atanh` as `log((1.0 + x) / (1.0 - x)) * 0.5`, `asin` as `atan2(x, sqrt(1.0 - x * x))`, `acos` as `atan2(sqrt(1.0 - x * x), x)` and `sqrt` as `1.0 / inverseSqrt(x)`.
-
 
 ## @fact glsl-es-300-bounds-the-error-of-some-float-built-ins
 
