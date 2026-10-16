@@ -807,13 +807,13 @@ function rasterizeExactly(positions: number[][], width: number, height: number, 
   return out;
 }
 
-/** The bytes after the clip scratch and after the clipped positions, which a draw must leave as they were. */
+/** The bytes after the clip scratch, which a draw must leave as they were. */
 const CANARY_BYTES = 64;
 
 /**
  * Draws one triangle of clip positions in one colour through the rasterizer
  * module alone, with no varyings, and gives its image and the canary bytes
- * after its 18 scratch slots and its 21 clipped vertices.
+ * after its 18 scratch slots and the lines of the triangle being drawn.
  */
 function drawOnModule(positions: number[][], width: number, height: number, color: number[]) {
   const vertexBuild = () => Fn(() => builtinPosition().assign(attribute("vec4")))();
@@ -851,9 +851,6 @@ function drawOnModule(positions: number[][], width: number, height: number, colo
   const clipScratchBase = 24576;
   // 18 vertex slots of 32 bytes with no varyings, then the lines of the triangle being drawn.
   const scratchEnd = clipScratchBase + 18 * 32 + LINES_BYTES;
-  const clippedPositionsOutBase = 32768;
-  const clippedEnd = clippedPositionsOutBase + 21 * 32;
-  const clippedVaryingsOutBase = 36864;
   const depthBufferBase = 40960;
   positions.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
   const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
@@ -862,7 +859,6 @@ function drawOnModule(positions: number[][], width: number, height: number, colo
   const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
   clearDepthBuffer(view, depthBufferBase, width * height);
   new Uint8Array(memory.buffer, scratchEnd, CANARY_BYTES).fill(0xa5);
-  new Uint8Array(memory.buffer, clippedEnd, CANARY_BYTES).fill(0xa5);
 
   rasterize(
     positions.length,
@@ -881,18 +877,13 @@ function drawOnModule(positions: number[][], width: number, height: number, colo
     0,
     0,
     clipScratchBase,
-    clippedPositionsOutBase,
-    clippedVaryingsOutBase,
     depthBufferBase,
     1,
   );
 
   return {
     image: Array.from(new Float64Array(memory.buffer, outputBase, width * height * 4)),
-    canaries: [
-      ...new Uint8Array(memory.buffer, scratchEnd, CANARY_BYTES),
-      ...new Uint8Array(memory.buffer, clippedEnd, CANARY_BYTES),
-    ],
+    canaries: [...new Uint8Array(memory.buffer, scratchEnd, CANARY_BYTES)],
   };
 }
 
@@ -900,7 +891,7 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
   /**
    * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
-  it("clips a triangle with one vertex behind the eye into the fan of its polygon, matching an independent rasterization with no clip", () => {
+  it("draws a triangle with one vertex behind the eye as its part inside the clip volume, matching an independent rasterization with no clip", () => {
     const positions = [
       [-1, -1, -1, -1],
       [1, -1, 2, 2],
@@ -915,12 +906,12 @@ describe("WASM backend: generic rasterizer module — clipping to the clip volum
 
   /**
    * Each of the six planes cuts this triangle, which leaves a polygon of 9
-   * vertices, the most a triangle can: a scratch half full, and a fan of 7
-   * triangles, the 21 clipped vertices the module has room for.
+   * vertices, the most a triangle can: a scratch half full, whose polygon
+   * bounds the pixels the triangle's own lines test.
    *
    * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
-  it("clips a triangle every plane cuts into 9 vertices, writing nothing past its scratch or its clipped vertices", () => {
+  it("clips a triangle every plane cuts into 9 vertices, writing nothing past its scratch", () => {
     const positions = [
       [2.5, 2.25, 1, 2],
       [0.75, -2, -2, 3.75],
@@ -1115,8 +1106,6 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
       const outputBase = 16384;
       const attrDescBase = 3072;
       const clipScratchBase = 24576;
-      const clippedPositionsOutBase = 32768;
-      const clippedVaryingsOutBase = 36864;
       const depthBufferBase = 40960;
 
       const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
@@ -1145,8 +1134,6 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
           0,
           0,
           clipScratchBase,
-          clippedPositionsOutBase,
-          clippedVaryingsOutBase,
           depthBufferBase,
           1,
         );

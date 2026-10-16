@@ -49,8 +49,8 @@ Each triangle is drawn before the next, one of two ways, as `rasterizer.ts`
 in the JS backend draws it. A draw that culls a face (`cullSign`, the sign
 of the screen area such a face has, or 0) skips a triangle drawn by its
 lines whose sign, which is opposite to its screen area's as y runs down the
-screen, is opposite to `cullSign`, and a triangle of a fan whose screen area
-has the sign of `cullSign`.
+screen, is opposite to `cullSign`, and likewise a triangle in one plane with
+the eye whose drawn triangle winds so.
 
 **By its lines.** A triangle whose vertices do not lie in one plane with the
 eye is tested pixel by pixel against its own lines. Each vertex is scaled by
@@ -83,24 +83,41 @@ clip leaves of the scaled vertices (below), or the whole target when a
 vertex of that polygon has a `w` below `2^-24`, whose projection the rounding
 of its cut could move by more than half a pixel.
 
-**By the clip.** Any other triangle lies in one plane with the eye. It is
-clipped to WebGPU's clip volume (Sutherland-Hodgman, one plane after
+**The clip.** A triangle drawn by its lines with a vertex at or behind the
+eye is clipped to WebGPU's clip volume (Sutherland-Hodgman, one plane after
 another: `w + x`, `w - x`, `w + y`, `w - y`, `z`, `w - z`, each kept where it
-is at least 0), and draws only when the polygon left, at most 9 vertices,
-has a vertex at `vec4(0)`, which lies at the centre and gives it an area.
-Cut vertices lerp both the clip-space position and the whole varying blob
-linearly, from the vertex the polygon reaches first. A cut vertex whose four
-components are all no more than `2^-48` of the largest sum it took, a
-component of the vertex it starts from and its step towards the other added
-by size, is rounding alone, and becomes `vec4(0)`. One whose `w` alone is 0 keeps its other
-components for the next plane to cut. The polygon lives in
-`clipScratchBase`, two halves of 9 vertex slots each that the planes take
-turns writing, and is fan-triangulated from its vertex at `vec4(0)` into
-`clippedPositionsOutBase`/`clippedVaryingsOutBase`, room for 7 triangles.
-Each triangle of the fan is rasterized by its projections, with `vec4(0)` at
-the centre at depth 0. Perspective weighs a vertex by the inverse of its
-`w`, so every fragment takes the varyings of the vertex at `vec4(0)`, on the
-edge opposite it too, and the flat ones of the triangle's first vertex.
+is at least 0) only to bound the pixels it tests. Cut vertices lerp both the
+clip-space position and the whole varying blob linearly, from the vertex the
+polygon reaches first. A cut vertex whose four components are all no more
+than `2^-48` of the largest sum it took, a component of the vertex it starts
+from and its step towards the other added by size, is rounding alone, and
+becomes `vec4(0)`. One whose `w` alone is 0 keeps its other components for
+the next plane to cut. The polygon lives in `clipScratchBase`, two halves of
+9 vertex slots each that the planes take turns writing.
+
+**In one plane with the eye.** Any other triangle lies in one plane with the
+eye: its `x`, `y` and `w` lie in one plane through the eye, so every line is
+a multiple of that plane, and the `w` coefficient of each, the cross product
+of the other two vertices' `x` and `y`, is the weight of its vertex in the
+triangle's point of `x`, `y` and `w` 0, times one factor. The triangle draws
+only when those weights share a sign and its vertices' `z` by them sum to 0
+exactly: then it contains `vec4(0)`, decided from the given vertices and not
+from any cut. It draws the triangle on the screen from the centre to the two
+ends of the segment that the rest of its part inside the clip volume
+projects to. A point of that plane is placed by its `x` and `y`, so the one
+on a pixel's ray by the ray's `X` and `Y`: by a line `(a, b, c)` whose weight
+is not 0, its `w` is `-(aX + bY) / c` and its `z` is `(dX X + dY Y) / c`. A
+centre is covered where that point's `w` is at most `W`, the point lies in
+the clip volume (`w ± x`, `w ± y`, `z` and `w - z` at least 0), and it lies
+within each edge of the triangle that runs through `vec4(0)`: at most 10
+sides, each a value of the ray whose coefficients are eight exact terms,
+decided as a line is, by its float value outside `2^-48` of its terms' sizes
+and by its exact sum within, a centre on a side going by the top-left rule.
+The depth is `(dX X + dY Y) / (c W)`, summed exactly where its float value's
+bound of rounding passes `2^-32` of `c W`. Every fragment takes the varyings
+of the triangle's point at `vec4(0)`, each vertex weighed by its line's `w`
+coefficient over its own scale, on every side too, and the flat ones of the triangle's first
+vertex. The sides follow the lines in the lines block, from `+6824`.
 
 A covered pixel then:
 
@@ -148,7 +165,8 @@ clipped or not.
   the module sees only the triangle list.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
-- A triangle drawn by its lines is not clipped: its lines, depth 0 to 1
-  and the target's bounds are held per pixel, and the clip only bounds the
-  pixels of one with a vertex at or behind the eye. Only a triangle in one
-  plane with the eye is drawn by the polygon the clip leaves.
+- No triangle is drawn by the polygon the clip leaves. A triangle drawn by
+  its lines holds its lines, depth 0 to 1 and the target's bounds per pixel,
+  and the clip only bounds the pixels of one with a vertex at or behind the
+  eye. A triangle in one plane with the eye holds the sides of what it draws
+  per pixel, over the whole target.

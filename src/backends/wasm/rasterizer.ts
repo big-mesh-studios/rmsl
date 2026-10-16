@@ -46,8 +46,6 @@ export const RASTERIZE_PARAMS = [
   "varyingDescCount",
   "varyingsOutBase",
   "clipScratchBase",
-  "clippedPositionsOutBase",
-  "clippedVaryingsOutBase",
   "depthBufferBase",
   "writesColour",
   "fragCoordAddress",
@@ -70,9 +68,10 @@ const VEC4_BYTES = 32;
 /**
  * The bytes `rasterizer.wat` keeps after the 18 vertex slots of its clip
  * scratch: the lines of the triangle being drawn, the room to sum a line's
- * value exactly, and the weights and depth of the fragment being shaded.
+ * value exactly, the weights and depth of the fragment being shaded, and the
+ * sides of what a triangle in one plane with the eye draws.
  */
-export const LINES_BYTES = 6824;
+export const LINES_BYTES = 9384;
 
 /**
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
@@ -487,13 +486,6 @@ export function compileWasmRasterizer(
     // A list without indices takes each three vertices in turn, which the module does when handed no table.
     const triangleBase = assembly.inOrder ? 0 : cursor;
     if (!assembly.inOrder) cursor = align8(cursor + triangleCount * 12);
-    // Each triangle is clipped and rasterized before the next: clipping to the six planes of
-    // the clip volume leaves a polygon of at most 9 vertices, a fan of 7 triangles.
-    const maxClippedVertices = 21;
-    const clippedPositionsOutBase = cursor;
-    cursor = align8(cursor + maxClippedVertices * VEC4_BYTES);
-    const clippedVaryingsOutBase = cursor;
-    cursor = align8(cursor + maxClippedVertices * varyingBytes);
 
     // The image and depth buffers stay where they are until a draw's regions
     // reach them, and move above them then, so what they hold carries across
@@ -612,8 +604,6 @@ export function compileWasmRasterizer(
       varyingLayout.length,
       varyingsOutBase,
       clipScratchBase,
-      clippedPositionsOutBase,
-      clippedVaryingsOutBase,
       depthBufferBase,
       writesColour,
       fragCoordAddress,

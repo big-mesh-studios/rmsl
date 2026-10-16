@@ -161,7 +161,7 @@ function drawsAsTheReference(positions: readonly number[], width: number, height
 const scaled = (positions: readonly number[], scales: readonly number[]) =>
   positions.map((c, i) => c * scales[Math.floor(i / 4)]!);
 
-/** Whether the triangle at `positions` lies in one plane with the eye, and so draws by the fan of its clipped polygon. */
+/** Whether the triangle at `positions` lies in one plane with the eye, and so draws only where it contains `vec4(0)`. */
 const inPlaneWithTheEye = drawnByItsFan;
 
 describe("a sweep of triangles on the CPU rasterizers against an exact reference", { timeout: 60_000 }, () => {
@@ -283,8 +283,10 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
    */
   it("can turn a triangle into one in a plane with the eye by taking a component for 0", () => {
     const lit = (image: Float64Array) => image.filter((_, i) => i % 4 === 3 && image[i] !== -1).length;
+    const flat = [-(2 ** 301), -1, 0.5, 1, 2 ** 301, -1, 0.5, 1, 0, 1, 0.5, 1];
+    drawsAsTheReference(flat, 16, 16);
     for (const draw of [js, wasm]) {
-      expect(lit(draw([-(2 ** 301), -1, 0.5, 1, 2 ** 301, -1, 0.5, 1, 0, 1, 0.5, 1], 16, 16))).toBe(36);
+      expect(lit(draw(flat, 16, 16))).toBe(64);
       expect(lit(draw([-(2 ** 299), -1, 0.5, 1, 2 ** 299, -1, 0.5, 1, 0, 1, 0.5, 1], 16, 16))).toBe(256);
     }
   });
@@ -380,10 +382,47 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
       const k = behind ? -2 : 1;
       const p2 = p0.map((c, i) => c + k * p1[i]!);
       if (p2.every((c) => c === 0)) continue;
-      const positions = [...p0, ...p1, ...p2];
+      // Each order of the three, so the weights' signs differ in every place.
+      const positions = [
+        [p0, p1, p2],
+        [p2, p0, p1],
+        [p1, p2, p0],
+      ][n % 3]!.flat();
       for (const image of [js(positions, 16, 16), wasm(positions, 16, 16)])
         for (let p = 0; p < 256; p++) expect(image[p * 4 + 3], JSON.stringify(positions)).toBe(-1);
     }
+  });
+
+  /**
+   * Each triangle's x, y and w would hold `vec4(0)` inside it, as its third vertex is minus a sum of
+   * the other two with positive weights, but that vertex's z is off that sum by a hair, so the
+   * triangle holds `(0, 0, z, 0)` there instead, outside the clip volume. Or all three x, y and w lie
+   * on one line through the eye, so the triangle holds `vec4(0)` but is a line on the screen.
+   *
+   * @canon spec-a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre
+   */
+  it("lights nothing for a triangle in one plane with the eye that holds a point of w 0 other than vec4(0)", () => {
+    const next = random(51);
+    let tested = 0;
+    for (let n = 0; n < 300; n++) {
+      const p0 = gridVertex(next, next() < 0.4),
+        p1 = gridVertex(next, next() < 0.4);
+      const a = [0.25, 0.5, 1, 2][n % 4]!;
+      let p2: number[];
+      if (n % 2) {
+        p2 = p0.map((c, i) => -(a * c + p1[i]!));
+        p2[2] = p2[2]! + 2 ** -(20 + (n % 30));
+      } else {
+        p1.splice(0, 4, ...p0.map((c, i) => (i === 2 ? p1[2]! : -a * c)));
+        p2 = p0.map((c, i) => (i === 2 ? p0[2]! - 1 : 2 * c));
+      }
+      const positions = [...p0, ...p1, ...p2];
+      if (!inPlaneWithTheEye(positions)) continue;
+      tested++;
+      for (const image of [js(positions, 15, 16), wasm(positions, 15, 16)])
+        for (let p = 0; p < 240; p++) expect(image[p * 4 + 3], JSON.stringify(positions)).toBe(-1);
+    }
+    expect(tested).toBeGreaterThan(200);
   });
 
   /**
@@ -440,12 +479,12 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   });
 
   /**
-   * A thin triangle with an edge through `vec4(0)`, drawn by its fan: the fan takes its depth from
-   * the projections of the vertices the clip cuts, which round.
+   * A thin triangle with an edge through `vec4(0)`: the projections of the vertices a clip would cut
+   * round, and a depth taken from them misses the reference by up to 2.0e-3.
    *
-   * @canon bug-a-thin-triangle-drawn-by-its-fan-misses-its-depth
+   * @canon spec-a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws
    */
-  it.fails("gives the depth of its fan to a thin triangle with an edge through vec4(0)", () => {
+  it("gives the depth of the triangle it draws to a thin triangle with an edge through vec4(0)", () => {
     drawsAsTheReference(
       [
         -0.1326217944478656, -0.2506588228475079, 0.27140405480275104, 0.6166635713950581, -0.11629018860897772,
@@ -458,42 +497,74 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
   });
 
   /**
+   * A thin triangle that holds `vec4(0)` inside it, on a line on the screen a hair from the centre:
+   * the two terms of its depth along the ray nearly cancel, and their float sum misses the depth by
+   * up to 7.0e-4, so it is summed exactly there.
+   *
+   * @canon spec-a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws
+   */
+  it("gives the depth of the triangle it draws where the terms of its depth nearly cancel", () => {
+    drawsAsTheReference(
+      [
+        1.58203125, 1.58203125, 1.625, 1.6875, -1.5820312500028422, -1.5820312500026148, -2.625, -2.875,
+        -2.373046874998579, -2.3730468749986926, -1.9375, -1.9375,
+      ],
+      15,
+      15,
+    );
+  });
+
+  /**
    * Each triangle lies in one plane with the eye and reaches `vec4(0)`: at a vertex, the other two
-   * not both in the clip volume, or along an edge, its third vertex a negative multiple of another.
-   * The rasterizers draw the fan of the polygon the clip leaves, which the reference clips exactly:
-   * its pixels, the weights of the polygon's vertex at `vec4(0)`, and a depth linear on the screen
-   * in each triangle of the fan. A centre exactly on an edge of what it draws is left open.
+   * not both in the clip volume; along an edge, its third vertex a negative multiple of another; or
+   * inside it, its third vertex minus a sum of the other two with positive weights. Inside, the
+   * clip reaches `vec4(0)` only as a cut of a cut. Half the triangles have each vertex scaled by a
+   * factor of many digits, which keeps them in one plane with the eye but makes their products round.
+   * The reference clips exactly: its pixels, the weights of the polygon's vertex at `vec4(0)`, and a
+   * depth linear on the screen. A centre exactly on an edge of what it draws is left open.
    *
    * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
-   * @canon spec-a-triangle-drawn-by-its-fan-gets-the-depth-of-its-fan
+   * @canon spec-a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws
    */
   it("draws the part inside the clip volume of a triangle in one plane with the eye through vec4(0)", () => {
+    drawsAsTheReference([0.0625, 0.125, 0.0625, 0.125, -1.03125, 1, -0.15625, -1.5625, 1, -1.0625, 0.125, 1.5], 15, 16);
     const next = random(65);
-    let lit = 0;
-    for (let n = 0; n < 360; n++) {
+    const weight = () => [0.25, 0.5, 1, 2, 3][Math.floor(next() * 5)]!;
+    const lit = [0, 0, 0];
+    for (let n = 0; n < 900; n++) {
+      const kind = n % 3;
       const p0 = gridVertex(next, next() < 0.4),
         p1 = gridVertex(next, next() < 0.4);
       let p2: number[];
-      if (n % 2 === 0) {
+      if (kind === 0) {
         if ([p0, p1].every((p) => Math.abs(p[0]!) <= p[3]! && Math.abs(p[1]!) <= p[3]! && p[2]! >= 0 && p[2]! <= p[3]!))
           continue;
         p2 = [0, 0, 0, 0];
-      } else {
-        const k = [0.25, 0.5, 1, 2, 3][Math.floor(next() * 5)]!;
+      } else if (kind === 1) {
+        const k = weight();
         p2 = p0.map((c) => -k * c);
+      } else {
+        const a = weight(),
+          b = weight();
+        p2 = p0.map((c, i) => -(a * c + b * p1[i]!));
       }
       const order = [
         [p0, p1, p2],
         [p2, p0, p1],
         [p1, p2, p0],
-      ][n % 3]!;
-      const t = order.flat();
+      ][Math.floor(n / 3) % 3]!;
+      const t = Math.floor(n / 9) % 2
+        ? order.flatMap((v) => {
+            const f = messyFactor(next);
+            return v.map((c) => c * f);
+          })
+        : order.flat();
       if (!inPlaneWithTheEye(t)) continue;
       const image = drawsAsTheReference(t, n % 2 ? 15 : 16, 16);
-      if (image.some((c, i) => i % 4 === 3 && c !== -1)) lit++;
+      if (image.some((c, i) => i % 4 === 3 && c !== -1)) lit[kind]!++;
     }
-    // The sweep reaches what it claims: triangles of both kinds that light pixels.
-    expect(lit).toBeGreaterThan(100);
+    // The sweep reaches what it claims: triangles of each kind that light pixels.
+    for (const count of lit) expect(count).toBeGreaterThan(60);
   });
 });
 
@@ -543,6 +614,57 @@ describe("a sweep of edges two triangles share on the CPU rasterizers", { timeou
         }
       }
     }
+  });
+
+  /**
+   * Each pair of triangles lies in one plane with the eye and shares an edge through `vec4(0)`, from
+   * a vertex in the clip volume to a negative multiple of it, with their third vertices on either
+   * side of that edge. What each draws meets the other's along the side from the centre to that
+   * vertex, and a centre strictly between the two is lit by exactly one of them.
+   *
+   * @canon spec-a-pixel-on-a-shared-edge-is-shaded-once
+   */
+  it("shades a pixel centre once on an edge through vec4(0) two triangles in one plane with the eye share", () => {
+    const next = random(71);
+    let centres = 0;
+    for (let n = 0; n < 800; n++) {
+      const p = gridVertex(next, false);
+      if (!(Math.abs(p[0]!) < p[3]! && Math.abs(p[1]!) < p[3]! && p[2]! > 0 && p[2]! < p[3]!)) continue;
+      const k = [0.25, 0.5, 1, 2][n % 4]!;
+      const q = gridVertex(next, next() < 0.4);
+      // A third vertex whose x and y lie on the edge's line through the centre leaves no area on the screen.
+      if (p[0]! * q[1]! === p[1]! * q[0]!) continue;
+      const a = [0.5, 1, 2][n % 3]!,
+        b = Math.round((next() - 0.5) * 8) / 4;
+      const r = q.map((c, i) => -a * c + b * p[i]!);
+      const opposite = p.map((c) => -k * c);
+      const first = [...p, ...opposite, ...q],
+        second = [...opposite, ...p, ...r];
+      if (!inPlaneWithTheEye(first) || !inPlaneWithTheEye(second)) continue;
+      const onEdge = exactlyOnLine(p, [0, 0, 0, 1], 32, 32);
+      for (const draw of [js, wasm]) {
+        const one = draw(first, 32, 32),
+          other = draw(second, 32, 32);
+        for (let y = 0; y < 32; y++)
+          for (let x = 0; x < 32; x++) {
+            const at = y * 32 + x;
+            const litOne = one[at * 4 + 3] !== -1,
+              litOther = other[at * 4 + 3] !== -1;
+            const label = JSON.stringify([first, second]);
+            if (litOne && litOther) expect.fail(`pixel ${x},${y} shaded twice, ${label}`);
+            if (!onEdge[at]) continue;
+            // Strictly between the centre and the vertex's projection, by its larger coordinate.
+            const X = (2 * x + 1 - 32) * 32,
+              Y = (32 - 2 * y - 1) * 32,
+              W = 32 * 32;
+            const [c, pc] = Math.abs(p[0]!) >= Math.abs(p[1]!) ? [X, p[0]!] : [Y, p[1]!];
+            if (!(c * pc > 0 && Math.abs(c * p[3]!) < Math.abs(W * pc))) continue;
+            if (draw === js) centres++;
+            if (!litOne && !litOther) expect.fail(`pixel ${x},${y} on the shared edge shaded by neither, ${label}`);
+          }
+      }
+    }
+    expect(centres).toBeGreaterThan(30);
   });
 });
 

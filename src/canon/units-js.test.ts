@@ -1573,7 +1573,7 @@ describe("the scalars and inputs of a JS function", { timeout: ALLOCATION_TIMEOU
    * vertex at `vec4(0)` and the other two in the clip volume, so it is drawn
    * by its lines with that vertex at the centre, and not clipped.
    *
-   * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-it-clips
+   * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye
    */
   it("allocates nothing per triangle it clips", async () => {
     const position = attribute("vec4");
@@ -2091,13 +2091,13 @@ describe("what a JS draw allocates for the scalars it passes its stages", { time
   });
 
   /**
-   * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-it-clips
+   * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye
    */
   it("allocates nothing for a triangle with a vertex behind the eye, nor for each fragment of it", async () => {
     const clip = attribute("vec4");
     // Each triangle's third vertex, behind the eye, is minus one of the other two, so an edge passes through vec4(0)
-    // and the triangle lies in one plane with the eye: the clip cuts it to a polygon with a vertex at vec4(0), and the
-    // rasterizer draws the fan of that polygon.
+    // and the triangle lies in one plane with the eye: the rasterizer draws the triangle from the centre to the ends of
+    // the segment its part inside the clip volume projects to.
     const positions = Float64Array.of(-1, -1, 0, 1, 1, -1, 0, 1, -1, 1, 0, -1, 1, -1, 0, 1, 1, 1, 0, 1, -1, 1, 0, -1);
     const raster = compileJS(
       () => Fn(() => builtinPosition().assign(clip))(),
@@ -3268,14 +3268,14 @@ describe("the fragments a CPU rasterizer draws", () => {
 
   /**
    * The third vertex is minus half the first, of many digits, behind the eye,
-   * so the edge between them passes through `vec4(0)`, and the clip cuts it
-   * there only to the rounding of the cut. That cut is `vec4(0)`, at the
-   * centre, so the polygon draws: a sliver from the first vertex to the
-   * centre, as the three vertices lie in one plane with the eye.
+   * so the edge between them passes through `vec4(0)`, where a clip would cut
+   * it only to the rounding of the cut. The three vertices lie in one plane
+   * with the eye, so the triangle draws a sliver from the first vertex to the
+   * centre.
    *
-   * @canon spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+   * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
    */
-  it.each(rasterizers)("%s: takes a cut of rounding alone for vec4(0)", (_, compileRaster) => {
+  it.each(rasterizers)("%s: draws a triangle whose edge of many digits passes through vec4(0)", (_, compileRaster) => {
     const first = [-0.4482960833570337, 0.48807180501628217, 0.357696311303447, 0.5117047531530261];
     const second = [-0.19300884943737617, -0.06898303548713157, 0.24507044595658695, 1.0214452685322613];
     const image = drawColoured(compileRaster, [...first, ...second, ...first.map((c) => c * -0.5)]);
@@ -3297,10 +3297,11 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
-   * Each triangle has a vertex at `vec4(0)` and one outside the clip volume,
-   * so its fan starts at the vertex at `vec4(0)`, the second. In the first,
-   * the first vertex lies outside the volume, so the polygon the clip leaves
-   * starts at a vertex it cuts; in the second, it lies inside.
+   * Each triangle has a vertex at `vec4(0)`, the second, and one outside the
+   * clip volume, so it lies in one plane with the eye and every fragment takes
+   * the float varyings of its vertex at `vec4(0)`. In the first, the first
+   * vertex lies outside the volume; in the second, it lies inside. Either way
+   * its integer is the one every fragment takes.
    *
    * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
    */

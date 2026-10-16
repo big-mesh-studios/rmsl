@@ -27,12 +27,6 @@
   (func $descAddr (param $base i32) (param $index i32) (param $entryBytes i32) (result i32)
     (i32.add (local.get $base) (i32.mul (local.get $index) (local.get $entryBytes))))
 
-  (func $posComponentAt (param $base i32) (param $vertexIndex i32) (param $comp i32) (result f64)
-    (f64.load
-      (i32.add
-        (i32.add (local.get $base) (i32.mul (local.get $vertexIndex) (i32.const 32)))
-        (i32.mul (local.get $comp) (i32.const 8)))))
-
   (func $varyingComponentAt
     (param $base i32) (param $varyingBytes i32) (param $vertexIndex i32)
     (param $recordOffset i32) (param $comp i32) (result f64)
@@ -205,16 +199,14 @@
     (call $signOf (i32.add (local.get $l) (i32.const 4144))
       (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (i32.const 4) (i32.add (local.get $l) (i32.const 4144)))))
 
-  ;; Prepares the lines of the triangle whose positions are at $p0, $p1 and $p2, with the vertex
-  ;; $centre, if not -1, at the centre of the target in place of vec4(0), as lines.ts's
-  ;; prepareLines does. Gives the triangle's sign, 0 when its vertices lie in one plane with the eye.
-  (func $prepareLines (param $p0 i32) (param $p1 i32) (param $p2 i32) (param $centre i32) (result i32)
-    (local $l i32) (local $k i32) (local $c i32) (local $e i32) (local $q i32) (local $n i32) (local $p i32) (local $o i32)
-    (local $exponent i32) (local $least f64) (local $i i32) (local $j i32) (local $u i32) (local $v i32) (local $t i32)
-    (local $orientation i32) (local $a i32) (local $b i32) (local $mask i32) (local $leastExponent i32) (local $r i32)
-    (local $length i32)
+  ;; Writes the triangle whose positions are at $p0, $p1 and $p2 into the lines block, each vertex
+  ;; scaled by a power of two that brings its largest component from 1 to 2, with the vertex $centre,
+  ;; if not -1, at the centre of the target, as lines.ts's placeVertices does. A vertex at vec4(0)
+  ;; stays 0, with a scale of 1. Gives whether one was.
+  (func $placeVertices (param $p0 i32) (param $p1 i32) (param $p2 i32) (param $centre i32) (result i32)
+    (local $l i32) (local $k i32) (local $c i32) (local $p i32) (local $o i32) (local $exponent i32) (local $least f64)
+    (local $zero i32)
     (local.set $l (global.get $lines))
-    (local.set $k (i32.const 0))
     (block $verticesDone
       (loop $nextVertex
         (br_if $verticesDone (i32.ge_s (local.get $k) (i32.const 3)))
@@ -232,7 +224,16 @@
               (f64.max
                 (f64.max (f64.abs (f64.load (local.get $p))) (f64.abs (f64.load offset=8 (local.get $p))))
                 (f64.max (f64.abs (f64.load offset=16 (local.get $p))) (f64.abs (f64.load offset=24 (local.get $p))))))
-            (if (f64.eq (f64.load offset=1584 (local.get $l)) (f64.const 0)) (then (return (i32.const 0))))
+            (if (f64.eq (f64.load offset=1584 (local.get $l)) (f64.const 0))
+              (then
+                (f64.store (local.get $o) (f64.const 0))
+                (f64.store offset=8 (local.get $o) (f64.const 0))
+                (f64.store offset=16 (local.get $o) (f64.const 0))
+                (f64.store offset=24 (local.get $o) (f64.const 0))
+                (i32.store offset=96 (i32.add (local.get $l) (i32.shl (local.get $k) (i32.const 2))) (i32.const 0))
+                (local.set $zero (i32.const 1))
+                (local.set $k (i32.add (local.get $k) (i32.const 1)))
+                (br $nextVertex)))
             (local.set $exponent (call $exponentOf (i32.add (local.get $l) (i32.const 1584))))
             (i32.store offset=96 (i32.add (local.get $l) (i32.shl (local.get $k) (i32.const 2))) (local.get $exponent))
             (local.set $c (i32.const 0))
@@ -261,6 +262,14 @@
                 (br $nextFlush)))))
         (local.set $k (i32.add (local.get $k) (i32.const 1)))
         (br $nextVertex)))
+    (local.get $zero))
+
+  ;; Writes each line's coefficients as four exact terms, each rounded, and the size of its terms,
+  ;; as lines.ts's measureLines does.
+  (func $measureLines
+    (local $l i32) (local $e i32) (local $k i32) (local $i i32) (local $j i32) (local $u i32) (local $v i32) (local $t i32)
+    (local $q i32)
+    (local.set $l (global.get $lines))
     ;; Line e, opposite vertex e, through vertices i and j: a = yi wj - wi yj, b = wi xj - xi wj, c = xi yj - yi xj.
     (local.set $e (i32.const 0))
     (block $linesDone
@@ -291,7 +300,18 @@
             (local.set $k (i32.add (local.get $k) (i32.const 1)))
             (br $nextCoefficient)))
         (local.set $e (i32.add (local.get $e) (i32.const 1)))
-        (br $nextLine)))
+        (br $nextLine))))
+
+  ;; Prepares the lines of the triangle whose positions are at $p0, $p1 and $p2, with the vertex
+  ;; $centre, if not -1, at the centre of the target in place of vec4(0), as lines.ts's
+  ;; prepareLines does. Gives the triangle's sign, 0 when its vertices lie in one plane with the eye.
+  (func $prepareLines (param $p0 i32) (param $p1 i32) (param $p2 i32) (param $centre i32) (result i32)
+    (local $l i32) (local $k i32) (local $e i32) (local $q i32) (local $n i32)
+    (local $orientation i32) (local $a i32) (local $b i32) (local $mask i32) (local $leastExponent i32) (local $r i32)
+    (local $length i32)
+    (local.set $l (global.get $lines))
+    (if (call $placeVertices (local.get $p0) (local.get $p1) (local.get $p2) (local.get $centre)) (then (return (i32.const 0))))
+    (call $measureLines)
     ;; The sign of the triangle: line 0 at vertex 0, exactly.
     (local.set $n (i32.const 0))
     (local.set $k (i32.const 0))
@@ -555,6 +575,319 @@
             (call $expandPoint (i32.const 2) (local.get $X) (local.get $Y) (local.get $W))))))
     (f64.min (f64.const 1) (f64.max (f64.const 0) (f64.div (local.get $z) (local.get $divisor)))))
 
+  ;; ---- the triangle a triangle in one plane with the eye draws, as lines.ts's prepareWedge
+  ;; measures it. From $lines: each side's coefficients as eight exact terms at +6824,
+  ;; (3s + k) * 64; each rounded at +8744 and the size of its terms at +8984, (3s + k) * 8; whether
+  ;; each side owns its centres at +9224, an i32 each; how many sides at +9264; the depth along the
+  ;; ray at +9272: the four terms of dX, then of dY, each rounded, and c; and the weight of each
+  ;; vertex at +9360. ----
+
+  ;; Adds to coefficient $k of side $s the $count terms at $from, each times $sign, from term $slot
+  ;; of its eight, as lines.ts's put does.
+  (func $put (param $s i32) (param $k i32) (param $slot i32) (param $from i32) (param $count i32) (param $sign f64)
+    (local $into i32) (local $q i32)
+    (local.set $into
+      (i32.add (i32.add (global.get $lines) (i32.const 6824))
+        (i32.shl (i32.add (i32.shl (i32.add (i32.mul (local.get $s) (i32.const 3)) (local.get $k)) (i32.const 3)) (local.get $slot)) (i32.const 3))))
+    (block $done
+      (loop $next
+        (br_if $done (i32.ge_s (local.get $q) (local.get $count)))
+        (f64.store (i32.add (local.get $into) (i32.shl (local.get $q) (i32.const 3)))
+          (f64.mul (f64.load (i32.add (local.get $from) (i32.shl (local.get $q) (i32.const 3)))) (local.get $sign)))
+        (local.set $q (i32.add (local.get $q) (i32.const 1)))
+        (br $next))))
+
+  ;; Rounds the coefficients of side $s, sums the sizes of their terms and decides whether it owns its
+  ;; centres, as lines.ts's closeSide does. Gives $s + 1, or $s for a side that is 0 everywhere, which
+  ;; is cleared for the next.
+  (func $closeSide (param $s i32) (result i32)
+    (local $l i32) (local $k i32) (local $q i32) (local $at i32) (local $value f64) (local $size f64) (local $term f64)
+    (local $sign i32) (local $x i32) (local $y i32) (local $w i32)
+    (local.set $l (global.get $lines))
+    (block $coefficientsDone
+      (loop $nextCoefficient
+        (br_if $coefficientsDone (i32.ge_s (local.get $k) (i32.const 3)))
+        (local.set $at (i32.add (i32.add (local.get $l) (i32.const 6824))
+          (i32.shl (i32.add (i32.mul (local.get $s) (i32.const 3)) (local.get $k)) (i32.const 6))))
+        (local.set $value (f64.const 0))
+        (local.set $size (f64.const 0))
+        (local.set $q (i32.const 0))
+        (block $termsDone
+          (loop $nextTerm
+            (br_if $termsDone (i32.ge_s (local.get $q) (i32.const 8)))
+            (local.set $term (f64.load (i32.add (local.get $at) (i32.shl (local.get $q) (i32.const 3)))))
+            (local.set $value (f64.add (local.get $value) (local.get $term)))
+            (local.set $size (f64.add (local.get $size) (f64.abs (local.get $term))))
+            (f64.store offset=1584 (i32.add (local.get $l) (i32.shl (local.get $q) (i32.const 3))) (local.get $term))
+            (local.set $q (i32.add (local.get $q) (i32.const 1)))
+            (br $nextTerm)))
+        (f64.store offset=8744 (i32.add (local.get $l) (i32.shl (i32.add (i32.mul (local.get $s) (i32.const 3)) (local.get $k)) (i32.const 3))) (local.get $value))
+        (f64.store offset=8984 (i32.add (local.get $l) (i32.shl (i32.add (i32.mul (local.get $s) (i32.const 3)) (local.get $k)) (i32.const 3))) (local.get $size))
+        (local.set $sign
+          (call $signOf (i32.add (local.get $l) (i32.const 4144))
+            (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (i32.const 8) (i32.add (local.get $l) (i32.const 4144)))))
+        (if (i32.eqz (local.get $k)) (then (local.set $x (local.get $sign))))
+        (if (i32.eq (local.get $k) (i32.const 1)) (then (local.set $y (local.get $sign))))
+        (if (i32.eq (local.get $k) (i32.const 2)) (then (local.set $w (local.get $sign))))
+        (local.set $k (i32.add (local.get $k) (i32.const 1)))
+        (br $nextCoefficient)))
+    (if (i32.eqz (i32.or (i32.or (local.get $x) (local.get $y)) (local.get $w)))
+      (then
+        (local.set $at (i32.add (i32.add (local.get $l) (i32.const 6824)) (i32.mul (local.get $s) (i32.const 192))))
+        (local.set $q (i32.const 0))
+        (block $cleared
+          (loop $nextClear
+            (br_if $cleared (i32.ge_s (local.get $q) (i32.const 24)))
+            (f64.store (i32.add (local.get $at) (i32.shl (local.get $q) (i32.const 3))) (f64.const 0))
+            (local.set $q (i32.add (local.get $q) (i32.const 1)))
+            (br $nextClear)))
+        (return (local.get $s))))
+    ;; A side owns its centres when its inside lies to its right on the screen, or below it when horizontal.
+    (i32.store offset=9224 (i32.add (local.get $l) (i32.shl (local.get $s) (i32.const 2)))
+      (i32.or (i32.gt_s (local.get $x) (i32.const 0)) (i32.and (i32.eqz (local.get $x)) (i32.lt_s (local.get $y) (i32.const 0)))))
+    (i32.add (local.get $s) (i32.const 1)))
+
+  ;; Prepares the triangle whose positions are at $p0, $p1 and $p2, whose vertices lie in one plane
+  ;; with the eye, as lines.ts's prepareWedge does: where it contains vec4(0), it draws the triangle
+  ;; from the centre to the two ends of the segment the rest of its part inside the clip volume
+  ;; projects to. Gives that triangle's winding in normalized device coordinates, or 0 when it draws nothing.
+  (func $prepareWedge (param $p0 i32) (param $p1 i32) (param $p2 i32) (result i32)
+    (local $l i32) (local $f i32) (local $q i32) (local $n i32) (local $e i32) (local $sign i32) (local $orientation i32)
+    (local $i i32) (local $j i32) (local $d i32) (local $a i32) (local $b i32) (local $c i32) (local $o f64) (local $s i32)
+    (local $k i32) (local $pj i32) (local $pk i32) (local $least i32) (local $exponent i32) (local $weight i32)
+    (local.set $l (global.get $lines))
+    (drop (call $placeVertices (local.get $p0) (local.get $p1) (local.get $p2) (i32.const -1)))
+    (call $measureLines)
+    (local.set $q (i32.const 0))
+    (block $cleared
+      (loop $nextClear
+        (br_if $cleared (i32.ge_s (local.get $q) (i32.const 240)))
+        (f64.store offset=6824 (i32.add (local.get $l) (i32.shl (local.get $q) (i32.const 3))) (f64.const 0))
+        (local.set $q (i32.add (local.get $q) (i32.const 1)))
+        (br $nextClear)))
+    (local.set $e (i32.const -1))
+    (block $weightsDone
+      (loop $nextWeight
+        (br_if $weightsDone (i32.ge_s (local.get $f) (i32.const 3)))
+        (local.set $sign (call $signOfTerms (i32.add (i32.add (local.get $l) (i32.const 176)) (i32.mul (local.get $f) (i32.const 96)))))
+        (if (local.get $sign)
+          (then
+            (if (i32.and (i32.ne (local.get $orientation) (i32.const 0)) (i32.ne (local.get $sign) (local.get $orientation)))
+              (then (return (i32.const 0))))
+            (local.set $orientation (local.get $sign))
+            (if (i32.eq (local.get $e) (i32.const -1)) (then (local.set $e (local.get $f))))))
+        (local.set $f (i32.add (local.get $f) (i32.const 1)))
+        (br $nextWeight)))
+    (if (i32.eqz (local.get $orientation)) (then (return (i32.const 0))))
+    ;; The vertices' z by those weights, exactly: 0 where vec4(0) is the triangle's point of w 0.
+    (local.set $f (i32.const 0))
+    (block $zDone
+      (loop $nextZ
+        (br_if $zDone (i32.ge_s (local.get $f) (i32.const 3)))
+        (local.set $q (i32.const 0))
+        (block $qDone
+          (loop $nextQ
+            (br_if $qDone (i32.ge_s (local.get $q) (i32.const 4)))
+            (call $product
+              (f64.load (i32.add (i32.add (local.get $l) (i32.const 176))
+                (i32.add (i32.mul (local.get $f) (i32.const 96)) (i32.shl (local.get $q) (i32.const 3)))))
+              (f64.load offset=16 (i32.add (local.get $l) (i32.shl (local.get $f) (i32.const 5))))
+              (i32.add (i32.add (local.get $l) (i32.const 1584)) (i32.shl (local.get $n) (i32.const 3))))
+            (local.set $n (i32.add (local.get $n) (i32.const 2)))
+            (local.set $q (i32.add (local.get $q) (i32.const 1)))
+            (br $nextQ)))
+        (local.set $f (i32.add (local.get $f) (i32.const 1)))
+        (br $nextZ)))
+    (if (call $signOf (i32.add (local.get $l) (i32.const 4144))
+          (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (local.get $n) (i32.add (local.get $l) (i32.const 4144))))
+      (then (return (i32.const 0))))
+    ;; z along the ray, by the two vertices line e runs through: dX = yj zi - yi zj, dY = xi zj - xj zi.
+    (local.set $i (i32.add (local.get $l) (i32.shl (i32.rem_u (i32.add (local.get $e) (i32.const 1)) (i32.const 3)) (i32.const 5))))
+    (local.set $j (i32.add (local.get $l) (i32.shl (i32.rem_u (i32.add (local.get $e) (i32.const 2)) (i32.const 3)) (i32.const 5))))
+    (local.set $d (i32.add (local.get $l) (i32.const 9272)))
+    (call $product (f64.load offset=8 (local.get $j)) (f64.load offset=16 (local.get $i)) (local.get $d))
+    (call $product (f64.load offset=8 (local.get $i)) (f64.load offset=16 (local.get $j)) (i32.add (local.get $d) (i32.const 16)))
+    (call $product (f64.load (local.get $i)) (f64.load offset=16 (local.get $j)) (i32.add (local.get $d) (i32.const 32)))
+    (call $product (f64.load (local.get $j)) (f64.load offset=16 (local.get $i)) (i32.add (local.get $d) (i32.const 48)))
+    (f64.store offset=16 (local.get $d) (f64.neg (f64.load offset=16 (local.get $d))))
+    (f64.store offset=24 (local.get $d) (f64.neg (f64.load offset=24 (local.get $d))))
+    (f64.store offset=48 (local.get $d) (f64.neg (f64.load offset=48 (local.get $d))))
+    (f64.store offset=56 (local.get $d) (f64.neg (f64.load offset=56 (local.get $d))))
+    ;; Each of dX, dY and c rounded once from its exact sum, as $wedgeDepthAt's filter takes it.
+    (call $byteCopy (i32.add (local.get $l) (i32.const 1584)) (local.get $d) (i32.const 32))
+    (f64.store offset=64 (local.get $d)
+      (call $estimateOf (i32.add (local.get $l) (i32.const 4144))
+        (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (i32.const 4) (i32.add (local.get $l) (i32.const 4144)))))
+    (call $byteCopy (i32.add (local.get $l) (i32.const 1584)) (i32.add (local.get $d) (i32.const 32)) (i32.const 32))
+    (f64.store offset=72 (local.get $d)
+      (call $estimateOf (i32.add (local.get $l) (i32.const 4144))
+        (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (i32.const 4) (i32.add (local.get $l) (i32.const 4144)))))
+    (call $byteCopy (i32.add (local.get $l) (i32.const 1584))
+      (i32.add (i32.add (local.get $l) (i32.const 176)) (i32.mul (local.get $e) (i32.const 96))) (i32.const 32))
+    (f64.store offset=80 (local.get $d)
+      (call $estimateOf (i32.add (local.get $l) (i32.const 4144))
+        (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (i32.const 4) (i32.add (local.get $l) (i32.const 4144)))))
+    (local.set $a (i32.add (i32.add (local.get $l) (i32.const 112)) (i32.mul (local.get $e) (i32.const 96))))
+    (local.set $b (i32.add (local.get $a) (i32.const 32)))
+    (local.set $c (i32.add (local.get $a) (i32.const 64)))
+    (local.set $o (f64.convert_i32_s (local.get $orientation)))
+    ;; At or before the line: w <= W.
+    (call $put (local.get $s) (i32.const 0) (i32.const 0) (local.get $a) (i32.const 4) (local.get $o))
+    (call $put (local.get $s) (i32.const 1) (i32.const 0) (local.get $b) (i32.const 4) (local.get $o))
+    (call $put (local.get $s) (i32.const 2) (i32.const 0) (local.get $c) (i32.const 4) (local.get $o))
+    (local.set $s (call $closeSide (local.get $s)))
+    ;; Inside the clip volume: w - x, w + x, w - y and w + y at least 0, which hold w at least 0 too.
+    (block $volumeDone
+      (loop $nextVolume
+        (br_if $volumeDone (i32.ge_s (local.get $k) (i32.const 4)))
+        (call $put (local.get $s) (i32.const 0) (i32.const 0) (local.get $a) (i32.const 4) (f64.neg (local.get $o)))
+        (call $put (local.get $s) (i32.const 1) (i32.const 0) (local.get $b) (i32.const 4) (f64.neg (local.get $o)))
+        (call $put (local.get $s) (i32.shr_u (local.get $k) (i32.const 1)) (i32.const 4) (local.get $c) (i32.const 4)
+          (select (local.get $o) (f64.neg (local.get $o)) (i32.and (local.get $k) (i32.const 1))))
+        (local.set $s (call $closeSide (local.get $s)))
+        (local.set $k (i32.add (local.get $k) (i32.const 1)))
+        (br $nextVolume)))
+    ;; At a depth from 0 to 1: z and w - z at least 0.
+    (call $put (local.get $s) (i32.const 0) (i32.const 0) (local.get $d) (i32.const 4) (local.get $o))
+    (call $put (local.get $s) (i32.const 1) (i32.const 0) (i32.add (local.get $d) (i32.const 32)) (i32.const 4) (local.get $o))
+    (local.set $s (call $closeSide (local.get $s)))
+    (call $put (local.get $s) (i32.const 0) (i32.const 0) (local.get $a) (i32.const 4) (f64.neg (local.get $o)))
+    (call $put (local.get $s) (i32.const 0) (i32.const 4) (local.get $d) (i32.const 4) (f64.neg (local.get $o)))
+    (call $put (local.get $s) (i32.const 1) (i32.const 0) (local.get $b) (i32.const 4) (f64.neg (local.get $o)))
+    (call $put (local.get $s) (i32.const 1) (i32.const 4) (i32.add (local.get $d) (i32.const 32)) (i32.const 4) (f64.neg (local.get $o)))
+    (local.set $s (call $closeSide (local.get $s)))
+    ;; Within each edge of the triangle that runs through vec4(0): (xk - xj) Y - (yk - yj) X at least 0.
+    (local.set $f (i32.const 0))
+    (block $edgesDone
+      (loop $nextEdge
+        (br_if $edgesDone (i32.ge_s (local.get $f) (i32.const 3)))
+        (if (i32.eqz (call $signOfTerms (i32.add (i32.add (local.get $l) (i32.const 176)) (i32.mul (local.get $f) (i32.const 96)))))
+          (then
+            (local.set $pj (i32.add (local.get $l) (i32.shl (i32.rem_u (i32.add (local.get $f) (i32.const 1)) (i32.const 3)) (i32.const 5))))
+            (local.set $pk (i32.add (local.get $l) (i32.shl (i32.rem_u (i32.add (local.get $f) (i32.const 2)) (i32.const 3)) (i32.const 5))))
+            (call $put (local.get $s) (i32.const 0) (i32.const 0) (i32.add (local.get $pk) (i32.const 8)) (i32.const 1) (f64.neg (local.get $o)))
+            (call $put (local.get $s) (i32.const 0) (i32.const 4) (i32.add (local.get $pj) (i32.const 8)) (i32.const 1) (local.get $o))
+            (call $put (local.get $s) (i32.const 1) (i32.const 0) (local.get $pk) (i32.const 1) (local.get $o))
+            (call $put (local.get $s) (i32.const 1) (i32.const 4) (local.get $pj) (i32.const 1) (f64.neg (local.get $o)))
+            (local.set $s (call $closeSide (local.get $s)))))
+        (local.set $f (i32.add (local.get $f) (i32.const 1)))
+        (br $nextEdge)))
+    (i32.store offset=9264 (local.get $l) (local.get $s))
+    ;; Every fragment takes the weights of the triangle's point at vec4(0). Line f carries the scales of
+    ;; the other two vertices, so its w coefficient over the scale of its own vertex weighs vertex f.
+    (local.set $least (i32.const 0x7fffffff))
+    (local.set $f (i32.const 0))
+    (block $leastDone
+      (loop $nextLeast
+        (br_if $leastDone (i32.ge_s (local.get $f) (i32.const 3)))
+        (local.set $exponent (i32.load offset=96 (i32.add (local.get $l) (i32.shl (local.get $f) (i32.const 2)))))
+        (if (i32.and (f64.ne (f64.load offset=416 (i32.add (local.get $l) (i32.mul (local.get $f) (i32.const 24)))) (f64.const 0))
+              (i32.lt_s (local.get $exponent) (local.get $least)))
+          (then (local.set $least (local.get $exponent))))
+        (local.set $f (i32.add (local.get $f) (i32.const 1)))
+        (br $nextLeast)))
+    (local.set $f (i32.const 0))
+    (block $scaledDone
+      (loop $nextScaled
+        (br_if $scaledDone (i32.ge_s (local.get $f) (i32.const 3)))
+        (local.set $weight (i32.add (i32.add (local.get $l) (i32.const 9360)) (i32.shl (local.get $f) (i32.const 3))))
+        (f64.store (local.get $weight) (f64.load offset=416 (i32.add (local.get $l) (i32.mul (local.get $f) (i32.const 24)))))
+        (if (f64.ne (f64.load (local.get $weight)) (f64.const 0))
+          (then
+            (local.set $exponent
+              (i32.sub (local.get $least) (i32.load offset=96 (i32.add (local.get $l) (i32.shl (local.get $f) (i32.const 2))))))
+            (call $multiplyByPowerOfTwo (local.get $weight)
+              (select (local.get $exponent) (i32.const -1100) (i32.gt_s (local.get $exponent) (i32.const -1100))))))
+        (local.set $f (i32.add (local.get $f) (i32.const 1)))
+        (br $nextScaled)))
+    (local.get $orientation))
+
+  ;; The sign of side $s at the ray ($X, $Y, $W), summed exactly, as lines.ts's exactSideSign gives it.
+  (func $exactSideSign (param $s i32) (param $X f64) (param $Y f64) (param $W f64) (result i32)
+    (local $l i32) (local $k i32) (local $q i32) (local $n i32) (local $whole f64)
+    (local.set $l (global.get $lines))
+    (block $kDone
+      (loop $nextK
+        (br_if $kDone (i32.ge_s (local.get $k) (i32.const 3)))
+        (local.set $whole (select (local.get $X) (select (local.get $Y) (local.get $W) (i32.eq (local.get $k) (i32.const 1))) (i32.eqz (local.get $k))))
+        (local.set $q (i32.const 0))
+        (block $qDone
+          (loop $nextQ
+            (br_if $qDone (i32.ge_s (local.get $q) (i32.const 8)))
+            (call $product
+              (f64.load (i32.add (i32.add (local.get $l) (i32.const 6824))
+                (i32.shl (i32.add (i32.shl (i32.add (i32.mul (local.get $s) (i32.const 3)) (local.get $k)) (i32.const 3)) (local.get $q)) (i32.const 3))))
+              (local.get $whole)
+              (i32.add (i32.add (local.get $l) (i32.const 1584)) (i32.shl (local.get $n) (i32.const 3))))
+            (local.set $n (i32.add (local.get $n) (i32.const 2)))
+            (local.set $q (i32.add (local.get $q) (i32.const 1)))
+            (br $nextQ)))
+        (local.set $k (i32.add (local.get $k) (i32.const 1)))
+        (br $nextK)))
+    (call $signOf (i32.add (local.get $l) (i32.const 4144))
+      (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (local.get $n) (i32.add (local.get $l) (i32.const 4144)))))
+
+  ;; Whether the ray ($X, $Y, $W) lies inside every side of the triangle $prepareWedge prepared, or on
+  ;; a side that owns it, as lines.ts's wedgeCovers decides it: each side's float value where that is
+  ;; more than 2^-48 of its terms' sizes, its terms summed exactly otherwise.
+  (func $wedgeCovers (param $X f64) (param $Y f64) (param $W f64) (result i32)
+    (local $l i32) (local $s i32) (local $count i32) (local $c i32) (local $m i32) (local $value f64) (local $bound f64)
+    (local $sign i32)
+    (local.set $l (global.get $lines))
+    (local.set $count (i32.load offset=9264 (local.get $l)))
+    (block $done
+      (loop $next
+        (br_if $done (i32.ge_s (local.get $s) (local.get $count)))
+        (local.set $c (i32.add (local.get $l) (i32.mul (local.get $s) (i32.const 24))))
+        (local.set $value
+          (f64.add
+            (f64.add (f64.mul (f64.load offset=8744 (local.get $c)) (local.get $X)) (f64.mul (f64.load offset=8752 (local.get $c)) (local.get $Y)))
+            (f64.mul (f64.load offset=8760 (local.get $c)) (local.get $W))))
+        (local.set $bound
+          (f64.mul (f64.const 0x1p-48)
+            (f64.add
+              (f64.add (f64.mul (f64.load offset=8984 (local.get $c)) (f64.abs (local.get $X))) (f64.mul (f64.load offset=8992 (local.get $c)) (f64.abs (local.get $Y))))
+              (f64.mul (f64.load offset=9000 (local.get $c)) (local.get $W)))))
+        (if (i32.eqz (f64.gt (local.get $value) (local.get $bound)))
+          (then
+            (if (f64.lt (local.get $value) (f64.neg (local.get $bound))) (then (return (i32.const 0))))
+            (local.set $sign (call $exactSideSign (local.get $s) (local.get $X) (local.get $Y) (local.get $W)))
+            (if (i32.or (i32.lt_s (local.get $sign) (i32.const 0))
+                  (i32.and (i32.eqz (local.get $sign)) (i32.eqz (i32.load offset=9224 (i32.add (local.get $l) (i32.shl (local.get $s) (i32.const 2)))))))
+              (then (return (i32.const 0))))))
+        (local.set $s (i32.add (local.get $s) (i32.const 1)))
+        (br $next)))
+    (i32.const 1))
+
+  ;; The depth at the ray ($X, $Y, $W) of the triangle $prepareWedge prepared, held to 0 to 1, as
+  ;; lines.ts's wedgeDepthAt gives it: (dX X + dY Y) / (c W), summed exactly where its bound of
+  ;; rounding, 2^-50 of its terms, passes 2^-32 of c W.
+  (func $wedgeDepthAt (param $X f64) (param $Y f64) (param $W f64) (result f64)
+    (local $l i32) (local $d i32) (local $x f64) (local $y f64) (local $divisor f64) (local $z f64) (local $q i32)
+    (local.set $l (global.get $lines))
+    (local.set $d (i32.add (local.get $l) (i32.const 9272)))
+    (local.set $x (f64.mul (f64.load offset=64 (local.get $d)) (local.get $X)))
+    (local.set $y (f64.mul (f64.load offset=72 (local.get $d)) (local.get $Y)))
+    (local.set $divisor (f64.mul (f64.load offset=80 (local.get $d)) (local.get $W)))
+    (local.set $z (f64.add (local.get $x) (local.get $y)))
+    (if (f64.gt
+          (f64.mul (f64.const 0x1p-50) (f64.add (f64.abs (local.get $x)) (f64.abs (local.get $y))))
+          (f64.mul (f64.const 0x1p-32) (f64.abs (local.get $divisor))))
+      (then
+        (block $done
+          (loop $next
+            (br_if $done (i32.ge_s (local.get $q) (i32.const 4)))
+            (call $product (f64.load (i32.add (local.get $d) (i32.shl (local.get $q) (i32.const 3)))) (local.get $X)
+              (i32.add (i32.add (local.get $l) (i32.const 1584)) (i32.shl (local.get $q) (i32.const 4))))
+            (call $product (f64.load offset=32 (i32.add (local.get $d) (i32.shl (local.get $q) (i32.const 3)))) (local.get $Y)
+              (i32.add (i32.add (local.get $l) (i32.const 1648)) (i32.shl (local.get $q) (i32.const 4))))
+            (local.set $q (i32.add (local.get $q) (i32.const 1)))
+            (br $next)))
+        (local.set $z
+          (call $estimateOf (i32.add (local.get $l) (i32.const 4144))
+            (call $addExactly (i32.add (local.get $l) (i32.const 1584)) (i32.const 16) (i32.add (local.get $l) (i32.const 4144)))))))
+    (f64.min (f64.const 1) (f64.max (f64.const 0) (f64.div (local.get $z) (local.get $divisor)))))
+
   ;; ---- vertex pass ----
   (func $copyAttributesIn
     (param $attrSrcBase i32) (param $attrStrideBytes i32)
@@ -719,83 +1052,7 @@
         (br $continue)))
     (local.get $out))
 
-  (func $emitTriangleFromScratch
-    (param $clipScratchBase i32) (param $varyingBytes i32)
-    (param $clippedPositionsOutBase i32) (param $clippedVaryingsOutBase i32)
-    (param $clippedVertexCount i32) (param $slot0 i32) (param $slot1 i32) (param $slot2 i32) (result i32)
-    (local $i i32) (local $slot i32)
-    (local.set $i (i32.const 0))
-    (block $break
-      (loop $continue
-        (br_if $break (i32.ge_s (local.get $i) (i32.const 3)))
-        (local.set $slot
-          (if (result i32) (i32.eqz (local.get $i))
-            (then (local.get $slot0))
-            (else (if (result i32) (i32.eq (local.get $i) (i32.const 1)) (then (local.get $slot1)) (else (local.get $slot2))))))
-        (call $byteCopy
-          (i32.add (local.get $clippedPositionsOutBase)
-            (i32.mul (i32.add (local.get $clippedVertexCount) (local.get $i)) (i32.const 32)))
-          (call $scratchVertexAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $slot))
-          (i32.const 32))
-        (call $byteCopy
-          (i32.add (local.get $clippedVaryingsOutBase)
-            (i32.mul (i32.add (local.get $clippedVertexCount) (local.get $i)) (local.get $varyingBytes)))
-          (call $scratchVaryingAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $slot))
-          (local.get $varyingBytes))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $continue)))
-    (i32.add (local.get $clippedVertexCount) (i32.const 3)))
-
   ;; ---- triangle pass ----
-  ;; Whether an edge running (dx, dy), in a triangle wound so its inside is where
-  ;; every edge function is positive, owns the pixel centres on it: a left edge,
-  ;; running up the screen, or a top edge, running right, by WebGPU's top-left rule.
-  ;; Two triangles run a shared edge in opposite directions, so exactly one owns it.
-  (func $ownsEdge (param $dx f64) (param $dy f64) (result i32)
-    (i32.or
-      (f64.lt (local.get $dy) (f64.const 0))
-      (i32.and (f64.eq (local.get $dy) (f64.const 0)) (f64.gt (local.get $dx) (f64.const 0)))))
-
-  ;; Whether a pixel centre lies on the inside of an edge whose function, wound
-  ;; positive inside, is $f, an edge the triangle $owns included.
-  (func $insideEdge (param $f f64) (param $owns i32) (result i32)
-    (i32.or
-      (f64.gt (local.get $f) (f64.const 0))
-      (i32.and (f64.eq (local.get $f) (f64.const 0)) (local.get $owns))))
-
-  ;; A clip coordinate over w; 0 for a vertex at vec4(0), as WebGPU places it.
-  (func $ndc (param $c f64) (param $w f64) (result f64)
-    (select (f64.const 0) (f64.div (local.get $c) (local.get $w)) (f64.eq (local.get $w) (f64.const 0))))
-
-  (func $screenX (param $clippedPositionsOutBase i32) (param $widthF f64) (param $vertexIndex i32) (result f64)
-    (f64.mul
-      (f64.add
-        (f64.mul
-          (call $ndc
-            (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 0))
-            (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 3)))
-          (f64.const 0.5))
-        (f64.const 0.5))
-      (local.get $widthF)))
-
-  (func $screenY (param $clippedPositionsOutBase i32) (param $heightF f64) (param $vertexIndex i32) (result f64)
-    (f64.mul
-      (f64.sub
-        (f64.const 1)
-        (f64.add
-          (f64.mul
-            (call $ndc
-              (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 1))
-              (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $vertexIndex) (i32.const 3)))
-            (f64.const 0.5))
-          (f64.const 0.5)))
-      (local.get $heightF)))
-
-  (func $edgeFn (param $ax f64) (param $ay f64) (param $bx f64) (param $by f64) (param $px f64) (param $py f64) (result f64)
-    (f64.sub
-      (f64.mul (f64.sub (local.get $ax) (local.get $px)) (f64.sub (local.get $by) (local.get $py)))
-      (f64.mul (f64.sub (local.get $ay) (local.get $py)) (f64.sub (local.get $bx) (local.get $px)))))
-
   ;; Interpolates each varying of the fragment from the varyings of three vertices at $v0, $v1
   ;; and $v2, each by its weight over $weights; a flat one is copied from $first, the varyings of
   ;; the triangle's first vertex.
@@ -915,114 +1172,6 @@
     (i32.and
       (i32.and (f64.le (f64.abs (f64.load (local.get $p))) (local.get $w)) (f64.le (f64.abs (f64.load offset=8 (local.get $p))) (local.get $w)))
       (i32.and (f64.ge (f64.load offset=16 (local.get $p)) (f64.const 0)) (f64.le (f64.load offset=16 (local.get $p)) (local.get $w)))))
-
-  ;; Rasterizes the fan triangle $t, $t + 1 and $t + 2 of the clipped outputs by its vertices'
-  ;; projections, as rasterizer.ts's rasterize does: its first vertex, at vec4(0), lies at the
-  ;; centre and gives every fragment its varyings, and $first gives the flat ones.
-  (func $rasterizeFan (param $clippedPositionsOutBase i32) (param $clippedVaryingsOutBase i32) (param $t i32) (param $first i32)
-    (local $t1 i32) (local $t2 i32) (local $widthF f64) (local $heightF f64) (local $l i32)
-    (local $s0x f64) (local $s0y f64) (local $s1x f64) (local $s1y f64) (local $s2x f64) (local $s2y f64)
-    (local $w0 f64) (local $w1 f64) (local $w2 f64)
-    (local $depth0 f64) (local $depth1 f64) (local $depth2 f64) (local $area f64)
-    (local $minX i32) (local $maxX i32) (local $minY i32) (local $maxY i32)
-    (local $x i32) (local $y i32) (local $px f64) (local $py f64)
-    (local $e0 f64) (local $e1 f64) (local $e2 f64)
-    (local $b0 f64) (local $b1 f64) (local $b2 f64)
-    (local $pixelDepth f64) (local $wind f64) (local $owns0 i32) (local $owns1 i32) (local $owns2 i32)
-    (local $nearest f64) (local $farthest f64) (local $crossesDepthRange i32)
-    (local.set $l (global.get $lines))
-    (local.set $t1 (i32.add (local.get $t) (i32.const 1)))
-    (local.set $t2 (i32.add (local.get $t) (i32.const 2)))
-    (local.set $widthF (f64.convert_i32_s (global.get $width)))
-    (local.set $heightF (f64.convert_i32_s (global.get $height)))
-    (local.set $s0x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t)))
-    (local.set $s0y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t)))
-    (local.set $s1x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t1)))
-    (local.set $s1y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t1)))
-    (local.set $s2x (call $screenX (local.get $clippedPositionsOutBase) (local.get $widthF) (local.get $t2)))
-    (local.set $s2y (call $screenY (local.get $clippedPositionsOutBase) (local.get $heightF) (local.get $t2)))
-    (local.set $w0 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 3)))
-    (local.set $w1 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 3)))
-    (local.set $w2 (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 3)))
-    (local.set $depth0 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t) (i32.const 2)) (local.get $w0)))
-    (local.set $depth1 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t1) (i32.const 2)) (local.get $w1)))
-    (local.set $depth2 (call $ndc (call $posComponentAt (local.get $clippedPositionsOutBase) (local.get $t2) (i32.const 2)) (local.get $w2)))
-    (local.set $area
-      (f64.sub
-        (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (f64.sub (local.get $s2y) (local.get $s0y)))
-        (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (f64.sub (local.get $s2x) (local.get $s0x)))))
-    (if (f64.eq (local.get $area) (f64.const 0)) (then (return)))
-    ;; A face the draw culls draws nothing.
-    (if (f64.gt (f64.mul (local.get $area) (global.get $cullSign)) (f64.const 0)) (then (return)))
-    ;; A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
-    ;; pixel outside it, which is what clipping there drops, as depth over w is affine in
-    ;; screen space; one inside it draws every pixel, whatever the rounding of its depth.
-    (local.set $nearest (f64.min (f64.min (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
-    (local.set $farthest (f64.max (f64.max (local.get $depth0) (local.get $depth1)) (local.get $depth2)))
-    (if (i32.or (f64.lt (local.get $farthest) (f64.const 0)) (f64.gt (local.get $nearest) (f64.const 1))) (then (return)))
-    (local.set $crossesDepthRange
-      (i32.or (f64.lt (local.get $nearest) (f64.const 0)) (f64.gt (local.get $farthest) (f64.const 1))))
-    ;; Each edge function, times $wind, is positive inside whichever way the triangle winds.
-    (local.set $wind (select (f64.const 1) (f64.const -1) (f64.gt (local.get $area) (f64.const 0))))
-    (local.set $owns0 (call $ownsEdge
-      (f64.mul (f64.sub (local.get $s2x) (local.get $s1x)) (local.get $wind))
-      (f64.mul (f64.sub (local.get $s2y) (local.get $s1y)) (local.get $wind))))
-    (local.set $owns1 (call $ownsEdge
-      (f64.mul (f64.sub (local.get $s0x) (local.get $s2x)) (local.get $wind))
-      (f64.mul (f64.sub (local.get $s0y) (local.get $s2y)) (local.get $wind))))
-    (local.set $owns2 (call $ownsEdge
-      (f64.mul (f64.sub (local.get $s1x) (local.get $s0x)) (local.get $wind))
-      (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (local.get $wind))))
-    (local.set $minX (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.const 0))))
-    (local.set $maxX (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.sub (local.get $widthF) (f64.const 1)))))
-    (local.set $minY (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.const 0))))
-    (local.set $maxY (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.sub (local.get $heightF) (f64.const 1)))))
-    (local.set $y (local.get $minY))
-    (block $yBreak
-      (loop $yContinue
-        (br_if $yBreak (i32.gt_s (local.get $y) (local.get $maxY)))
-        (local.set $x (local.get $minX))
-        (block $xBreak
-          (loop $xContinue
-            (br_if $xBreak (i32.gt_s (local.get $x) (local.get $maxX)))
-            (local.set $px (f64.add (f64.convert_i32_s (local.get $x)) (f64.const 0.5)))
-            (local.set $py (f64.add (f64.convert_i32_s (local.get $y)) (f64.const 0.5)))
-            (local.set $e0 (call $edgeFn (local.get $s1x) (local.get $s1y) (local.get $s2x) (local.get $s2y) (local.get $px) (local.get $py)))
-            (local.set $e1 (call $edgeFn (local.get $s2x) (local.get $s2y) (local.get $s0x) (local.get $s0y) (local.get $px) (local.get $py)))
-            (local.set $e2 (call $edgeFn (local.get $s0x) (local.get $s0y) (local.get $s1x) (local.get $s1y) (local.get $px) (local.get $py)))
-            (block $skip
-              (br_if $skip
-                (i32.eqz
-                  (i32.and
-                    (i32.and
-                      (call $insideEdge (f64.mul (local.get $e0) (local.get $wind)) (local.get $owns0))
-                      (call $insideEdge (f64.mul (local.get $e1) (local.get $wind)) (local.get $owns1)))
-                    (call $insideEdge (f64.mul (local.get $e2) (local.get $wind)) (local.get $owns2)))))
-              (local.set $b0 (f64.div (local.get $e0) (local.get $area)))
-              (local.set $b1 (f64.div (local.get $e1) (local.get $area)))
-              (local.set $b2 (f64.div (local.get $e2) (local.get $area)))
-              (local.set $pixelDepth
-                (f64.add
-                  (f64.add (f64.mul (local.get $b0) (local.get $depth0)) (f64.mul (local.get $b1) (local.get $depth1)))
-                  (f64.mul (local.get $b2) (local.get $depth2))))
-              (br_if $skip
-                (i32.and (local.get $crossesDepthRange)
-                  (i32.eqz (i32.and (f64.ge (local.get $pixelDepth) (f64.const 0)) (f64.le (local.get $pixelDepth) (f64.const 1))))))
-              ;; Perspective weighs a vertex by the inverse of its w, so the one at vec4(0) takes all of it.
-              (f64.store offset=6704 (local.get $l) (f64.const 1))
-              (f64.store offset=6712 (local.get $l) (f64.const 0))
-              (f64.store offset=6720 (local.get $l) (f64.const 0))
-              (f64.store offset=6728 (local.get $l) (f64.const 1))
-              (f64.store offset=6736 (local.get $l) (local.get $pixelDepth))
-              (call $shade (local.get $x) (local.get $y)
-                (i32.add (local.get $clippedVaryingsOutBase) (i32.mul (local.get $t) (global.get $varyingBytes)))
-                (i32.add (local.get $clippedVaryingsOutBase) (i32.mul (local.get $t1) (global.get $varyingBytes)))
-                (i32.add (local.get $clippedVaryingsOutBase) (i32.mul (local.get $t2) (global.get $varyingBytes)))
-                (local.get $first)))
-            (local.set $x (i32.add (local.get $x) (i32.const 1)))
-            (br $xContinue)))
-        (local.set $y (i32.add (local.get $y) (i32.const 1)))
-        (br $yContinue))))
 
   ;; Rasterizes the triangle of vertices $i0, $i1 and $i2 by its own lines, which $prepareLines has
   ;; measured, as rasterizer.ts's rasterizeByLines does: the exact sign of each line decides
@@ -1168,13 +1317,11 @@
 
   ;; Draws the triangle of vertices $t0, $t1 and $t2, as rasterizer.ts's drawTriangle
   ;; does: one whose vertices do not lie in one plane with the eye, or with a vertex at vec4(0) and the other two in the clip volume, is
-  ;; drawn by its lines; any other is clipped, and draws only by a fan from a vertex at vec4(0).
+  ;; drawn by its lines; any other lies in one plane with the eye, and draws only where it contains vec4(0).
   (func $drawTriangle
     (param $positionsOutBase i32) (param $varyingsOutBase i32)
-    (param $clippedPositionsOutBase i32) (param $clippedVaryingsOutBase i32)
     (param $t0 i32) (param $t1 i32) (param $t2 i32)
     (local $a i32) (local $b i32) (local $c i32) (local $zeros i32) (local $centre i32) (local $orientation i32)
-    (local $count i32) (local $i i32) (local $origin i32) (local $clippedVertexCount i32) (local $src i32)
     (local.set $a (i32.add (local.get $positionsOutBase) (i32.mul (local.get $t0) (i32.const 32))))
     (local.set $b (i32.add (local.get $positionsOutBase) (i32.mul (local.get $t1) (i32.const 32))))
     (local.set $c (i32.add (local.get $positionsOutBase) (i32.mul (local.get $t2) (i32.const 32))))
@@ -1203,43 +1350,47 @@
               (local.get $centre) (local.get $orientation))
             (return)))
         (if (i32.ne (local.get $centre) (i32.const -1)) (then (return)))))
-    ;; In one plane with the eye: the clipped polygon draws only by a fan from a vertex at vec4(0), at the centre.
-    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $t0) (i32.const 0))
-    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $t1) (i32.const 1))
-    (call $vertexToScratch (local.get $positionsOutBase) (local.get $varyingsOutBase) (global.get $varyingBytes) (global.get $clipScratch) (local.get $t2) (i32.const 2))
-    (local.set $count (call $clip))
-    (local.set $src (global.get $clipped))
-    (local.set $origin (i32.const -1))
-    (block $found
-      (loop $nextVertex
-        (br_if $found (i32.ge_s (local.get $i) (local.get $count)))
-        (if (i32.and (i32.eq (local.get $origin) (i32.const -1))
-              (call $isOrigin (call $scratchVertexAddr (global.get $clipScratch) (global.get $varyingBytes) (i32.add (local.get $src) (local.get $i)))))
-          (then (local.set $origin (local.get $i))))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $nextVertex)))
-    (if (i32.eq (local.get $origin) (i32.const -1)) (then (return)))
-    (local.set $i (i32.const 1))
-    (block $fanBreak
-      (loop $fanContinue
-        (br_if $fanBreak (i32.ge_s (i32.add (local.get $i) (i32.const 1)) (local.get $count)))
-        (local.set $clippedVertexCount
-          (call $emitTriangleFromScratch (global.get $clipScratch) (global.get $varyingBytes)
-            (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
-            (local.get $clippedVertexCount)
-            (i32.add (local.get $src) (local.get $origin))
-            (i32.add (local.get $src) (i32.rem_u (i32.add (local.get $origin) (local.get $i)) (local.get $count)))
-            (i32.add (local.get $src) (i32.rem_u (i32.add (local.get $origin) (i32.add (local.get $i) (i32.const 1))) (local.get $count)))))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $fanContinue)))
-    (local.set $i (i32.const 0))
-    (block $triBreak
-      (loop $triContinue
-        (br_if $triBreak (i32.ge_s (i32.add (local.get $i) (i32.const 2)) (local.get $clippedVertexCount)))
-        (call $rasterizeFan (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase) (local.get $i)
-          (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t0) (global.get $varyingBytes))))
-        (local.set $i (i32.add (local.get $i) (i32.const 3)))
-        (br $triContinue))))
+    (call $rasterizeWedge (local.get $varyingsOutBase) (local.get $a) (local.get $b) (local.get $c)
+      (local.get $t0) (local.get $t1) (local.get $t2)))
+
+  ;; Rasterizes the triangle whose positions are at $a, $b and $c, whose vertices lie in one plane with
+  ;; the eye, as rasterizer.ts's rasterizeWedge does: where it contains vec4(0), the triangle from the
+  ;; centre to the ends of the segment the rest of its part inside the clip volume projects to. Every
+  ;; fragment takes the triangle's varyings at vec4(0), and the flat ones of its first vertex.
+  (func $rasterizeWedge
+    (param $varyingsOutBase i32) (param $a i32) (param $b i32) (param $c i32) (param $t0 i32) (param $t1 i32) (param $t2 i32)
+    (local $l i32) (local $orientation i32) (local $x i32) (local $y i32) (local $X f64) (local $Y f64) (local $W f64)
+    (local.set $l (global.get $lines))
+    (local.set $orientation (call $prepareWedge (local.get $a) (local.get $b) (local.get $c)))
+    (if (i32.eqz (local.get $orientation)) (then (return)))
+    (if (f64.lt (f64.mul (f64.convert_i32_s (local.get $orientation)) (global.get $cullSign)) (f64.const 0)) (then (return)))
+    (local.set $W (f64.convert_i32_s (i32.mul (global.get $width) (global.get $height))))
+    (block $yBreak
+      (loop $yContinue
+        (br_if $yBreak (i32.ge_s (local.get $y) (global.get $height)))
+        (local.set $Y (f64.convert_i32_s (i32.mul (i32.sub (i32.sub (global.get $height) (i32.shl (local.get $y) (i32.const 1))) (i32.const 1)) (global.get $width))))
+        (local.set $x (i32.const 0))
+        (block $xBreak
+          (loop $xContinue
+            (br_if $xBreak (i32.ge_s (local.get $x) (global.get $width)))
+            (local.set $X (f64.convert_i32_s (i32.mul (i32.sub (i32.add (i32.shl (local.get $x) (i32.const 1)) (i32.const 1)) (global.get $width)) (global.get $height))))
+            (if (call $wedgeCovers (local.get $X) (local.get $Y) (local.get $W))
+              (then
+                (f64.store offset=6704 (local.get $l) (f64.load offset=9360 (local.get $l)))
+                (f64.store offset=6712 (local.get $l) (f64.load offset=9368 (local.get $l)))
+                (f64.store offset=6720 (local.get $l) (f64.load offset=9376 (local.get $l)))
+                (f64.store offset=6728 (local.get $l)
+                  (f64.add (f64.add (f64.load offset=9360 (local.get $l)) (f64.load offset=9368 (local.get $l))) (f64.load offset=9376 (local.get $l))))
+                (f64.store offset=6736 (local.get $l) (call $wedgeDepthAt (local.get $X) (local.get $Y) (local.get $W)))
+                (call $shade (local.get $x) (local.get $y)
+                  (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t0) (global.get $varyingBytes)))
+                  (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t1) (global.get $varyingBytes)))
+                  (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t2) (global.get $varyingBytes)))
+                  (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t0) (global.get $varyingBytes))))))
+            (local.set $x (i32.add (local.get $x) (i32.const 1)))
+            (br $xContinue)))
+        (local.set $y (i32.add (local.get $y) (i32.const 1)))
+        (br $yContinue))))
 
   ;; ---- rasterize: the vertex pass, then each triangle, drawn before the next ----
   (func $rasterize
@@ -1248,7 +1399,7 @@
     (param $positionsOutBase i32) (param $width i32) (param $height i32)
     (param $fragmentValueAddress i32) (param $outputBase i32) (param $varyingBytes i32)
     (param $varyingDescBase i32) (param $varyingDescCount i32) (param $varyingsOutBase i32)
-    (param $clipScratchBase i32) (param $clippedPositionsOutBase i32) (param $clippedVaryingsOutBase i32)
+    (param $clipScratchBase i32)
     (param $depthBufferBase i32)
     ;; What the fragment stage writes or reads besides its colour: each address
     ;; is used only when the flag after it is 1.
@@ -1305,13 +1456,11 @@
             (local.set $t (i32.mul (local.get $tri) (i32.const 3)))
             (br_if $trianglesDone (i32.ge_s (i32.add (local.get $t) (i32.const 2)) (local.get $vertexCount)))
             (call $drawTriangle (local.get $positionsOutBase) (local.get $varyingsOutBase)
-              (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
               (local.get $t) (i32.add (local.get $t) (i32.const 1)) (i32.add (local.get $t) (i32.const 2))))
           (else
             (br_if $trianglesDone (i32.ge_s (local.get $tri) (local.get $triangleCount)))
             (local.set $entry (i32.add (local.get $triangleBase) (i32.mul (local.get $tri) (i32.const 12))))
             (call $drawTriangle (local.get $positionsOutBase) (local.get $varyingsOutBase)
-              (local.get $clippedPositionsOutBase) (local.get $clippedVaryingsOutBase)
               (i32.load (local.get $entry))
               (i32.load (i32.add (local.get $entry) (i32.const 4)))
               (i32.load (i32.add (local.get $entry) (i32.const 8))))))

@@ -39,6 +39,12 @@ const SMALLEST_COMPONENT = 2 ** -300;
 /** The room for an expansion of one line's value: 24 terms and one more. */
 const EXPANSION = 32;
 
+/** The room for the sides a triangle in one plane with the eye is drawn within: its line, four for the screen, two for depth, and its edges through `vec4(0)`, two at most. */
+const SIDES = 10;
+
+/** The terms each coefficient of a side holds: the sum of two coefficients of four terms. */
+const SIDE_TERMS = 8;
+
 /** What a rasterizer keeps of the triangle it draws by its lines; made once and filled for each triangle. */
 export interface Lines {
   /** The vertices, each scaled by a power of two that brings its largest component near 1: x, y, z, w. */
@@ -70,6 +76,21 @@ export interface Lines {
   /** Terms to sum exactly, and the sum. */
   pending: Float64Array;
   sum: Float64Array;
+  /**
+   * For a triangle in one plane with the eye, the sides of the triangle it draws: each a value
+   * `aX + bY + cW` of the ray, at least 0 inside. Each coefficient as eight terms whose sum is exact,
+   * `(3s + k) * 8`; rounded, `3s + k`; the size of its terms; and whether the side owns its centres.
+   */
+  sides: Float64Array;
+  sideCoefficients: Float64Array;
+  sideSizes: Float64Array;
+  sideOwns: Uint8Array;
+  /** How many sides the triangle being drawn has. */
+  sideCount: Int32Array;
+  /** Its depth along the ray, `(dX X + dY Y) / (c W)`: the four terms of `dX`, then of `dY`; each rounded; and `c`. */
+  wedgeDepth: Float64Array;
+  /** The weight of each of its vertices at every fragment: its weights at `vec4(0)`. */
+  wedgeWeights: Float64Array;
 }
 
 /** Makes the arrays a rasterizer keeps for the lines of a triangle. */
@@ -89,6 +110,13 @@ export function makeLines(): Lines {
     lengths: new Int32Array(3),
     pending: new Float64Array(320),
     sum: new Float64Array(320),
+    sides: new Float64Array(SIDES * 3 * SIDE_TERMS),
+    sideCoefficients: new Float64Array(SIDES * 3),
+    sideSizes: new Float64Array(SIDES * 3),
+    sideOwns: new Uint8Array(SIDES),
+    sideCount: new Int32Array(1),
+    wedgeDepth: new Float64Array(11),
+    wedgeWeights: new Float64Array(3),
   };
 }
 
@@ -201,47 +229,9 @@ export function prepareLines(
   p2: Float64Array,
   centre: number,
 ): number {
-  const { points, exponents, terms, coefficients, sizes, pending, sum } = lines;
-  for (let k = 0; k < 3; k++) {
-    const p = k === 0 ? p0 : k === 1 ? p1 : p2;
-    const o = 4 * k;
-    if (k === centre) {
-      points[o] = points[o + 1] = points[o + 2] = 0;
-      points[o + 3] = 1;
-      exponents[k] = 0;
-      continue;
-    }
-    pending[0] = Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[2]!), Math.abs(p[3]!));
-    if (pending[0] === 0) return 0;
-    const exponent = exponentOf(pending, 0);
-    exponents[k] = exponent;
-    for (let c = 0; c < 4; c++) {
-      points[o + c] = p[c]!;
-      multiplyByPowerOfTwo(points, o + c, -exponent);
-    }
-    // The largest component now lies from 1 to 2, so the least that counts is 2^-300 of it.
-    const least =
-      Math.max(Math.abs(points[o]!), Math.abs(points[o + 1]!), Math.abs(points[o + 2]!), Math.abs(points[o + 3]!)) *
-      SMALLEST_COMPONENT;
-    for (let c = 0; c < 4; c++) if (Math.abs(points[o + c]!) < least) points[o + c] = 0;
-  }
-  // Line e, opposite vertex e, through vertices i and j: a = yi wj - wi yj, b = wi xj - xi wj, c = xi yj - yi xj.
-  for (let e = 0; e < 3; e++) {
-    const i = 4 * ((e + 1) % 3),
-      j = 4 * ((e + 2) % 3);
-    for (let k = 0; k < 3; k++) {
-      // The two components each product takes, of x (0), y (1) and w (3).
-      const u = k === 0 ? 1 : k === 1 ? 3 : 0,
-        v = k === 0 ? 3 : k === 1 ? 0 : 1;
-      const t = (3 * e + k) * 4;
-      product(points, i + u, points, j + v, terms, t);
-      product(points, i + v, points, j + u, terms, t + 2);
-      terms[t + 2] = -terms[t + 2]!;
-      terms[t + 3] = -terms[t + 3]!;
-      coefficients[3 * e + k] = terms[t]! + terms[t + 2]! + (terms[t + 1]! + terms[t + 3]!);
-      sizes[3 * e + k] = Math.abs(terms[t]!) + Math.abs(terms[t + 2]!);
-    }
-  }
+  const { terms, points, pending, sum } = lines;
+  if (placeVertices(lines, p0, p1, p2, centre)) return 0;
+  measureLines(lines);
   // The sign of the triangle: line 0 at vertex 0, exactly.
   let n = 0;
   for (let k = 0; k < 3; k++)
@@ -272,7 +262,7 @@ export function prepareLines(
   }
   // The weight of a vertex for each unit of its line is its scale over the greatest scale among the
   // vertices whose lines are not 0 at the pixel: a smaller vertex, of a smaller w, weighs more.
-  const { ratios } = lines;
+  const { ratios, exponents } = lines;
   for (let mask = 1; mask < 8; mask++) {
     let least = 0x7fffffff;
     for (let e = 0; e < 3; e++) if (mask & (1 << e)) least = Math.min(least, exponents[e]!);
@@ -283,6 +273,67 @@ export function prepareLines(
     }
   }
   return orientation;
+}
+
+/**
+ * Writes the triangle `p0`, `p1`, `p2` into {@link Lines.points}, each vertex scaled by a power of two
+ * that brings its largest component from 1 to 2, with the vertex `centre`, if not -1, at the centre of
+ * the target. A vertex at `vec4(0)` stays 0, with a scale of 1. Gives whether one was.
+ */
+function placeVertices(lines: Lines, p0: Float64Array, p1: Float64Array, p2: Float64Array, centre: number): boolean {
+  const { points, exponents, pending } = lines;
+  let zero = false;
+  for (let k = 0; k < 3; k++) {
+    const p = k === 0 ? p0 : k === 1 ? p1 : p2;
+    const o = 4 * k;
+    if (k === centre) {
+      points[o] = points[o + 1] = points[o + 2] = 0;
+      points[o + 3] = 1;
+      exponents[k] = 0;
+      continue;
+    }
+    pending[0] = Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[2]!), Math.abs(p[3]!));
+    if (pending[0] === 0) {
+      points[o] = points[o + 1] = points[o + 2] = points[o + 3] = 0;
+      exponents[k] = 0;
+      zero = true;
+      continue;
+    }
+    const exponent = exponentOf(pending, 0);
+    exponents[k] = exponent;
+    for (let c = 0; c < 4; c++) {
+      points[o + c] = p[c]!;
+      multiplyByPowerOfTwo(points, o + c, -exponent);
+    }
+    // The largest component now lies from 1 to 2, so the least that counts is 2^-300 of it.
+    const least =
+      Math.max(Math.abs(points[o]!), Math.abs(points[o + 1]!), Math.abs(points[o + 2]!), Math.abs(points[o + 3]!)) *
+      SMALLEST_COMPONENT;
+    for (let c = 0; c < 4; c++) if (Math.abs(points[o + c]!) < least) points[o + c] = 0;
+  }
+  return zero;
+}
+
+/** Writes each line's coefficients as four exact terms, each rounded, and the size of its terms. */
+function measureLines(lines: Lines): void {
+  const { points, terms, coefficients, sizes } = lines;
+  // Line e, opposite vertex e, through vertices i and j: a = yi wj - wi yj, b = wi xj - xi wj, c = xi yj - yi xj.
+  for (let e = 0; e < 3; e++) {
+    const i = 4 * ((e + 1) % 3),
+      j = 4 * ((e + 2) % 3);
+    for (let k = 0; k < 3; k++) {
+      // The two components each product takes, of x (0), y (1) and w (3).
+      const u = k === 0 ? 1 : k === 1 ? 3 : 0,
+        v = k === 0 ? 3 : k === 1 ? 0 : 1;
+      const t = (3 * e + k) * 4;
+      product(points, i + u, points, j + v, terms, t);
+      product(points, i + v, points, j + u, terms, t + 2);
+      terms[t + 2] = -terms[t + 2]!;
+      terms[t + 3] = -terms[t + 3]!;
+      coefficients[3 * e + k] = terms[t]! + terms[t + 2]! + (terms[t + 1]! + terms[t + 3]!);
+      sizes[3 * e + k] = Math.abs(terms[t]!) + Math.abs(terms[t + 2]!);
+    }
+  }
 }
 
 /** The sign of the sum of the four terms of a coefficient, from `terms[t]`. */
@@ -431,4 +482,208 @@ function expandPoint(lines: Lines, component: number, X: number, Y: number, W: n
     }
   }
   return addExactly(pending, n, sum, 0);
+}
+
+/** The bound of rounding of a side's value, over the sum of its terms' sizes: three times what it can reach. */
+const SIDE_ROUNDING = 2 ** -48;
+
+/**
+ * Prepares a triangle `p0`, `p1`, `p2` whose vertices lie in one plane with the eye. It draws only
+ * where it contains `vec4(0)`, and then draws the triangle on the screen from the centre to the two
+ * ends of the segment that the rest of its part inside the clip volume projects to. Gives that
+ * triangle's winding in normalized device coordinates, or 0 when it draws nothing.
+ *
+ * The x, y and w of the vertices lie in one plane through the eye, so every line is a multiple of
+ * that plane, and the w coefficient of each, the cross product of the x and y of the other two
+ * vertices, over the scale of its own vertex, is that vertex's weight in the triangle's point at
+ * x, y and w 0, times one factor.
+ * The triangle contains `vec4(0)` when those weights share a sign and its vertices' z by them sum to 0.
+ * A point of that plane is then placed by its x and y, and the one on the ray of a pixel by the ray's
+ * `X` and `Y`: by line `e`, of a weight not 0, its w is `-(aX + bY) / c` and its z `(dX X + dY Y) / c`.
+ * The pixel lies in what the triangle draws when that point's w is at most `W`, and the point lies
+ * in the clip volume, where its w is at least 0, and within the triangle's edges through `vec4(0)`:
+ * each a side, a value of the ray at least 0 inside.
+ */
+export function prepareWedge(lines: Lines, p0: Float64Array, p1: Float64Array, p2: Float64Array): number {
+  const { points, terms, coefficients, exponents, pending, sum, wedgeDepth, wedgeWeights } = lines;
+  placeVertices(lines, p0, p1, p2, -1);
+  measureLines(lines);
+  lines.sides.fill(0);
+  let orientation = 0;
+  let e = -1;
+  for (let f = 0; f < 3; f++) {
+    const sign = signOfTerms(lines, (3 * f + 2) * 4);
+    if (sign === 0) continue;
+    if (orientation !== 0 && sign !== orientation) return 0;
+    orientation = sign;
+    if (e === -1) e = f;
+  }
+  if (orientation === 0) return 0;
+  let n = 0;
+  for (let f = 0; f < 3; f++)
+    for (let q = 0; q < 4; q++) {
+      product(terms, (3 * f + 2) * 4 + q, points, 4 * f + 2, pending, n);
+      n += 2;
+    }
+  if (signOf(sum, 0, addExactly(pending, n, sum, 0)) !== 0) return 0;
+  // z along the ray, by the two vertices line e runs through: dX = yj zi - yi zj, dY = xi zj - xj zi.
+  const i = 4 * ((e + 1) % 3),
+    j = 4 * ((e + 2) % 3);
+  product(points, j + 1, points, i + 2, wedgeDepth, 0);
+  product(points, i + 1, points, j + 2, wedgeDepth, 2);
+  product(points, i, points, j + 2, wedgeDepth, 4);
+  product(points, j, points, i + 2, wedgeDepth, 6);
+  for (let t = 2; t < 8; t += t === 3 ? 3 : 1) wedgeDepth[t] = -wedgeDepth[t]!;
+  // Each of dX, dY and c rounded once from its exact sum, as the filter of wedgeDepthAt takes it.
+  for (let k = 0; k < 3; k++) {
+    for (let q = 0; q < 4; q++) pending[q] = k < 2 ? wedgeDepth[4 * k + q]! : terms[(3 * e + 2) * 4 + q]!;
+    wedgeDepth[8 + k] = estimateOf(sum, 0, addExactly(pending, 4, sum, 0));
+  }
+  const a = 3 * e * 4,
+    b = (3 * e + 1) * 4,
+    c = (3 * e + 2) * 4;
+  const o = orientation;
+  let s = 0;
+  // At or before the line: w <= W.
+  put(lines, s, 0, 0, terms, a, 4, o);
+  put(lines, s, 1, 0, terms, b, 4, o);
+  put(lines, s, 2, 0, terms, c, 4, o);
+  s = closeSide(lines, s);
+  // Inside the clip volume: w - x, w + x, w - y and w + y at least 0, which hold w at least 0 too.
+  for (let k = 0; k < 4; k++) {
+    put(lines, s, 0, 0, terms, a, 4, -o);
+    put(lines, s, 1, 0, terms, b, 4, -o);
+    put(lines, s, k >> 1, 4, terms, c, 4, k & 1 ? o : -o);
+    s = closeSide(lines, s);
+  }
+  // At a depth from 0 to 1: z and w - z at least 0.
+  put(lines, s, 0, 0, wedgeDepth, 0, 4, o);
+  put(lines, s, 1, 0, wedgeDepth, 4, 4, o);
+  s = closeSide(lines, s);
+  put(lines, s, 0, 0, terms, a, 4, -o);
+  put(lines, s, 0, 4, wedgeDepth, 0, 4, -o);
+  put(lines, s, 1, 0, terms, b, 4, -o);
+  put(lines, s, 1, 4, wedgeDepth, 4, 4, -o);
+  s = closeSide(lines, s);
+  // Within each edge of the triangle that runs through vec4(0): (xk - xj) Y - (yk - yj) X at least 0.
+  for (let f = 0; f < 3; f++) {
+    if (signOfTerms(lines, (3 * f + 2) * 4) !== 0) continue;
+    const pj = 4 * ((f + 1) % 3),
+      pk = 4 * ((f + 2) % 3);
+    put(lines, s, 0, 0, points, pk + 1, 1, -o);
+    put(lines, s, 0, 4, points, pj + 1, 1, o);
+    put(lines, s, 1, 0, points, pk, 1, o);
+    put(lines, s, 1, 4, points, pj, 1, -o);
+    s = closeSide(lines, s);
+  }
+  lines.sideCount[0] = s;
+  // Every fragment takes the weights of the triangle's point at vec4(0). Line f carries the scales of
+  // the other two vertices, so its w coefficient over the scale of its own vertex weighs vertex f.
+  let least = 0x7fffffff;
+  for (let f = 0; f < 3; f++) if (coefficients[3 * f + 2] !== 0) least = Math.min(least, exponents[f]!);
+  for (let f = 0; f < 3; f++) {
+    wedgeWeights[f] = coefficients[3 * f + 2]!;
+    if (wedgeWeights[f] !== 0) multiplyByPowerOfTwo(wedgeWeights, f, Math.max(least - exponents[f]!, -1100));
+  }
+  return orientation;
+}
+
+/**
+ * Adds to coefficient `k` (of X, Y or W) of side `s` the `count` terms of `from` at `at`, each times
+ * `sign`, from term `slot` of its eight. A side's terms start at 0 and are cleared by {@link closeSide}.
+ */
+function put(lines: Lines, s: number, k: number, slot: number, from: Float64Array, at: number, count: number, sign: number): void {
+  const into = (3 * s + k) * SIDE_TERMS + slot;
+  for (let q = 0; q < count; q++) lines.sides[into + q] = from[at + q]! * sign;
+}
+
+/**
+ * Rounds the coefficients of side `s`, sums the sizes of their terms, and decides whether it owns
+ * its centres. Gives `s + 1`, or `s` for a side that is 0 everywhere, which bounds nothing, and is
+ * cleared for the next.
+ */
+function closeSide(lines: Lines, s: number): number {
+  const { sides, sideCoefficients, sideSizes, pending, sum } = lines;
+  let x = 0,
+    y = 0,
+    w = 0;
+  for (let k = 0; k < 3; k++) {
+    const at = (3 * s + k) * SIDE_TERMS;
+    let value = 0,
+      size = 0;
+    for (let q = 0; q < SIDE_TERMS; q++) {
+      value += sides[at + q]!;
+      size += Math.abs(sides[at + q]!);
+      pending[q] = sides[at + q]!;
+    }
+    sideCoefficients[3 * s + k] = value;
+    sideSizes[3 * s + k] = size;
+    const sign = signOf(sum, 0, addExactly(pending, SIDE_TERMS, sum, 0));
+    if (k === 0) x = sign;
+    else if (k === 1) y = sign;
+    else w = sign;
+  }
+  if (x === 0 && y === 0 && w === 0) {
+    sides.fill(0, 3 * s * SIDE_TERMS, 3 * (s + 1) * SIDE_TERMS);
+    return s;
+  }
+  // A side owns its centres when its inside lies to its right on the screen, or below it when horizontal.
+  lines.sideOwns[s] = x > 0 || (x === 0 && y < 0) ? 1 : 0;
+  return s + 1;
+}
+
+/**
+ * Whether the ray `(X, Y, W)` lies inside every side of the triangle {@link prepareWedge} prepared, or
+ * on a side that owns it, each side's sign exact: its float value where that is more than
+ * {@link SIDE_ROUNDING} of its terms' sizes, its terms summed exactly otherwise.
+ */
+export function wedgeCovers(lines: Lines, X: number, Y: number, W: number): boolean {
+  const { sideCoefficients: c, sideSizes: m, sideOwns: owns } = lines;
+  const count = lines.sideCount[0]!;
+  const absX = Math.abs(X),
+    absY = Math.abs(Y);
+  for (let s = 0; s < count; s++) {
+    const value = c[3 * s]! * X + c[3 * s + 1]! * Y + c[3 * s + 2]! * W;
+    const size = m[3 * s]! * absX + m[3 * s + 1]! * absY + m[3 * s + 2]! * W;
+    if (value > SIDE_ROUNDING * size) continue;
+    if (value < -SIDE_ROUNDING * size) return false;
+    const sign = exactSideSign(lines, s, X, Y, W);
+    if (sign < 0 || (sign === 0 && owns[s] === 0)) return false;
+  }
+  return true;
+}
+
+/** The sign of side `s` at the ray `(X, Y, W)`, summed exactly. */
+function exactSideSign(lines: Lines, s: number, X: number, Y: number, W: number): number {
+  const { sides, pending, sum } = lines;
+  let n = 0;
+  for (let k = 0; k < 3; k++) {
+    const whole = k === 0 ? X : k === 1 ? Y : W;
+    for (let q = 0; q < SIDE_TERMS; q++) {
+      productByWhole(sides, (3 * s + k) * SIDE_TERMS + q, whole, pending, n);
+      n += 2;
+    }
+  }
+  return signOf(sum, 0, addExactly(pending, n, sum, 0));
+}
+
+/**
+ * The depth at the ray `(X, Y, W)` of the triangle {@link prepareWedge} prepared, held to 0 to 1:
+ * `(dX X + dY Y) / (c W)`. The float value is kept when its bound of rounding is within
+ * {@link DEPTH_FILTER} of `c W`; any other is summed exactly.
+ */
+export function wedgeDepthAt(lines: Lines, X: number, Y: number, W: number): number {
+  const { wedgeDepth: d, pending, sum } = lines;
+  const x = d[8]! * X,
+    y = d[9]! * Y;
+  const divisor = d[10]! * W;
+  let z = x + y;
+  if (PLANE_ROUNDING * (Math.abs(x) + Math.abs(y)) > DEPTH_FILTER * Math.abs(divisor)) {
+    for (let q = 0; q < 4; q++) {
+      productByWhole(d, q, X, pending, 2 * q);
+      productByWhole(d, 4 + q, Y, pending, 8 + 2 * q);
+    }
+    z = estimateOf(sum, 0, addExactly(pending, 16, sum, 0));
+  }
+  return Math.min(1, Math.max(0, z / divisor));
 }
