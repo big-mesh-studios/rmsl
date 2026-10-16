@@ -46,6 +46,15 @@ implementations (e.g. `pow` evaluated as `exp2(y * log2(x))`) aren't obliged
 to agree bit for bit. The tolerance scales with magnitude instead, with a
 floor for values near zero where the relative gap collapses.
 
+A built-in function such as `atan` or `sin` may err on a GPU by far more:
+WGSL's table of accuracy allows `atan` 4096 units in the last place. So
+`float-accuracy.ts` widens the tolerance by what WGSL allows each built-in
+call the program makes. The harness learns the calls from the JS run, through
+a `Math` that records them, and carries each call's bound to the result by
+running the program again with that call's value moved by it. A program with
+a call WGSL gives no bound, such as `sin` outside [-π, π], is recorded with
+the reason `"unbounded-builtin"` and runs on the CPU targets alone.
+
 ## shader-validity.ts
 
 Checks that every shader the test suite generates is actually valid, in

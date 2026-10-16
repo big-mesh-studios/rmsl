@@ -7,6 +7,7 @@ import { compileJSFn } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH, var_ } from "../core";
 import { isVector } from "../backends/cpu";
+import { carriedTolerances, recordingMath, type CallRecording } from "./float-accuracy";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -308,6 +309,53 @@ export function evaluateJS(build: Build, args: number[] = []): number | Float64A
   return callable(ctx);
 }
 
+/** The node types a program reaches, found by building it over placeholder parameters, inside its `Fn` bodies too. */
+function nodeTypesOf(build: Build, argCount: number): Set<string> {
+  const probes = Array.from({ length: argCount }, (_, i) => var_(`a${i}`, "float"));
+  const types = new Set<string>();
+  const seen = new Set<object>();
+  const walk = (x: unknown) => {
+    if (x === null || typeof x !== "object" || seen.has(x)) return;
+    seen.add(x);
+    const record = x as Record<string, unknown>;
+    if (typeof record.type === "string" && "_t" in record) types.add(record.type);
+    for (const key of Object.keys(record)) walk(record[key]);
+  };
+  walk(build(...(probes as Node<"float">[])));
+  return types;
+}
+
+/**
+ * What a GPU target is allowed to give for a program: the JS result, the
+ * tolerance of each of its components, and whether a built-in call has no
+ * bound in WGSL's table of accuracy, which leaves the GPU result open.
+ */
+export function accuracyOf(
+  build: Build,
+  args: number[] = [],
+): { js: EvalValue; tolerances: number[]; unbounded: boolean } {
+  const types = nodeTypesOf(build, args.length);
+  const recording: CallRecording = { calls: [], powIsCalled: types.has("pow") };
+  const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
+  const callable = new Function("Math", fn)(recordingMath(recording)) as (ctx: {
+    params: Record<string, number>;
+  }) => number | Float64Array;
+  const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
+  const result = callable(ctx);
+  // A vector result may be a buffer the next run writes over.
+  const js = isVector(result) ? Float64Array.from(result) : result;
+  const calls = recording.calls;
+  const run = (perturb: { index: number; delta: number }) => {
+    recording.calls = [];
+    recording.perturb = perturb;
+    return Array.from(asArray(callable(ctx)));
+  };
+  const components = Array.from(asArray(js));
+  const carried = types.has("determinant") ? null : carriedTolerances(components, calls, run, floatTolerance);
+  if (carried === null) return { js, tolerances: components.map(() => Infinity), unbounded: true };
+  return { js, tolerances: carried, unbounded: false };
+}
+
 /** What an evaluation gives: a scalar, or the components of a vector or matrix, as a plain or a typed array. */
 export type EvalValue = number | number[] | Float64Array;
 
@@ -582,6 +630,10 @@ interface RecordedEvaluation {
   build: Build;
   args: number[];
   js: EvalValue;
+  /** The difference allowed between each component of a GPU result and of `js`. */
+  tolerances: number[];
+  /** Whether a built-in call of the program has no bound in WGSL's table of accuracy. */
+  unbounded: boolean;
   /** Set when the case deliberately does not run on the GPU backends. */
   cpuOnly?: string;
 }
@@ -604,11 +656,11 @@ function valuesExactlyEqual(a: EvalValue, b: EvalValue): boolean {
 }
 
 /**
- * Within `floatTolerance` of each other, elementwise for an aggregate. Two
- * equal values agree whatever they are, two infinities of one sign and two
- * NaNs included, where their distance is NaN.
+ * Within `tolerances` of each other, elementwise for an aggregate. Two equal
+ * values agree whatever they are, two infinities of one sign and two NaNs
+ * included, where their distance is NaN.
  */
-function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
+function valuesWithinTolerance(a: EvalValue, b: EvalValue, tolerances: readonly number[]): boolean {
   const av = asArray(a);
   const bv = asArray(b);
   if (av.length !== bv.length) return false;
@@ -616,7 +668,7 @@ function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
     const x = av[i]!;
     const y = bv[i]!;
     if (x === y || (Number.isNaN(x) && Number.isNaN(y))) continue;
-    if (!(Math.abs(x - y) < floatTolerance(x))) return false;
+    if (!(Math.abs(x - y) < tolerances[i]!)) return false;
   }
   return true;
 }
@@ -630,7 +682,8 @@ const recordedEvaluations: RecordedEvaluation[] = [];
  * that opted out says here why, so the set can be read and argued with rather
  * than growing quietly whenever a case is inconvenient.
  */
-export type CpuOnlyReason = "derivatives" | "reentrant" | "texture" | "js-only-api" | "exceeds-float32";
+export type CpuOnlyReason =
+  "derivatives" | "reentrant" | "texture" | "js-only-api" | "exceeds-float32" | "unbounded-builtin";
 
 /**
  * Evaluate on the CPU target and record the program for the GPU backends.
@@ -640,12 +693,14 @@ export type CpuOnlyReason = "derivatives" | "reentrant" | "texture" | "js-only-a
  * which is what makes one assertion cover three backends.
  */
 export function evaluateRecording(build: Build, args: number[] = [], cpuOnly?: CpuOnlyReason): EvalValue {
-  const js = evaluateJS(build, args);
+  const { js, tolerances, unbounded } = accuracyOf(build, args);
   recordedEvaluations.push({
     test: currentTestName(),
     build,
     args,
     js,
+    tolerances,
+    unbounded,
     cpuOnly,
   });
   return js;
@@ -705,6 +760,17 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
   const runnable = items.filter((r) => r.cpuOnly === undefined);
   const failures: string[] = [];
 
+  for (const item of items) {
+    if (item.unbounded && item.cpuOnly === undefined) {
+      failures.push(
+        `  ${item.test}\n      makes a built-in call WGSL gives no bound, so a GPU may give any value — name "unbounded-builtin"`,
+      );
+    }
+    if (!item.unbounded && item.cpuOnly === "unbounded-builtin") {
+      failures.push(`  ${item.test}\n      names "unbounded-builtin" but makes no built-in call without a bound`);
+    }
+  }
+
   // WASM needs neither a browser nor a graphics device, so — unlike GLSL/WGSL
   // below — it always runs, even under RMSL_SKIP_GPU/RMSL_SKIP_SHADER_EVALUATION
   // (those exist specifically to skip hardware-dependent work). A program it
@@ -743,10 +809,10 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
         failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
         continue;
       }
-      if (!valuesWithinTolerance(glsl, item.js)) {
+      if (!valuesWithinTolerance(glsl, item.js, item.tolerances)) {
         failures.push(`  ${item.test}\n      GLSL computed ${formatValue(glsl)}, CPU computed ${formatValue(item.js)}`);
       }
-      if (!valuesWithinTolerance(wgsl, item.js)) {
+      if (!valuesWithinTolerance(wgsl, item.js, item.tolerances)) {
         failures.push(`  ${item.test}\n      WGSL computed ${formatValue(wgsl)}, CPU computed ${formatValue(item.js)}`);
       }
     }

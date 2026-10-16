@@ -78,6 +78,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.doUnmock("playwright");
   vi.doUnmock("../wasm");
+  vi.doUnmock("../wgsl");
+  vi.doUnmock("../glsl");
 });
 
 describe("the harness checks what it recorded", () => {
@@ -135,6 +137,66 @@ describe("the harness checks what it recorded", () => {
     harness.evaluateRecording((a) => a.add(1), [3]);
     await expect(harness.assertEvaluationsOfTheTestAgree()).resolves.toBeUndefined();
     await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+  });
+
+  /**
+   * GLSL and WGSL compilers that give `value` for every program stand in for
+   * a GPU whose `atan2` errs: 55 units in the last place, as Dawn on lavapipe
+   * gives `atan2(1, 1)`, passes, and 5000 does not.
+   *
+   * @canon spec-atan-and-atan2-widen-the-tolerance-by-4096-units-in-the-last-place
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "passes a GPU atan2 within 4096 units in the last place, and fails one outside",
+    async () => {
+      const standIn = (value: number) => {
+        vi.doMock("../wgsl", async (original) => ({
+          ...(await original<typeof import("../wgsl")>()),
+          compileWgslFn: () => `fn rmsl_eval(a0: f32, a1: f32) -> f32 { return ${value}; }`,
+        }));
+        vi.doMock("../glsl", async (original) => ({
+          ...(await original<typeof import("../glsl")>()),
+          compileGlslFn: () => `float rmsl_eval(float a0, float a1) { return ${value}; }`,
+        }));
+      };
+      standIn(0.7853949069976807);
+      const { harness, rmsl, gpu } = await freshHarness(false);
+      try {
+        harness.evaluateRecording((a, b) => rmsl.atan(a, b), [1, 1]);
+        await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+      } finally {
+        await gpu.releaseGpu();
+      }
+      standIn(Math.fround(Math.PI / 4) - 5000 * 2 ** -24);
+      const fresh = await freshHarness(false);
+      try {
+        fresh.harness.evaluateRecording((a, b) => fresh.rmsl.atan(a, b), [1, 1]);
+        await expect(fresh.harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WGSL computed/);
+      } finally {
+        await fresh.gpu.releaseGpu();
+      }
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-an-unbounded-program-that-names-no-reason-fails-the-run
+   */
+  it("fails a run in which a program with an unbounded built-in call names no reason", async () => {
+    const { harness } = await freshHarness(true);
+    harness.evaluateRecording((a) => a.sin(), [4]);
+    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/name "unbounded-builtin"/);
+    harness.evaluateRecording((a) => a.sin(), [4], "unbounded-builtin");
+    await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+  });
+
+  /**
+   * @canon spec-a-bounded-program-that-names-the-unbounded-reason-fails-the-run
+   */
+  it("fails a run in which a bounded program names the unbounded reason", async () => {
+    const { harness } = await freshHarness(true);
+    harness.evaluateRecording((a) => a.sin(), [3], "unbounded-builtin");
+    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/makes no built-in call without a bound/);
   });
 
   /**
@@ -222,6 +284,16 @@ describe("the harness checks what it recorded", () => {
     const result = evaluateRecording((a) => a.mul(3), [2]);
     expect(result).toBe(6);
     expect(recordedEvaluationSummary().total).toBe(before + 1);
+  });
+
+  /**
+   * The harness runs a program again with each built-in call moved, and the
+   * JS target writes a vector into one buffer on every run.
+   *
+   * @canon spec-evaluate-recording-returns-the-cpu-result-at-once
+   */
+  it("returns the result of the program, not of a run with a call moved", () => {
+    expect(Array.from(evaluateRecording((a) => vec2(a.sin(), a), [0.5]) as Float64Array)).toEqual([Math.sin(0.5), 0.5]);
   });
 
   /**

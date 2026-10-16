@@ -8,8 +8,34 @@ import {
   evaluateGLSL,
   evaluateWGSL,
   evaluateWASM,
+  accuracyOf,
+  type Build,
 } from "./shader-eval";
-import { vec3, mat3 } from "../rmsl";
+import { f32Ulp } from "./float-accuracy";
+import {
+  vec2,
+  vec3,
+  mat2,
+  mat3,
+  sin,
+  cos,
+  tan,
+  atan,
+  asin,
+  acos,
+  exp,
+  exp2,
+  log,
+  log2,
+  pow,
+  sinh,
+  cosh,
+  tanh,
+  asinh,
+  acosh,
+  atanh,
+  determinant,
+} from "../rmsl";
 
 afterAll(async () => {
   await closeEvaluators();
@@ -61,6 +87,265 @@ describe("float tolerance", () => {
   it("stays tight enough to catch a wrong answer", () => {
     expect(floatTolerance(1)).toBeLessThan(0.5);
     expect(floatTolerance(1024)).toBeLessThan(0.5);
+  });
+});
+
+/** How much a program's built-in calls widen the tolerance of its first component. */
+function widening(build: Build, args: number[]): number {
+  const { js, tolerances } = accuracyOf(build, args);
+  return tolerances[0]! - floatTolerance(typeof js === "number" ? js : js[0]!);
+}
+
+const unbounded = (build: Build, args: number[]) => accuracyOf(build, args).unbounded;
+
+/** `actual` within a billionth of `expected`, for a widening that the carry computes by a difference of floats. */
+function expectNear(actual: number, expected: number) {
+  expect(Math.abs(actual - expected), `${actual} against ${expected}`).toBeLessThan(Math.abs(expected) * 1e-9);
+}
+
+describe("tolerance of a built-in call", () => {
+  /**
+   * Dawn on lavapipe gave 0.7853949069976807 for `atan2(1, 1)`, 55 units in
+   * the last place from π/4, which a tolerance of a millionth refused.
+   *
+   * @canon spec-atan-and-atan2-widen-the-tolerance-by-4096-units-in-the-last-place
+   */
+  it("widens by 4096 units in the last place for atan and atan2", () => {
+    expectNear(
+      widening((a, b) => atan(a, b), [1, 1]),
+      4096 * 2 ** -24,
+    );
+    expectNear(
+      widening((a) => atan(a), [3]),
+      4096 * 2 ** -23,
+    );
+    const { js, tolerances } = accuracyOf((a, b) => atan(a, b), [1, 1]);
+    expect(Math.abs(0.7853949069976807 - (js as number))).toBeLessThan(tolerances[0]!);
+    expect(unbounded((a, b) => atan(a, b), [1, 1])).toBe(false);
+    expect(unbounded((a, b) => atan(a, b), [0, 1])).toBe(true);
+    expect(unbounded((a, b) => atan(a, b), [1, 0])).toBe(true);
+    expect(unbounded((a, b) => atan(a, b), [1, 2 ** 127])).toBe(true);
+  });
+
+  /**
+   * Near 0, `asin` and `acos` take their absolute errors, which differ; near
+   * π/4 the 4096 units of `atan2` are wider.
+   *
+   * @canon spec-asin-and-acos-widen-the-tolerance-by-the-worse-of-their-absolute-error-and-atan2s
+   */
+  it("widens by the worse of the absolute error of asin and acos and that of atan2", () => {
+    const asinSmall = widening((a) => asin(a), [0.01]);
+    expect(asinSmall).toBeGreaterThan(6.81e-5 * (1 - 1e-9));
+    expect(asinSmall).toBeLessThan(6.81e-5 + 1e-6);
+    const acosSmall = widening((a) => acos(a), [0.99]);
+    expect(acosSmall).toBeGreaterThan(6.77e-5 * (1 - 1e-9));
+    expect(acosSmall).toBeLessThan(6.81e-5 * (1 - 1e-9));
+    expect(widening((a) => asin(a), [0.7])).toBeGreaterThan(4096 * f32Ulp(Math.asin(0.7)));
+    expect(unbounded((a) => asin(a), [0])).toBe(true);
+    expect(unbounded((a) => acos(a), [1])).toBe(true);
+    expect(unbounded((a) => acos(a), [0])).toBe(true);
+    expect(unbounded((a) => asin(a), [0.5])).toBe(false);
+  });
+
+  /**
+   * @canon spec-sin-and-cos-widen-the-tolerance-by-2-to-the-minus-11
+   */
+  it("widens by 2^-11 for sin and cos from -π to π, and has no bound outside", () => {
+    expectNear(
+      widening((a) => sin(a), [0.5]),
+      2 ** -11,
+    );
+    expectNear(
+      widening((a) => cos(a), [-3.14159]),
+      2 ** -11,
+    );
+    expect(unbounded((a) => sin(a), [3.2])).toBe(true);
+    // π rounded to 32 bits lies above π.
+    expect(unbounded((a) => sin(a), [Math.PI])).toBe(true);
+    expect(unbounded((a) => cos(a), [-3.2])).toBe(true);
+  });
+
+  /**
+   * @canon spec-tan-widens-the-tolerance-by-the-error-of-sin-over-cos
+   */
+  it("widens tan by what sin over cos moves when each is off by 2^-11", () => {
+    const s = Math.sin(1);
+    const c = Math.cos(1);
+    const firstOrder = (2 ** -11 * (Math.abs(s) + Math.abs(c))) / (c * c);
+    const w = widening((a) => tan(a), [1]);
+    expect(w).toBeGreaterThan(firstOrder);
+    expect(w).toBeLessThan(firstOrder * 1.01);
+    expect(unbounded((a) => tan(a), [1.5707])).toBe(true);
+    expect(unbounded((a) => tan(a), [4])).toBe(true);
+  });
+
+  /**
+   * `exp2(3)` takes the bound of `exp2`, not that of `pow(2, 3)`, though the
+   * JavaScript target writes it as `Math.pow(2, 3)`.
+   *
+   * @canon spec-exp-and-exp2-widen-the-tolerance-by-3-plus-twice-the-argument-in-units-in-the-last-place
+   */
+  it("widens by 3 + 2|x| units in the last place for exp and exp2", () => {
+    expectNear(
+      widening((a) => exp(a), [2]),
+      7 * 2 ** -21,
+    );
+    expectNear(
+      widening((a) => exp2(a), [3]),
+      9 * 2 ** -20,
+    );
+    expectNear(
+      widening((a) => exp2(a), [-3]),
+      9 * 2 ** -26,
+    );
+  });
+
+  /**
+   * @canon spec-log-and-log2-widen-the-tolerance-by-their-absolute-or-relative-bound
+   */
+  it("widens by 2^-21 for log and log2 from 0.5 to 2, and 3 units in the last place elsewhere", () => {
+    expectNear(
+      widening((a) => log(a), [1.5]),
+      2 ** -21,
+    );
+    expectNear(
+      widening((a) => log2(a), [0.5]),
+      2 ** -21,
+    );
+    expectNear(
+      widening((a) => log2(a), [2]),
+      2 ** -21,
+    );
+    expectNear(
+      widening((a) => log(a), [4]),
+      3 * 2 ** -23,
+    );
+    expectNear(
+      widening((a) => log2(a), [0.25]),
+      3 * 2 ** -22,
+    );
+  });
+
+  /**
+   * `pow(2, 10)` is 1024: `log2(2)` may be off by 2^-21, and `exp2` carries
+   * ten times that to the result.
+   *
+   * @canon spec-pow-widens-the-tolerance-by-the-error-of-exp2-of-y-times-log2-x
+   */
+  it("widens pow by the error of exp2 of y times log2 x", () => {
+    const w = widening((a, b) => pow(a, b), [2, 10]);
+    const carried = 1024 * Math.LN2 * (10 * 2 ** -21 + f32Ulp(10));
+    expect(w).toBeGreaterThan(carried + 23 * f32Ulp(1024));
+    expect(w).toBeLessThan((carried + 23 * f32Ulp(1024)) * 1.001);
+    expect(widening((a, b) => pow(a, b), [2, 3])).toBeGreaterThan(widening((a) => exp2(a), [3]));
+    expect(unbounded((a, b) => pow(a, b), [0, 2])).toBe(true);
+    expect(unbounded((a, b) => pow(a, b), [-8, 3])).toBe(true);
+  });
+
+  /**
+   * Near 0, `exp(x)` and `exp(-x)` nearly cancel, so `sinh` may be off by
+   * far more than units in the last place of its value.
+   *
+   * @canon spec-sinh-and-cosh-widen-the-tolerance-by-the-error-of-their-exponentials
+   */
+  it("widens sinh and cosh by the error of their exponentials", () => {
+    const x = 0.001;
+    const plus = Math.exp(x);
+    const minus = Math.exp(-x);
+    const exponentials = (3 + 2 * x) * (f32Ulp(plus) + f32Ulp(minus));
+    expectNear(
+      widening((a) => sinh(a), [x]),
+      0.5 * (exponentials + f32Ulp(plus - minus)),
+    );
+    expectNear(
+      widening((a) => cosh(a), [x]),
+      0.5 * (exponentials + f32Ulp(plus + minus)),
+    );
+    expect(widening((a) => sinh(a), [x])).toBeGreaterThan(100 * f32Ulp(Math.sinh(x)));
+  });
+
+  /**
+   * @canon spec-tanh-widens-the-tolerance-by-the-worse-of-1e-5-and-the-error-of-sinh-over-cosh
+   */
+  it("widens tanh by the worse of 1e-5 and the error of sinh over cosh", () => {
+    expectNear(
+      widening((a) => tanh(a), [0.5]),
+      1e-5,
+    );
+    expect(widening((a) => tanh(a), [50])).toBeGreaterThan(1e-5);
+    expect(unbounded((a) => tanh(a), [90])).toBe(true);
+  });
+
+  /**
+   * `asinh(-100)` takes `log` of 100.005 - 100, which loses most of its bits.
+   *
+   * @canon spec-the-inverse-hyperbolic-functions-widen-the-tolerance-by-the-error-of-their-logarithm
+   */
+  it("widens the inverse hyperbolic functions by the error of their logarithm", () => {
+    expect(widening((a) => asinh(a), [-100])).toBeGreaterThan(5e-3);
+    expect(widening((a) => asinh(a), [0.5])).toBeGreaterThanOrEqual(2 ** -21);
+    expect(widening((a) => acosh(a), [3])).toBeGreaterThanOrEqual(3 * f32Ulp(Math.acosh(3)));
+    const atanhHalf = widening((a) => atanh(a), [0.5]);
+    expect(atanhHalf).toBeGreaterThan(0.5 * (3 * f32Ulp(Math.log(3)) + (2.5 * f32Ulp(3)) / 3));
+    expect(atanhHalf).toBeLessThan(4e-7);
+    expect(unbounded((a) => asinh(a), [-1e4])).toBe(true);
+    expect(unbounded((a) => acosh(a), [0.5])).toBe(true);
+    expect(unbounded((a) => atanh(a), [1])).toBe(true);
+  });
+
+  /**
+   * Each call's bound moves the result as the rest of the program carries it:
+   * a sum adds the bounds of its calls, a product scales them, and a
+   * component that does not read a call is not widened by it.
+   *
+   * @canon spec-each-call-widens-the-tolerance-by-what-its-error-moves-the-result
+   */
+  it("widens by what each call's error moves the result, summed over the calls", () => {
+    expectNear(
+      widening((a, b) => sin(a).add(atan(b, b)), [0.5, 1]),
+      2 ** -11 + 4096 * 2 ** -24,
+    );
+    expectNear(
+      widening((a, b) => atan(a, b).mul(2), [1, 1]),
+      2 * 4096 * 2 ** -24,
+    );
+    expectNear(
+      widening((a, b) => atan(a, b).mul(0.25), [1, 1]),
+      0.25 * 4096 * 2 ** -24,
+    );
+    expectNear(
+      widening((a) => atan(a).mul(1000).sub(785), [1]),
+      1000 * 4096 * 2 ** -24,
+    );
+    expectNear(
+      widening((a) => sin(a).add(5), [1e-6]),
+      2 ** -11,
+    );
+    const { js, tolerances } = accuracyOf((a) => vec2(sin(a), a.mul(4)), [0.5]);
+    expect(tolerances[1]).toBe(floatTolerance((js as Float64Array)[1]!));
+    // sin(0) moved down by 2^-11 takes the square root of a negative number.
+    expect(unbounded((a) => sin(a).sqrt(), [0])).toBe(true);
+    expect(unbounded((a) => sin(a).add(1).sqrt(), [0])).toBe(false);
+    // A result that is not finite without any call is no unbounded call.
+    expect(unbounded((a) => a.div(0).add(a), [1])).toBe(false);
+  });
+
+  /**
+   * @canon spec-a-call-whose-value-is-not-finite-has-no-bound
+   */
+  it("has no bound for a call whose value is not finite as a 32-bit float", () => {
+    expect(unbounded((a) => log(a), [0])).toBe(true);
+    expect(unbounded((a) => log(a), [-1])).toBe(true);
+    expect(unbounded((a) => exp(a), [100])).toBe(true);
+    expect(unbounded((a) => exp(a), [80])).toBe(false);
+  });
+
+  /**
+   * @canon spec-a-determinant-has-no-bound
+   */
+  it("has no bound for a program that computes a determinant", () => {
+    expect(unbounded((a) => determinant(mat2(vec2(a, 1), vec2(2, 4))), [0.3])).toBe(true);
+    expect(unbounded((a) => vec2(a, 1).dot(vec2(2, 4)), [0.3])).toBe(false);
   });
 });
 
