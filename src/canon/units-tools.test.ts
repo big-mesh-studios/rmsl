@@ -180,6 +180,50 @@ describe("the harness checks what it recorded", () => {
   );
 
   /**
+   * A GLSL compiler that gives 0.25 for `sin(0.5)` stands in for a driver that
+   * GLSL ES lets give any value there, and the run passes. The same value from
+   * WGSL, which bounds `sin`, fails it.
+   *
+   * @canon spec-a-program-with-a-call-glsl-es-leaves-without-a-precision-is-not-compared-on-glsl
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "does not compare on GLSL a program GLSL ES gives no precision, and does on WGSL",
+    async () => {
+      const standIn = (target: "wgsl" | "glsl") => {
+        if (target === "glsl") {
+          vi.doMock("../glsl", async (original) => ({
+            ...(await original<typeof import("../glsl")>()),
+            compileGlslFn: () => `float rmsl_eval(float a0) { return 0.25; }`,
+          }));
+        } else {
+          vi.doMock("../wgsl", async (original) => ({
+            ...(await original<typeof import("../wgsl")>()),
+            compileWgslFn: () => `fn rmsl_eval(a0: f32) -> f32 { return 0.25; }`,
+          }));
+        }
+      };
+      standIn("glsl");
+      const onGlsl = await freshHarness(false);
+      try {
+        onGlsl.harness.evaluateRecording((a) => a.sin(), [0.5]);
+        await expect(onGlsl.harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+      } finally {
+        await onGlsl.gpu.releaseGpu();
+      }
+      vi.doUnmock("../glsl");
+      standIn("wgsl");
+      const onWgsl = await freshHarness(false);
+      try {
+        onWgsl.harness.evaluateRecording((a) => a.sin(), [0.5]);
+        await expect(onWgsl.harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WGSL computed 0.25/);
+      } finally {
+        await onWgsl.gpu.releaseGpu();
+      }
+    },
+    120_000,
+  );
+
+  /**
    * @canon spec-an-unbounded-program-that-names-no-reason-fails-the-run
    */
   it("fails a run in which a program with an unbounded built-in call names no reason", async () => {

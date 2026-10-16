@@ -96,14 +96,22 @@ function inverseHyperbolicBound(x: number, sign: 1 | -1, value: number): number 
   return logBound(argument, value) + logOfPerturbed(argument, argumentError);
 }
 
+/** A GPU target, whose specification decides the error it may give a built-in call. */
+export type GpuTarget = "wgsl" | "glsl";
+
+/** The built-in functions whose precision GLSL ES 3.00 leaves undefined. */
+const UNDEFINED_ON_GLSL = new Set(["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "asinh", "acosh", "atanh"]);
+
 /**
- * The error WGSL allows one call of a built-in function, as an absolute error at
- * its value, from WGSL's table of the accuracy of `f32` built-in functions.
- * Infinity where the table gives the call no bound.
+ * The error the specification of `target` allows one call of a built-in
+ * function, as an absolute error at its value: WGSL's table of the accuracy of
+ * `f32` built-in functions, or GLSL ES 3.00's at `highp`. Infinity where the
+ * specification gives the call no bound.
  */
-export function builtinCallBound(call: BuiltinCall): number {
+export function builtinCallBound(call: BuiltinCall, target: GpuTarget = "wgsl"): number {
   const { name, args, value } = call;
   const x = args[0]!;
+  if (target === "glsl" && UNDEFINED_ON_GLSL.has(name)) return Infinity;
   switch (name) {
     case "atan":
       return 4096 * f32Ulp(value);
@@ -140,7 +148,7 @@ export function builtinCallBound(call: BuiltinCall): number {
     case "tanh": {
       const inherited =
         quotientError(Math.sinh(x), Math.cosh(x), hyperbolicBound(x, -1), hyperbolicBound(x, 1)) + 2.5 * f32Ulp(value);
-      return Math.max(1e-5, inherited);
+      return target === "glsl" ? inherited : Math.max(1e-5, inherited);
     }
     case "asinh":
       return inverseHyperbolicBound(x, 1, value);
@@ -216,11 +224,11 @@ export function recordingMath(recording: CallRecording): Math {
 }
 
 /**
- * Difference allowed between a GPU result and the CPU one, for each component:
- * `baseTolerance` of the component's size, widened by the sum over the calls
- * of the most the component moves when `run` gives that call its value plus or
- * minus its bound. Null when a call has no bound, or when moving one gives a
- * component that is not finite.
+ * Difference allowed between a result of `target` and the CPU one, for each
+ * component: `baseTolerance` of the component's size, widened by the sum over
+ * the calls of the most the component moves when `run` gives that call its
+ * value plus or minus its bound on `target`. Null when a call has no bound
+ * there, or when moving one gives a component that is not finite.
  *
  * `run` runs the program, moving the value of the call `perturb` names, and
  * returns the components of its result.
@@ -230,8 +238,9 @@ export function carriedTolerances(
   calls: readonly BuiltinCall[],
   run: (perturb: { index: number; delta: number }) => readonly number[],
   baseTolerance: (magnitude: number) => number,
+  target: GpuTarget,
 ): number[] | null {
-  const bounds = calls.map(builtinCallBound);
+  const bounds = calls.map((call) => builtinCallBound(call, target));
   if (bounds.some((bound) => bound === Infinity)) return null;
   const widening = components.map(() => 0);
   bounds.forEach((bound, index) => {

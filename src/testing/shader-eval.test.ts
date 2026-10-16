@@ -11,7 +11,7 @@ import {
   accuracyOf,
   type Build,
 } from "./shader-eval";
-import { f32Ulp } from "./float-accuracy";
+import { f32Ulp, type GpuTarget } from "./float-accuracy";
 import {
   vec2,
   vec3,
@@ -91,9 +91,9 @@ describe("float tolerance", () => {
 });
 
 /** How much a program's built-in calls widen the tolerance of its first component. */
-function widening(build: Build, args: number[]): number {
+function widening(build: Build, args: number[], target: GpuTarget = "wgsl"): number {
   const { js, tolerances } = accuracyOf(build, args);
-  return tolerances[0]! - floatTolerance(typeof js === "number" ? js : js[0]!);
+  return tolerances[target]![0]! - floatTolerance(typeof js === "number" ? js : js[0]!);
 }
 
 const unbounded = (build: Build, args: number[]) => accuracyOf(build, args).unbounded;
@@ -120,7 +120,7 @@ describe("tolerance of a built-in call", () => {
       4096 * 2 ** -23,
     );
     const { js, tolerances } = accuracyOf((a, b) => atan(a, b), [1, 1]);
-    expect(Math.abs(0.7853949069976807 - (js as number))).toBeLessThan(tolerances[0]!);
+    expect(Math.abs(0.7853949069976807 - (js as number))).toBeLessThan(tolerances.wgsl![0]!);
     expect(unbounded((a, b) => atan(a, b), [1, 1])).toBe(false);
     expect(unbounded((a, b) => atan(a, b), [0, 1])).toBe(true);
     expect(unbounded((a, b) => atan(a, b), [1, 0])).toBe(true);
@@ -322,12 +322,74 @@ describe("tolerance of a built-in call", () => {
       2 ** -11,
     );
     const { js, tolerances } = accuracyOf((a) => vec2(sin(a), a.mul(4)), [0.5]);
-    expect(tolerances[1]).toBe(floatTolerance((js as Float64Array)[1]!));
+    expect(tolerances.wgsl![1]).toBe(floatTolerance((js as Float64Array)[1]!));
     // sin(0) moved down by 2^-11 takes the square root of a negative number.
     expect(unbounded((a) => sin(a).sqrt(), [0])).toBe(true);
     expect(unbounded((a) => sin(a).add(1).sqrt(), [0])).toBe(false);
     // A result that is not finite without any call is no unbounded call.
     expect(unbounded((a) => a.div(0).add(a), [1])).toBe(false);
+  });
+
+  /**
+   * @canon spec-a-call-glsl-es-bounds-as-wgsl-does-widens-the-glsl-tolerance-alike
+   */
+  it("widens the GLSL tolerance as the WGSL one for the built-ins GLSL ES bounds alike", () => {
+    const programs: [Build, number[]][] = [
+      [(a) => exp(a), [2]],
+      [(a) => exp2(a), [3]],
+      [(a) => log(a), [1.5]],
+      [(a) => log2(a), [4]],
+      [(a, b) => pow(a, b), [2, 10]],
+      [(a) => sinh(a), [0.001]],
+      [(a) => cosh(a), [2]],
+    ];
+    for (const [build, args] of programs) {
+      const { tolerances } = accuracyOf(build, args);
+      expect(tolerances.glsl, `${build}`).toEqual(tolerances.wgsl);
+      expect(widening(build, args, "glsl"), `${build}`).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * @canon spec-tanh-on-glsl-widens-the-tolerance-without-the-floor-of-1e-5
+   */
+  it("widens tanh on GLSL by the error of sinh over cosh alone", () => {
+    const glsl = widening((a) => tanh(a), [0.5], "glsl");
+    expect(glsl).toBeGreaterThan(0);
+    expect(glsl).toBeLessThan(1e-6);
+    expectNear(
+      widening((a) => tanh(a), [0.5]),
+      1e-5,
+    );
+    expectNear(
+      widening((a) => tanh(a), [50], "glsl"),
+      widening((a) => tanh(a), [50]),
+    );
+  });
+
+  /**
+   * @canon spec-a-program-with-a-call-glsl-es-leaves-without-a-precision-is-not-compared-on-glsl
+   */
+  it("leaves the GLSL result open for a call GLSL ES gives no precision", () => {
+    const open: [Build, number[]][] = [
+      [(a) => sin(a), [0.5]],
+      [(a) => cos(a), [0.5]],
+      [(a) => tan(a), [0.5]],
+      [(a) => asin(a), [0.5]],
+      [(a) => acos(a), [0.5]],
+      [(a) => atan(a), [0.5]],
+      [(a, b) => atan(a, b), [1, 1]],
+      [(a) => asinh(a), [0.5]],
+      [(a) => acosh(a), [2]],
+      [(a) => atanh(a), [0.5]],
+      [(a) => determinant(mat2(vec2(a, 1), vec2(2, 4))), [0.3]],
+    ];
+    for (const [build, args] of open) {
+      expect(accuracyOf(build, args).tolerances.glsl, `${build}`).toBeNull();
+    }
+    expect(accuracyOf((a) => sin(a), [0.5]).tolerances.wgsl).not.toBeNull();
+    expect(accuracyOf((a) => sin(a), [0.5]).unbounded).toBe(false);
+    expect(accuracyOf((a) => exp(a), [0.5]).tolerances.glsl).not.toBeNull();
   });
 
   /**

@@ -7,7 +7,7 @@ import { compileJSFn } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH, var_ } from "../core";
 import { isVector } from "../backends/cpu";
-import { carriedTolerances, recordingMath, type CallRecording } from "./float-accuracy";
+import { carriedTolerances, recordingMath, type CallRecording, type GpuTarget } from "./float-accuracy";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -325,15 +325,19 @@ function nodeTypesOf(build: Build, argCount: number): Set<string> {
   return types;
 }
 
+/** The difference allowed between each component of a result of each GPU target and the JS one, null where that target leaves the result open. */
+export type Tolerances = Record<GpuTarget, number[] | null>;
+
 /**
- * What a GPU target is allowed to give for a program: the JS result, the
- * tolerance of each of its components, and whether a built-in call has no
- * bound in WGSL's table of accuracy, which leaves the GPU result open.
+ * What each GPU target is allowed to give for a program: the JS result, the
+ * tolerance of each of its components on WGSL and on GLSL, and whether a
+ * built-in call has no bound in WGSL's table of accuracy, which keeps the
+ * program off the GPU targets.
  */
 export function accuracyOf(
   build: Build,
   args: number[] = [],
-): { js: EvalValue; tolerances: number[]; unbounded: boolean } {
+): { js: EvalValue; tolerances: Tolerances; unbounded: boolean } {
   const types = nodeTypesOf(build, args.length);
   const recording: CallRecording = { calls: [], powIsCalled: types.has("pow") };
   const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
@@ -351,9 +355,10 @@ export function accuracyOf(
     return Array.from(asArray(callable(ctx)));
   };
   const components = Array.from(asArray(js));
-  const carried = types.has("determinant") ? null : carriedTolerances(components, calls, run, floatTolerance);
-  if (carried === null) return { js, tolerances: components.map(() => Infinity), unbounded: true };
-  return { js, tolerances: carried, unbounded: false };
+  const carried = (target: GpuTarget) =>
+    types.has("determinant") ? null : carriedTolerances(components, calls, run, floatTolerance, target);
+  const tolerances = { wgsl: carried("wgsl"), glsl: carried("glsl") };
+  return { js, tolerances, unbounded: tolerances.wgsl === null };
 }
 
 /** What an evaluation gives: a scalar, or the components of a vector or matrix, as a plain or a typed array. */
@@ -630,8 +635,8 @@ interface RecordedEvaluation {
   build: Build;
   args: number[];
   js: EvalValue;
-  /** The difference allowed between each component of a GPU result and of `js`. */
-  tolerances: number[];
+  /** The difference allowed between each component of a result of each GPU target and of `js`. */
+  tolerances: Tolerances;
   /** Whether a built-in call of the program has no bound in WGSL's table of accuracy. */
   unbounded: boolean;
   /** Set when the case deliberately does not run on the GPU backends. */
@@ -809,10 +814,13 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
         failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
         continue;
       }
-      if (!valuesWithinTolerance(glsl, item.js, item.tolerances)) {
+      // A target that leaves the result open is not compared: GLSL ES gives
+      // trigonometry no precision, and an unbounded program has already failed.
+      const { glsl: glslTolerances, wgsl: wgslTolerances } = item.tolerances;
+      if (glslTolerances !== null && !valuesWithinTolerance(glsl, item.js, glslTolerances)) {
         failures.push(`  ${item.test}\n      GLSL computed ${formatValue(glsl)}, CPU computed ${formatValue(item.js)}`);
       }
-      if (!valuesWithinTolerance(wgsl, item.js, item.tolerances)) {
+      if (wgslTolerances !== null && !valuesWithinTolerance(wgsl, item.js, wgslTolerances)) {
         failures.push(`  ${item.test}\n      WGSL computed ${formatValue(wgsl)}, CPU computed ${formatValue(item.js)}`);
       }
     }
