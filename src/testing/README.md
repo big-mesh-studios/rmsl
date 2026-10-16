@@ -53,7 +53,7 @@ call the program makes. The harness learns the calls from the JS run, through
 a `Math` that records them, and carries each call's bound to the result by
 running the program again with that call's value moved by it. A program with
 a call WGSL gives no bound, such as `sin` outside [-π, π], is recorded with
-the reason `"unbounded-builtin"` and runs on the CPU targets alone.
+the reason `"unbounded-builtin"`, which keeps it off the GPU targets.
 
 ## shader-validity.ts
 

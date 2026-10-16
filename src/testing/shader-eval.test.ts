@@ -176,6 +176,17 @@ describe("tolerance of a built-in call", () => {
   });
 
   /**
+   * A GPU computes 3.0004 + 0.1411925918 as 3.14159274, outside [-π, π], so
+   * WGSL gives `sin` of it no bound; computed in 64 bits and rounded once, the
+   * sum is 3.14159250, inside.
+   *
+   * @canon bug-the-harness-checks-the-range-of-sin-on-the-cpus-argument
+   */
+  it.fails("has no bound for sin of an argument a GPU computes outside [-π, π]", () => {
+    expect(unbounded((a, b) => sin(a.add(b)), [3.0004, 0.1411925918])).toBe(true);
+  });
+
+  /**
    * @canon spec-tan-widens-the-tolerance-by-the-error-of-sin-over-cos
    */
   it("widens tan by what sin over cos moves when each is off by 2^-11", () => {
