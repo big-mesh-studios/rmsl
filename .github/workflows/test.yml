@@ -43,9 +43,6 @@ jobs:
 
   gpu:
     runs-on: ubuntu-latest
-    # Reports without failing the run until #344 is fixed: Dawn on lavapipe
-    # computes atan within WGSL's accuracy but outside the suite's tolerance.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
