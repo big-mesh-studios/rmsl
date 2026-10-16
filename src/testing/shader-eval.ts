@@ -33,6 +33,29 @@ export function floatTolerance(magnitude: number): number {
   return Math.max(1e-6, Math.abs(magnitude) * 1e-6);
 }
 
+/**
+ * Difference allowed between two results of a program that calls a
+ * transcendental built-in: a thousandth of the result's size, and a thousandth
+ * near zero.
+ *
+ * WGSL lets `atan` err by 4096 units in the last place and `sin` and `cos` by
+ * 2^-11, each about 5e-4, and GLSL ES leaves their precision undefined, so no
+ * tolerance a few units wide holds a conforming GPU. This one is wider than
+ * those bounds, and far narrower than the difference a wrong built-in makes.
+ */
+export function transcendentalTolerance(magnitude: number): number {
+  return Math.max(1e-3, Math.abs(magnitude) * 1e-3);
+}
+
+/** A `Math` call the JS target emits for a built-in WGSL allows more than a few units in the last place. */
+const TRANSCENDENTAL_CALL =
+  /\bMath\.(?:sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|log|log2|pow)\(/;
+
+/** Whether a JS target's source calls a transcendental built-in, `exp2` included, which it emits as `Math.pow`. */
+export function callsTranscendental(jsSource: string): boolean {
+  return TRANSCENDENTAL_CALL.test(jsSource);
+}
+
 /** Every root type a recorded program is allowed to return — scalar, vector or matrix. */
 export type EvaluableRoot =
   | Node<"float">
@@ -302,7 +325,10 @@ export async function runWGSL(code: string): Promise<number> {
  * compute, the CPU must agree with the caller's arithmetic.
  */
 export function evaluateJS(build: Build, args: number[] = []): number | Float64Array {
-  const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
+  return runJS(compileJSFn(build, { name: "rmsl_eval", params: params(args.length) }), args);
+}
+
+function runJS(fn: string, args: number[]): number | Float64Array {
   const callable = new Function(fn)() as (ctx: { params: Record<string, number> }) => number | Float64Array;
   const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
   return callable(ctx);
@@ -582,6 +608,8 @@ interface RecordedEvaluation {
   build: Build;
   args: number[];
   js: EvalValue;
+  /** Whether the program calls a transcendental built-in, so a GPU is held to `transcendentalTolerance`. */
+  transcendental: boolean;
   /** Set when the case deliberately does not run on the GPU backends. */
   cpuOnly?: string;
 }
@@ -604,11 +632,13 @@ function valuesExactlyEqual(a: EvalValue, b: EvalValue): boolean {
 }
 
 /**
- * Within `floatTolerance` of each other, elementwise for an aggregate. Two
- * equal values agree whatever they are, two infinities of one sign and two
+ * Within `floatTolerance` of each other, or `transcendentalTolerance` for a
+ * program that calls a transcendental built-in, elementwise for an aggregate.
+ * Two equal values agree whatever they are, two infinities of one sign and two
  * NaNs included, where their distance is NaN.
  */
-function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
+export function valuesWithinTolerance(a: EvalValue, b: EvalValue, transcendental = false): boolean {
+  const tolerance = transcendental ? transcendentalTolerance : floatTolerance;
   const av = asArray(a);
   const bv = asArray(b);
   if (av.length !== bv.length) return false;
@@ -616,7 +646,7 @@ function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
     const x = av[i]!;
     const y = bv[i]!;
     if (x === y || (Number.isNaN(x) && Number.isNaN(y))) continue;
-    if (!(Math.abs(x - y) < floatTolerance(x))) return false;
+    if (!(Math.abs(x - y) < tolerance(x))) return false;
   }
   return true;
 }
@@ -640,12 +670,14 @@ export type CpuOnlyReason = "derivatives" | "reentrant" | "texture" | "js-only-a
  * which is what makes one assertion cover three backends.
  */
 export function evaluateRecording(build: Build, args: number[] = [], cpuOnly?: CpuOnlyReason): EvalValue {
-  const js = evaluateJS(build, args);
+  const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
+  const js = runJS(fn, args);
   recordedEvaluations.push({
     test: currentTestName(),
     build,
     args,
     js,
+    transcendental: callsTranscendental(fn),
     cpuOnly,
   });
   return js;
@@ -743,10 +775,10 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
         failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
         continue;
       }
-      if (!valuesWithinTolerance(glsl, item.js)) {
+      if (!valuesWithinTolerance(glsl, item.js, item.transcendental)) {
         failures.push(`  ${item.test}\n      GLSL computed ${formatValue(glsl)}, CPU computed ${formatValue(item.js)}`);
       }
-      if (!valuesWithinTolerance(wgsl, item.js)) {
+      if (!valuesWithinTolerance(wgsl, item.js, item.transcendental)) {
         failures.push(`  ${item.test}\n      WGSL computed ${formatValue(wgsl)}, CPU computed ${formatValue(item.js)}`);
       }
     }

@@ -1,0 +1,37 @@
+{
+  "probe": "glsl-es-300-precision",
+  "environment": {
+    "node": "v24.12.0",
+    "unpdf": "1.8.1",
+    "source": "https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf",
+    "sha256": "325058092a1c96a172f6e5b1e4008e94e7a2c75b63d6431f5bec273f374b6e7f",
+    "sameDocument": true,
+    "read": "2026-10-16"
+  },
+  "passages": {
+    "4.5.1": "Precisions are expressed in terms of maximum relative error in units of ULP (units in the last place),\nunless otherwise noted.\nFor single precision operations, precisions are required as follows:\nOperation Precision\na + b, a – b, a * b Correctly rounded.\n<, <=, ==, >, >= Correct result.\na / b, 1.0 / b 2.5 ULP for b in the range [2-126, 2126].\na * b + c Correctly rounded single operation or sequence of\ntwo correctly rounded operations.\npow(x, y) Inherited from exp2 (x * log2 (y)).\nexp (x), exp2 (x) (3 + 2 * |x|) ULP.\nlog (), log2 () 3 ULP outside the range [0.5, 2.0].\nAbsolute error < 2-21 inside the range [0.5, 2.0].\nsqrt () Inherited from 1.0 / inversesqrt().\ninversesqrt () 2 ULP.\nexplicit\nconversions between types\nCorrectly rounded.\nThe rounding mode is not defined but must not affect the result by more than 1 ULP.\nBuilt-in functions defined in the specification with an equation built from the above operations inherit the\nabove errors. These include, for example, the geometric functions, the common functions, and many of\nthe matrix functions. Built-in functions not listed above and not defined as equations of the above have\nundefined precision. These include, for example, the trigonometric functions and determinant.",
+    "8.1": "The standard trigonometric sine function.\ngenType cos (genType angle) The standard trigonometric cosine function.\ngenType tan (genType angle) The standard trigonometric tangent.\ngenType asin (genType x) Arc sine. Returns an angle whose sine is x. The range\nof values returned by this function is [− \n2 , \n2 ]\nResults are undefined if ∣x∣1.\ngenType acos (genType x) Arc cosine. Returns an angle whose cosine is x. The\nrange of values returned by this function is [0, p].\nResults are undefined if ∣x∣1.\ngenType atan (genType y, genType x) Arc tangent. Returns an angle whose tangent is y/x. The\nsigns of x and y are used to determine what quadrant the\nangle is in. The range of values returned by this\nfunction is [−π , π]. Results are undefined if x and y\nare both 0.\ngenType atan (genType y_over_x) Arc tangent. Returns an angle whose tangent is\ny_over_x. The range of values returned by this function\nis [− π\n2 , π\n2 ].\n86\n8 Built-in Functions\nSyntax Description\ngenType sinh (genType x) Returns the hyperbolic sine function\nex−e−x\n2\ngenType cosh (genType x) Returns the hyperbolic cosine function\nexe−x\n2\ngenType tanh (genType x) Returns the hyperbolic tangent function\nsinh x\ncosh  x\ngenType asinh (genType x) Arc hyperbolic sine; returns the inverse of sinh.\ngenType acosh (genType x) Arc hyperbolic cosine; returns the non-negative inverse\nof cosh. Results are undefined if x < 1.\ngenType atanh (genType x) Arc hyperbolic tangent; returns the inverse of tanh.\nResults are undefined if ∣x∣≥1.\n8.2 Exponential Functions",
+    "8.5": "normalize (genType x) Returns a vector in the same direction as x but with a\nlength of 1 i.e. x\nlength ( x)",
+    "8.6": "inverse(mat2 m)\nmat3 inverse(mat3 m)\nmat4 inverse(mat4 m)\nReturns a matrix that is the inverse of m. The input\nmatrix m is not modified. The values in the returned\nmatrix are undefined if m is singular or poorly-\nconditioned (nearly singular)."
+  },
+  "checks": {
+    "divisionIs2Point5Ulp": true,
+    "powInheritsFromExp2OfLog2": true,
+    "expIs3Plus2xUlp": true,
+    "logIs3UlpOutsideAndAbsoluteInside": true,
+    "sqrtInheritsFromInversesqrt": true,
+    "inversesqrtIs2Ulp": true,
+    "basicOperationsAreCorrectlyRounded": true,
+    "roundingModeUndefined": true,
+    "undefinedPrecisionNamesTrigonometryAndDeterminant": true,
+    "sinhIsByEquation": true,
+    "coshIsByEquation": true,
+    "tanhIsSinhOverCosh": true,
+    "asinhIsOnlyAnInverse": true,
+    "acoshIsOnlyAnInverse": true,
+    "atanhIsOnlyAnInverse": true,
+    "normalizeIsXOverLength": true,
+    "geometricFunctionsInherit": true,
+    "inverseIsOnlyDescribed": true
+  }
+}

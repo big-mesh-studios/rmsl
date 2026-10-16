@@ -46,6 +46,12 @@ implementations (e.g. `pow` evaluated as `exp2(y * log2(x))`) aren't obliged
 to agree bit for bit. The tolerance scales with magnitude instead, with a
 floor for values near zero where the relative gap collapses.
 
+A program that calls a transcendental built-in (`sin`, `atan`, `exp`, `pow`,
+…) is held to `transcendentalTolerance`, a thousandth, instead. WGSL lets
+`atan` err by 4096 units in the last place and GLSL ES leaves trigonometry's
+precision undefined, so a conforming GPU can be far outside `floatTolerance`;
+a thousandth still tells `sin` from `cos`.
+
 ## shader-validity.ts
 
 Checks that every shader the test suite generates is actually valid, in
