@@ -232,6 +232,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec evaluation-fails-when-it-recorded-nothing`](#spec-evaluation-fails-when-it-recorded-nothing) — The replay of recorded evaluations fails when the run recorded no program.
     - [`@spec evaluate-recording-returns-the-cpu-result-at-once`](#spec-evaluate-recording-returns-the-cpu-result-at-once) — `evaluateRecording` returns the JS result at once, and keeps the program for a replay on the other targets after the tests.
     - [`@spec a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason) — A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
+    - [`@spec a-program-kept-off-the-gpu-is-compared-on-wasm`](#spec-a-program-kept-off-the-gpu-is-compared-on-wasm) — A recorded program kept off the GPU targets is compared on WASM as any other program is: its WASM result must give the bits of its JavaScript one, and a program WASM refuses fails the run unless the list of known refusals names it.
+      - [`@bug the-harness-skips-wasm-for-a-program-kept-off-the-gpu-targets`](#bug-the-harness-skips-wasm-for-a-program-kept-off-the-gpu-targets) — The harness compares on WASM only the programs that name no reason, so a program that names one runs on the JavaScript target alone, and a WASM result that differs from its JavaScript one is not reported.
     - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
@@ -2634,6 +2636,20 @@ This follows because one synchronous call then holds a program to every target, 
 > A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
 
 This follows because the suite holds every target to every program, so a program that escapes the GPU check must say why it may.
+
+#### @spec a-program-kept-off-the-gpu-is-compared-on-wasm
+
+> A recorded program kept off the GPU targets is compared on WASM as any other program is: its WASM result must give the bits of its JavaScript one, and a program WASM refuses fails the run unless the list of known refusals names it.
+
+Derives from: [`spec-a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason), [`spec-a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue)
+
+This follows because a reason keeps a program off the GPU targets, and WASM needs no GPU, so nothing keeps the program from it.
+
+##### @bug the-harness-skips-wasm-for-a-program-kept-off-the-gpu-targets
+
+> The harness compares on WASM only the programs that name no reason, so a program that names one runs on the JavaScript target alone, and a WASM result that differs from its JavaScript one is not reported.
+
+Issue: #354
 
 #### @spec evaluation-counts-equal-results-as-agreeing
 
