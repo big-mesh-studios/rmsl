@@ -37,6 +37,10 @@ import {
   determinant,
   inverse,
   step,
+  clamp,
+  abs,
+  select,
+  float,
   Fn,
   type Node,
 } from "../rmsl";
@@ -402,6 +406,10 @@ describe("tolerance of a built-in call", () => {
       widening((a) => sin(a).add(5), [1e-6]),
       2 ** -11,
     );
+    // A component that is not finite whatever the move stays bounded, compared by equality.
+    expect(unbounded((a) => vec2(sin(a), a.div(0)), [0.5])).toBe(false);
+    // One that a move turns finite has no bound: 1 / sin(0) is infinite, 1 / sin(2^-11) is not.
+    expect(unbounded((a) => float(1).div(sin(a)), [0])).toBe(true);
     const { js, tolerances } = accuracyOf((a) => vec2(sin(a), a.mul(4)), [0.5]);
     expect(tolerances.wgsl![1]).toBe(floatTolerance((js as Float64Array)[1]!));
     // sin(0) moved down by 2^-11 takes the square root of a negative number.
@@ -449,9 +457,9 @@ describe("tolerance of a built-in call", () => {
   });
 
   /**
-   * @canon spec-a-program-with-a-call-glsl-es-leaves-without-a-precision-is-not-compared-on-glsl
+   * @canon spec-the-components-a-call-without-a-glsl-es-precision-moves-are-not-compared-on-glsl
    */
-  it("leaves the GLSL result open for a call GLSL ES gives no precision", () => {
+  it("leaves open on GLSL the components a call GLSL ES gives no precision moves", () => {
     const open: [Build, number[]][] = [
       [(a) => sin(a), [0.5]],
       [(a) => cos(a), [0.5]],
@@ -467,7 +475,27 @@ describe("tolerance of a built-in call", () => {
       [(a) => inverse(mat2(vec2(a, 1), vec2(2, 4))), [0.3]],
     ];
     for (const [build, args] of open) {
-      expect(accuracyOf(build, args).tolerances.glsl, `${build}`).toBeNull();
+      const glsl = accuracyOf(build, args).tolerances.glsl;
+      expect(glsl === null || glsl.every((t) => t === Infinity), `${build}`).toBe(true);
+    }
+    // The other components are compared: here a * 4, which neither call reaches.
+    const m = (a: Node<"float">) => mat2(vec2(a, 1), vec2(2, 4));
+    const mixed: Build[] = [(a) => vec2(sin(a), a.mul(4)), (a) => vec2(inverse(m(a)).element(0).x, a.mul(4))];
+    for (const build of mixed) {
+      const glsl = accuracyOf(build, [0.5]).tolerances.glsl!;
+      expect(glsl[0], `${build}`).toBe(Infinity);
+      expect(glsl[1], `${build}`).toBe(floatTolerance(2));
+    }
+    // Each of the three values reaches a component the other two leave as it was:
+    // -Infinity alone flips step(0.4, x), +Infinity alone step(x, 0.6), and NaN
+    // alone gets through clamp(abs(x) + 10, 0, 1).
+    const reachedByOne: Build[] = [
+      (a) => step(0.4, sin(a)),
+      (a) => step(sin(a), 0.6),
+      (a) => clamp(abs(sin(a)).add(10), 0, 1),
+    ];
+    for (const build of reachedByOne) {
+      expect(accuracyOf(build, [0.5]).tolerances.glsl![0], `${build}`).toBe(Infinity);
     }
     expect(accuracyOf((a) => sin(a), [0.5]).tolerances.wgsl).not.toBeNull();
     expect(accuracyOf((a) => sin(a), [0.5]).unbounded).toBe(false);
@@ -498,6 +526,9 @@ describe("tolerance of a built-in call", () => {
       inputs: [{ name: "m", type: "mat2" }],
     });
     expect(unbounded((a) => det(mat2(vec2(a, 1), vec2(2, 4))).add(1), [0.3])).toBe(true);
+    // A determinant the run never reaches does not count.
+    const unreached: Build = (a) => select(a.greaterThan(100), determinant(mat2(vec2(a, 1), vec2(2, 4))), float(0));
+    expect(unbounded(unreached, [0.3])).toBe(false);
     expect(unbounded((a) => vec2(a, 1).dot(vec2(2, 4)), [0.3])).toBe(false);
   });
 });

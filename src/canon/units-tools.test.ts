@@ -180,11 +180,11 @@ describe("the harness checks what it recorded", () => {
   );
 
   /**
-   * A GLSL compiler that gives 0.25 for `sin(0.5)` stands in for a driver that
-   * GLSL ES lets give any value there, and the run passes. The same value from
-   * WGSL, which bounds `sin`, fails it.
+   * A GLSL compiler that gives NaN for `sin(0.5)` stands in for a driver that
+   * GLSL ES lets give any value there, and the run passes. A WGSL compiler that
+   * gives 0.25, outside what WGSL allows `sin`, fails it.
    *
-   * @canon spec-a-program-with-a-call-glsl-es-leaves-without-a-precision-is-not-compared-on-glsl
+   * @canon spec-the-components-a-call-without-a-glsl-es-precision-moves-are-not-compared-on-glsl
    */
   it.skipIf(!GPU_ENABLED)(
     "does not compare on GLSL a program GLSL ES gives no precision, and does on WGSL",
@@ -193,7 +193,7 @@ describe("the harness checks what it recorded", () => {
         if (target === "glsl") {
           vi.doMock("../glsl", async (original) => ({
             ...(await original<typeof import("../glsl")>()),
-            compileGlslFn: () => `float rmsl_eval(float a0) { return 0.25; }`,
+            compileGlslFn: () => `float rmsl_eval(float a0) { return (a0 - a0) / (a0 - a0); }`,
           }));
         } else {
           vi.doMock("../wgsl", async (original) => ({
@@ -229,7 +229,10 @@ describe("the harness checks what it recorded", () => {
   it("fails a run in which a program with an unbounded built-in call names no reason", async () => {
     const { harness } = await freshHarness(true);
     harness.evaluateRecording((a) => a.sin(), [4]);
-    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/name "unbounded-builtin"/);
+    const failure = harness.assertRecordedEvaluationsAgree();
+    await expect(failure).rejects.toThrow(/name "unbounded-builtin"/);
+    // The summary counts the failure as a failure, not as a disagreement with the CPU.
+    await expect(failure).rejects.toThrow(/^Checked 1 recorded programs; 1 failed:/);
     harness.evaluateRecording((a) => a.sin(), [4], "unbounded-builtin");
     await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
   });
@@ -247,9 +250,9 @@ describe("the harness checks what it recorded", () => {
    * The build reads the sign when a target compiles it, so JS and WASM compile
    * programs that differ only in the sign of their result.
    *
-   * @canon bug-the-harness-skips-wasm-for-a-program-kept-off-the-gpu-targets
+   * @canon spec-a-program-kept-off-the-gpu-is-compared-on-wasm
    */
-  it.fails("reports a WASM result of a program kept off the GPU targets that differs from the JS one", async () => {
+  it("reports a WASM result of a program kept off the GPU targets that differs from the JS one", async () => {
     const { harness } = await freshHarness(true);
     let sign = -1;
     const build = (a: Node<"float">) => a.mul(sign);

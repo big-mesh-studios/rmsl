@@ -7,7 +7,15 @@ import { compileJSFn } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH, var_ } from "../core";
 import { isVector } from "../backends/cpu";
-import { carriedTolerances, recordingMath, type CallRecording, type GpuTarget } from "./float-accuracy";
+import {
+  carriedTolerances,
+  recordingMath,
+  recordingMatrixHelper,
+  type CallRecording,
+  type GpuTarget,
+  type Perturbation,
+} from "./float-accuracy";
+import { MATRIX_HELPER_FORMULAS } from "../backends/matrix-formulas";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -303,25 +311,64 @@ export async function runWGSL(code: string): Promise<number> {
  * compute, the CPU must agree with the caller's arithmetic.
  */
 export function evaluateJS(build: Build, args: number[] = []): number | Float64Array {
-  const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
-  const callable = new Function(fn)() as (ctx: { params: Record<string, number> }) => number | Float64Array;
-  const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
-  return callable(ctx);
+  return compileEvaluation(build, args).run();
 }
 
-/** The node types a program reaches, found by building it over placeholder parameters, inside its `Fn` bodies too. */
-function nodeTypesOf(build: Build, argCount: number): Set<string> {
-  const probes = Array.from({ length: argCount }, (_, i) => var_(`a${i}`, "float"));
+/** A JS function of the program's result, for its arguments. */
+type Evaluation = { run: () => number | Float64Array; roots: unknown };
+
+/**
+ * Compile `build` for the JS target and bind it to `args`, with `math` in
+ * place of `Math` and `matrixHelper` in place of each matrix helper where
+ * given. The roots `build` returned come back too, from the one call the
+ * compile makes of it.
+ */
+function compileEvaluation(
+  build: Build,
+  args: number[],
+  math: Math = Math,
+  matrixHelper?: ReturnType<typeof recordingMatrixHelper>,
+): Evaluation {
+  let roots: unknown;
+  const capture: Build = (...nodes) => (roots = build(...nodes));
+  let source = compileJSFn(capture, { name: "rmsl_eval", params: params(args.length) });
+  if (matrixHelper) source = interceptMatrixHelpers(source);
+  const callable = new Function("Math", "rmslMatrixHelper", source)(math, matrixHelper) as (ctx: {
+    params: Record<string, number>;
+  }) => number | Float64Array;
+  const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
+  return { run: () => callable(ctx), roots };
+}
+
+/**
+ * The compiled source with each matrix helper it declares, such as
+ * `_mat2x2det`, renamed and called through `rmslMatrixHelper`, which sees
+ * every determinant and inverse the run computes.
+ */
+function interceptMatrixHelpers(source: string): string {
+  let wrappers = "";
+  for (const helper of Object.keys(MATRIX_HELPER_FORMULAS)) {
+    const declaration = `function _${helper}(`;
+    if (!source.includes(declaration)) continue;
+    source = source.replace(declaration, `function _${helper}_computed(`);
+    // Declared after the returned function, as a declaration is hoisted.
+    wrappers += `\nfunction _${helper}(...args) { return rmslMatrixHelper("${helper}", _${helper}_computed, args); }`;
+  }
+  return source + wrappers;
+}
+
+/** The node types reachable from `roots`, inside `Fn` bodies too. */
+function nodeTypesOf(roots: unknown): Set<string> {
   const types = new Set<string>();
   const seen = new Set<object>();
   const walk = (x: unknown) => {
-    if (x === null || typeof x !== "object" || seen.has(x)) return;
+    if (x === null || typeof x !== "object" || seen.has(x) || ArrayBuffer.isView(x)) return;
     seen.add(x);
     const record = x as Record<string, unknown>;
     if (typeof record.type === "string" && "_t" in record) types.add(record.type);
     for (const key of Object.keys(record)) walk(record[key]);
   };
-  walk(build(...(probes as Node<"float">[])));
+  walk(roots);
   return types;
 }
 
@@ -330,38 +377,37 @@ export type Tolerances = Record<GpuTarget, number[] | null>;
 
 /**
  * What each GPU target is allowed to give for a program: the JS result, the
- * tolerance of each of its components on WGSL and on GLSL, and whether a
- * built-in call has no bound in WGSL's table of accuracy, which keeps the
- * program off the GPU targets.
+ * tolerance of each of its components on WGSL and on GLSL, Infinity for a
+ * component GLSL ES leaves open, and whether a built-in call has no bound in
+ * WGSL's table of accuracy, which keeps the program off the GPU targets.
  */
 export function accuracyOf(
   build: Build,
   args: number[] = [],
 ): { js: EvalValue; tolerances: Tolerances; unbounded: boolean } {
-  const types = nodeTypesOf(build, args.length);
-  const recording: CallRecording = { calls: [], powIsCalled: types.has("pow") };
-  const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
-  const callable = new Function("Math", fn)(recordingMath(recording)) as (ctx: {
-    params: Record<string, number>;
-  }) => number | Float64Array;
-  const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
-  const result = callable(ctx);
+  const recording: CallRecording = { calls: [], count: 0, powIsCalled: false };
+  const evaluation = compileEvaluation(build, args, recordingMath(recording), recordingMatrixHelper(recording));
+  recording.powIsCalled = nodeTypesOf(evaluation.roots).has("pow");
+  const result = evaluation.run();
   // A vector result may be a buffer the next run writes over.
   const js = isVector(result) ? Float64Array.from(result) : result;
-  const calls = recording.calls;
-  const run = (perturb: { index: number; delta: number }) => {
-    recording.calls = [];
-    recording.perturb = perturb;
-    return Array.from(asArray(callable(ctx)));
-  };
   const components = Array.from(asArray(js));
-  // GLSL ES gives `inverse` no precision, though WGSL, with no inverse of its
-  // own, computes it by a formula of basic operations.
-  const open = (target: GpuTarget) => types.has("determinant") || (target === "glsl" && types.has("inverse"));
-  const carried = (target: GpuTarget) =>
-    open(target) ? null : carriedTolerances(components, calls, run, floatTolerance, target);
-  const tolerances = { wgsl: carried("wgsl"), glsl: carried("glsl") };
-  return { js, tolerances, unbounded: tolerances.wgsl === null };
+  // The two targets move many calls alike, so each moved run is made once.
+  const runs = new Map<string, number[]>();
+  const run = (perturb: Perturbation) => {
+    let moved = runs.get(perturb.key);
+    if (moved === undefined) {
+      recording.count = 0;
+      recording.perturb = perturb;
+      moved = Array.from(asArray(evaluation.run()));
+      runs.set(perturb.key, moved);
+    }
+    return moved;
+  };
+  const wgsl = carriedTolerances(components, recording.calls, run, floatTolerance, "wgsl");
+  if (wgsl === null) return { js, tolerances: { wgsl, glsl: null }, unbounded: true };
+  const glsl = carriedTolerances(components, recording.calls, run, floatTolerance, "glsl");
+  return { js, tolerances: { wgsl, glsl }, unbounded: false };
 }
 
 /** What an evaluation gives: a scalar, or the components of a vector or matrix, as a plain or a typed array. */
@@ -675,7 +721,8 @@ function valuesWithinTolerance(a: EvalValue, b: EvalValue, tolerances: readonly 
   for (let i = 0; i < av.length; i++) {
     const x = av[i]!;
     const y = bv[i]!;
-    if (x === y || (Number.isNaN(x) && Number.isNaN(y))) continue;
+    // An open component, which the target may give any value, is not compared.
+    if (tolerances[i] === Infinity || x === y || (Number.isNaN(x) && Number.isNaN(y))) continue;
     if (!(Math.abs(x - y) < tolerances[i]!)) return false;
   }
   return true;
@@ -701,7 +748,11 @@ export type CpuOnlyReason =
  * which is what makes one assertion cover three backends.
  */
 export function evaluateRecording(build: Build, args: number[] = [], cpuOnly?: CpuOnlyReason): EvalValue {
-  const { js, tolerances, unbounded } = accuracyOf(build, args);
+  // Only a program that may reach the GPU, or names "unbounded-builtin", needs its bounds.
+  const { js, tolerances, unbounded } =
+    cpuOnly === undefined || cpuOnly === "unbounded-builtin"
+      ? accuracyOf(build, args)
+      : { js: evaluateJS(build, args), tolerances: { wgsl: null, glsl: null }, unbounded: false };
   recordedEvaluations.push({
     test: currentTestName(),
     build,
@@ -781,11 +832,12 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
 
   // WASM needs neither a browser nor a graphics device, so — unlike GLSL/WGSL
   // below — it always runs, even under RMSL_SKIP_GPU/RMSL_SKIP_SHADER_EVALUATION
-  // (those exist specifically to skip hardware-dependent work). A program it
-  // refuses fails the run, unless KNOWN_WASM_REFUSALS names the issue that
-  // tracks it; a listed program that compiles fails the run too.
+  // (those exist specifically to skip hardware-dependent work), and for a
+  // program kept off the GPU targets too. A program it refuses fails the run,
+  // unless KNOWN_WASM_REFUSALS names the issue that tracks it; a listed program
+  // that compiles fails the run too.
   const refused = new Set<string>();
-  for (const item of runnable) {
+  for (const item of items) {
     try {
       const wasm = evaluateWASM(item.build, item.args);
       // Exact equality, not floatTolerance — see `evaluateWASM`'s doc comment.
@@ -800,7 +852,7 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
       }
     }
   }
-  for (const test of new Set(runnable.map((item) => item.test))) {
+  for (const test of new Set(items.map((item) => item.test))) {
     if (KNOWN_WASM_REFUSALS[test] !== undefined && !refused.has(test)) {
       failures.push(`  ${test}\n      WASM compiles every program of it now — delete it from KNOWN_WASM_REFUSALS`);
     }
@@ -830,9 +882,7 @@ async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise
   }
 
   if (failures.length > 0) {
-    throw new Error(
-      `Evaluated ${runnable.length} recorded programs; ${failures.length} disagreed with the CPU target:\n\n${failures.join("\n")}`,
-    );
+    throw new Error(`Checked ${items.length} recorded programs; ${failures.length} failed:\n\n${failures.join("\n")}`);
   }
 }
 

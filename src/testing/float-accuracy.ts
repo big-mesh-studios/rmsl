@@ -104,7 +104,20 @@ function inverseHyperbolicBound(x: number, sign: 1 | -1, value: number): number 
 export type GpuTarget = "wgsl" | "glsl";
 
 /** The built-in functions whose precision GLSL ES 3.00 leaves undefined. */
-const UNDEFINED_ON_GLSL = new Set(["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "asinh", "acosh", "atanh"]);
+const UNDEFINED_ON_GLSL = new Set([
+  "sin",
+  "cos",
+  "tan",
+  "asin",
+  "acos",
+  "atan",
+  "atan2",
+  "asinh",
+  "acosh",
+  "atanh",
+  "determinant",
+  "inverse",
+]);
 
 /**
  * The error the specification of `target` allows one call of a built-in
@@ -166,6 +179,8 @@ export function builtinCallBound(call: BuiltinCall, target: GpuTarget = "wgsl"):
         quotientError(numerator, denominator, f32Ulp(numerator), f32Ulp(denominator)) + 2.5 * f32Ulp(quotient);
       return 0.5 * (logBound(quotient, 2 * value) + logOfPerturbed(quotient, quotientBound));
     }
+    case "determinant":
+      return Infinity;
     default:
       return 0;
   }
@@ -192,20 +207,40 @@ const TRACKED = [
   "atanh",
 ] as const;
 
-/** What a run of a program through `recordingMath` records, and the one call it moves. */
+/** A change to the value of one call of a run, by the call's place in the run. */
+export interface Perturbation {
+  index: number;
+  replace: (value: number) => number;
+  /** Tells apart two perturbations that give the same run. */
+  key: string;
+}
+
+/** What a run of a program records of its built-in calls, and the one call it moves. */
 export interface CallRecording {
+  /** The calls of the run, recorded only where `perturb` is unset. */
   calls: BuiltinCall[];
+  /** How many calls the run has made, which places the next one. */
+  count: number;
   /** Whether the program calls `pow`, which tells a `Math.pow(2, x)` of `pow` from one of `exp2`. */
   powIsCalled: boolean;
-  /** The call, by its place in the run, whose value is moved by `delta`. */
-  perturb?: { index: number; delta: number };
+  perturb?: Perturbation;
+}
+
+/** Counts a call, records it where the run is not perturbed, and returns how to change its value, if this is the call to move. */
+export function recordCall(recording: CallRecording, call: BuiltinCall): ((value: number) => number) | undefined {
+  const index = recording.count++;
+  if (recording.perturb === undefined) {
+    recording.calls.push(call);
+    return undefined;
+  }
+  return recording.perturb.index === index ? recording.perturb.replace : undefined;
 }
 
 /**
  * A stand-in for `Math` that records each call of a tracked function into
- * `recording.calls`, and moves the value of the call `recording.perturb`
- * names. The JavaScript target writes `exp2(x)` as `Math.pow(2, x)`, so a
- * `pow` with a base of 2 reads as `exp2` unless the program calls `pow`.
+ * `recording`, and moves the value of the call `recording.perturb` names. The
+ * JavaScript target writes `exp2(x)` as `Math.pow(2, x)`, so a `pow` with a
+ * base of 2 reads as `exp2` unless the program calls `pow`.
  */
 export function recordingMath(recording: CallRecording): Math {
   const math = Object.create(Math) as Math & Record<string, (...args: number[]) => number>;
@@ -217,48 +252,88 @@ export function recordingMath(recording: CallRecording): Math {
         name === "pow" && args[0] === 2 && !recording.powIsCalled
           ? { name: "exp2", args: [args[1]!], value }
           : { name, args, value };
-      const { perturb, calls } = recording;
-      const moved = perturb !== undefined && perturb.index === calls.length ? value + perturb.delta : value;
-      calls.push(call);
-      return moved;
+      const replace = recordCall(recording, call);
+      return replace ? replace(value) : value;
     };
   }
   return math;
 }
 
 /**
+ * A stand-in for the JavaScript target's matrix helpers, which records each
+ * determinant and inverse the run computes as a call, and moves the value of
+ * the one `recording.perturb` names: the number a determinant returns, or
+ * each component an inverse writes to its result.
+ */
+export function recordingMatrixHelper(recording: CallRecording) {
+  return (helper: string, computed: (...args: unknown[]) => unknown, args: unknown[]) => {
+    const result = computed(...args);
+    if (helper.endsWith("det")) {
+      const value = result as number;
+      const replace = recordCall(recording, { name: "determinant", args: [], value });
+      return replace ? replace(value) : value;
+    }
+    const replace = recordCall(recording, { name: "inverse", args: [], value: 0 });
+    if (replace) {
+      const out = args[1] as number[];
+      for (let i = 0; i < out.length; i++) out[i] = replace(out[i]!);
+    }
+    return result;
+  };
+}
+
+/**
  * Difference allowed between a result of `target` and the CPU one, for each
  * component: `baseTolerance` of the component's size, widened by the sum over
  * the calls of the most the component moves when `run` gives that call its
- * value plus or minus its bound on `target`. Null when a call has no bound
- * there, or when moving one gives a component that is not finite.
+ * value plus or minus its bound on `target`.
  *
- * `run` runs the program, moving the value of the call `perturb` names, and
- * returns the components of its result.
+ * A call with no bound on WGSL leaves the whole result open: null. On GLSL it
+ * leaves open, as Infinity, each component that changes when `run` gives the
+ * call NaN or an infinity. A move that turns a finite component into one that
+ * is not finite, or changes one that is not, leaves it open in the same way.
  */
 export function carriedTolerances(
   components: readonly number[],
   calls: readonly BuiltinCall[],
-  run: (perturb: { index: number; delta: number }) => readonly number[],
+  run: (perturb: Perturbation) => readonly number[],
   baseTolerance: (magnitude: number) => number,
   target: GpuTarget,
 ): number[] | null {
   const bounds = calls.map((call) => builtinCallBound(call, target));
   // A bound that is NaN, as `pow(0, 2)` and `asin(2)` give, is no bound either.
-  if (bounds.some((bound) => !(bound < Infinity))) return null;
+  if (target === "wgsl" && bounds.some((bound) => !(bound < Infinity))) return null;
   const widening = components.map(() => 0);
   bounds.forEach((bound, index) => {
+    if (!(bound < Infinity)) {
+      for (const to of [NaN, Infinity, -Infinity]) {
+        const moved = run({ index, replace: () => to, key: `${index}=${to}` });
+        components.forEach((component, i) => {
+          if (!Object.is(moved[i], component)) widening[i] = Infinity;
+        });
+      }
+      return;
+    }
     if (bound === 0) return;
     const shifts = components.map(() => 0);
     for (const delta of [bound, -bound]) {
-      const moved = run({ index, delta });
+      const moved = run({ index, replace: (value) => value + delta, key: `${index}+${delta}` });
       components.forEach((component, i) => {
-        const shift = Math.abs(moved[i]! - component);
-        shifts[i] = Math.max(shifts[i]!, Number.isFinite(moved[i]!) ? shift : Infinity);
+        const after = moved[i]!;
+        const shift = Number.isFinite(component)
+          ? Number.isFinite(after)
+            ? Math.abs(after - component)
+            : Infinity
+          : Object.is(after, component)
+            ? 0
+            : Infinity;
+        shifts[i] = Math.max(shifts[i]!, shift);
       });
     }
     shifts.forEach((shift, i) => (widening[i] = widening[i]! + shift));
   });
-  if (widening.some((w) => w === Infinity)) return null;
-  return components.map((component, i) => baseTolerance(component) + widening[i]!);
+  if (target === "wgsl" && widening.some((w) => w === Infinity)) return null;
+  return components.map((component, i) =>
+    widening[i] === Infinity ? Infinity : baseTolerance(component) + widening[i]!,
+  );
 }
