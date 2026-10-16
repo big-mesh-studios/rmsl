@@ -3,6 +3,7 @@ import { NodeError, ProgramError, UsageError } from "../errors";
 import { Session } from "node:inspector/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
+import { Worker } from "node:worker_threads";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -1565,6 +1566,162 @@ describe("the scalars and inputs of a JS function", { timeout: ALLOCATION_TIMEOU
     const options = { width: 16, height: 16 };
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
   });
+
+  /**
+   * The first triangle has a vertex behind the eye, so the clip cuts it into
+   * a polygon that bounds the pixels its own lines test. The second has a
+   * vertex at `vec4(0)` and the other two in the clip volume, so it is drawn
+   * by its lines with that vertex at the centre, and not clipped.
+   *
+   * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye
+   */
+  it("allocates nothing per triangle it clips", async () => {
+    const position = attribute("vec4");
+    const shade = varying("vec3");
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          shade.assign(position.xyz);
+          builtinPosition().assign(position);
+        })(),
+      () => Fn(() => vec4(shade, 1))(),
+    );
+    const ctx = {
+      attributes: {
+        [position.name]: Float64Array.of(
+          ...[-2, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 2, 0.5, 1],
+          ...[-1, -1, 0.5, 1, 1, -1, 0.5, 1, 0, 0, 0, 0],
+        ),
+      },
+    };
+    const options = { width: 16, height: 16, clear: true, clearDepth: true };
+    expect(Array.from(raster.draw(ctx, options)).some((value) => value !== 0)).toBe(true);
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+});
+
+/**
+ * The source of a worker that compiles a rasterizer for each letter of
+ * `order` from the built library, and draws each 6000 times, one after
+ * another, as an application that draws several programs does: `A` draws two
+ * triangles that cover the target, `B` a triangle behind the eye and one at
+ * `vec4(0)`, which the clip cuts, and `C` reads an integer attribute into a
+ * flat varying. It posts the bytes the last draws allocate a draw, by V8's
+ * sampling heap profiler. A worker has an isolate of its own, so nothing the
+ * process ran before decides what V8 has made of the code all rasterizers share.
+ */
+const DRAW_IN_ORDER = `
+const { workerData, parentPort } = require("node:worker_threads");
+const { Session } = require("node:inspector/promises");
+(async () => {
+  const { compileJS } = await import(workerData.js);
+  const { Fn, attribute, builtinPosition, varying, vec4 } = await import(workerData.rmsl);
+  const options = { width: 16, height: 16, clear: true, clearDepth: true };
+  const make = {
+    A: () => {
+      const position = attribute("vec3");
+      const colour = attribute("vec3");
+      const shade = varying("vec3");
+      const raster = compileJS(
+        () => Fn(() => { shade.assign(colour.mul(0.5)); builtinPosition().assign(vec4(position, 1)); })(),
+        () => Fn(() => vec4(shade, 1))(),
+      );
+      const ctx = { attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0),
+        [colour.name]: Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 0, 1),
+      } };
+      return () => raster.draw(ctx, options);
+    },
+    B: () => {
+      const position = attribute("vec4");
+      const shade = varying("vec3");
+      const raster = compileJS(
+        () => Fn(() => { shade.assign(position.xyz); builtinPosition().assign(position); })(),
+        () => Fn(() => vec4(shade, 1))(),
+      );
+      const ctx = { attributes: {
+        [position.name]: Float64Array.of(-2, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 2, 0.5, 1, -1, -1, 0.5, 1, 1, -1, 0.5, 1, 0, 0, 0, 0),
+      } };
+      return () => raster.draw(ctx, options);
+    },
+    C: () => {
+      const position = attribute("vec4");
+      const id = attribute("int");
+      const k = varying("int");
+      const raster = compileJS(
+        () => Fn(() => { k.assign(id); builtinPosition().assign(position); })(),
+        () => Fn(() => vec4(k.toFloat(), 0, 0, 1))(),
+      );
+      const ctx = { attributes: {
+        [position.name]: Float64Array.of(-2, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 2, 0.5, 1),
+        [id.name]: Int32Array.of(1, 2, 3),
+      } };
+      return () => raster.draw(ctx, options);
+    },
+  };
+  const session = new Session();
+  session.connect();
+  await session.post("HeapProfiler.enable");
+  let draw;
+  for (const letter of workerData.order) {
+    draw = make[letter]();
+    for (let k = 0; k < 6000; k++) draw();
+  }
+  let least = Infinity;
+  for (let round = 0; round < 2; round++) {
+    await session.post("HeapProfiler.startSampling", {
+      samplingInterval: 128,
+      includeObjectsCollectedByMajorGC: true,
+      includeObjectsCollectedByMinorGC: true,
+    });
+    for (let k = 0; k < 200; k++) draw();
+    const { profile } = await session.post("HeapProfiler.stopSampling");
+    let allocated = 0;
+    const walk = (node) => {
+      const url = node.callFrame.url;
+      if (url === "" || url.includes("/dist/")) allocated += node.selfSize;
+      for (const child of node.children) walk(child);
+    };
+    walk(profile.head);
+    least = Math.min(least, allocated / 200);
+  }
+  parentPort.postMessage(least);
+})().catch((error) => parentPort.postMessage(String(error)));
+`;
+
+/** The bytes a draw of the last rasterizer of `order` allocates, in a worker of its own; see {@link DRAW_IN_ORDER}. */
+function allocatedAfterDrawing(order: string): Promise<number> {
+  const worker = new Worker(DRAW_IN_ORDER, {
+    eval: true,
+    workerData: {
+      order,
+      js: new URL("../../dist/js.js", import.meta.url).href,
+      rmsl: new URL("../../dist/rmsl.js", import.meta.url).href,
+    },
+  });
+  return new Promise<number>((resolve, reject) => {
+    worker.once("message", (value) => (typeof value === "number" ? resolve(value) : reject(new Error(value))));
+    worker.once("error", reject);
+  }).finally(() => worker.terminate());
+}
+
+describe("a JS draw after other rasterizers", () => {
+  /**
+   * Every rasterizer `compileJS` makes runs the same functions, which V8
+   * optimizes for the slots and inputs of the ones it has drawn. `AB`, a
+   * rasterizer drawn after one of other slots, allocated 450 to 1,100 bytes a
+   * draw; the other orders hold that no order brings that back.
+   *
+   * @canon spec-a-js-draw-allocates-nothing-whatever-drew-before-it
+   */
+  it.each(["AB", "BA", "AA", "AC", "CA", "ACB"])(
+    "allocates nothing per draw of the last rasterizer of %s",
+    async (order) => {
+      // A draw calls a stage hundreds of times, and an object is 16 bytes at the least.
+      expect(await allocatedAfterDrawing(order)).toBeLessThan(64);
+    },
+    60_000,
+  );
 });
 
 describe("what a JS draw allocates for the scalars it passes its stages", { timeout: ALLOCATION_TIMEOUT }, () => {
@@ -1934,11 +2091,13 @@ describe("what a JS draw allocates for the scalars it passes its stages", { time
   });
 
   /**
-   * @canon spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
+   * @canon spec-a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye
    */
-  it("allocates for a triangle a near-plane clip cuts, and nothing for each fragment of it", async () => {
+  it("allocates nothing for a triangle with a vertex behind the eye, nor for each fragment of it", async () => {
     const clip = attribute("vec4");
-    // Each triangle has one vertex behind the near plane, so the clip cuts both.
+    // Each triangle's third vertex, behind the eye, is minus one of the other two, so an edge passes through vec4(0)
+    // and the triangle lies in one plane with the eye: the rasterizer draws the triangle from the centre to the ends of
+    // the segment its part inside the clip volume projects to.
     const positions = Float64Array.of(-1, -1, 0, 1, 1, -1, 0, 1, -1, 1, 0, -1, 1, -1, 0, 1, 1, 1, 0, 1, -1, 1, 0, -1);
     const raster = compileJS(
       () => Fn(() => builtinPosition().assign(clip))(),
@@ -1947,8 +2106,9 @@ describe("what a JS draw allocates for the scalars it passes its stages", { time
     const ctx = { attributes: { [clip.name]: positions } };
     const small = await allocatedBy(() => raster.draw(ctx, { width: 16, height: 16 }), 2000, 200);
     const large = await allocatedBy(() => raster.draw(ctx, { width: 64, height: 64 }), 2000, 200);
-    // Sixteen times the fragments: a box for each would add about 60 KB, where what the clip makes varies by a few hundred bytes.
-    expect(large - small).toBeLessThan(1024);
+    // Sixteen times the fragments: a box for each would add about 60 KB.
+    expect(small).toBeLessThan(64);
+    expect(large).toBeLessThan(64);
   });
 });
 
@@ -2603,6 +2763,43 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * Each of the six planes of the clip volume cuts this triangle, into a
+   * polygon of 9 vertices, the most a triangle can have, so the clip fills a
+   * half of its scratch and fans out 7 triangles. Chromium's WebGPU on Metal
+   * lights 57 pixels for it.
+   *
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
+   */
+  it.each(rasterizers)(
+    "%s: gives every fragment of a triangle the clip cuts into 9 vertices its first vertex's integer",
+    (_, compileRaster) => {
+      const pos = attribute("vec4");
+      const id = attribute("int");
+      const k = varying("int");
+      const routine = compileRaster(
+        () =>
+          Fn(() => {
+            k.assign(id);
+            builtinPosition().assign(pos);
+          })() as any,
+        () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+      );
+      const image = routine.draw(
+        {
+          attributes: {
+            [pos.name]: Float64Array.of(2.5, 2.25, 1, 2, 0.75, -2, -2, 3.75, -4, -2, 3.75, -0.5),
+            [id.name]: Int32Array.of(5, 2, 7),
+          },
+        },
+        { width: 16, height: 16 },
+      );
+      const reds = Array.from(image).filter((_, i) => i % 4 === 0);
+      expect(reds.filter((r) => r !== 0).length).toBe(57);
+      expect(new Set(reds.filter((r) => r !== 0))).toEqual(new Set([5]));
+    },
+  );
+
+  /**
    * The second draw has twice the vertices of the first, so a WASM routine
    * lays out its memory for it differently.
    *
@@ -2737,6 +2934,404 @@ describe("the fragments a CPU rasterizer draws", () => {
       expect(bothWindings([2.5, 2.5, 2.5, -9, -9, 2.5])).toEqual([bottomRight, bottomRight]);
     },
   );
+
+  /** Draws a triangle of three clip positions on a 16×16 target, each vertex a colour of its own: red, green, blue. */
+  const drawColoured = (compileRaster: typeof compileJS, positions: number[]) => {
+    const position = attribute("vec4");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          shade.assign(colour);
+          builtinPosition().assign(position);
+        })() as any,
+      () => Fn(() => vec4(shade, 1))() as any,
+    );
+    const ctx = {
+      attributes: {
+        [position.name]: new Float64Array(positions),
+        [colour.name]: Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1),
+      },
+    };
+    return routine.draw(ctx, { width: 16, height: 16 });
+  };
+  /**
+   * The rows of a 16×16 draw from the top, each pixel's colour rounded to a
+   * byte as an 8-bit target stores it: `R`, `G` or `B` for one colour alone,
+   * `#` for a blend, and `.` for none.
+   */
+  const pattern = (image: ArrayLike<number>) =>
+    Array.from({ length: 16 }, (_, y) =>
+      Array.from({ length: 16 }, (_, x) => {
+        const [r, g, b] = [0, 1, 2].map((c) =>
+          Math.round(Math.min(Math.max(image[(y * 16 + x) * 4 + c]!, 0), 1) * 255),
+        );
+        if (r! + g! + b! === 0) return ".";
+        return r === 255 && g === 0 && b === 0
+          ? "R"
+          : r === 0 && g === 255 && b === 0
+            ? "G"
+            : r === 0 && g === 0 && b === 255
+              ? "B"
+              : "#";
+      }).join(""),
+    );
+  /** What Chromium's WebGPU on Metal draws for a triangle from `(-1, -1)` and `(1, -1)` to the centre, its apex the blue vertex. */
+  const TO_THE_CENTRE = [
+    ...Array(8).fill("................"),
+    ".......B........",
+    "......BBB.......",
+    ".....BBBBB......",
+    "....BBBBBBB.....",
+    "...BBBBBBBBB....",
+    "..BBBBBBBBBBB...",
+    ".BBBBBBBBBBBBB..",
+    "BBBBBBBBBBBBBBB.",
+  ];
+  const FRONT = [-1, -1, 0.5, 1, 1, -1, 0.5, 1];
+
+  /**
+   * Each pattern is what Chromium's WebGPU on Metal draws for the same triangle.
+   *
+   * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+   */
+  it.each(rasterizers)("%s: draws a vertex at vec4(0) at the centre, with its varyings", (_, compileRaster) => {
+    expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 0]))).toEqual(TO_THE_CENTRE);
+    expect(pattern(drawColoured(compileRaster, [...FRONT, -0, -0, -0, -0]))).toEqual(TO_THE_CENTRE);
+    expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 1e-310]))).toEqual(TO_THE_CENTRE);
+    expect(pattern(drawColoured(compileRaster, [-0.5, -0.5, 0, 1, 0.5, -0.25, 0, 1, 0, 0, 0, 0]))).toEqual([
+      ...Array(8).fill("................"),
+      ".......BB.......",
+      "......BBBBB.....",
+      ".....BBBBB......",
+      "....BB..........",
+      "................",
+      "................",
+      "................",
+      "................",
+    ]);
+  });
+
+  /**
+   * The top edge lies on the centres of row 7, where the barycentric of the
+   * `vec4(0)` vertex is 0. Chromium's WebGPU on Metal lights that row blue.
+   *
+   * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+   */
+  it.each(rasterizers)(
+    "%s: gives a fragment on the edge opposite a vertex at vec4(0) that vertex's varyings",
+    (_, compileRaster) => {
+      expect(pattern(drawColoured(compileRaster, [-1, 0.0625, 0.5, 1, 1, 0.0625, 0.5, 1, 0, 0, 0, 0]))).toEqual([
+        ...Array(7).fill("................"),
+        "BBBBBBBBBBBBBBBB",
+        ...Array(8).fill("................"),
+      ]);
+    },
+  );
+
+  /**
+   * The product of two of these w underflows to 0 or overflows to infinity
+   * as a 64-bit float, where their inverse is finite.
+   *
+   * @canon spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+   */
+  it.each(rasterizers)("%s: weighs the vertices of a triangle alike at any scale of their w", (_, compileRaster) => {
+    const at = (w: number) => Array.from(drawColoured(compileRaster, [w, 0, 0, w, 0, w, 0, w, -w, -w, 0, w]));
+    const unit = at(1);
+    expect(unit.filter((value, i) => i % 4 === 3 && value === 1).length).toBeGreaterThan(50);
+    for (const w of [1e-170, 1e155]) {
+      const image = at(w);
+      image.forEach((value, i) => expect(value).toBeCloseTo(unit[i]!, 12));
+    }
+  });
+
+  /**
+   * The green and the blue vertex share a w of `1e-310`, whose inverse is not
+   * finite, and the red one has a w of 1. Each fragment weighs green and blue
+   * alike by their barycentrics, as it does for a w of `1e-300`, and red by
+   * next to nothing.
+   *
+   * @canon spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+   */
+  it.each(rasterizers)("%s: weighs two vertices of one subnormal w alike", (_, compileRaster) => {
+    const at = (w: number) => drawColoured(compileRaster, [-1, -1, 0.5, 1, w, 0, 0, w, 0, w, 0, w]);
+    const subnormal = at(1e-310),
+      normal = at(1e-300);
+    let blended = 0;
+    for (let p = 0; p < 256; p++) {
+      if (subnormal[p * 4 + 3] !== 1) continue;
+      if (subnormal[p * 4 + 1]! > 0.1 && subnormal[p * 4 + 2]! > 0.1) blended++;
+      for (let c = 0; c < 3; c++) expect(subnormal[p * 4 + c]).toBeCloseTo(normal[p * 4 + c]!, 12);
+    }
+    expect(blended).toBeGreaterThan(10);
+  });
+
+  /**
+   * Without rounding, the clip leaves the first triangle only the point
+   * `vec4(0)`, and the rounding of its cuts left vertices of rounding alone,
+   * which drew 14 pixels. The cut next to a vertex at w `1e-20` lands where
+   * the cut next to one at w `1e-6` does, at the right edge.
+   *
+   * @canon spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: places a vertex the clip cuts inside the clip volume", (_, compileRaster) => {
+    const touching = drawColoured(compileRaster, [
+      ...[-17.008342718207317, 0.4241684540304529, -0.000040177603644876515, -3.260635316638261],
+      ...[150.88698604085658, -3.762947434834523, 0.000356429642838154, 28.926241883593512],
+      ...[-182.78403711879133, 84.72777821441362, -0.012918565514045719, -1.7127370445402237],
+    ]);
+    expect(Array.from(touching).some((value) => value !== 0)).toBe(false);
+    const nextTo = (w: number) => pattern(drawColoured(compileRaster, [-1, -1, 0.5, 1, 2, -1, 0.5, 1, 0, 0, 0, w]));
+    expect(nextTo(1e-20)).toEqual(nextTo(1e-6));
+    expect(nextTo(1e-20)[15]).not.toContain(".");
+  });
+
+  /**
+   * The edge from the first vertex towards the second, behind the eye, runs
+   * up the column of pixel centres at x 8.5. The clip cuts it at w + x = 0
+   * first, at the point `(0, 0.5, 0.5, 0)`, whose w is 0 but whose y is not:
+   * a vertex on one plane and outside another, which the next plane cuts
+   * again. Each pattern is what Chromium's WebGPU on Metal lights.
+   *
+   * @canon spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: keeps a cut vertex whose w alone is 0 for the next plane", (_, compileRaster) => {
+    /** The rows of the pixels a draw lights, `#` for one and `.` for none. */
+    const lit = (positions: number[]) => {
+      const image = drawColoured(compileRaster, positions);
+      return Array.from({ length: 16 }, (_, y) =>
+        Array.from({ length: 16 }, (_, x) => (image[(y * 16 + x) * 4 + 3] ? "#" : ".")).join(""),
+      );
+    };
+    expect(lit([0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, 0.5, 0.5, 0.5, 1])).toEqual([
+      "............#...",
+      "...........##...",
+      "..........##....",
+      ".........###....",
+      "........####....",
+      "........###.....",
+      "........##......",
+      "........#.......",
+      ...Array(8).fill("................"),
+    ]);
+    expect(lit([0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, -0.5, 0.5, 0.5, 1])).toEqual([
+      "...##...........",
+      "...###..........",
+      "...####.........",
+      "....####........",
+      ".....###........",
+      "......##........",
+      ".......#........",
+      ...Array(9).fill("................"),
+    ]);
+  });
+
+  /**
+   * Each triangle has a vertex behind the eye and pixel centres exactly on an
+   * edge the clip cuts: in the first, on the edge from the first vertex
+   * towards the second, which runs up its left side, from (5, 0) to (11, 6);
+   * in the second, at depth exactly 0, on the near plane. Each pattern is the
+   * top-left rule and the depth range applied to the triangle as its own
+   * vertices place it. The third is a triangle Chromium's WebGPU on Metal
+   * lights alike.
+   *
+   * @canon spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
+   */
+  it.each(rasterizers)(
+    "%s: decides a pixel centre on an edge the clip cuts as its triangle places it",
+    (_, compileRaster) => {
+      /** The rows of the pixels a draw lights, `#` for one and `.` for none. */
+      const lit = (positions: number[]) => {
+        const image = drawColoured(compileRaster, positions);
+        return Array.from({ length: 16 }, (_, y) =>
+          Array.from({ length: 16 }, (_, x) => (image[(y * 16 + x) * 4 + 3] ? "#" : ".")).join(""),
+        );
+      };
+      expect(lit([0.5625, 0.0625, 0.5, 1, -1.875, 0.625, -1, -2, 0.75, 0.25, 0.5, 1])).toEqual([
+        ".....#######....",
+        "......######....",
+        ".......######...",
+        "........#####...",
+        ".........####...",
+        "..........####..",
+        "...........##...",
+        ...Array(9).fill("................"),
+      ]);
+      expect(lit([0.40625, -0.28125, -1.25, -0.5, -0.75, 0.75, 0.5, 1, 0.4375, -0.1875, 0.5, 1])).toEqual([
+        ...Array(3).fill("................"),
+        "....#...........",
+        ".....#..........",
+        "......#.........",
+        "................",
+        ".........#......",
+        "..........#.....",
+        "...........#....",
+        ...Array(6).fill("................"),
+      ]);
+      expect(lit([0.1875, -0.0625, 0.5, 1, 0.9375, 0.8125, -0.5, -1, -0.25, -0.75, 0.5, 1])).toEqual([
+        ...Array(4).fill("................"),
+        "...............#",
+        "..............##",
+        "............####",
+        "...........#####",
+        ".........#######",
+        ".........#######",
+        "........########",
+        "........########",
+        ".......#########",
+        "......#####.....",
+        "................",
+        "................",
+      ]);
+    },
+  );
+
+  /**
+   * Chromium's WebGPU on Metal gives these pixels these depths.
+   *
+   * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+   */
+  it.each(rasterizers)(
+    "%s: gives a fragment of such a triangle a depth towards 0 at the centre",
+    (_, compileRaster) => {
+      const position = attribute("vec4");
+      const routine = compileRaster(
+        () => Fn(() => builtinPosition().assign(position))() as any,
+        () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1))() as any,
+      );
+      const image = routine.draw(
+        { attributes: { [position.name]: Float64Array.of(...FRONT, 0, 0, 0, 0) } },
+        { width: 16, height: 16 },
+      );
+      expect(image[(8 * 16 + 7) * 4]).toBeCloseTo(0.03125, 12);
+      expect(image[(15 * 16 + 0) * 4]).toBeCloseTo(0.46875, 12);
+    },
+  );
+
+  /**
+   * Each pattern is what Chromium's WebGPU on Metal draws for the same triangle.
+   *
+   * @canon spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
+   */
+  it.each(rasterizers)(
+    "%s: keeps a vertex in the clip volume however small its w, and clips the rest to it",
+    (_, compileRaster) => {
+      expect(pattern(drawColoured(compileRaster, [...FRONT, 0, 0, 0, 1e-6]))).toEqual(TO_THE_CENTRE);
+      expect(pattern(drawColoured(compileRaster, [-1, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 0, 0, 1e-6]))).toEqual(
+        TO_THE_CENTRE,
+      );
+      expect(pattern(drawColoured(compileRaster, [...FRONT, 5e-7, 2.5e-7, 0, 1e-6]))).toEqual([
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "...........B....",
+        "..........BBB...",
+        ".........BBBB...",
+        "........BBBBB...",
+        ".......BBBBBBB..",
+        ".....BBBBBBBBB..",
+        "....BBBBBBBBBBB.",
+        "...BBBBBBBBBBBB.",
+        "..BBBBBBBBBBBBB.",
+        ".BBBBBBBBBBBBBBB",
+      ]);
+    },
+  );
+
+  /**
+   * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: clips a triangle through vec4(0) to the clip volume", (_, compileRaster) => {
+    const behind = drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1]);
+    expect(Array.from(behind).some((value) => value !== 0)).toBe(false);
+    // The third vertex is minus the first, behind the eye, so the edge between them passes through vec4(0).
+    const throughOrigin = drawColoured(compileRaster, [...FRONT, 1, 1, -0.5, -1]);
+    expect(pattern(throughOrigin).map((row) => row.replace(/[^.]/g, "#"))).toEqual(
+      TO_THE_CENTRE.map((row) => row.replace(/[^.]/g, "#")),
+    );
+    expect(pattern(drawColoured(compileRaster, [0, 0, 0, 0, -1, -1, 0.5, 1, 1, 0, 0, 1e-6]))).toEqual([
+      ...Array(8).fill("................"),
+      ".......RR.......",
+      "......RRRR......",
+      ".....RRRRRR.....",
+      "....RRRRRRRR....",
+      "...RRRRRRRRRR...",
+      "..RRRRRRRRRRRR..",
+      ".RRRRRRRRRRRRRR.",
+      "RRRRRRRRRRRRRRRR",
+    ]);
+  });
+
+  /**
+   * The third vertex is minus half the first, of many digits, behind the eye,
+   * so the edge between them passes through `vec4(0)`, where a clip would cut
+   * it only to the rounding of the cut. The three vertices lie in one plane
+   * with the eye, so the triangle draws a sliver from the first vertex to the
+   * centre.
+   *
+   * @canon spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
+   */
+  it.each(rasterizers)("%s: draws a triangle whose edge of many digits passes through vec4(0)", (_, compileRaster) => {
+    const first = [-0.4482960833570337, 0.48807180501628217, 0.357696311303447, 0.5117047531530261];
+    const second = [-0.19300884943737617, -0.06898303548713157, 0.24507044595658695, 1.0214452685322613];
+    const image = drawColoured(compileRaster, [...first, ...second, ...first.map((c) => c * -0.5)]);
+    expect(pattern(image).map((row) => row.replace(/[^.]/g, "#"))).toEqual([
+      "................",
+      "................",
+      "..#.............",
+      "...#............",
+      "....#...........",
+      "....##..........",
+      ".....##.........",
+      "......##........",
+      "......##........",
+      ".......#........",
+      "........#.......",
+      "........#.......",
+      ...Array(4).fill("................"),
+    ]);
+  });
+
+  /**
+   * Each triangle has a vertex at `vec4(0)`, the second, and one outside the
+   * clip volume, so it lies in one plane with the eye and every fragment takes
+   * the float varyings of its vertex at `vec4(0)`. In the first, the first
+   * vertex lies outside the volume; in the second, it lies inside. Either way
+   * its integer is the one every fragment takes.
+   *
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
+   */
+  it.each(rasterizers)("%s: gives a triangle through vec4(0) its first vertex's integer", (_, compileRaster) => {
+    const outside = [0.85, -0.075, 0, 1.25e-6],
+      inside = [-0.25, -0.625, 0.125, 0.875];
+    for (const positions of [
+      [...outside, 0, 0, 0, 0, ...inside],
+      [...inside, 0, 0, 0, 0, ...outside],
+    ]) {
+      const pos = attribute("vec4");
+      const id = attribute("int");
+      const k = varying("int");
+      const routine = compileRaster(
+        () =>
+          Fn(() => {
+            k.assign(id);
+            builtinPosition().assign(pos);
+          })() as any,
+        () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+      );
+      const image = routine.draw(
+        { attributes: { [pos.name]: Float64Array.from(positions), [id.name]: Int32Array.of(5, 2, 7) } },
+        { width: 16, height: 16 },
+      );
+      const reds = Array.from(image).filter((_, i) => i % 4 === 0 && image[i + 3] === 1);
+      expect(reds.length).toBeGreaterThan(0);
+      expect(new Set(reds)).toEqual(new Set([5]));
+    }
+  });
 
   /**
    * The host passes the integer attribute first, which holds one triangle, and

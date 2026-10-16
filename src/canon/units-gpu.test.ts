@@ -1263,6 +1263,401 @@ describe("a pixel an edge of a triangle crosses", () => {
   );
 });
 
+/**
+ * One entry of a GPU page for each adapter. Each draws triangles with a vertex
+ * at or near `vec4(0)` on a 16×16 canvas, each vertex a colour of its own, and
+ * returns what each draw shows: a row of characters for each row of pixels,
+ * the red, green and blue bytes of each pixel joined.
+ */
+const ZERO_W = `
+import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const FRONT = [-1, -1, 0.5, 1, 1, -1, 0.5, 1];
+const CASES = {
+  origin: [...FRONT, 0, 0, 0, 0],
+  negativeZero: [...FRONT, -0, -0, -0, -0],
+  small: [-0.5, -0.5, 0, 1, 0.5, -0.25, 0, 1, 0, 0, 0, 0],
+  tinyW: [...FRONT, 0, 0, 0, 1e-6],
+  tinyWOffCentre: [...FRONT, 5e-7, 2.5e-7, 0, 1e-6],
+  smallerW: [...FRONT, 0, 0, 0, 1e-30],
+  tinyWWithOneBehind: [-1, -1, 0.5, 1, 1, -1, 0.5, -1, 0, 0, 0, 1e-6],
+  onTheOppositeEdge: [-1, 0.0625, 0.5, 1, 1, 0.0625, 0.5, 1, 0, 0, 0, 0],
+  tinyWOnTheOppositeEdge: [-1, 0.0625, 0.5, 1, 1, 0.0625, 0.5, 1, 0, 0, 0, 1e-6],
+};
+const pixels = (canvas) => {
+  const flat = document.createElement("canvas");
+  flat.width = canvas.width;
+  flat.height = canvas.height;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rows = [];
+  for (let y = 0; y < canvas.height; y++) {
+    const row = [];
+    for (let x = 0; x < canvas.width; x++) row.push(Array.from(data.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 3)).join(","));
+    rows.push(row.join(" "));
+  }
+  return rows;
+};
+const drawEach = async (create, settle) => {
+  const drawn = {};
+  for (const [name, positions] of Object.entries(CASES)) {
+    const position = attribute("vec4");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const vertex = Fn(() => {
+      shade.assign(colour);
+      return vec4(position);
+    })();
+    const fragment = Fn(() => vec4(shade, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, Float32Array.from(positions));
+    adapter.setAttribute(colour, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    drawn[name] = pixels(canvas);
+  }
+  return drawn;
+};
+globalThis.__rmslZeroWJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+// The canvas's context is made first with one sample, which createGlsl then takes, as WebGL gives a canvas one context.
+globalThis.__rmslZeroWGlsl = () =>
+  drawEach((vertex, fragment) => {
+    const adapter = createGlsl(vertex, fragment);
+    return { ...adapter, attach: (canvas) => (canvas.getContext("webgl2", { antialias: false }), adapter.attach(canvas)) };
+  });
+globalThis.__rmslZeroWWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslZeroWWgsl = () =>
+  drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+describe("a triangle with a vertex at or near vec4(0)", () => {
+  /**
+   * WebGL 2 on SwiftShader, the browser the GLSL tests use, lights nothing on
+   * the edge opposite `vec4(0)`, where WebGPU lights a row in the colour of
+   * that vertex. A pixel well inside the triangle from the base to the centre
+   * takes a blend of the three colours, where WebGPU gives it pure blue.
+   * `createGlsl` draws here on a canvas whose context has one sample, as
+   * WebGPU does.
+   *
+   * @canon exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws on GLSL no fragment on the edge opposite vec4(0), and on SwiftShader blends the varyings",
+    async () => {
+      const drawn: Record<string, string[]> = await runInGpuPage(
+        ZERO_W,
+        "__rmslZeroWGlsl",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(drawn.onTheOppositeEdge!.flatMap((row) => row.split(" ")).every((pixel) => pixel === "0,0,0")).toBe(true);
+      const inside = drawn.origin![13]!.split(" ")[7]!.split(",").map(Number);
+      expect(inside[2]).toBeGreaterThan(0);
+      expect(inside[0]! + inside[1]!).toBeGreaterThan(20);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+   * @canon spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "draws on JS and WASM what it draws on WebGPU",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const webgpu = await runInWebGpuPage(ZERO_W, "__rmslZeroWWgsl", dir);
+      expect(await runInGpuPage(ZERO_W, "__rmslZeroWJs", dir)).toEqual(webgpu);
+      expect(await runInGpuPage(ZERO_W, "__rmslZeroWWasm", dir)).toEqual(webgpu);
+    },
+    120_000,
+  );
+});
+
+/**
+ * One entry of a GPU page for each adapter. Each draws, on a 16×16 canvas, a
+ * triangle with an edge through `vec4(0)` and a vertex behind the eye, and a
+ * triangle from `vec4(0)` to a vertex in front and one behind the eye, and
+ * returns for each whether each pixel is lit, one character per pixel.
+ */
+const THROUGH_ZERO = `
+import { Fn, attribute, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+const CASES = {
+  throughOrigin: [-1, -1, 0.5, 1, 1, -1, 0.5, 1, 1, 1, -0.5, -1],
+  originBehind: [0, 0, 0, 0, -1, -1, 0.5, 1, 1, -1, 0.5, -1],
+};
+const drawEach = async (create, settle) => {
+  const drawn = {};
+  for (const [name, positions] of Object.entries(CASES)) {
+    const position = attribute("vec4");
+    const vertex = Fn(() => vec4(position))();
+    const fragment = Fn(() => vec4(1, 1, 1, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, Float32Array.from(positions));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    const flat = document.createElement("canvas");
+    flat.width = 16;
+    flat.height = 16;
+    const context = flat.getContext("2d");
+    context.drawImage(canvas, 0, 0);
+    const data = context.getImageData(0, 0, 16, 16).data;
+    drawn[name] = Array.from({ length: 256 }, (_, p) => (data[p * 4] > 0 ? "#" : ".")).join("");
+  }
+  return drawn;
+};
+globalThis.__rmslThroughZeroJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslThroughZeroWgsl = async () => {
+  const drawn = await drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+  const adapter = await navigator.gpu.requestAdapter();
+  drawn.adapter = adapter ? adapter.info.vendor + " " + adapter.info.architecture : "";
+  return drawn;
+};
+`;
+
+describe("a triangle through vec4(0) with a vertex outside the clip volume", () => {
+  /**
+   * The JS target draws the part inside the clip volume: 64 pixels for the
+   * first triangle and none for the second. WebGPU lights those 64 and more,
+   * and lights pixels for the second. On Apple's Metal adapter, the one the
+   * counts were measured on, it lights 79 and 15.
+   *
+   * @canon exception-a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "lights on WGSL other pixels than the part inside the clip volume",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const cpu: Record<string, string> = await runInGpuPage(THROUGH_ZERO, "__rmslThroughZeroJs", dir);
+      const webgpu: Record<string, string> = await runInWebGpuPage(THROUGH_ZERO, "__rmslThroughZeroWgsl", dir);
+      const count = (mask: string) => mask.split("").filter((c) => c === "#").length;
+      expect(count(cpu.throughOrigin!)).toBe(64);
+      expect(count(cpu.originBehind!)).toBe(0);
+      for (let p = 0; p < 256; p++) if (cpu.throughOrigin![p] === "#") expect(webgpu.throughOrigin![p]).toBe("#");
+      expect(count(webgpu.throughOrigin!)).toBeGreaterThan(64);
+      expect(count(webgpu.originBehind!)).toBeGreaterThan(0);
+      if (webgpu.adapter === "apple metal-3") {
+        expect(count(webgpu.throughOrigin!)).toBe(79);
+        expect(count(webgpu.originBehind!)).toBe(15);
+      }
+    },
+    120_000,
+  );
+});
+
+/**
+ * One entry of a GPU page for each adapter. Each draws a triangle that every
+ * plane of the clip volume cuts, into a polygon of 9 vertices, on a 16×16
+ * canvas: red and green from a colour each vertex has, and blue from an
+ * integer each vertex has, 5 for the first, over 8. It returns a row of
+ * characters for each row of pixels, the red, green and blue bytes of each
+ * pixel joined.
+ */
+const NINE_VERTICES = `
+import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const draw = async (create, settle) => {
+  const position = attribute("vec4");
+  const colour = attribute("vec3");
+  const id = attribute("int");
+  const shade = varying("vec3");
+  const k = varying("int");
+  const vertex = Fn(() => {
+    shade.assign(colour);
+    k.assign(id);
+    return vec4(position);
+  })();
+  const fragment = Fn(() => vec4(shade.x, shade.y, k.toFloat().div(8), 1))();
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const adapter = create(vertex, fragment);
+  await adapter.attach(canvas);
+  adapter.setAttribute(position, Float32Array.of(2.5, 2.25, 1, 2, 0.75, -2, -2, 3.75, -4, -2, 3.75, -0.5));
+  adapter.setAttribute(colour, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+  adapter.setAttribute(id, Int32Array.of(5, 2, 7));
+  adapter.draw({ count: 3 });
+  if (settle) await settle(adapter);
+  const flat = document.createElement("canvas");
+  flat.width = 16;
+  flat.height = 16;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, 16, 16).data;
+  const rows = [];
+  for (let y = 0; y < 16; y++) {
+    const row = [];
+    for (let x = 0; x < 16; x++) row.push(Array.from(data.slice((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)).join(","));
+    rows.push(row.join(" "));
+  }
+  return rows;
+};
+globalThis.__rmslNineJs = () => draw((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslNineWasm = () => draw((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslNineWgsl = () =>
+  draw(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+/**
+ * One entry of a GPU page for each adapter. Each draws triangles with a vertex
+ * behind the eye and pixel centres exactly on an edge the clip cuts, or at
+ * depth exactly 0, on a 16×16 canvas, and returns the pixels each lights: a
+ * row of `#` and `.` for each row of pixels.
+ */
+const CLIPPED_EDGES = `
+import { Fn, attribute, varying, vec4 } from "../rmsl";
+import { createWgsl } from "../wgsl";
+import { createJs } from "../js";
+import { createWasm } from "../wasm";
+const CASES = {
+  upTheLeft: [0.5625, 0.0625, 0.5, 1, -1.875, 0.625, -1, -2, 0.75, 0.25, 0.5, 1],
+  atDepthZero: [0.40625, -0.28125, -1.25, -0.5, -0.75, 0.75, 0.5, 1, 0.4375, -0.1875, 0.5, 1],
+  wide: [0.1875, -0.0625, 0.5, 1, 0.9375, 0.8125, -0.5, -1, -0.25, -0.75, 0.5, 1],
+  downTheRight: [-0.0625, -0.1875, 0.5, 1, 0.875, -1.125, -1, -2, 0.25, -0.25, 0.5, 1],
+  behindACorner: [-1, -1, -0.5, -1, 1, -1, 1, 2, -1, 1, 1, 2],
+  rightOfAColumn: [0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, 0.5, 0.5, 0.5, 1],
+  leftOfAColumn: [0.0625, 0, 0.5, 1, -0.0625, 1, 0.5, -1, -0.5, 0.5, 0.5, 1],
+};
+const lit = (canvas) => {
+  const flat = document.createElement("canvas");
+  flat.width = canvas.width;
+  flat.height = canvas.height;
+  const context = flat.getContext("2d");
+  context.drawImage(canvas, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rows = [];
+  for (let y = 0; y < canvas.height; y++) {
+    let row = "";
+    for (let x = 0; x < canvas.width; x++) row += data[(y * canvas.width + x) * 4 + 3] ? "#" : ".";
+    rows.push(row);
+  }
+  return rows;
+};
+const drawEach = async (create, settle) => {
+  const drawn = {};
+  for (const [name, positions] of Object.entries(CASES)) {
+    const position = attribute("vec4");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const vertex = Fn(() => {
+      shade.assign(colour);
+      return vec4(position);
+    })();
+    const fragment = Fn(() => vec4(shade, 1))();
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const adapter = create(vertex, fragment);
+    await adapter.attach(canvas);
+    adapter.setAttribute(position, Float32Array.from(positions));
+    adapter.setAttribute(colour, Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
+    adapter.draw({ count: 3 });
+    if (settle) await settle(adapter);
+    drawn[name] = lit(canvas);
+  }
+  return drawn;
+};
+globalThis.__rmslClippedEdgesJs = () => drawEach((vertex, fragment) => createJs(() => vertex, () => fragment));
+globalThis.__rmslClippedEdgesWasm = () => drawEach((vertex, fragment) => createWasm(() => vertex, () => fragment));
+globalThis.__rmslClippedEdgesWgsl = () =>
+  drawEach(
+    (vertex, fragment) => createWgsl({ vertex, fragment }),
+    (adapter) => adapter.device().queue.onSubmittedWorkDone(),
+  );
+`;
+
+describe("a pixel centre on an edge the clip cuts", () => {
+  /** The pixels, as `x,y`, where one draw's rows light what the other's do not. */
+  const differences = (a: string[], b: string[]) =>
+    a.flatMap((row, y) => [...row].flatMap((pixel, x) => (pixel === b[y]![x] ? [] : [`${x},${y}`])));
+
+  /**
+   * Chromium's WebGPU on Metal lights the same pixels as JS and WASM for
+   * these triangles, but for a few centres on such an edge, or at depth
+   * exactly 0, which its precision puts on the other side.
+   *
+   * @canon spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
+   * @canon exception-a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "lights the same pixels on JS and WASM, and on WebGPU but for some centres its precision decides",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const webgpu: Record<string, string[]> = await runInWebGpuPage(CLIPPED_EDGES, "__rmslClippedEdgesWgsl", dir);
+      const js: Record<string, string[]> = await runInGpuPage(CLIPPED_EDGES, "__rmslClippedEdgesJs", dir);
+      expect(await runInGpuPage(CLIPPED_EDGES, "__rmslClippedEdgesWasm", dir)).toEqual(js);
+      const differ = Object.fromEntries(Object.keys(js).map((name) => [name, differences(js[name]!, webgpu[name]!)]));
+      expect(differ).toEqual({
+        upTheLeft: ["12,1", "13,4"],
+        atDepthZero: ["4,3"],
+        wide: [],
+        downTheRight: [],
+        behindACorner: ["2,4"],
+        rightOfAColumn: [],
+        leftOfAColumn: [],
+      });
+    },
+    120_000,
+  );
+});
+
+describe("a triangle every plane of the clip volume cuts", () => {
+  /**
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
+   * @canon spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "draws on JS and WASM what it draws on WebGPU, with the first vertex's flat value",
+    async () => {
+      const dir = new URL(".", import.meta.url).pathname;
+      const bytes = (rows: string[]) =>
+        rows.flatMap((row) => row.split(" ").map((pixel) => pixel.split(",").map(Number)));
+      const webgpu = bytes(await runInWebGpuPage(NINE_VERTICES, "__rmslNineWgsl", dir));
+      const lit = webgpu.filter((pixel) => pixel.some((byte) => byte !== 0));
+      expect(lit.length).toBeGreaterThan(50);
+      expect(new Set(lit.map((pixel) => pixel[2]))).toEqual(new Set([159]));
+      for (const entry of ["__rmslNineJs", "__rmslNineWasm"]) {
+        const cpu = bytes(await runInGpuPage(NINE_VERTICES, entry, dir));
+        // The same pixels lit, each red and green within one step of an 8-bit channel, as 32 and 64 bits round them.
+        expect(cpu.map((pixel) => pixel.some((byte) => byte !== 0))).toEqual(
+          webgpu.map((pixel) => pixel.some((byte) => byte !== 0)),
+        );
+        cpu.forEach((pixel, i) =>
+          pixel.forEach((byte, c) => expect(Math.abs(byte - webgpu[i]![c]!)).toBeLessThanOrEqual(1)),
+        );
+        expect(new Set(cpu.filter((pixel) => pixel.some((byte) => byte !== 0)).map((pixel) => pixel[2]))).toEqual(
+          new Set([159]),
+        );
+      }
+    },
+    120_000,
+  );
+});
+
 describe("setUniform on a sampler slot of createGlsl before attach", () => {
   /**
    * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot

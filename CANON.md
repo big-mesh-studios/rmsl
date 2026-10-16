@@ -105,8 +105,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
     - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
-      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
-        - [`@spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex`](#spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex) — On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped at the near plane keeps that vertex's value.
+      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped to the clip volume keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
+        - [`@spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex`](#spec-a-flat-varying-of-a-list-triangle-takes-its-first-vertex) — On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped to the clip volume keeps that vertex's value.
         - [`@spec a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k`](#spec-a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k) — On WGSL, JS and WASM, a fragment of an even triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
         - [`@spec a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k`](#spec-a-flat-varying-of-an-odd-strip-triangle-takes-strip-vertex-k) — On WGSL, JS and WASM, a fragment of an odd triangle `k` of a strip reads an integer varying as strip vertex `k` wrote it.
       - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
@@ -183,6 +183,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero`](#spec-a-cpu-indexed-draw-reads-an-attribute-past-its-end-as-zero) — In an indexed draw of a CPU rasterizer, a vertex past the end of an attribute the vertex stage reads reads that attribute as zero, on JS and WASM alike.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end`](#exception-a-gpu-target-lets-the-driver-pick-an-attribute-past-its-end) — On GLSL and WGSL, an indexed draw through a vertex past the end of an attribute reads whatever the driver gives.
     - [`@spec round-takes-a-half-to-the-even-integer`](#spec-round-takes-a-half-to-the-even-integer) — `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
+    - [`@spec a-rasterizer-gives-a-fragment-the-depth-of-its-point-on-the-triangle`](#spec-a-rasterizer-gives-a-fragment-the-depth-of-its-point-on-the-triangle) — A CPU rasterizer gives a fragment, as its interpolated depth, the z over w of the point of the triangle it draws on the ray through its pixel centre, within 1e-9 of it. A vertex at `vec4(0)` stands there for the point `(0, 0, 0, 1)`, at the centre at depth 0.
+      - [`@spec a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray`](#spec-a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray) — A triangle whose vertices do not lie in one plane with the eye gets that depth at every centre it covers, at a centre where the terms of its depth nearly cancel too.
+      - [`@spec a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre`](#spec-a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre) — A triangle with a vertex at `vec4(0)` and the other two in the clip volume gets the depth of the triangle from `(0, 0, 0, 1)` to those two, at every centre it covers.
+      - [`@spec a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws`](#spec-a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws) — A triangle in one plane with the eye that contains `vec4(0)` gets, at each centre it covers, the depth of the triangle from `(0, 0, 0, 1)` to the two ends of the segment that the rest of its part inside the clip volume projects to.
+    - [`@spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#spec-a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A draw draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
+      - [`@spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w`](#spec-a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w) — Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
+      - [`@spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings) — A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+      - [`@exception a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0`](#exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0) — On GLSL, a triangle with a vertex at `vec4(0)` draws no fragment on the edge opposite that vertex. On SwiftShader, its fragments blend the varyings of its three vertices, where WebGPU gives them the varyings of the vertex at `vec4(0)`.
+      - [`@spec a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume) — A triangle that reaches `vec4(0)`, at a vertex, along an edge or inside it, and has a vertex outside the clip volume draws the part of it inside that volume, with `vec4(0)` at the centre.
+      - [`@exception a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it`](#exception-a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it) — On WGSL, a triangle that reaches `vec4(0)` and has a vertex outside the clip volume lights pixels besides those its part inside that volume covers. On a 16×16 target, Chromium's WebGPU on Metal, on an Apple M1, lights 79 pixels for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`: the 64 of that part, and 15 more to their right. It lights 15 for the triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, -1)`, whose part inside the volume has no area.
+      - [`@spec a-cpu-triangle-through-vec4-0-faces-as-the-part-it-draws-winds`](#spec-a-cpu-triangle-through-vec4-0-faces-as-the-part-it-draws-winds) — A CPU rasterizer takes the facing of a triangle that reaches `vec4(0)` from the winding of the part of it that it draws, with `vec4(0)` at the centre, and culls all of that part or none of it.
     - [`@spec every-target-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-every-target-shades-a-pixel-centre-on-a-top-or-left-edge) — Every target shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge, whichever way the triangle winds.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
       - [`@exception a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver`](#exception-a-wgsl-target-leaves-the-pixel-centre-on-a-shared-edge-to-the-driver) — On WGSL, the driver decides which of the triangles that share an edge shades a pixel centre lying exactly on that edge.
@@ -790,9 +801,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
-    - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips at the near plane, and keeps the closer fragment.
+    - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips to the clip volume, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
-      - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
+      - [`@spec a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) — The rasterizer clips a triangle with a vertex near or behind the eye to WebGPU's clip volume, and draws the part inside it. A triangle wholly behind the eye draws nothing.
+      - [`@spec a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume`](#spec-a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume) — The polygon the clip leaves lies inside the clip volume, where it lies without rounding. A cut vertex whose four components are all no more than 2^-48 of the largest sum the cut takes, a component of the vertex the cut starts from and its step towards the other added by size, is `vec4(0)`. A triangle that meets the clip volume only at `vec4(0)` then draws nothing. A cut vertex whose w alone is 0 lies on one plane and outside another, and keeps its x, y and z for the next plane to cut.
+      - [`@spec a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale`](#spec-a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale) — A CPU rasterizer weighs each vertex of a triangle in perspective by its barycentric over its w, for any w a 64-bit float holds. Positions whose four components all scale by one factor give the same fragments, however large or small that factor.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
@@ -815,6 +828,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-reentrant-js-draw-draws-what-one-without-it-draws`](#spec-a-reentrant-js-draw-draws-what-one-without-it-draws) — A JS draw compiled with `reentrant` draws the image a draw of the same programs and inputs compiled without it draws.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
+      - [`@spec a-pixel-centre-on-an-edge-goes-by-its-triangle-as-its-vertices-place-it`](#spec-a-pixel-centre-on-an-edge-goes-by-its-triangle-as-its-vertices-place-it) — A pixel centre exactly on an edge of a triangle, or exactly at depth 0 or 1, is decided by the top-left rule and the depth range applied to the triangle as its vertices place it, whether the clip cuts the triangle or not, on a target of any size.
+        - [`@spec a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it`](#spec-a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it) — A pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0, goes by that edge and that depth as the triangle's own vertices place them, not as the vertices the clip makes place them.
+        - [`@spec a-rasterizer-decides-a-pixel-centre-on-an-edge-on-a-target-of-any-size`](#spec-a-rasterizer-decides-a-pixel-centre-on-an-edge-on-a-target-of-any-size) — A pixel centre exactly on an edge goes by the top-left rule on a target whose width or height is not a power of two, as on one whose are.
+        - [`@spec a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0`](#spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0) — A component of a position smaller than 2^-300 of the largest component of its vertex counts as 0 in deciding which pixel centres the triangle covers. Such a position lies beyond what positions of 32-bit floats reach.
+        - [`@spec a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre`](#spec-a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre) — A triangle whose vertices lie in one plane with the eye covers no pixel centre, unless the triangle itself contains `vec4(0)`: at a vertex, along an edge or inside it.
+        - [`@exception a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision`](#exception-a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision) — On WGSL and GLSL, a pixel centre exactly on an edge of a triangle, or exactly at depth 0, is decided by the precision of the driver, and some go the other way.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
@@ -898,7 +917,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced. A variable or a slot named by text that is no identifier, or a slot named by a keyword or a built-in of GLSL or WGSL, or by a name with the prefix `gl_` or two underscores in a row, is one such case, and every target refuses it again as it compiles, so a graph built by hand is refused alike.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output the program does not write on a call is `undefined` in what that call returns, a varying 0, and a position `vec4(0)`. The depth is `undefined` in a stage that neither reads nor writes one, and in a stage that reads or writes one, a call that does not write it gives the depth its context holds ([`exception-a-fragment-path-that-writes-no-depth-keeps-its-own`](#exception-a-fragment-path-that-writes-no-depth-keeps-its-own)). With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
-  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, compiled without `reentrant`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
+  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, compiled without `reentrant`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle it clips to the clip volume allocates nothing either: the clip writes its polygon into vertices the rasterizer makes once.
     - [`@spec a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying`](#spec-a-js-draw-allocates-nothing-for-a-vector-attribute-or-varying) — A JS draw whose vertex stage reads a `vec3` attribute and writes a `vec3` varying, which the fragment stage reads, allocates nothing for each vertex or fragment.
     - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute) — A JS draw whose vertex stage reads a `float` attribute holding fractions allocates nothing for each vertex.
     - [`@spec a-js-draw-allocates-nothing-for-an-int-attribute`](#spec-a-js-draw-allocates-nothing-for-an-int-attribute) — A JS draw whose vertex stage reads an `int` attribute allocates nothing for each vertex.
@@ -911,6 +930,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform) — A JS draw whose fragment stage reads a `float` uniform allocates nothing for each fragment.
     - [`@spec a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth`](#spec-a-js-draw-allocates-nothing-for-a-fragment-that-writes-its-depth) — A JS draw whose fragment stage writes `builtinFragDepth()` allocates nothing for each fragment.
     - [`@spec a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn`](#spec-a-js-draw-allocates-nothing-after-another-rasterizer-has-drawn) — A JS draw with a `float` attribute and varying allocates nothing for each vertex or fragment after another `compileJS` rasterizer, with `float` attributes and varyings of other slots, has drawn in the same process.
+    - [`@spec a-js-draw-allocates-nothing-whatever-drew-before-it`](#spec-a-js-draw-allocates-nothing-whatever-drew-before-it) — A JS draw allocates nothing for each vertex or fragment, whichever rasterizers of other slots the process drew before it, in whatever order. No load in the code every rasterizer runs takes a key that a `for-in` loop gives from an object other than the one the loop walks.
     - [`@spec a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots`](#spec-a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots) — A JS draw with a `float` attribute and varying allocates nothing for each vertex or fragment after the host has made an object of its own, keyed by the slots of that attribute and varying, that held `undefined` in them.
     - [`@spec a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-vector-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `vec3` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `vec3` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
     - [`@spec a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array`](#spec-a-js-draw-allocates-nothing-for-a-float-attribute-after-draws-from-five-kinds-of-array) — A JS draw from a `float` attribute in a `Float64Array` allocates nothing for each vertex after other `compileJS` rasterizers have drawn, in the same process, from `float` attribute arrays of four other kinds: `Float32Array`, `Int32Array`, `Uint32Array` and `Int16Array`.
@@ -936,9 +956,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array`](#bug-a-js-draw-boxes-texels-of-a-texture-load-given-five-kinds-of-array) — After those draws, each texel component `textureLoad` reads is boxed into a new heap number: about 16.5 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
     - [`@spec a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes`](#spec-a-js-draw-allocates-nothing-for-a-float-uniform-after-uniforms-objects-of-five-shapes) — A JS draw whose fragment stage reads a `float` uniform holding a fraction allocates nothing for each fragment after draws of the same rasterizer whose uniforms objects came in five shapes, each holding the uniform, all but one after a key of its own.
       - [`@bug a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes`](#bug-a-js-draw-boxes-a-float-uniform-read-from-uniforms-objects-of-five-shapes) — After those draws, the read boxes the uniform into a new heap number for each fragment: about 4.1 KB a 16×16 draw, measured by `probes/v8-float-boxing/draw.ts`.
-    - [`@spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts`](#spec-a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts) — A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
-  - [`@spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade`](#spec-a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade) — A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, when no triangle crosses the near plane. It does no work for the elements of the host's attribute arrays its vertices do not use.
-    - [`@spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size`](#spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size) — A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+    - [`@spec a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye`](#spec-a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye) — A JS draw allocates nothing for a triangle with a vertex at or behind the eye: for the polygon the clip leaves of it, for what it draws of one in one plane with the eye, or for each fragment of it.
+  - [`@spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade`](#spec-a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade) — A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, whether the clip cuts its triangles or not. It does no work for the elements of the host's attribute arrays its vertices do not use.
+    - [`@spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size`](#spec-a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size) — A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, whether the clip cuts its triangles or not.
     - [`@spec a-js-draw-reads-only-the-attribute-elements-of-its-vertices`](#spec-a-js-draw-reads-only-the-attribute-elements-of-its-vertices) — A JS draw from `first`, of `count` vertices, reads each attribute array only at the elements of those vertices.
   - [`@spec a-js-draw-assembles-its-triangles-in-tables-it-keeps`](#spec-a-js-draw-assembles-its-triangles-in-tables-it-keeps) — A draw of the JS rasterizer assembles its triangles in tables the routine keeps. It grows a table only for a draw that needs more than an earlier draw did. A draw by indices allocates nothing on a call whose tables fit, with an attribute or none. A draw without indices keeps no table of the vertices it names.
     - [`@spec a-js-indexed-draw-allocates-nothing-once-its-tables-fit`](#spec-a-js-indexed-draw-allocates-nothing-once-its-tables-fit) — A draw of the JS rasterizer by indices allocates nothing on a call whose indices and vertices fit the tables an earlier call grew. This holds for a program that reads an attribute and for one that reads none. An index past the end of every attribute and past 1048575 takes an entry in a map, made for that call.
@@ -1029,6 +1049,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each float it reads from a `Float64Array`. A typed array's own `set` copies from typed arrays and from plain arrays of numbers without boxing.
 - [`@fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline) — In code V8 has optimized, V8 boxes a float passed as an argument to, or returned from, a call it does not inline. V8 does not inline a call to a function with a large body.
 - [`@fact v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it) — In V8's interpreter and in Sparkplug, which run code before V8 optimizes it, a float loaded from a `Float64Array` and its product with another number are each a new heap number, whole numbers among them. A store of such a product into a property or a `Float64Array` allocates 32 bytes, and a product of a property and such a float, stored into a `Float64Array`, 48. Maglev and TurboFan, which optimize code that has run often, allocate nothing for the same code.
+- [`@fact v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name`](#fact-v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name) — V8 optimizes the closures that one function literal makes as one function. A load by a key that a `for-in` loop gives, from an object other than the one the loop walks, is optimized for the names it has seen. A closure that meets other names deoptimizes it, and V8 optimizes and deoptimizes it again and again, while the code runs unoptimized and boxes its floats.
 - [`@fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target) — TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
 - [`@fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target) — A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
 - [`@fact glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined) — A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
@@ -1165,8 +1186,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer) — WGSL's `round` takes a value halfway between two integers to the even one.
 - [`@fact webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded) — WebGPU stores a float into an 8-bit normalised channel by clamping it to 0 to 1 and rounding it to the nearest byte.
 - [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — Chromium's WebGPU on Metal on an Apple M1 gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
-- [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU on Metal on an Apple M1 shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+- [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU on Metal on an Apple M1 shades a pixel centre that lies exactly on a top or a left edge of a triangle at w 1 whose vertices lie on multiples of half a pixel, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 - [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
+- [`@fact webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space) — WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
+- [`@fact webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen`](#fact-webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen) — WebGPU gives a fragment of a polygon the depth Σ bᵢ dᵢ, where bᵢ are the barycentric coordinates of its pixel centre in framebuffer space and dᵢ is the depth of each vertex of the clipped polygon: its z over w, mapped linearly to the viewport's depth range.
+- [`@fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre) — A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings.
+- [`@fact webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge`](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge) — Chromium's WebGL 2 lights the 64 pixels that WebGPU lights for a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)`, and none of the 16 centres of an edge opposite `vec4(0)` that WebGPU lights in that vertex's colour. On SwiftShader the fragments of the first triangle blend the colours of its three vertices; on ANGLE's Metal renderer they take the colour of the `vec4(0)` vertex.
+- [`@fact webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it`](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it) — On a 16×16 target, Chromium's WebGL 2 lights, for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, the 64 pixels of its part inside the clip volume on SwiftShader, and on ANGLE's Metal renderer on an Apple M1 the 79 that Chromium's WebGPU lights on Metal.
+- [`@fact webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision) — WebGPU leaves open whether a pixel centre on an edge of a polygon is drawn: "If a pixel center is on the edge of the polygon, whether or not it's included is not defined. Note: this becomes a subject of precision for the rasterizer." Chromium's WebGPU on Metal lights what the top-left rule applied to the triangle as its vertices place it lights for most triangles, and other pixels for a few in a hundred, whether the clip cuts the triangle or not. It differs about as often from that rule applied to the vertices' projections rounded to 64 bits, or more often.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
@@ -1230,7 +1257,16 @@ Each choice below that a unit depends on has a spec that states what the axioms 
 
 ### Platform behaviour without a fact
 
-1. In the test runner, a JS draw whose rasterizer runs after rasterizers of other attribute slots once sent the shared per-draw function into a loop of Maglev deoptimizations at a keyed access ("unexpected name in keyed access"), so the per-vertex work ran in code V8 had not optimized, which allocates for each float. The rasterizer now keeps its per-vertex work in a function of its own, and reads its own records of slots through a `Map`. No probe outside the test runner reproduced the loop, so no fact states when V8 falls into one, and the scope of [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) to optimized draws assumes V8 does optimize them.
+1. In the test runner, a JS draw whose rasterizer runs after rasterizers of other attribute slots once sent the shared per-draw function into a loop of Maglev deoptimizations at a keyed access ("unexpected name in keyed access"), so the per-vertex work ran in code V8 had not optimized, which allocates for each float. The rasterizer now keeps its per-vertex work in a function of its own, and takes no key a `for-in` loop gives from an object other than the one the loop walks, the load [`fact-v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name`](#fact-v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name) names. No probe states whether V8 optimizes a draw at all, so the scope of [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) to optimized draws assumes V8 does optimize them.
+
+### The floor of a component
+
+[`spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0`](#spec-a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0) states today's behaviour: a component smaller than 2^-300 of the largest of its vertex counts as 0. No position of 32-bit floats reaches that, so the axioms leave the value to rmsl, and the owner has not picked it. The options:
+
+1. Keep the floor at 2^-300. It costs nothing, and a line's sign stays within what products of 64-bit floats hold. A position of 64-bit floats with components more than 2^300 apart can then draw another triangle than its exact one, as the spec's example shows.
+2. Track the exponents of products instead of flushing: an exact path that never takes a component for 0. Every position of 64-bit floats then draws its exact triangle, at the cost of a second, slower path for the exact sums and of the tests for it.
+
+Recommendation: keep option 1, as it lies wholly outside what a GPU can draw. Issue #334 discusses it.
 
 ### Coverage gaps
 
@@ -1831,13 +1867,13 @@ This follows because both GPU languages refuse an integer varying that is not fl
 
 ##### @spec a-flat-varying-takes-the-first-vertex
 
-> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
+> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped to the clip volume keeps that vertex's value. The first vertex of triangle `k` of a strip is strip vertex `k`.
 
 This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives. Every WebGPU implementation measured takes strip vertex `k` as the first of triangle `k`, where the specification's text puts vertex `k + 1` first in an odd triangle, and the owner of the design ruled that the CPU targets take vertex `k` too.
 
 ###### @spec a-flat-varying-of-a-list-triangle-takes-its-first-vertex
 
-> On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped at the near plane keeps that vertex's value.
+> On WGSL, JS and WASM, a fragment of a triangle of a list reads an integer varying as the triangle's first vertex wrote it. A triangle clipped to the clip volume keeps that vertex's value.
 
 ###### @spec a-flat-varying-of-an-even-strip-triangle-takes-strip-vertex-k
 
@@ -2290,6 +2326,84 @@ Chromium's WebGPU reads such an attribute as its last element on Metal, and as z
 Derives from: [`fact-wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer)
 
 This follows because WGSL's `round` takes a half to the even integer, and a CPU target gives what WebGPU gives.
+
+#### @spec a-rasterizer-gives-a-fragment-the-depth-of-its-point-on-the-triangle
+
+> A CPU rasterizer gives a fragment, as its interpolated depth, the z over w of the point of the triangle it draws on the ray through its pixel centre, within 1e-9 of it. A vertex at `vec4(0)` stands there for the point `(0, 0, 0, 1)`, at the centre at depth 0.
+
+Derives from: [`fact-webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen`](#fact-webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre), [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings)
+
+This follows because WebGPU's depth at a pixel centre is the sum of the depths of the polygon's vertices by their barycentrics on the screen, which over a triangle is the z over w of its point there. A CPU target computes in 64 bits, where that depth can be held far finer than the 2^-24 of a 32-bit float, so how its terms happen to round must not decide which of two close fragments a depth test keeps. Where the triangle reaches `vec4(0)`, it is drawn with that vertex [at the centre](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), and the triangle it draws is the one with `(0, 0, 0, 1)` in its place.
+
+##### @spec a-triangle-drawn-by-its-lines-gets-the-depth-of-its-point-on-the-ray
+
+> A triangle whose vertices do not lie in one plane with the eye gets that depth at every centre it covers, at a centre where the terms of its depth nearly cancel too.
+
+##### @spec a-triangle-with-a-vertex-at-vec4-0-gets-the-depth-of-its-point-with-that-vertex-at-the-centre
+
+> A triangle with a vertex at `vec4(0)` and the other two in the clip volume gets the depth of the triangle from `(0, 0, 0, 1)` to those two, at every centre it covers.
+
+##### @spec a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws
+
+> A triangle in one plane with the eye that contains `vec4(0)` gets, at each centre it covers, the depth of the triangle from `(0, 0, 0, 1)` to the two ends of the segment that the rest of its part inside the clip volume projects to.
+
+Derives from: [`spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+This follows because the points of such a triangle in the clip volume, other than `vec4(0)`, have a w above 0, and their x, y and w lie in one plane with the eye, so they project to one segment of a line on the screen. The part [the triangle draws](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume), with `vec4(0)` at the centre, is then the triangle from the centre to the two ends of that segment. The plane of the triangle holds `vec4(0)`, so its z is a linear function of its x, y and w, and its z over w runs linearly along the segment. That one triangle's depth is therefore the depth of every triangle of the fan of the polygon the clip leaves, from its vertex at `vec4(0)`. A rasterizer that takes the depth from the projections of the vertices the clip cuts rounds it: on a 64×48 target, the triangle from `(-0.1326217944478656, -0.2506588228475079, 0.27140405480275104, 0.6166635713950581)` and `(-0.11629018860897772, -0.21979164063341755, 0.23798221743141051, 0.5407250243048016)` to minus four times its first vertex, whose edge runs through `vec4(0)`, missed it by up to 2.0e-3.
+
+#### @spec a-rasterizer-draws-a-vertex-at-the-clip-space-origin-at-the-centre
+
+> A draw draws a vertex at or near `vec4(0)` as WebGPU draws it, and where WebGPU leaves the result open, as rmsl picks it.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+This follows because WebGPU clips only what lies outside its clip volume, and a CPU target gives what WebGPU gives. Where WebGPU leaves the result open, rmsl picks one for the program, and a GPU target that departs from the pick is an exception inside it. A vertex at `vec4(0)` is the position a path of a vertex stage that writes none gives, so such a triangle is easy to draw. Issue #299 settled this.
+
+##### @spec a-rasterizer-keeps-a-vertex-in-the-clip-volume-however-small-its-w
+
+> Whatever its w, a CPU rasterizer keeps a vertex inside the clip volume where its x, y and z over w place it. The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w.
+
+This follows because WebGPU clips only what lies outside its clip volume. A cut at a plane of constant w through a vertex inside the volume drops pixels that WebGPU draws.
+
+##### @spec a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings
+
+> A vertex at `vec4(0)` lies at the centre of the target, at depth 0. Every fragment of its triangle takes its varyings, a fragment on the edge opposite it included, as perspective weighs a vertex by the inverse of its w. The depth of a fragment runs linearly on the screen, to 0 at the centre.
+
+This follows because Chromium's WebGPU draws such a vertex there, with its varyings and that depth.
+
+##### @exception a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0
+
+> On GLSL, a triangle with a vertex at `vec4(0)` draws no fragment on the edge opposite that vertex. On SwiftShader, its fragments blend the varyings of its three vertices, where WebGPU gives them the varyings of the vertex at `vec4(0)`.
+
+Derives from: [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), [`fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge`](#fact-webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge)
+
+It narrows the parent's pick where the spec it names first states it, and sits beside that spec, which stays a leaf for the tests of the CPU targets.
+
+##### @spec a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume
+
+> A triangle that reaches `vec4(0)`, at a vertex, along an edge or inside it, and has a vertex outside the clip volume draws the part of it inside that volume, with `vec4(0)` at the centre.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre), [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume)
+
+This follows because WebGPU gives no result for dividing `vec4(0)` by its w, so rmsl picks one, and the units that place a vertex at `vec4(0)` already pick it: such a triangle draws the part of it [inside the clip volume](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume) as any other does, and a vertex at `vec4(0)` of that part lies [at the centre](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings). That part is the exact one, decided from the given vertices, not from cuts that round. A triangle from `vec4(0)` to a vertex in front and a vertex behind the eye keeps only an edge, which draws nothing. A triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to minus its first vertex, behind the eye, has an edge through `vec4(0)`. It keeps the triangle from the first two to the centre, 64 pixels. Chromium's WebGL 2 on SwiftShader, where the GLSL tests run, lights those 64 too ([fact](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it)).
+
+A triangle that reaches `vec4(0)` along an edge or inside it has `vec4(0)` as a sum of its vertices with weights of one sign, so it lies in one plane with the eye, and its part inside the volume has `vec4(0)` for a vertex. Every fragment of that part takes the varyings of that vertex, which are the triangle's at `vec4(0)`: its vertices' varyings by those weights. The triangle from `(0.0625, 0.125, 0.0625, 0.125)` and `(-1.03125, 1, -0.15625, -1.5625)` to `(1, -1.0625, 0.125, 1.5)` holds `vec4(0)` inside it, and on a 15×16 target its part covers 35 pixel centres.
+
+##### @exception a-gpu-target-draws-a-triangle-through-vec4-0-as-its-driver-divides-it
+
+> On WGSL, a triangle that reaches `vec4(0)` and has a vertex outside the clip volume lights pixels besides those its part inside that volume covers. On a 16×16 target, Chromium's WebGPU on Metal, on an Apple M1, lights 79 pixels for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`: the 64 of that part, and 15 more to their right. It lights 15 for the triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, -1)`, whose part inside the volume has no area.
+
+Derives from: [`spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+It narrows the parent's pick where the spec it names first states it, and sits beside that spec, as [the GLSL exception](#exception-a-glsl-target-draws-no-fragment-on-the-edge-opposite-a-vertex-at-vec4-0) does. WebGPU gives no result for dividing `vec4(0)` by its w, and its driver divides it as it does. Which way the pixels it lights there face, no probe has read, so a draw that culls such a triangle may differ from a CPU target's too. Chromium's WebGL 2 on ANGLE's Metal renderer lights the same 79 pixels, but on SwiftShader the 64 of the part inside the volume ([fact](#fact-webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it)). The GLSL tests run on SwiftShader, where no test could see a departure, so no exception names GLSL.
+
+##### @spec a-cpu-triangle-through-vec4-0-faces-as-the-part-it-draws-winds
+
+> A CPU rasterizer takes the facing of a triangle that reaches `vec4(0)` from the winding of the part of it that it draws, with `vec4(0)` at the centre, and culls all of that part or none of it.
+
+Derives from: [`spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume), [`spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to`](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to), [`fact-webgpu-culls-by-the-winding-of-the-clipped-triangle`](#fact-webgpu-culls-by-the-winding-of-the-clipped-triangle), [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+This follows because WebGPU decides a face by the winding of the triangle's part inside the clip volume, and that part needs `vec4(0)` divided by its w, which WebGPU leaves open. So [the culling spec](#spec-a-cpu-rasterizer-culls-the-faces-a-draw-asks-it-to) does not decide such a triangle, and rmsl picks its facing. The pick is deduced, not measured: the facing fact and [the spec that places `vec4(0)` at the centre](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume) together say which part winds. A triangle with a vertex at `vec4(0)` and the other two in the clip volume winds as its three vertices do, that one at the centre. Any other lies in one plane with the eye and draws [the triangle from the centre to the two ends of a segment](#spec-a-triangle-in-one-plane-with-the-eye-gets-the-depth-of-the-triangle-it-draws). Its part inside the clip volume winds in its own x and y as the triangle does, and dividing by a w above 0 keeps that winding, so the triangle it draws winds as the triangle's x and y do. A vertex behind the eye takes part as it does in [the facing of a triangle across the near plane](#spec-a-cpu-triangle-across-the-near-plane-faces-as-its-part-in-front-winds).
 
 #### @spec every-target-shades-a-pixel-centre-on-a-top-or-left-edge
 
@@ -6019,15 +6133,31 @@ This follows because the vector a JS function computes lives in a slot that the 
 
 #### @spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair
 
-> `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips at the near plane, and keeps the closer fragment.
+> `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates float varyings in perspective, passes an integer varying flat, clips to the clip volume, and keeps the closer fragment.
 
 ##### @spec the-wasm-rasterizer-links-its-stages-in-one-memory
 
 > The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
 
-##### @spec a-rasterizer-clips-at-the-near-plane
+##### @spec a-rasterizer-clips-a-triangle-to-the-clip-volume
 
-> The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
+> The rasterizer clips a triangle with a vertex near or behind the eye to WebGPU's clip volume, and draws the part inside it. A triangle wholly behind the eye draws nothing.
+
+##### @spec a-rasterizer-places-a-vertex-the-clip-cuts-inside-the-clip-volume
+
+> The polygon the clip leaves lies inside the clip volume, where it lies without rounding. A cut vertex whose four components are all no more than 2^-48 of the largest sum the cut takes, a component of the vertex the cut starts from and its step towards the other added by size, is `vec4(0)`. A triangle that meets the clip volume only at `vec4(0)` then draws nothing. A cut vertex whose w alone is 0 lies on one plane and outside another, and keeps its x, y and z for the next plane to cut.
+
+Derives from: [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume), [`spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings`](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because a cut vertex whose x, y and w are all rounding has an x and y over w that place it anywhere, on the target or far off it, though the point it stands for lies within that rounding of `vec4(0)`. A triangle the clip leaves no area then drew a wedge of pixels. A cut at w + x = 0 can leave a point such as `(0, 0.5, 0.5, 0)`, the direction of an edge towards the eye; taken for `vec4(0)`, it shrank a wedge WebGPU draws to a line. The clip bounds only the pixels that a triangle drawn by its lines tests. A triangle in one plane with the eye is not clipped: whether it reaches `vec4(0)` is decided from its given vertices.
+
+##### @spec a-rasterizer-weighs-a-vertex-by-the-inverse-of-its-w-at-any-scale
+
+> A CPU rasterizer weighs each vertex of a triangle in perspective by its barycentric over its w, for any w a 64-bit float holds. Positions whose four components all scale by one factor give the same fragments, however large or small that factor.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-interpolates-a-varying-linearly-in-clip-space`](#fact-webgpu-interpolates-a-varying-linearly-in-clip-space), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because WebGPU's interpolation depends only on the ratios of the three w, and a CPU target computes positions in 64 bits, where a w of `1e-170` or `1e155` is an ordinary number. The rasterizer scales each vertex by a power of two that brings its largest component near 1, and weighs it by the line of the edge opposite it times that power over the greatest of the three, so no weight overflows, and two vertices of one w weigh alike however small it is.
 
 ##### @spec a-rasterizer-keeps-the-closer-fragment
 
@@ -6166,6 +6296,50 @@ This follows because `reentrant` changes only where each stage call keeps its sl
 Derives from: [`spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge)
 
 This follows because a CPU rasterizer follows the top-left rule, and the top or left edge of one triangle is the bottom or right edge of the triangle on its other side, so exactly one of them shades the centre.
+
+##### @spec a-pixel-centre-on-an-edge-goes-by-its-triangle-as-its-vertices-place-it
+
+> A pixel centre exactly on an edge of a triangle, or exactly at depth 0 or 1, is decided by the top-left rule and the depth range applied to the triangle as its vertices place it, whether the clip cuts the triangle or not, on a target of any size.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision), [`fact-webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range)
+
+This follows because WebGPU leaves such a centre to the precision of its rasterizer, so rmsl picks one rule for it, and a centre on an edge that two triangles share is [shaded once](#spec-a-pixel-on-a-shared-edge-is-shaded-once) only if both decide it by that one rule. A projection rounded to 64 bits, or a vertex the clip makes, lies on its edge only to that rounding, which would decide such a centre by chance, and differently for the two triangles of a shared edge when only one of them is clipped. A triangle whose vertices lie in one plane with the eye [covers no centre](#spec-a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre) unless it contains `vec4(0)`, and then draws by [the spec of `vec4(0)`](#spec-a-triangle-through-vec4-0-draws-its-part-inside-the-clip-volume): a centre on a side of what it draws goes by the top-left rule, decided from its given vertices.
+
+###### @spec a-rasterizer-decides-a-pixel-centre-on-a-clipped-edge-as-its-triangle-places-it
+
+> A pixel centre exactly on an edge of a triangle that the clip cuts, or exactly at depth 0, goes by that edge and that depth as the triangle's own vertices place them, not as the vertices the clip makes place them.
+
+This follows because a CPU rasterizer tests every pixel against the triangle's own edges: the line through two vertices in homogeneous x, y and w, which is zero at a pixel centre that their projections place on it, wherever a clip cuts the edge. It takes the depth from those lines too. The clip only bounds the pixels it tests.
+
+###### @spec a-rasterizer-decides-a-pixel-centre-on-an-edge-on-a-target-of-any-size
+
+> A pixel centre exactly on an edge goes by the top-left rule on a target whose width or height is not a power of two, as on one whose are.
+
+This follows because a pixel centre lies at a fraction with the width or the height below it, which a 64-bit float holds exactly only when that is a power of two. The rasterizer takes the ray through the centre in whole numbers instead, so the sign of each line there is computed exactly.
+
+###### @spec a-rasterizer-takes-a-component-far-smaller-than-its-vertex-for-0
+
+> A component of a position smaller than 2^-300 of the largest component of its vertex counts as 0 in deciding which pixel centres the triangle covers. Such a position lies beyond what positions of 32-bit floats reach.
+
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because no position of 32-bit floats, which a GPU draws, holds a component that small beside another one, as their largest and smallest lie 2^277 apart. The sign of a line through such a component would need more digits than products of 64-bit floats keep. Outside the positions a GPU can draw, rmsl picks its own result. The value 2^-300 is today's pick, which the owner has not ruled on ([open question](#the-floor-of-a-component)). Taking a component for 0 can do more than decide a tie: it can turn a vertex into a direction, and the triangle into one in a plane with the eye. The triangle from `(-2^301, -1, 0.5, 1)` and `(2^301, -1, 0.5, 1)` to `(0, 1, 0.5, 1)`, wholly in front of the eye, covers all 256 pixels of a 16×16 target, but its first two vertices become the directions `(∓1, 0, 0, 0)`, whose edge passes through `vec4(0)`, and it draws a wedge of 64 pixels to the centre. With 2^299 in place of 2^301 it draws all 256.
+
+###### @spec a-triangle-in-one-plane-with-the-eye-covers-no-pixel-centre
+
+> A triangle whose vertices lie in one plane with the eye covers no pixel centre, unless the triangle itself contains `vec4(0)`: at a vertex, along an edge or inside it.
+
+Derives from: [`fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre`](#fact-webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre)
+
+This follows because the vertices of such a triangle place it on a line, which has no area. A vertex at `vec4(0)` is the exception: a CPU rasterizer [draws it at the centre](#spec-a-rasterizer-draws-a-vertex-at-vec4-0-at-the-centre-with-its-varyings), which gives the triangle an area. `vec4(0)` lies on every bound of the clip volume, so the polygon the exact clip leaves has it for a vertex exactly when the triangle contains it. That is decided from the given vertices, not from the clip's cuts, whose rounding can miss `vec4(0)` when it lies inside the triangle and is reached only as a cut of a cut.
+
+###### @exception a-gpu-target-decides-a-pixel-centre-on-an-edge-by-its-precision
+
+> On WGSL and GLSL, a pixel centre exactly on an edge of a triangle, or exactly at depth 0, is decided by the precision of the driver, and some go the other way.
+
+Derives from: [`fact-webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision`](#fact-webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision)
+
+A triangle whose vertices lie in one plane with the eye lights a pixel now and then on WebGPU.
 
 ##### @spec a-rasterizer-clips-outside-the-depth-range
 
@@ -6387,7 +6561,7 @@ This follows because a WebGPU pipeline culls no face unless it asks to, and a CP
 
 > A CPU rasterizer takes the facing of a triangle with a vertex behind the eye from its part in front of the eye. Its vertices, projected, do not decide it.
 
-Derives from: [`spec-a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane)
+Derives from: [`spec-a-rasterizer-clips-a-triangle-to-the-clip-volume`](#spec-a-rasterizer-clips-a-triangle-to-the-clip-volume)
 
 This follows because WebGPU decides facing from the polygon clipping leaves. A vertex behind the eye projects through the eye to the other side. The projected vertices of such a triangle can then run the other way.
 
@@ -6703,7 +6877,7 @@ This follows because a call that builds a new array or a closure gives the garba
 
 ### @spec a-js-draw-allocates-nothing-per-vertex-or-fragment
 
-> In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, compiled without `reentrant`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle clipped at the near plane is the one case that allocates.
+> In V8 13.6, as Node 24.12 runs it on darwin arm64, a draw of the JS rasterizer, `compileJS`, compiled without `reentrant`, that V8 has optimized allocates nothing for each vertex or fragment it shades. This holds whatever the types and values of the attributes, uniforms and varyings its stages read and write, whatever kinds of array the host passes its attributes, uniforms and texel data in, and whatever other rasterizers the process has drawn with, and whatever objects it has made alike with the rasterizer's own, those keyed by its slots and those made as its contexts are. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and each scalar it hands a stage or takes back from one, the interpolated depth among them, in typed arrays it makes once, and the context it passes each stage in an object it makes once. It reads a stage's result where the stage left it. A triangle it clips to the clip volume allocates nothing either: the clip writes its polygon into vertices the rasterizer makes once.
 
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number`](#fact-v8-boxes-a-float-it-stores-in-a-property-that-has-held-other-than-a-number), [`fact-v8-holds-a-property-alike-in-objects-made-alike`](#fact-v8-holds-a-property-alike-in-objects-made-alike), [`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there), [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads), [`fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it`](#fact-v8-allocates-for-each-float-its-code-computes-before-it-optimizes-it)
 
@@ -6796,6 +6970,14 @@ This follows because the depth the rasterizer interpolates for a fragment, and t
 Derives from: [`fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there`](#fact-v8-shares-what-a-place-in-the-code-has-seen-among-the-functions-made-there)
 
 This follows because every rasterizer runs the same code, so each place in it has seen the slots of all of them, and a draw that stored its scalars by a key held in a variable would allocate once its place had seen two.
+
+#### @spec a-js-draw-allocates-nothing-whatever-drew-before-it
+
+> A JS draw allocates nothing for each vertex or fragment, whichever rasterizers of other slots the process drew before it, in whatever order. No load in the code every rasterizer runs takes a key that a `for-in` loop gives from an object other than the one the loop walks.
+
+Derives from: [`fact-v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name`](#fact-v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name)
+
+This follows because an application draws several programs, and V8 shapes the code all of them share by the ones it has drawn. A draw of one rasterizer after another of other slots allocated about 1,100 bytes, the code of the draw running unoptimized after each deoptimization.
 
 #### @spec a-js-draw-allocates-nothing-after-the-host-keyed-an-object-by-its-slots
 
@@ -6977,15 +7159,15 @@ This follows because the stage reads the uniform by its slot at one place in its
 
 Issue: #328
 
-#### @spec a-js-draw-allocates-only-for-what-a-near-plane-clip-cuts
+#### @spec a-js-draw-allocates-nothing-for-a-triangle-at-or-behind-the-eye
 
-> A JS draw allocates for a triangle that crosses the near plane, for the vertices its clip adds and the lists that hold them, and nothing for each fragment of it.
+> A JS draw allocates nothing for a triangle with a vertex at or behind the eye: for the polygon the clip leaves of it, for what it draws of one in one plane with the eye, or for each fragment of it.
 
-This follows because the clip runs once for each triangle it cuts, not once for each vertex or fragment the draw shades, and the vertices it adds have no place the draw made for them before.
+This follows because the clip writes its polygon into vertices the rasterizer makes once, and the lines of a triangle in one plane with the eye into arrays it makes once, and each runs once for each such triangle, so whatever they allocated, a frame of a mesh near the eye would allocate for each such triangle.
 
 ### @spec a-js-draw-costs-nothing-per-draw-for-what-it-does-not-shade
 
-> A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, when no triangle crosses the near plane. It does no work for the elements of the host's attribute arrays its vertices do not use.
+> A JS draw compiled without `reentrant` allocates nothing for itself once its rasterizer has drawn as many vertices, at that width and height or a larger one, whether the clip cuts its triangles or not. It does no work for the elements of the host's attribute arrays its vertices do not use.
 
 Derives from: [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment)
 
@@ -6993,7 +7175,7 @@ This follows because a draw runs every frame, so what it costs for itself it cos
 
 #### @spec a-js-draw-allocates-nothing-for-itself-once-it-has-drawn-at-that-size
 
-> A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, when no triangle crosses the near plane.
+> A JS draw allocates nothing for itself once its rasterizer has drawn as many vertices before, at that width and height or a larger one, whether the clip cuts its triangles or not.
 
 This follows because the vertices, the depth buffer and the image a draw needs are kept from the draws before it, and made again only when a draw needs more of them.
 
@@ -7556,6 +7738,12 @@ This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.2
 > In V8's interpreter and in Sparkplug, which run code before V8 optimizes it, a float loaded from a `Float64Array` and its product with another number are each a new heap number, whole numbers among them. A store of such a product into a property or a `Float64Array` allocates 32 bytes, and a product of a property and such a float, stored into a `Float64Array`, 48. Maglev and TurboFan, which optimize code that has run often, allocate nothing for the same code.
 
 This is how V8 behaves, not a choice. It was measured in Node 24.12.0 (V8 13.6.233.17-node.37) on darwin arm64 by `probes/v8-float-boxing/tiers.ts`, which runs the same code with `--max-opt` at 0, 1 and 2 and at the default. It measured fractions and small integers loaded from a `Float64Array`, stored into a property or a `Float64Array`, and a property read into a `Float64Array`; no other operation. Every other V8 fact here measures code V8 has optimized: `probes/v8-float-boxing/measure.ts` warms the code first and keeps the lower of two rounds.
+
+## @fact v8-deoptimizes-a-keyed-load-of-a-for-in-key-for-each-new-name
+
+> V8 optimizes the closures that one function literal makes as one function. A load by a key that a `for-in` loop gives, from an object other than the one the loop walks, is optimized for the names it has seen. A closure that meets other names deoptimizes it, and V8 optimizes and deoptimizes it again and again, while the code runs unoptimized and boxes its floats.
+
+This is how V8 behaves, in Node 24, and not a choice. With `--trace-deopt`, a draw of a second `compileJS` rasterizer, after 2000 draws of a first one of other slots, deoptimized the draw's code with the reason "unexpected name in keyed access", at `widths[slot]` in its `for (const slot in attributes)` loop, more than twenty times in 2000 draws. It allocated about 1,100 bytes a draw. With the widths in a `Map`, the code deoptimized once, for the new call targets, and allocated nothing.
 
 ## @fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target
 
@@ -8399,7 +8587,7 @@ The WebGPU specification leaves such a pixel undefined; OpenGL ES 3.0, section 3
 
 ## @fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge
 
-> Chromium's WebGPU on Metal on an Apple M1 shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+> Chromium's WebGPU on Metal on an Apple M1 shades a pixel centre that lies exactly on a top or a left edge of a triangle at w 1 whose vertices lie on multiples of half a pixel, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 
 This is the top-left rule that Direct3D specifies. Chromium's WebGPU on Metal draws into a 4×4 target, in both windings. A rectangle from x 0.5 to 2.5, in pixels, shades columns 0 and 1. A rectangle from y 0.5 to 2.5 shades rows 0 and 1. A triangle with its left edge at x 0.5 and its top edge at y 0.5 shades all 16 pixels. A triangle with its right edge at x 2.5 and its bottom edge at y 2.5 shades four pixels, those of columns 0 and 1 in rows 0 and 1. Measured on Chromium 149 on an Apple M1, with edges of slope 1, -1, 1/2 and 2 too, by `probes/single-sample/pixel-centre-on-an-edge.ts`. Other drivers are unmeasured.
 
@@ -8408,6 +8596,50 @@ This is the top-left rule that Direct3D specifies. Chromium's WebGPU on Metal dr
 > WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
 
 This is a fact of the WebGPU specification, section Fragment Processing.
+
+## @fact webgpu-interpolates-a-varying-linearly-in-clip-space
+
+> WebGPU interpolates a varying of the `perspective` type, the default for a float one, linearly in clip space. At a pixel, each vertex of a triangle weighs its barycentric on the screen over its w, over the sum of those weights.
+
+This is a fact of the WebGPU specification, section Primitive Clipping: "The value is linearly interpolated in clip space, producing perspective-correct values." The weights depend only on the ratios of the three w, so scaling every component of the three positions by one factor changes no fragment.
+
+## @fact webgpu-gives-a-fragment-the-depth-of-its-barycentrics-on-the-screen
+
+> WebGPU gives a fragment of a polygon the depth Σ bᵢ dᵢ, where bᵢ are the barycentric coordinates of its pixel centre in framebuffer space and dᵢ is the depth of each vertex of the clipped polygon: its z over w, mapped linearly to the viewport's depth range.
+
+This is a fact of the [WebGPU specification](https://www.w3.org/TR/2026/CRD-webgpu-20260915/), Candidate Recommendation Draft of 15 September 2026. Section 23.2.5.4, Polygon Rasterization: "Let di be the depth value of vi. Set rp.depth to ∑ (bi × di)". Section 23.2.5.3, Barycentric coordinates: they are "defined for a point p inside a convex polygon with n vertices vi in framebuffer space". Section 23.2.5, Rasterization: "depth(n) = vp.minDepth + n.z × ( vp.maxDepth - vp.minDepth )", where n is the vertex divided by its w. With the default depth range of 0 to 1, a vertex's depth is its z over w. Z over w is affine on the screen over a triangle, so the depth at a pixel centre is the z over w of the point of the triangle on the ray through that centre, however the polygon is split, for a triangle whose vertices do not lie in one plane with the eye. Section 23.2.5 interpolates the user-defined attributes as clipping does, in perspective; the depth is not one of them, and section 23.2.5.4 alone decides it.
+
+## @fact webgpu-draws-a-vertex-at-the-clip-space-origin-at-the-centre
+
+> A vertex at `vec4(0)` lies in WebGPU's clip volume, so no clip removes it. The specification gives no result for dividing it by its w component. Chromium's WebGPU on Metal draws it at the centre of the viewport, at depth 0. Every fragment of its triangle takes that vertex's varyings.
+
+The clip volume holds the points whose x and y lie from −w to w, and whose z lies from 0 to w (WebGPU, "Primitive Clipping"). `vec4(0)` lies on each bound.
+
+On a 16×16 target, Chromium's WebGPU on Metal draws a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)` as the triangle from `(-1, -1)` and `(1, -1)` to the centre. That is 64 pixels. The depth runs linearly on the screen from 0.5 at the base to 0 at the centre. Give each vertex a colour of its own as a varying, and every pixel takes the colour of the `vec4(0)` vertex. A triangle from `(-1, 0.0625, 0.5, 1)` and `(1, 0.0625, 0.5, 1)` to `vec4(0)` has its top edge on the centres of row 7, and WebGPU lights all 16 of them in the colour of the `vec4(0)` vertex too. With a w of `1e-6` in place of 0, that row blends the colours of the other two vertices. WebGPU draws a vertex with a w of `1e-6` inside the volume where its x, y and z over w place it. A triangle from `(-1, -1, 0.5, 1)` to `(1, -1, 0.5, -1)`, behind the eye, and `(0, 0, 0, 1e-6)` draws the 64 pixels of the triangle from `(-1, -1)` and `(1, -1)` to the centre, which its part inside the volume covers.
+
+A vertex at `(0.3, 0.2, 0, 0)` lies outside the volume and is clipped away. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and `(0.3, 0.2, 0, 0)` lights a band from `(-1, -1)` towards the top right, a few pixels wider than the part of it inside the volume. A triangle from `vec4(0)` to `(-1, -1, 0.5, 1)` and to `(1, -1, 0.5, -1)`, which lies behind the eye, lights 15 pixels. They lie one to three in a row along the edge from the centre to `(-1, -1)`, in the colour of the `vec4(0)` vertex.
+
+A triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, minus its first vertex, has an edge through `vec4(0)` and no vertex there. It lights 79 pixels in blended colours: the 64 of the triangle from the base to the centre, and 15 more to their right (`probes/vec4-zero/gpu.probe.ts`, Chromium 149 on Metal, Apple M1).
+
+## @fact webgl-2-draws-a-triangle-to-vec4-0-without-its-opposite-edge
+
+> Chromium's WebGL 2 lights the 64 pixels that WebGPU lights for a triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `vec4(0)`, and none of the 16 centres of an edge opposite `vec4(0)` that WebGPU lights in that vertex's colour. On SwiftShader the fragments of the first triangle blend the colours of its three vertices; on ANGLE's Metal renderer they take the colour of the `vec4(0)` vertex.
+
+`probes/vec4-zero/gpu.probe.ts` draws through raw WebGL 2 calls in Chromium 149, with one sample, on SwiftShader (the browser the GLSL tests use) and on ANGLE's Metal renderer on an Apple M1, and reports no GL error. The edge opposite `vec4(0)` is the one from `(-1, 0.0625, 0.5, 1)` to `(1, 0.0625, 0.5, 1)`, on the centres of row 7 of a 16×16 target.
+
+## @fact webgl-2-draws-a-triangle-with-an-edge-through-vec4-0-as-its-renderer-divides-it
+
+> On a 16×16 target, Chromium's WebGL 2 lights, for the triangle from `(-1, -1, 0.5, 1)` and `(1, -1, 0.5, 1)` to `(1, 1, -0.5, -1)`, the 64 pixels of its part inside the clip volume on SwiftShader, and on ANGLE's Metal renderer on an Apple M1 the 79 that Chromium's WebGPU lights on Metal.
+
+The triangle's third vertex is minus its first, behind the eye, so its edge from the first to the third passes through `vec4(0)` and no vertex lies there. `probes/vec4-zero/gpu.probe.ts` draws it through raw WebGL 2 calls in Chromium 149, with one sample, on SwiftShader (the browser the GLSL tests use) and on ANGLE's Metal renderer, and reports no GL error. SwiftShader lights the 64 pixels of the triangle from the base to the centre, in the colour of the third vertex. ANGLE's Metal renderer lights those and 15 more to their right, the pixels WebGPU lights on the same machine (`probes/vec4-zero/gpu.probe.json`). The probe draws no other triangle through `vec4(0)` with a vertex outside the clip volume on WebGL 2.
+
+## @fact webgpu-leaves-a-pixel-centre-on-an-edge-to-its-precision
+
+> WebGPU leaves open whether a pixel centre on an edge of a polygon is drawn: "If a pixel center is on the edge of the polygon, whether or not it's included is not defined. Note: this becomes a subject of precision for the rasterizer." Chromium's WebGPU on Metal lights what the top-left rule applied to the triangle as its vertices place it lights for most triangles, and other pixels for a few in a hundred, whether the clip cuts the triangle or not. It differs about as often from that rule applied to the vertices' projections rounded to 64 bits, or more often.
+
+This is a fact of the WebGPU specification, section Polygon Rasterization, and of Chromium 149's WebGPU on Metal on an Apple M1. `probes/edge-rule/webgpu-edge.probe.ts` draws 1494 triangles of coordinates on a grid of 1/16, every vertex in front of the eye, each alone with one sample, and compares the pixels it lights with both rules, computed beside it. On a 16×16 target, 103 triangles differ from the rule as the vertices place it, in 137 pixels, 3 of them off every edge, and 94 differ from the rule on rounded projections. On 15×15 the counts are 57 and 116, on 30×15 54 and 88, and on 24×12 62 and 62. The same triangles with a vertex behind the eye differ from the rule as the vertices place it in 39 to 67 triangles, on every size. A triangle whose vertices lie in one plane with the eye lights one pixel in 3 of 200 such triangles in front of the eye, and in 5 of 200 with a vertex behind it (`probes/vec4-zero/gpu.probe.ts`).
+
+Of 48 triangles on a 16×16 target, each with a vertex behind the eye and pixel centres exactly on an edge towards it, it lit what the top-left rule lights in 39. In the other 9 it differed in one to eight pixels, each of them a centre at depth exactly 0. The triangle from `(0.5625, 0.0625, 0.5, 1)` to `(-1.875, 0.625, -1, -2)`, behind the eye, and `(0.75, 0.25, 0.5, 1)` lights the centres from (5, 0) to (11, 6), on its edge towards the eye, as the rule does, and also (12, 1) and (13, 4), on its other edge towards the eye, which the rule leaves out.
 
 ## @fact webgpu-clips-a-triangle-outside-the-depth-range
 

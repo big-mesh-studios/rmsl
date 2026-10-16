@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmFn } from "../../wasm";
-import { compileJS, compileJSRoutine, compileJSVertex } from "../../js";
-import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
+import { compileJS, compileJSRoutine } from "../../js";
+import { LINES_BYTES, instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 
 /** Clears a depth buffer so the first triangle over any pixel always passes the depth test. */
@@ -741,171 +741,192 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
   });
 });
 
-describe("WASM backend: generic rasterizer module — near-plane clipping", () => {
+/** The clip volume's planes, each kept where it is at least 0: w + x, w - x, w + y, w - y, z and w - z. */
+const CLIP_PLANES = [
+  (p: ArrayLike<number>) => p[3] + p[0],
+  (p: ArrayLike<number>) => p[3] - p[0],
+  (p: ArrayLike<number>) => p[3] + p[1],
+  (p: ArrayLike<number>) => p[3] - p[1],
+  (p: ArrayLike<number>) => p[2],
+  (p: ArrayLike<number>) => p[3] - p[2],
+];
+
+/** An independent clip of a polygon to the clip volume, plane by plane, each cut run from the vertex inside. */
+function clipToVolume(poly: number[][]): number[][] {
+  for (const distance of CLIP_PLANES) {
+    const out: number[][] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i]!;
+      const b = poly[(i + 1) % poly.length]!;
+      const da = distance(a);
+      const db = distance(b);
+      if (da >= 0) out.push(a);
+      if (da >= 0 !== db >= 0) {
+        const [from, to, t] = da >= 0 ? [a, b, da / (da - db)] : [b, a, db / (db - da)];
+        out.push(from.map((v, k) => v + (to[k]! - v) * t));
+      }
+    }
+    poly = out;
+  }
+  return poly;
+}
+
+/**
+ * An independent rasterization of a triangle of clip positions in one colour,
+ * with no clip: a pixel centre is drawn where the point of the triangle it
+ * shows lies in front of the eye, at a depth from 0 to 1, and inside each
+ * edge, the line through two vertices in homogeneous `(x, y, w)`, a centre on
+ * an edge by the top-left rule. Its numbers are exact for positions of a few
+ * binary digits.
+ */
+function rasterizeExactly(positions: number[][], width: number, height: number, color: number[]): Float64Array {
+  const out = new Float64Array(width * height * 4);
+  const lines = [0, 1, 2].map((e) => {
+    const i = positions[(e + 1) % 3]!;
+    const j = positions[(e + 2) % 3]!;
+    return [i[1]! * j[3]! - i[3]! * j[1]!, i[3]! * j[0]! - i[0]! * j[3]!, i[0]! * j[1]! - i[1]! * j[0]!];
+  });
+  const [a0, b0, c0] = lines[0]!;
+  const p0 = positions[0]!;
+  const sign = Math.sign(a0! * p0[0]! + b0! * p0[1]! + c0! * p0[3]!);
+  // A centre on an edge is the triangle's when the edge runs up the screen, or right along it, by WebGPU's rule.
+  const owns = lines.map(([a, b]) => a! * sign > 0 || (a! * sign === 0 && -b! * sign > 0));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const X = (2 * x + 1) / width - 1;
+      const Y = 1 - (2 * y + 1) / height;
+      const weights = lines.map(([a, b, c]) => (a! * X + b! * Y + c!) * sign);
+      if (!weights.every((weight, e) => weight > 0 || (weight === 0 && owns[e]))) continue;
+      const sum = weights[0]! + weights[1]! + weights[2]!;
+      const z = weights.reduce((total, weight, e) => total + weight * positions[e]![2]!, 0);
+      const w = weights.reduce((total, weight, e) => total + weight * positions[e]![3]!, 0);
+      if (!(sum > 0) || z / w < 0 || z / w > 1) continue;
+      out.set(color, (y * width + x) * 4);
+    }
+  }
+  return out;
+}
+
+/** The bytes after the clip scratch, which a draw must leave as they were. */
+const CANARY_BYTES = 64;
+
+/**
+ * Draws one triangle of clip positions in one colour through the rasterizer
+ * module alone, with no varyings, and gives its image and the canary bytes
+ * after its 18 scratch slots and the lines of the triangle being drawn.
+ */
+function drawOnModule(positions: number[][], width: number, height: number, color: number[]) {
+  const vertexBuild = () => Fn(() => builtinPosition().assign(attribute("vec4")))();
+  const fragmentBuild = () => Fn(() => vec4(color[0]!, color[1]!, color[2]!, color[3]!))();
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  const vertexCompiled = compileWasmFn(vertexBuild as any, {
+    name: "main",
+    params: [],
+    stage: "vertex",
+    memory,
+    memoryBase: 0,
+  });
+  const fragmentCompiled = compileWasmFn(fragmentBuild as any, { name: "main", params: [], memoryBase: 1024, memory });
+  const imports = { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } };
+  const vertexInstance = new WebAssembly.Instance(
+    new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+    imports,
+  );
+  const fragmentInstance = new WebAssembly.Instance(
+    new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
+    imports,
+  );
+  const { rasterize } = instantiateRasterizer(
+    vertexInstance.exports.main as () => void,
+    fragmentInstance.exports.main as () => void,
+    memory,
+    false,
+  );
+
+  const attrDescBase = 1536;
+  const attrSrcBase = 2048;
+  const positionsOutBase = 4096;
+  const outputBase = 16384;
+  const clipScratchBase = 24576;
+  // 18 vertex slots of 32 bytes with no varyings, then the lines of the triangle being drawn.
+  const scratchEnd = clipScratchBase + 18 * 32 + LINES_BYTES;
+  const depthBufferBase = 40960;
+  positions.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
+  const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
+  writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 32 }]);
+  const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
+  const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+  clearDepthBuffer(view, depthBufferBase, width * height);
+  new Uint8Array(memory.buffer, scratchEnd, CANARY_BYTES).fill(0xa5);
+
+  rasterize(
+    positions.length,
+    attrSrcBase,
+    32,
+    attrDescBase,
+    1,
+    positionAddress,
+    positionsOutBase,
+    width,
+    height,
+    fragmentValueAddress,
+    outputBase,
+    0,
+    0,
+    0,
+    0,
+    clipScratchBase,
+    depthBufferBase,
+    1,
+  );
+
+  return {
+    image: Array.from(new Float64Array(memory.buffer, outputBase, width * height * 4)),
+    canaries: [...new Uint8Array(memory.buffer, scratchEnd, CANARY_BYTES)],
+  };
+}
+
+describe("WASM backend: generic rasterizer module — clipping to the clip volume", () => {
   /**
-   * @canon spec-a-rasterizer-clips-at-the-near-plane
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
-  it("clips a triangle with one vertex behind the eye into two triangles, matching an independent JS clip+raster reference", () => {
-    let posAttr!: AttributeNode<"vec3">;
-    const vertexBuild = () =>
-      Fn(() => {
-        posAttr = attribute("vec3");
-        builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, posAttr.z));
-      })();
-    const fragmentBuild = () => Fn(() => vec4(9, 8, 7, 6))();
-
-    const width = 8;
-    const height = 8;
-    // w = z per the vertex program above: vertex 0 sits behind the eye (w < 0).
+  it("draws a triangle with one vertex behind the eye as its part inside the clip volume, matching an independent rasterization with no clip", () => {
     const positions = [
-      [-1, -1, -1],
-      [1, -1, 2],
-      [-1, 1, 2],
+      [-1, -1, -1, -1],
+      [1, -1, 2, 2],
+      [-1, 1, 2, 2],
     ];
+    const polygon = clipToVolume(positions);
+    expect(polygon.length).toBe(5); // two planes cut off the vertex behind the eye: a pentagon
+    const expected = Array.from(rasterizeExactly(positions, 8, 8, [9, 8, 7, 6]));
+    expect(expected.some((v) => v !== 0)).toBe(true);
+    expect(drawOnModule(positions, 8, 8, [9, 8, 7, 6]).image).toEqual(expected);
+  });
 
-    const jsVertex = compileJSVertex(vertexBuild as any, { name: "vertex", params: [] });
-    const clipSpacePositions = positions.map(
-      (p) => (jsVertex({ attributes: { [posAttr.name]: p } }) as { position: Float64Array }).position,
-    );
-
-    const EPS = 1e-5;
-    const clipAgainstW = (poly: ArrayLike<number>[]): ArrayLike<number>[] => {
-      const out: ArrayLike<number>[] = [];
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        const aIn = a[3] > EPS;
-        const bIn = b[3] > EPS;
-        if (aIn) out.push(a);
-        if (aIn !== bIn) {
-          const t = (EPS - a[3]) / (b[3] - a[3]);
-          out.push(Array.from(a, (av, k) => av + (b[k]! - av) * t));
-        }
-      }
-      return out;
-    };
-    const fanTriangulate = (poly: number[][]): [number[], number[], number[]][] => {
-      const tris: [number[], number[], number[]][] = [];
-      for (let i = 1; i + 1 < poly.length; i++) tris.push([poly[0], poly[i], poly[i + 1]]);
-      return tris;
-    };
-    const rasterizeTriangleInto = (out: Float64Array, p0: number[], p1: number[], p2: number[], color: number[]) => {
-      const screen = (p: number[]) => [((p[0] / p[3]) * 0.5 + 0.5) * width, (1 - ((p[1] / p[3]) * 0.5 + 0.5)) * height];
-      const s0 = screen(p0);
-      const s1 = screen(p1);
-      const s2 = screen(p2);
-      const area = (s1[0] - s0[0]) * (s2[1] - s0[1]) - (s1[1] - s0[1]) * (s2[0] - s0[0]);
-      if (area === 0) return;
-      const minX = Math.max(0, Math.floor(Math.min(s0[0], s1[0], s2[0])));
-      const maxX = Math.min(width - 1, Math.ceil(Math.max(s0[0], s1[0], s2[0])));
-      const minY = Math.max(0, Math.floor(Math.min(s0[1], s1[1], s2[1])));
-      const maxY = Math.min(height - 1, Math.ceil(Math.max(s0[1], s1[1], s2[1])));
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          const px = x + 0.5;
-          const py = y + 0.5;
-          const e0 = (s1[0] - px) * (s2[1] - py) - (s1[1] - py) * (s2[0] - px);
-          const e1 = (s2[0] - px) * (s0[1] - py) - (s2[1] - py) * (s0[0] - px);
-          const e2 = (s0[0] - px) * (s1[1] - py) - (s0[1] - py) * (s1[0] - px);
-          // A centre on an edge belongs to the triangle whose left edge, running up, or top edge, running right, it is.
-          const wind = area > 0 ? 1 : -1;
-          const owns = (a: number[], b: number[]) => {
-            const dy = (b[1] - a[1]) * wind;
-            return dy < 0 || (dy === 0 && (b[0] - a[0]) * wind > 0);
-          };
-          const inside = (e: number, a: number[], b: number[]) => e * wind > 0 || (e === 0 && owns(a, b));
-          if (!inside(e0, s1, s2) || !inside(e1, s2, s0) || !inside(e2, s0, s1)) continue;
-          const base = (y * width + x) * 4;
-          for (let c = 0; c < 4; c++) out[base + c] = color[c];
-        }
-      }
-    };
-
-    const expected = new Float64Array(width * height * 4);
-    const clippedPoly = clipAgainstW(clipSpacePositions).map((vertex) => Array.from(vertex));
-    expect(clippedPoly.length).toBe(4); // one vertex out, two in -> a quad
-    for (const [a, b, c] of fanTriangulate(clippedPoly)) rasterizeTriangleInto(expected, a, b, c, [9, 8, 7, 6]);
-    expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
-
-    const memory = new WebAssembly.Memory({ initial: 1 });
-    const view = new DataView(memory.buffer);
-
-    const vertexCompiled = compileWasmFn(vertexBuild as any, {
-      name: "main",
-      params: [],
-      stage: "vertex",
-      memory,
-      memoryBase: 0,
-    });
-    const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
-      name: "main",
-      params: [],
-      memoryBase: 1024,
-      memory,
-    });
-
-    const vertexInstance = new WebAssembly.Instance(
-      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
-      {
-        math: Math as unknown as WebAssembly.ModuleImports,
-        env: { memory },
-      },
-    );
-    const fragmentInstance = new WebAssembly.Instance(
-      new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
-      { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
-    );
-    const { rasterize } = instantiateRasterizer(
-      vertexInstance.exports.main as () => void,
-      fragmentInstance.exports.main as () => void,
-      memory,
-      false,
-    );
-
-    const attrSrcBase = 2048;
-    const positionsOutBase = 4096;
-    const outputBase = 16384;
-    const attrDescBase = 1536;
-    const clipScratchBase = 24576;
-    const clippedPositionsOutBase = 28672;
-    const clippedVaryingsOutBase = 32768;
-    positions.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
-
-    const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
-    writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
-    const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
-    const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
-    const depthBufferBase = 40960;
-    clearDepthBuffer(view, depthBufferBase, width * height);
-
-    rasterize(
-      3,
-      attrSrcBase,
-      24,
-      attrDescBase,
-      1,
-      positionAddress,
-      positionsOutBase,
-      width,
-      height,
-      fragmentValueAddress,
-      outputBase,
-      0,
-      0,
-      0,
-      0,
-      clipScratchBase,
-      clippedPositionsOutBase,
-      clippedVaryingsOutBase,
-      depthBufferBase,
-      1,
-    );
-
-    const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
-    expect(Array.from(actual)).toEqual(Array.from(expected));
+  /**
+   * Each of the six planes cuts this triangle, which leaves a polygon of 9
+   * vertices, the most a triangle can: a scratch half full, whose polygon
+   * bounds the pixels the triangle's own lines test.
+   *
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
+   */
+  it("clips a triangle every plane cuts into 9 vertices, writing nothing past its scratch", () => {
+    const positions = [
+      [2.5, 2.25, 1, 2],
+      [0.75, -2, -2, 3.75],
+      [-4, -2, 3.75, -0.5],
+    ];
+    const polygon = clipToVolume(positions);
+    expect(polygon.length).toBe(9);
+    const expected = Array.from(rasterizeExactly(positions, 16, 16, [9, 8, 7, 6]));
+    expect(expected.some((v) => v !== 0)).toBe(true);
+    const { image, canaries } = drawOnModule(positions, 16, 16, [9, 8, 7, 6]);
+    expect(image).toEqual(expected);
+    expect(canaries.every((byte) => byte === 0xa5)).toBe(true);
   });
   /**
-   * @canon spec-a-rasterizer-clips-at-the-near-plane
+   * @canon spec-a-rasterizer-clips-a-triangle-to-the-clip-volume
    */
   it("culls a triangle entirely behind the eye", () => {
     let posAttr!: AttributeNode<"vec3">;
@@ -1085,8 +1106,6 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
       const outputBase = 16384;
       const attrDescBase = 3072;
       const clipScratchBase = 24576;
-      const clippedPositionsOutBase = 28672;
-      const clippedVaryingsOutBase = 32768;
       const depthBufferBase = 40960;
 
       const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
@@ -1115,8 +1134,6 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
           0,
           0,
           clipScratchBase,
-          clippedPositionsOutBase,
-          clippedVaryingsOutBase,
           depthBufferBase,
           1,
         );

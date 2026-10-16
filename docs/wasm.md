@@ -115,7 +115,7 @@ Same story as the JS target: `@random-mesh/rmsl/test` is the ergonomic layer for
 
 ## Rasterizing a vertex/fragment pair
 
-`compileWasm(vertexFn, fragmentFn, options)` is a different function from everything above: instead of compiling one `Fn` into a routine, a stage or a grid, it links a compiled vertex/fragment pair against a generic triangle rasterizer (near-plane clipping, perspective-correct varying interpolation, a LEQUAL depth test), returning a `WasmRasterRoutine` — `draw(ctx, { count?, first?, width, height, clear?, clearDepth?, topology?, cullMode?, frontFace? })` runs the vertex loop, clipping, and triangle rasterization inside WASM. `createWasm(vertexFn, fragmentFn, options)` wraps that in the same `Adapter` interface `createGlsl`/`createWgsl` use — `setAttribute`/`setUniform`/`setTexture`, `attach(canvas)`, `draw()` — plus `setIndex`.
+`compileWasm(vertexFn, fragmentFn, options)` is a different function from everything above: instead of compiling one `Fn` into a routine, a stage or a grid, it links a compiled vertex/fragment pair against a generic triangle rasterizer (clipping to the clip volume, perspective-correct varying interpolation, a LEQUAL depth test), returning a `WasmRasterRoutine` — `draw(ctx, { count?, first?, width, height, clear?, clearDepth?, topology?, cullMode?, frontFace? })` runs the vertex loop, clipping, and triangle rasterization inside WASM. `createWasm(vertexFn, fragmentFn, options)` wraps that in the same `Adapter` interface `createGlsl`/`createWgsl` use — `setAttribute`/`setUniform`/`setTexture`, `attach(canvas)`, `draw()` — plus `setIndex`.
 
 A draw takes its triangles as WebGPU takes them:
 

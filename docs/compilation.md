@@ -444,7 +444,7 @@ looping in JS.
 
 `compileJS`/`createJs` are different functions from everything above: instead
 of compiling one `Fn` into a callable, they link a compiled vertex/fragment
-pair against a generic triangle rasterizer (near-plane clipping, a LEQUAL
+pair against a generic triangle rasterizer (clipping to the clip volume, a LEQUAL
 depth test) — the plain-JS counterpart to
 [`compileWasm`/`createWasm`](wasm.md#rasterizing-a-vertexfragment-pair), same
 shape, same semantics. That includes how a draw takes its triangles: a
