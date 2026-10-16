@@ -30,6 +30,7 @@ function between(start: string, end: string): string | null {
 
 const precision = between("Precisions are expressed", "the trigonometric functions and determinant.");
 const functions = between("The standard trigonometric sine function.", "8.2 Exponential Functions");
+const matrix = between("inverse (mat2", "(nearly singular).");
 /**
  * The text with its whitespace removed, as the PDF spaces words unevenly, and
  * its private-use characters, the glyphs it draws the `+` of the `cosh`
@@ -48,7 +49,7 @@ console.log(
         sameDocument: sha256 === SHA256,
         read: new Date().toISOString().slice(0, 10),
       },
-      passages: { "4.5.1": precision, "8.1": functions },
+      passages: { "4.5.1": precision, "8.1": functions, "8.6": matrix },
       checks: {
         divisionIs2Point5Ulp: /a\/b,1.0\/b2.5ULP/.test(flat(precision)),
         powInheritsFromExp2OfLog2: /pow\(x,y\)Inheritedfromexp2\(x\*log2\(y\)\)/.test(flat(precision)),
@@ -71,6 +72,10 @@ console.log(
         asinhIsOnlyAnInverse: /Archyperbolicsine;returnstheinverseofsinh\./.test(flat(functions)),
         acoshIsOnlyAnInverse: /Archyperboliccosine;returnsthenon-negativeinverseofcosh\./.test(flat(functions)),
         atanhIsOnlyAnInverse: /Archyperbolictangent;returnstheinverseoftanh\./.test(flat(functions)),
+        inverseIsOnlyDescribed:
+          /Returnsamatrixthatistheinverseofm\.Theinputmatrixmisnotmodified\.Thevaluesinthereturnedmatrixareundefinedifmissingularorpoorly-/.test(
+            flat(matrix),
+          ),
       },
     },
     null,
