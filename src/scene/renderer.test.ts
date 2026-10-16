@@ -9,7 +9,7 @@ globalThis.__rmslRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   scene.add(new AmbientLight(0xffffff, 0.3));
@@ -37,7 +37,7 @@ globalThis.__rmslIntRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const material = new MeshBasicMaterial();
@@ -70,7 +70,7 @@ globalThis.__rmslR8UIRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const material = new MeshBasicMaterial();
@@ -99,7 +99,7 @@ globalThis.__rmslLineRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const geometry = new LineSegmentsGeometry();
@@ -129,7 +129,7 @@ globalThis.__rmslInstancedRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 2);
@@ -164,7 +164,7 @@ globalThis.__rmslSamplersRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const first = new DataTexture(new Uint8Array([20, 0, 0, 0]), 1, 1);
@@ -206,7 +206,7 @@ globalThis.__rmslPrecisionRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false, precision: "mediump" });
+  const renderer = new WebGLRenderer(canvas, { precision: "mediump" });
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   scene.add(new AmbientLight(0xffffff, 0.3));
@@ -239,7 +239,7 @@ globalThis.__rmslTextureDisposeRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const dataTexture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
@@ -282,7 +282,7 @@ globalThis.__rmslSamplerStateRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
@@ -334,7 +334,7 @@ globalThis.__rmslTargetRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   scene.add(new Mesh(new PlaneGeometry(2, 2),
@@ -373,7 +373,7 @@ globalThis.__rmslTargetAsyncRun = async () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   scene.add(new Mesh(new PlaneGeometry(2, 2),
@@ -408,7 +408,7 @@ globalThis.__rmslRangeRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
 
@@ -460,7 +460,7 @@ globalThis.__rmslGeometryDisposeRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
   const geometry = new PlaneGeometry(2, 2);
@@ -505,7 +505,7 @@ globalThis.__rmslPackedRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
 
@@ -583,7 +583,7 @@ globalThis.__rmslStaleAttributesRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const scene = new Scene();
 

@@ -36,7 +36,7 @@ import {
 } from "../scene";
 import { GPU_ENABLED, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { collectNodes } from "../scene/materials/nodes/graph";
-import { GL_STATE, READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
+import { GL_STATE, READ_IMAGE, READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
 import { camera, offsetOf, sampling, stubDevice, stubGl, stubWebGl } from "./scene-stubs";
 import { drawToCanvas, GlStateKeeper } from "../backends/glsl/gl-state";
 
@@ -68,7 +68,7 @@ globalThis.__rmslR8UIRowsRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const dataTexture = new DataTexture(new Uint8Array([10, 20, 30, 40, 50, 60]), 3, 2, 1, RedIntegerFormat, UnsignedByteType);
   const material = new MeshBasicMaterial();
@@ -152,7 +152,7 @@ globalThis.__rmslAttributeTypes = async (backend) => {
     try {
       const renderer = backend === "webgpu"
         ? await WebGPURenderer.init(canvas)
-        : new WebGLRenderer(canvas, { antialias: false });
+        : new WebGLRenderer(canvas);
       results[name] = await drawCase(renderer, canvas, attributeCase);
     } catch (error) {
       results[name] = { error: error.message };
@@ -188,7 +188,7 @@ globalThis.__rmslMissingAttribute = async (backend) => {
     try {
       const renderer = backend === "webgpu"
         ? await WebGPURenderer.init(canvas)
-        : new WebGLRenderer(canvas, { antialias: false });
+        : new WebGLRenderer(canvas);
       const errors = [];
       renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
       const material = new MeshBasicMaterial();
@@ -238,7 +238,7 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
     canvas.height = 16;
     const renderer = backend === "webgpu"
       ? await WebGPURenderer.init(canvas)
-      : new WebGLRenderer(canvas, { antialias: false });
+      : new WebGLRenderer(canvas);
     const errors = [];
     renderer.device?.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
     const geometry = new PlaneGeometry(2, 2);
@@ -268,6 +268,219 @@ globalThis.__rmslFragmentAttribute = async (backend) => {
   return results;
 };
 `;
+
+/**
+ * The number of samples of the drawing buffer a `WebGLRenderer` draws into,
+ * made with each `antialias`, on a fresh canvas and on a canvas that already
+ * has a context: one made by `getContext` with or without multisampling, and
+ * one made by `createGlsl`. `plain` holds the samples of a context
+ * `getContext` makes with `antialias: true`, which WebGL 2 must obey; how many
+ * samples that is, is the implementation's.
+ */
+const ENTRY_RENDERER_SAMPLES = `
+import { WebGLRenderer } from "../scene";
+import { Fn, attribute, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+const samples = (renderer) => {
+  const gl = renderer.gl;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return gl.getParameter(gl.SAMPLES);
+};
+const withContext = (antialias) => {
+  const canvas = document.createElement("canvas");
+  canvas.getContext("webgl2", { antialias });
+  return canvas;
+};
+const plain = () => {
+  const gl = document.createElement("canvas").getContext("webgl2", { antialias: true });
+  return gl.getParameter(gl.SAMPLES);
+};
+globalThis.__rmslRendererSamples = () => {
+  const attached = document.createElement("canvas");
+  const pos = attribute("vec2");
+  createGlsl(Fn(() => vec4(pos, 0, 1))(), Fn(() => vec4(1, 0, 0, 1))()).attach(attached);
+  const canvas = () => document.createElement("canvas");
+  return {
+    byDefault: samples(new WebGLRenderer(canvas())),
+    antialiasFalse: samples(new WebGLRenderer(canvas(), { antialias: false })),
+    antialiasTrue: samples(new WebGLRenderer(canvas(), { antialias: true })),
+    antialiasTrueOnASingleSampledContext: samples(new WebGLRenderer(withContext(false), { antialias: true })),
+    antialiasTrueAfterCreateGlsl: samples(new WebGLRenderer(attached, { antialias: true })),
+    byDefaultOnAMultisampledContext: samples(new WebGLRenderer(withContext(true))),
+    plain: plain(),
+  };
+};
+`;
+
+describe("the multisampling WebGLRenderer draws with", () => {
+  /** The `antialias` attribute a `WebGLRenderer` made with `options` asks `getContext` for. */
+  const asked = (options?: { antialias?: boolean }) => {
+    const canvas: any = { width: 4, height: 4 };
+    let attributes: WebGLContextAttributes | undefined;
+    const { gl } = stubGl(canvas);
+    canvas.getContext = (_kind: string, given: WebGLContextAttributes) => ((attributes = given), gl);
+    new WebGLRenderer(canvas, options);
+    return attributes?.antialias;
+  };
+  let drawing: Promise<Record<string, number>> | undefined;
+  /** What `ENTRY_RENDERER_SAMPLES` returns, bundled and run once for every test. */
+  const samples = () =>
+    (drawing ??= runInGpuPage(ENTRY_RENDERER_SAMPLES, "__rmslRendererSamples", new URL(".", import.meta.url).pathname));
+
+  /**
+   * @canon spec-webgl-renderer-draws-with-one-sample-by-default
+   */
+  it("asks for none unless antialias is true", () => {
+    expect(asked()).toBe(false);
+    expect(asked({ antialias: false })).toBe(false);
+  });
+
+  /**
+   * @canon spec-webgl-renderer-draws-with-one-sample-by-default
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws into a buffer of one sample unless antialias is true, on a real driver",
+    async () => {
+      const { byDefault, antialiasFalse } = await samples();
+      expect(byDefault).toBe(0);
+      expect(antialiasFalse).toBe(0);
+    },
+    60_000,
+  );
+
+  /**
+   * @canon exception-webgl-renderer-multisamples-when-antialias-is-true
+   */
+  it("asks for multisampling when antialias is true", () => {
+    expect(asked({ antialias: true })).toBe(true);
+  });
+
+  /**
+   * WebGL 2 must obey `antialias: true`, so the buffer has samples; how many
+   * is the implementation's, so the renderer is held to a plain context's.
+   *
+   * @canon exception-webgl-renderer-multisamples-when-antialias-is-true
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws into a multisampled buffer when antialias is true, on a real driver",
+    async () => {
+      const { antialiasTrue, plain } = await samples();
+      expect(antialiasTrue).toBeGreaterThan(0);
+      expect(antialiasTrue).toBe(plain);
+    },
+    60_000,
+  );
+
+  /**
+   * `createGlsl` attached first leaves the canvas a context of one sample,
+   * which a later `antialias: true` cannot change.
+   *
+   * @canon spec-webgl-renderer-draws-with-the-samples-of-a-context-the-canvas-has
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "draws with the samples of a context the canvas already has, whatever antialias asks",
+    async () => {
+      const result = await samples();
+      expect(result.antialiasTrueOnASingleSampledContext).toBe(0);
+      expect(result.antialiasTrueAfterCreateGlsl).toBe(0);
+      expect(result.byDefaultOnAMultisampledContext).toBe(result.plain);
+    },
+    60_000,
+  );
+});
+
+/**
+ * The alphas that occur when a renderer draws an opaque red plane from x 0.5 to
+ * 2.5 pixels, its edges through the centres of columns 0 and 2, over a 4×4
+ * surface cleared to transparent: on the canvas and into a
+ * `WebGLRenderTarget`. `__rmslSceneEdgesOnWebGl` draws with `WebGLRenderer`,
+ * by default and with `antialias: true`, with the `SAMPLES` of its canvas;
+ * `__rmslSceneEdgesOnWebGpu` draws with `WebGPURenderer`, with the errors its
+ * device raised. The camera sits near its far plane, so the plane is drawn
+ * whatever depth range the renderer maps the frustum to.
+ */
+const ENTRY_SCENE_EDGES = `
+import { WebGLRenderer, WebGPURenderer, WebGLRenderTarget, Scene, Mesh, PlaneGeometry,
+  MeshBasicMaterial, OrthographicCamera } from "../scene";
+${READ_IMAGE}
+const scene = () => {
+  const mesh = new Mesh(new PlaneGeometry(1, 4), new MeshBasicMaterial({ color: 0xff0000 }));
+  mesh.position.x = -0.25;
+  const scene = new Scene();
+  scene.add(mesh);
+  return scene;
+};
+const camera = () => {
+  const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  camera.position.z = 9;
+  return camera;
+};
+const alphaSet = (bytes) => [...new Set(Array.from(bytes).filter((_, i) => i % 4 === 3))].sort((a, b) => a - b);
+const surfaces = async (renderer, canvas) => {
+  renderer.setClearColor(0x000000, 0);
+  renderer.render(scene(), camera());
+  if (renderer.device) await renderer.device.queue.onSubmittedWorkDone();
+  const onCanvas = alphaSet(readImage(canvas));
+  const target = new WebGLRenderTarget(4, 4);
+  renderer.render(scene(), camera(), target);
+  return { canvas: onCanvas, target: alphaSet(await renderer.readPixels(target)) };
+};
+globalThis.__rmslSceneEdgesOnWebGl = async () => {
+  const result = {};
+  for (const [name, options] of [["byDefault", {}], ["antialiasTrue", { antialias: true }]]) {
+    const canvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+    const renderer = new WebGLRenderer(canvas, options);
+    const gl = renderer.gl;
+    result[name] = { samples: gl.getParameter(gl.SAMPLES), ...(await surfaces(renderer, canvas)) };
+  }
+  return result;
+};
+globalThis.__rmslSceneEdgesOnWebGpu = async () => {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+  const renderer = await WebGPURenderer.init(canvas);
+  const errors = [];
+  renderer.device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
+  const drawn = await surfaces(renderer, canvas);
+  return { ...drawn, errors };
+};
+`;
+
+describe("a pixel an edge crosses in a scene", () => {
+  const dir = new URL(".", import.meta.url).pathname;
+
+  /**
+   * On the canvas the multisampled buffer gives the crossed columns a part of
+   * the colour, which shows the plane's edges cross pixel centres; the target
+   * holds each pixel whole or empty.
+   *
+   * @canon spec-webgl-renderer-draws-into-a-render-target-with-one-sample
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "is whole or empty in a render target of WebGLRenderer, whatever antialias asks",
+    async () => {
+      const result = await runInGpuPage(ENTRY_SCENE_EDGES, "__rmslSceneEdgesOnWebGl", dir);
+      for (const drawn of Object.values<any>(result)) expect(drawn.target, JSON.stringify(result)).toEqual([0, 255]);
+      expect(result.antialiasTrue.samples, JSON.stringify(result)).toBeGreaterThan(0);
+      expect(
+        result.antialiasTrue.canvas.some((alpha: number) => alpha > 0 && alpha < 255),
+        JSON.stringify(result),
+      ).toBe(true);
+    },
+    60_000,
+  );
+
+  /**
+   * @canon spec-webgpu-renderer-draws-with-one-sample
+   */
+  it.skipIf(!GPU_ENABLED || !WEBGPU)(
+    "is whole or empty on WebGPURenderer, on the canvas and in a render target",
+    async () => {
+      const result = await runInWebGpuPage(ENTRY_SCENE_EDGES, "__rmslSceneEdgesOnWebGpu", dir);
+      expect(result).toEqual({ canvas: [0, 255], target: [0, 255], errors: [] });
+    },
+    60_000,
+  );
+});
 
 describe("the values a scene renderer uploads", () => {
   /**
@@ -1106,11 +1319,15 @@ describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon spec-a-material-reads-any-sampler-type
    */
-  it("reads the second row of a three-texel-wide R8UI texture on WebGL", async () => {
-    const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
-    expect(result.error).toBe(0);
-    expect(result.r).toBe(40);
-  }, 60_000);
+  it.skipIf(!GPU_ENABLED)(
+    "reads the second row of a three-texel-wide R8UI texture on WebGL",
+    async () => {
+      const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
+      expect(result.error).toBe(0);
+      expect(result.r).toBe(40);
+    },
+    60_000,
+  );
 
   /**
    * @canon spec-a-change-raises-a-version-every-renderer-reads
@@ -1744,7 +1961,7 @@ globalThis.__rmslDepthMaskRun = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   renderer.setClearColor(0x000000);
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 4);
@@ -1788,7 +2005,7 @@ globalThis.__rmslTexturelessRun = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 16;
     canvas.height = 16;
-    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    const renderer = new WebGLRenderer(canvas);
     renderer.setClearColor(0x000000);
     return renderer;
   };
@@ -1828,7 +2045,7 @@ globalThis.__rmslFloatThenIntegerRun = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 16;
     canvas.height = 16;
-    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    const renderer = new WebGLRenderer(canvas);
     renderer.setClearColor(0x000000);
     return renderer;
   };
@@ -1873,7 +2090,7 @@ const preserveStateRun = async (preserveState) => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false, preserveState });
+  const renderer = new WebGLRenderer(canvas, { preserveState });
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
@@ -1906,7 +2123,7 @@ globalThis.__rmslPreserveStateOff = () => preserveStateRun(false);
 globalThis.__rmslPreserveStateOn = () => preserveStateRun(true);
 const ownVertexArrayRun = (vertexArray) => {
   const canvas = document.createElement("canvas");
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
@@ -1931,7 +2148,7 @@ const pixelsOver = (dirty) => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const renderer = new WebGLRenderer(canvas);
   const gl = renderer.gl;
   const camera = new PerspectiveCamera(50, 1, 0.1, 100);
   camera.position.set(0, 0, 1);
