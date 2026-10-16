@@ -10,43 +10,39 @@
  *
  * Run: node probes/float-accuracy/wgsl-accuracy-table.ts > probes/float-accuracy/results/wgsl-accuracy-table.json
  */
+import { load } from "cheerio";
+
 const SOURCE = "https://www.w3.org/TR/WGSL/";
 
-const html = await (await fetch(SOURCE)).text();
+const $ = load(await (await fetch(SOURCE)).text());
+// A superscript reads as a power: 2<sup>-126</sup> as 2^-126.
+$("sup").each((_, sup) => void $(sup).replaceWith(`^${$(sup).text()}`));
+// A block ends a line, as a browser lays it out.
+$("p, li, div, br").after(" ");
 
-/** The text of an HTML fragment, a superscript written after `^` and the whitespace collapsed. */
-function textOf(fragment: string): string {
-  return fragment
-    .replace(/<sup>/g, "^")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&nbsp;/g, " ")
+/** The text of the elements, its whitespace collapsed as a browser renders it. */
+const textOf = (elements: Parameters<typeof $>[0]) =>
+  $(elements)
+    .text()
     .replace(/\s+/g, " ")
-    .replace(/\^ /g, "^")
     .replace(/ ([,.\]])/g, "$1")
     .trim();
-}
 
-/** The HTML from the heading with `id` to the next heading with `nextId`. */
-function section(id: string, nextId: string): string {
-  const from = html.indexOf(`id="${id}"`);
-  return html.slice(from, html.indexOf(`id="${nextId}"`, from));
-}
+/** The elements after the heading with `id`, up to the next heading. */
+const section = (id: string) => $(`#${id}`).nextUntil("h2, h3, h4, h5, h6");
 
-const status = textOf(/<p id="w3c-state">[\s\S]*?<\/p>/.exec(html)?.[0] ?? "");
-const accuracy = section("floating-point-accuracy", "concrete-float-accuracy");
+const status = textOf("#w3c-state");
 const correctlyRounded =
-  /Let x be the exact[\s\S]*?does not specify a rounding mode\./.exec(textOf(accuracy))?.[0] ?? "";
+  /Let x be the exact[\s\S]*?does not specify a rounding mode\./.exec(
+    textOf(section("floating-point-accuracy")),
+  )?.[0] ?? "";
 const rows: Record<string, string> = {};
-for (const row of section("concrete-float-accuracy", "abstract-float-accuracy").split(/<tr>/).slice(1)) {
-  const cells = row
-    .split(/<td[^>]*>/)
-    .slice(1)
-    .map(textOf);
-  if (cells.length >= 2) rows[cells[0]!] = cells[1]!;
-}
+section("concrete-float-accuracy")
+  .find("tr")
+  .each((_, row) => {
+    const cells = $(row).children("td");
+    if (cells.length >= 2) rows[textOf(cells.eq(0))] = textOf(cells.eq(1));
+  });
 const f32 = (expression: string) => rows[expression] ?? null;
 
 console.log(

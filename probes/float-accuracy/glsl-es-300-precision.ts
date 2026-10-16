@@ -13,32 +13,43 @@
  * Run: node probes/float-accuracy/glsl-es-300-precision.ts > probes/float-accuracy/results/glsl-es-300-precision.json
  */
 import { createHash } from "node:crypto";
-import { pdfPages } from "./pdf-text.ts";
+import { readFileSync } from "node:fs";
+import { extractText, getDocumentProxy } from "unpdf";
 
 const SOURCE = "https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf";
+const UNPDF_VERSION = JSON.parse(
+  readFileSync(new URL("../../node_modules/unpdf/package.json", import.meta.url), "utf8"),
+).version;
 const SHA256 = "325058092a1c96a172f6e5b1e4008e94e7a2c75b63d6431f5bec273f374b6e7f";
 
-const pdf = Buffer.from(await (await fetch(SOURCE)).arrayBuffer());
+const pdf = new Uint8Array(await (await fetch(SOURCE)).arrayBuffer());
 const sha256 = createHash("sha256").update(pdf).digest("hex");
-const text = pdfPages(pdf).join("\n");
+const { text } = await extractText(await getDocumentProxy(pdf.slice()), { mergePages: true });
 
-/** The text from `start` to the end of `end`, or null where either is missing. */
+/**
+ * Whitespace, which the PDF spaces unevenly, and private-use characters, the
+ * glyphs it draws the `+` of the `cosh` equation and the brackets of the
+ * `tanh` one with.
+ */
+const IGNORED = "[\\s\\uE000-\\uF8FF]*";
+
+/** The text from `start` to the end of `end`, matching both whatever lies between their characters, or null where either is missing. */
 function between(start: string, end: string): string | null {
-  const from = text.indexOf(start);
-  const to = text.indexOf(end, from);
-  return from < 0 || to < 0 ? null : text.slice(from, to + end.length);
+  const pattern = (s: string) =>
+    s
+      .replace(/\s+/g, "")
+      .split("")
+      .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join(IGNORED);
+  const match = new RegExp(`${pattern(start)}[\\s\\S]*?${pattern(end)}`).exec(text);
+  return match?.[0] ?? null;
 }
 
 const precision = between("Precisions are expressed", "the trigonometric functions and determinant.");
 const functions = between("The standard trigonometric sine function.", "8.2 Exponential Functions");
 const matrix = between("inverse (mat2", "(nearly singular).");
-const geometric = between("normalize  (genType", "length(x)");
-/**
- * The text with its whitespace removed, as the PDF spaces words unevenly, and
- * its private-use characters, the glyphs it draws the `+` of the `cosh`
- * equation and the brackets of the `tanh` one with.
- */
-const flat = (s: string | null) => (s ?? "").replace(/[\s\uE000-\uF8FF]+/g, "");
+const geometric = between("normalize (genType", "length(x)");
+const flat = (s: string | null) => (s ?? "").replace(new RegExp(IGNORED.replace("*", "+"), "g"), "");
 
 console.log(
   JSON.stringify(
@@ -46,6 +57,7 @@ console.log(
       probe: "glsl-es-300-precision",
       environment: {
         node: process.version,
+        unpdf: UNPDF_VERSION,
         source: SOURCE,
         sha256,
         sameDocument: sha256 === SHA256,
