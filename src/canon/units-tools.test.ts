@@ -244,6 +244,21 @@ describe("the harness checks what it recorded", () => {
   });
 
   /**
+   * The build reads the sign when a target compiles it, so JS and WASM compile
+   * programs that differ only in the sign of their result.
+   *
+   * @canon bug-the-harness-skips-wasm-for-a-program-kept-off-the-gpu-targets
+   */
+  it.fails("reports a WASM result of a program kept off the GPU targets that differs from the JS one", async () => {
+    const { harness } = await freshHarness(true);
+    let sign = -1;
+    const build = (a: Node<"float">) => a.mul(sign);
+    expect(harness.evaluateRecording(build, [2], "exceeds-float32")).toBe(-2);
+    sign = 1;
+    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WASM computed 2, CPU computed -2/);
+  });
+
+  /**
    * @canon spec-a-program-wasm-refuses-names-its-issue
    */
   it("fails a run in which WASM refused a recorded program", async () => {
