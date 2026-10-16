@@ -11,7 +11,7 @@ import {
   accuracyOf,
   type Build,
 } from "./shader-eval";
-import { f32Ulp, type GpuTarget } from "./float-accuracy";
+import { builtinCallBound, f32Ulp, type GpuTarget } from "./float-accuracy";
 import {
   vec2,
   vec3,
@@ -193,7 +193,7 @@ describe("tolerance of a built-in call", () => {
    * `exp2(3)` takes the bound of `exp2`, not that of `pow(2, 3)`, though the
    * JavaScript target writes it as `Math.pow(2, 3)`.
    *
-   * @canon spec-exp-and-exp2-widen-the-tolerance-by-3-plus-twice-the-argument-in-units-in-the-last-place
+   * @canon spec-exp-or-exp2-without-pow-widens-the-tolerance-by-3-plus-twice-the-argument
    */
   it("widens by 3 + 2|x| units in the last place for exp and exp2", () => {
     expectNear(
@@ -207,6 +207,27 @@ describe("tolerance of a built-in call", () => {
     expectNear(
       widening((a) => exp2(a), [-3]),
       9 * 2 ** -26,
+    );
+  });
+
+  /**
+   * JavaScript computes `exp2(a)` as `Math.pow(2, a)`, the call `pow(2, a)`
+   * makes, so beside a `pow` it takes the bound of `pow(2, a)`.
+   *
+   * @canon exception-exp2-takes-the-bound-of-pow-in-a-program-that-calls-pow
+   */
+  it("widens exp2 by the bound of pow(2, x) in a program that calls pow", () => {
+    const exp2Of3 = builtinCallBound({ name: "exp2", args: [3], value: 8 });
+    const powOf2And3 = builtinCallBound({ name: "pow", args: [2, 3], value: 8 });
+    const powOfQuarter = builtinCallBound({ name: "pow", args: [0.25, 2], value: 0.0625 });
+    expect(powOf2And3).toBeGreaterThan(exp2Of3);
+    expectNear(
+      widening((a, b) => exp2(a).add(pow(b, 2)), [3, 0.25]),
+      powOf2And3 + powOfQuarter,
+    );
+    expectNear(
+      widening((a) => exp2(a), [3]),
+      exp2Of3,
     );
   });
 
