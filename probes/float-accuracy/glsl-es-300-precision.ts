@@ -5,9 +5,10 @@
  * Reads the specification itself, revision 6, from the Khronos registry, and
  * checks its SHA-256 so a later run can tell whether the document changed. It
  * prints the passage of section 4.5.1 that gives the precision of each
- * operation, and the rows of section 8.1 that define the trigonometric and
- * hyperbolic functions, verbatim as the PDF holds them, with checks of the
- * claims `fact-glsl-es-300-bounds-the-error-of-some-float-built-ins` makes.
+ * operation, the rows of section 8.1 that define the trigonometric and
+ * hyperbolic functions, the row of section 8.5 for `normalize` and that of
+ * section 8.6 for `inverse`, as the PDF holds them, with checks of the claims
+ * `fact-glsl-es-300-bounds-the-error-of-some-float-built-ins` makes.
  *
  * Run: node probes/float-accuracy/glsl-es-300-precision.ts > probes/float-accuracy/results/glsl-es-300-precision.json
  */
@@ -31,6 +32,7 @@ function between(start: string, end: string): string | null {
 const precision = between("Precisions are expressed", "the trigonometric functions and determinant.");
 const functions = between("The standard trigonometric sine function.", "8.2 Exponential Functions");
 const matrix = between("inverse (mat2", "(nearly singular).");
+const geometric = between("normalize  (genType", "length(x)");
 /**
  * The text with its whitespace removed, as the PDF spaces words unevenly, and
  * its private-use characters, the glyphs it draws the `+` of the `cosh`
@@ -49,7 +51,7 @@ console.log(
         sameDocument: sha256 === SHA256,
         read: new Date().toISOString().slice(0, 10),
       },
-      passages: { "4.5.1": precision, "8.1": functions, "8.6": matrix },
+      passages: { "4.5.1": precision, "8.1": functions, "8.5": geometric, "8.6": matrix },
       checks: {
         divisionIs2Point5Ulp: /a\/b,1.0\/b2.5ULP/.test(flat(precision)),
         powInheritsFromExp2OfLog2: /pow\(x,y\)Inheritedfromexp2\(x\*log2\(y\)\)/.test(flat(precision)),
@@ -72,6 +74,14 @@ console.log(
         asinhIsOnlyAnInverse: /Archyperbolicsine;returnstheinverseofsinh\./.test(flat(functions)),
         acoshIsOnlyAnInverse: /Archyperboliccosine;returnsthenon-negativeinverseofcosh\./.test(flat(functions)),
         atanhIsOnlyAnInverse: /Archyperbolictangent;returnstheinverseoftanh\./.test(flat(functions)),
+        normalizeIsXOverLength:
+          /normalize\(genTypex\)Returnsavectorinthesamedirectionasxbutwithalengthof1i\.e\.xlength\(x\)/.test(
+            flat(geometric),
+          ),
+        geometricFunctionsInherit:
+          /Theseinclude,forexample,thegeometricfunctions,thecommonfunctions,andmanyofthematrixfunctions\./.test(
+            flat(precision),
+          ),
         inverseIsOnlyDescribed:
           /Returnsamatrixthatistheinverseofm\.Theinputmatrixmisnotmodified\.Thevaluesinthereturnedmatrixareundefinedifmissingularorpoorly-/.test(
             flat(matrix),

@@ -1,0 +1,69 @@
+{
+  "probe": "f32-argument-crosses-pi",
+  "environment": {
+    "node": "v24.12.0",
+    "platform": "darwin arm64",
+    "cpu": "Apple M1",
+    "@kmamal/gpu": "0.2.1",
+    "adapter": "Metal driver on macOS Version 15.0 (Build 24A335)"
+  },
+  "pi": 3.141592653589793,
+  "results": [
+    {
+      "name": "crossing",
+      "a": 3.0004,
+      "b": 0.1411925918,
+      "roundedOnce": 3.141592502593994,
+      "roundedEachStep": 3.1415927410125732,
+      "fromStorage": {
+        "values": [
+          3.1415927410125732,
+          0
+        ],
+        "error": null
+      },
+      "fromLiterals": {
+        "values": [
+          3.1415927410125732,
+          0
+        ],
+        "error": null
+      },
+      "checks": {
+        "roundedOnceIsInside": true,
+        "storageSumIsOutside": true,
+        "literalSumIsOutside": true,
+        "storageSumIsRoundedEachStep": true,
+        "literalSumIsRoundedEachStep": true
+      }
+    },
+    {
+      "name": "control",
+      "a": 3.0004,
+      "b": 0.1411925,
+      "roundedOnce": 3.141592502593994,
+      "roundedEachStep": 3.141592502593994,
+      "fromStorage": {
+        "values": [
+          3.141592502593994,
+          1.8725351935700019e-7
+        ],
+        "error": null
+      },
+      "fromLiterals": {
+        "values": [
+          3.141592502593994,
+          1.8725351935700019e-7
+        ],
+        "error": null
+      },
+      "checks": {
+        "roundedOnceIsInside": true,
+        "storageSumIsOutside": false,
+        "literalSumIsOutside": false,
+        "storageSumIsRoundedEachStep": true,
+        "literalSumIsRoundedEachStep": true
+      }
+    }
+  ]
+}
