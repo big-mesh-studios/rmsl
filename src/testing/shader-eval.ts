@@ -355,8 +355,11 @@ export function accuracyOf(
     return Array.from(asArray(callable(ctx)));
   };
   const components = Array.from(asArray(js));
+  // GLSL ES gives `inverse` no precision, though WGSL, with no inverse of its
+  // own, computes it by a formula of basic operations.
+  const open = (target: GpuTarget) => types.has("determinant") || (target === "glsl" && types.has("inverse"));
   const carried = (target: GpuTarget) =>
-    types.has("determinant") ? null : carriedTolerances(components, calls, run, floatTolerance, target);
+    open(target) ? null : carriedTolerances(components, calls, run, floatTolerance, target);
   const tolerances = { wgsl: carried("wgsl"), glsl: carried("glsl") };
   return { js, tolerances, unbounded: tolerances.wgsl === null };
 }

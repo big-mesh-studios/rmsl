@@ -35,6 +35,10 @@ import {
   acosh,
   atanh,
   determinant,
+  inverse,
+  step,
+  Fn,
+  type Node,
 } from "../rmsl";
 
 afterAll(async () => {
@@ -140,7 +144,13 @@ describe("tolerance of a built-in call", () => {
     const acosSmall = widening((a) => acos(a), [0.99]);
     expect(acosSmall).toBeGreaterThan(6.77e-5 * (1 - 1e-9));
     expect(acosSmall).toBeLessThan(6.81e-5 * (1 - 1e-9));
-    expect(widening((a) => asin(a), [0.7])).toBeGreaterThan(4096 * f32Ulp(Math.asin(0.7)));
+    const x = 0.7;
+    const root = Math.sqrt(1 - x * x);
+    const rootError = (f32Ulp(x * x) + f32Ulp(1 - x * x)) / (2 * root) + 4.5 * f32Ulp(root);
+    expectNear(
+      widening((a) => asin(a), [x]),
+      4096 * f32Ulp(Math.asin(x)) + x * rootError,
+    );
     expect(unbounded((a) => asin(a), [0])).toBe(true);
     expect(unbounded((a) => acos(a), [1])).toBe(true);
     expect(unbounded((a) => acos(a), [0])).toBe(true);
@@ -240,6 +250,8 @@ describe("tolerance of a built-in call", () => {
     expect(widening((a, b) => pow(a, b), [2, 3])).toBeGreaterThan(widening((a) => exp2(a), [3]));
     expect(unbounded((a, b) => pow(a, b), [0, 2])).toBe(true);
     expect(unbounded((a, b) => pow(a, b), [-8, 3])).toBe(true);
+    // The NaN of the bound, not of the result, makes it unbounded: step hides it.
+    expect(unbounded((a) => step(-1, pow(a, 2)), [0])).toBe(true);
   });
 
   /**
@@ -283,6 +295,31 @@ describe("tolerance of a built-in call", () => {
    */
   it("widens the inverse hyperbolic functions by the error of their logarithm", () => {
     expect(widening((a) => asinh(a), [-100])).toBeGreaterThan(5e-3);
+    // log(x + sqrt(x * x ± 1)), each correctly rounded step off by a unit in
+    // the last place, sqrt as 1 / inverseSqrt off by 4.5, then the bound of log.
+    const viaLog = (x: number, sign: 1 | -1, value: number) => {
+      const radicand = x * x + sign;
+      const root = Math.sqrt(radicand);
+      const rootError = (f32Ulp(x * x) + f32Ulp(radicand)) / (2 * root) + 4.5 * f32Ulp(root);
+      const argument = x + root;
+      const logBound = argument >= 0.5 && argument <= 2 ? 2 ** -21 : 3 * f32Ulp(value);
+      return logBound - Math.log1p(-(rootError + f32Ulp(argument)) / argument);
+    };
+    expectNear(
+      widening((a) => asinh(a), [3]),
+      viaLog(3, 1, Math.asinh(3)),
+    );
+    expectNear(
+      widening((a) => acosh(a), [3]),
+      viaLog(3, -1, Math.acosh(3)),
+    );
+    // atanh(0.5) is log((1 + x) / (1 - x)) / 2: the quotient 3 moves most when
+    // 1.5 and 0.5 are each off by a unit in the last place the opposite way.
+    const quotientError = (1.5 + f32Ulp(1.5)) / (0.5 - f32Ulp(0.5)) - 3 + 2.5 * f32Ulp(3);
+    expectNear(
+      widening((a) => atanh(a), [0.5]),
+      0.5 * (3 * f32Ulp(Math.log(3)) - Math.log1p(-quotientError / 3)),
+    );
     expect(widening((a) => asinh(a), [0.5])).toBeGreaterThanOrEqual(2 ** -21);
     expect(widening((a) => acosh(a), [3])).toBeGreaterThanOrEqual(3 * f32Ulp(Math.acosh(3)));
     const atanhHalf = widening((a) => atanh(a), [0.5]);
@@ -290,6 +327,18 @@ describe("tolerance of a built-in call", () => {
     expect(atanhHalf).toBeLessThan(4e-7);
     expect(unbounded((a) => asinh(a), [-1e4])).toBe(true);
     expect(unbounded((a) => acosh(a), [0.5])).toBe(true);
+    expect(unbounded((a) => step(0.5, acosh(a)), [0.5])).toBe(true);
+    // A WGSL acosh that rounds each step of log(x + sqrt(x * x - 1)) away from
+    // the exact result, as WGSL allows, stays within the tolerance near 1.
+    for (const x of [Math.fround(1.0001), Math.fround(1.00001)]) {
+      const up = (v: number) => v + f32Ulp(v);
+      const square = up(Math.fround(x * x));
+      const radicand = up(Math.fround(square - 1));
+      const root = Math.sqrt(radicand) + 4.5 * f32Ulp(Math.sqrt(radicand));
+      const conforming = Math.log(up(Math.fround(x + root))) + 2 ** -21;
+      const { js, tolerances } = accuracyOf((a) => acosh(a), [x]);
+      expect(Math.abs(conforming - (js as number)), `acosh(${x})`).toBeLessThan(tolerances.wgsl![0]!);
+    }
     expect(unbounded((a) => atanh(a), [1])).toBe(true);
   });
 
@@ -383,6 +432,7 @@ describe("tolerance of a built-in call", () => {
       [(a) => acosh(a), [2]],
       [(a) => atanh(a), [0.5]],
       [(a) => determinant(mat2(vec2(a, 1), vec2(2, 4))), [0.3]],
+      [(a) => inverse(mat2(vec2(a, 1), vec2(2, 4))), [0.3]],
     ];
     for (const [build, args] of open) {
       expect(accuracyOf(build, args).tolerances.glsl, `${build}`).toBeNull();
@@ -390,6 +440,8 @@ describe("tolerance of a built-in call", () => {
     expect(accuracyOf((a) => sin(a), [0.5]).tolerances.wgsl).not.toBeNull();
     expect(accuracyOf((a) => sin(a), [0.5]).unbounded).toBe(false);
     expect(accuracyOf((a) => exp(a), [0.5]).tolerances.glsl).not.toBeNull();
+    expect(accuracyOf((a) => inverse(mat2(vec2(a, 1), vec2(2, 4))), [0.3]).tolerances.wgsl).not.toBeNull();
+    expect(accuracyOf((a) => vec2(a, 1).normalize(), [0.3]).tolerances.glsl).not.toBeNull();
   });
 
   /**
@@ -400,6 +452,7 @@ describe("tolerance of a built-in call", () => {
     expect(unbounded((a) => log(a), [-1])).toBe(true);
     expect(unbounded((a) => exp(a), [100])).toBe(true);
     expect(unbounded((a) => exp(a), [80])).toBe(false);
+    expect(unbounded((a) => step(0.5, asin(a)), [2])).toBe(true);
   });
 
   /**
@@ -407,6 +460,12 @@ describe("tolerance of a built-in call", () => {
    */
   it("has no bound for a program that computes a determinant", () => {
     expect(unbounded((a) => determinant(mat2(vec2(a, 1), vec2(2, 4))), [0.3])).toBe(true);
+    const det = Fn(([m]: [Node<"mat2">]) => determinant(m)).setLayout({
+      name: "det",
+      type: "float",
+      inputs: [{ name: "m", type: "mat2" }],
+    });
+    expect(unbounded((a) => det(mat2(vec2(a, 1), vec2(2, 4))).add(1), [0.3])).toBe(true);
     expect(unbounded((a) => vec2(a, 1).dot(vec2(2, 4)), [0.3])).toBe(false);
   });
 });

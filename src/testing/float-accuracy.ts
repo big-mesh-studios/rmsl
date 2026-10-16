@@ -9,7 +9,11 @@ const F32_MIN_NORMAL = 2 ** -126;
 
 const f32Bits = new DataView(new ArrayBuffer(4));
 
-/** The distance from `x`, rounded to 32 bits, to the next 32-bit float away from zero. */
+/**
+ * The distance from `x`, rounded to 32 bits, to the next 32-bit float away
+ * from zero. A correctly rounded step may give either neighbouring float, so
+ * the bounds below count its rounding as one of these.
+ */
 export function f32Ulp(x: number): number {
   const a = Math.abs(Math.fround(x));
   if (!Number.isFinite(a)) return Infinity;
@@ -65,7 +69,7 @@ function complementRoot(x: number): { root: number; error: number } {
   const square = x * x;
   const difference = 1 - square;
   const root = Math.sqrt(difference);
-  const differenceError = 0.5 * f32Ulp(square) + 0.5 * f32Ulp(difference);
+  const differenceError = f32Ulp(square) + f32Ulp(difference);
   return { root, error: differenceError / (2 * root) + 4.5 * f32Ulp(root) };
 }
 
@@ -89,10 +93,10 @@ function inverseHyperbolicBound(x: number, sign: 1 | -1, value: number): number 
   const square = x * x;
   const radicand = square + sign;
   const root = Math.sqrt(radicand);
-  const radicandError = 0.5 * f32Ulp(square) + 0.5 * f32Ulp(radicand);
+  const radicandError = f32Ulp(square) + f32Ulp(radicand);
   const rootError = radicandError / (2 * root) + 4.5 * f32Ulp(root);
   const argument = x + root;
-  const argumentError = rootError + 0.5 * f32Ulp(argument);
+  const argumentError = rootError + f32Ulp(argument);
   return logBound(argument, value) + logOfPerturbed(argument, argumentError);
 }
 
@@ -159,8 +163,7 @@ export function builtinCallBound(call: BuiltinCall, target: GpuTarget = "wgsl"):
       const denominator = 1 - x;
       const quotient = numerator / denominator;
       const quotientBound =
-        quotientError(numerator, denominator, 0.5 * f32Ulp(numerator), 0.5 * f32Ulp(denominator)) +
-        2.5 * f32Ulp(quotient);
+        quotientError(numerator, denominator, f32Ulp(numerator), f32Ulp(denominator)) + 2.5 * f32Ulp(quotient);
       return 0.5 * (logBound(quotient, 2 * value) + logOfPerturbed(quotient, quotientBound));
     }
     default:
@@ -241,7 +244,8 @@ export function carriedTolerances(
   target: GpuTarget,
 ): number[] | null {
   const bounds = calls.map((call) => builtinCallBound(call, target));
-  if (bounds.some((bound) => bound === Infinity)) return null;
+  // A bound that is NaN, as `pow(0, 2)` and `asin(2)` give, is no bound either.
+  if (bounds.some((bound) => !(bound < Infinity))) return null;
   const widening = components.map(() => 0);
   bounds.forEach((bound, index) => {
     if (bound === 0) return;
