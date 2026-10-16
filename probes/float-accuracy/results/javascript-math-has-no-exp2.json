@@ -1,0 +1,49 @@
+{
+  "probe": "javascript-math-has-no-exp2",
+  "environment": {
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37"
+  },
+  "mathFunctions": [
+    "abs",
+    "acos",
+    "acosh",
+    "asin",
+    "asinh",
+    "atan",
+    "atan2",
+    "atanh",
+    "cbrt",
+    "ceil",
+    "clz32",
+    "cos",
+    "cosh",
+    "exp",
+    "expm1",
+    "f16round",
+    "floor",
+    "fround",
+    "hypot",
+    "imul",
+    "log",
+    "log10",
+    "log1p",
+    "log2",
+    "max",
+    "min",
+    "pow",
+    "random",
+    "round",
+    "sign",
+    "sin",
+    "sinh",
+    "sqrt",
+    "tan",
+    "tanh",
+    "trunc"
+  ],
+  "checks": {
+    "hasNoExp2": true,
+    "powOfTwoIsExponentiation": true
+  }
+}
