@@ -148,7 +148,9 @@ function drawsAsTheReference(positions: readonly number[], width: number, height
       if (!lit) continue;
       for (let e = 0; e < 3; e++)
         if (!(Math.abs(drawn[p * 4 + e]! - reference.weights[p * 3 + e]!) <= 1e-9))
-          expect.fail(`${target}: weight ${e} at ${p}: ${drawn[p * 4 + e]} for ${reference.weights[p * 3 + e]}, ${label}`);
+          expect.fail(
+            `${target}: weight ${e} at ${p}: ${drawn[p * 4 + e]} for ${reference.weights[p * 3 + e]}, ${label}`,
+          );
       const depth = drawn[p * 4 + 3]!;
       const expected = reference.depth[p]!;
       if (!(depth >= 0 && depth <= 1 && (Number.isNaN(expected) || Math.abs(depth - expected) <= 1e-9)))
@@ -553,12 +555,13 @@ describe("a sweep of triangles on the CPU rasterizers against an exact reference
         [p2, p0, p1],
         [p1, p2, p0],
       ][Math.floor(n / 3) % 3]!;
-      const t = Math.floor(n / 9) % 2
-        ? order.flatMap((v) => {
-            const f = messyFactor(next);
-            return v.map((c) => c * f);
-          })
-        : order.flat();
+      const t =
+        Math.floor(n / 9) % 2
+          ? order.flatMap((v) => {
+              const f = messyFactor(next);
+              return v.map((c) => c * f);
+            })
+          : order.flat();
       if (!inPlaneWithTheEye(t)) continue;
       const image = drawsAsTheReference(t, n % 2 ? 15 : 16, 16);
       if (image.some((c, i) => i % 4 === 3 && c !== -1)) lit[kind]!++;
