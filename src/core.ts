@@ -1832,13 +1832,6 @@ export function typedOperand(value: any, operandType: string, operation?: string
   if (typeof value !== "number" || !isIntegral) {
     return wrapValue(value, operation) as BaseNode<ShaderType>;
   }
-  if (!Number.isInteger(value)) {
-    throw new NodeError(
-      "literal-not-whole",
-      `${value} is not a whole number, but the operand beside it is an ` +
-        `${operandType}. Convert the operand to a float, or use a whole number.`,
-    );
-  }
   if (scalarType === "uint" && value < 0) {
     throw new NodeError(
       "literal-negative-for-unsigned",
@@ -2449,7 +2442,7 @@ function fitArgument(
   return value;
 }
 
-/** The number `x` as the input `input` of a function: a literal of its type, or of its component type for a vector. */
+/** The number `x` as the input `input` of a function: a literal of its type, or of its component type for a vector, its fraction truncated. */
 function numberArgument(
   name: string | undefined,
   input: { name: string; type: string },
@@ -2462,15 +2455,15 @@ function numberArgument(
     component = wrapValue(x) as BaseNode<ShaderType>;
   } else {
     const [low, high] = scalar === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
-    if (!Number.isInteger(x) || x < low || x > high) {
+    const whole = Math.trunc(x);
+    if (!(whole >= low && whole <= high) || (scalar === "uint" && x < 0)) {
       throw new NodeError(
         "argument-of-another-type",
         `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${x}, ` +
-          `which ${Number.isInteger(x) ? `is outside the range of ${scalar}, ${low} to ${high}` : "is not a whole number"}. ` +
-          `Give a whole number inside the range, or convert a float node with ${conversionTo(input.type, scalar)}.`,
+          `which is outside the range of ${scalar}, ${low} to ${high}. Give a number inside the range.`,
       );
     }
-    component = node({ _t: scalar, type: scalar, value: x });
+    component = node({ _t: scalar, type: scalar, value: whole });
   }
   return input.type === scalar ? component : node({ _t: input.type, type: "construct", params: [component] });
 }
@@ -3628,14 +3621,12 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
 }
 
 /**
- * The node of the index `i`: a number as an `int` literal, refused when it has
- * a fraction or is negative, and any other value as `element` takes it.
+ * The node of the index `i`: a number as an `int` literal, its fraction
+ * truncated and refused when it is negative, and any other value as
+ * `element` takes it.
  */
 function indexNode(i: unknown): BaseNode<ShaderType> {
   if (typeof i !== "number") return wrapValue(i as any, "element") as BaseNode<ShaderType>;
-  if (!Number.isInteger(i)) {
-    throw new NodeError("index-not-whole", `element(${i}) takes an index that is a whole number, and ${i} is not.`);
-  }
   if (i < 0) {
     throw new NodeError("index-negative", `element(${i}) takes an index of 0 or more, and ${i} is negative.`);
   }
@@ -4395,9 +4386,8 @@ function compare(index: Node<any>, condition: string, end: Node<any>): Node<"boo
 /** The start, end, condition and step of a `Loop` range, with what TSL fills in where the range gives none. */
 function loopBounds(range: IntLike | FloatLike | LoopRange) {
   if (!isLoopRange(range)) {
-    if (typeof range === "number") assertWholeBound(range, "int");
-    // A count is built as the index's type, as TSL builds it.
-    const end = isNode(range) && range._t !== "int" ? int(range as Node<"float">) : range;
+    // A count is built as the index's type, as TSL builds it, a fraction truncated.
+    const end = typeof range === "number" || range._t !== "int" ? int(range as Node<"float">) : range;
     return { start: int(0), end: end as Node<any>, condition: "<", step: int(1) as Node<any> };
   }
   const type = range.type ?? "int";
@@ -4412,7 +4402,6 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   }
   // Each bound is built as the index's type, as TSL builds it.
   const of = (value: number | Node<ShaderType>): Node<any> => {
-    if (typeof value === "number" && type !== "float") assertWholeBound(value, type);
     if (isNode(value) && value._t === type) return value;
     return type === "float" ? float(value as number) : type === "uint" ? uint(value as number) : int(value as number);
   };
@@ -4451,16 +4440,6 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
     );
   }
   return { start: of(start!), end: of(end ?? 0), condition, step };
-}
-
-/** Throws for a number with a fraction given as a bound of an integer `Loop` index, which TSL would round. */
-function assertWholeBound(value: number, type: string): void {
-  if (!Number.isInteger(value)) {
-    throw new NodeError(
-      "loop-bound-not-whole",
-      `Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
-    );
-  }
 }
 
 /**

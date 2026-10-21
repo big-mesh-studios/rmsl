@@ -104,7 +104,7 @@ describe("a mistake is refused before the program runs", () => {
    *
    * @canon spec-a-bare-number-beside-an-integer-is-an-integer
    * @canon spec-a-bare-number-beside-a-float-is-a-float
-   * @canon spec-a-fraction-beside-an-integer-is-refused
+   * @canon spec-a-fraction-beside-an-integer-truncates
    * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("gives each bare number its neighbour's type in one program, and refuses what the type cannot hold", () => {
@@ -116,7 +116,7 @@ describe("a mistake is refused before the program runs", () => {
     expect(wgsl).toContain("3u");
     expect(wgsl).toContain("4f");
     expect(compileGlsl(prog())).not.toMatch(/float\(2\)|float\(3\)/);
-    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(NodeError, "literal-not-whole");
+    expect(compileWgsl(Fn(() => uniform("int").add(2.5).toVar())())).toMatch(/ \+ 2i;/);
     expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
     expect(() => uint(-1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
   });

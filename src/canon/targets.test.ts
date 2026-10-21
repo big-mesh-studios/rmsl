@@ -807,25 +807,47 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * A float node converts to the index's type, and truncates.
+   * A float node converts to the index's type, and truncates, as a number does.
    *
-   * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
+   * @canon spec-loop-truncates-a-fraction-for-an-integer-bound
    */
-  it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
-    expect(buildLoop(() => Loop(2.5, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
-    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
-    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrowRmsl(
-      NodeError,
-      "loop-bound-not-whole",
-    );
-    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
-    const build = (a: Node<"float">) =>
+  it("truncates a fraction for an integer Loop bound, as it truncates a float node", () => {
+    const counting = (loop: (count: any) => void) => (a: Node<"float">) =>
       Fn(() => {
         const count = a.toVar();
-        Loop(float(2.5), () => count.addAssign(1));
+        loop(count);
         return count;
       })();
-    expect(evaluateRecording(build, [0])).toBe(2);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop(2.5, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(2);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop({ end: 2.5 }, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(2);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop({ start: 0.5, end: 3, type: "uint" }, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(3);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop({ end: 4, update: 1.5 }, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(4);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop(float(2.5), () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(2);
   });
 
   /**
@@ -2414,34 +2436,48 @@ describe("a number given as an index", () => {
   });
 
   /**
-   * @canon spec-a-fraction-or-a-negative-number-as-an-index-is-refused
+   * @canon spec-a-fraction-index-truncates
    */
-  it("refuses a fraction or a negative number where the index is given", () => {
+  it("truncates a fraction given as an index toward zero", () => {
+    const values = uniformArray("float", 4);
+    expect(compileGlsl(Fn(() => vec4(values.element(2.5), 0, 0, 1))())).toMatch(/_rmsl_u\d+\[2\]/);
+    expect(compileWgsl(Fn(() => vec4(values.element(2.5), 0, 0, 1))())).toMatch(/_rmsl_u\d+\[2i\]/);
+    expect(evaluateRecording((x) => vec3(x, x.add(1), x.add(2)).element(1.5), [5])).toBe(6);
+  });
+
+  /**
+   * @canon spec-a-negative-index-is-refused
+   */
+  it("refuses a negative number where the index is given", () => {
     const v = uniform("vec3");
     const values = uniformArray("float", 4);
     const buffer = instancedArray(4, "float");
-    expect(() => v.element(1.5)).toThrowRmsl(NodeError, "index-not-whole", /1\.5/);
-    expect(() => values.element(2.5)).toThrowRmsl(NodeError, "index-not-whole", /2\.5/);
-    expect(() => buffer.element(0.5)).toThrowRmsl(NodeError, "index-not-whole", /0\.5/);
+    expect(() => v.element(-1)).toThrowRmsl(NodeError, "index-negative", /-1/);
     expect(() => values.element(-1)).toThrowRmsl(NodeError, "index-negative", /-1/);
+    expect(() => buffer.element(-0.5)).toThrowRmsl(NodeError, "index-negative", /-0\.5/);
   });
 });
 
 describe("where rmsl refuses a number TSL converts", () => {
   /**
-   * @canon exception-a-fraction-for-an-integer-is-refused-where-tsl-makes-it-whole
+   * @canon exception-a-fraction-for-an-integer-truncates-where-tsl-r186-rounds
    */
-  it("refuses a fraction beside an integer, for an integer input and as an index, and truncates it in a constructor", () => {
-    const i = uniform("int");
+  it("truncates 2.9 to 2 beside an integer, for an integer input, as an index and in a constructor, where r186 rounds to 3", () => {
     const next = Fn(([n]: [Node<"int">]) => n.add(1)).setLayout({
       name: "next",
       type: "int",
       inputs: [{ name: "n", type: "int" }],
     }) as (...args: any[]) => any;
-    expect(() => i.add(2.9)).toThrowRmsl(NodeError, "literal-not-whole");
-    expect(() => next(2.9)).toThrowRmsl(NodeError, "argument-of-another-type");
-    expect(() => uniform("vec3").element(1.5)).toThrowRmsl(NodeError, "index-not-whole");
-    expect(compileGlsl(Fn(() => ivec2(i, 2.9).toVar())())).toMatch(/ivec2\(_rmsl_u\d+, 2\)/);
+    const build = (x: Node<"float">) =>
+      Fn(() =>
+        vec4(
+          x.toInt().add(2.9).toFloat(),
+          next(2.9).toFloat(),
+          vec4(x, x.add(1), x.add(2), x.add(3)).element(2.9),
+          ivec2(x.toInt(), 2.9).y.toFloat(),
+        ),
+      )();
+    expect(Array.from(evaluateRecording(build, [0]) as ArrayLike<number>)).toEqual([2, 3, 2, 2]);
   });
 
   /**

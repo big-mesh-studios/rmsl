@@ -753,9 +753,9 @@ describe("a mistake in a function with a layout is refused", () => {
   });
 
   /**
-   * @canon spec-a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused
+   * @canon spec-a-fraction-for-an-integer-input-truncates
    */
-  it("refuses a fraction or a number out of range for an integer input, naming the input", () => {
+  it("truncates a fraction for an integer input toward zero", () => {
     const pick = Fn(([n, m]: [Node<"int">, Node<"uint">]) => n.add(m.toInt())).setLayout({
       name: "pick",
       type: "int",
@@ -764,7 +764,22 @@ describe("a mistake in a function with a layout is refused", () => {
         { name: "m", type: "uint" },
       ],
     }) as (...args: any[]) => any;
-    expect(() => pick(2.5, 1)).toThrowRmsl(NodeError, "argument-of-another-type", /"n".*int.*2\.5/);
+    expect(compileWgsl.fragment(Fn(() => vec4(pick(2.5, 1.9).toFloat(), 0, 0, 1))())).toMatch(/pick\(2i, 1u\)/);
+    expect(evaluateRecording(() => Fn(() => pick(-2.5, 1.9).toFloat())())).toBe(-1);
+  });
+
+  /**
+   * @canon spec-a-number-out-of-range-for-an-integer-input-is-refused
+   */
+  it("refuses a number out of range for an integer input, naming the input", () => {
+    const pick = Fn(([n, m]: [Node<"int">, Node<"uint">]) => n.add(m.toInt())).setLayout({
+      name: "pick",
+      type: "int",
+      inputs: [
+        { name: "n", type: "int" },
+        { name: "m", type: "uint" },
+      ],
+    }) as (...args: any[]) => any;
     expect(() => pick(3e9, 1)).toThrowRmsl(NodeError, "argument-of-another-type", /"n".*int/);
     expect(() => pick(1, -1)).toThrowRmsl(NodeError, "argument-of-another-type", /"m".*uint/);
   });

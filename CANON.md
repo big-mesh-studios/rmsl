@@ -388,7 +388,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-loop-update-is-not-shader-text`](#exception-a-loop-update-is-not-shader-text) — `Loop` refuses an `update` given as a string.
       - [`@exception loop-refuses-a-range-with-neither-start-nor-end`](#exception-loop-refuses-a-range-with-neither-start-nor-end) — `Loop` refuses a range that names neither `start` nor `end`.
       - [`@exception loop-refuses-a-uint-range-that-never-ends`](#exception-loop-refuses-a-uint-range-that-never-ends) — `Loop` refuses a `uint` range that tests `>=` against an `end` of 0. A `uint` range given only `start` is one.
-      - [`@exception loop-refuses-a-fraction-for-an-integer-bound`](#exception-loop-refuses-a-fraction-for-an-integer-bound) — For an `int` or `uint` index, `Loop` refuses a count, `start`, `end` or `update` that is a number with a fraction. A node of another type converts to the index's type, as `int(float(2.5))` truncates to 2.
+      - [`@spec loop-truncates-a-fraction-for-an-integer-bound`](#spec-loop-truncates-a-fraction-for-an-integer-bound) — For an `int` or `uint` index, `Loop` truncates a count, `start`, `end` or `update` that is a number with a fraction toward zero, as a node of another type converts to the index's type: `Loop(2.9, …)` runs twice.
       - [`@exception loop-refuses-two-ranges-of-one-name`](#exception-loop-refuses-two-ranges-of-one-name) — `Loop` refuses two ranges whose indices take one name, whether a range names it or `Loop` fills it in.
     - [`@spec while-runs-while-its-condition-holds`](#spec-while-runs-while-its-condition-holds) — `While(condition, body)` tests `condition` before every iteration, and runs `body` while it holds, as TSL's `Loop(condition, body)` does.
       - [`@spec a-while-loop-stops-when-its-condition-fails`](#spec-a-while-loop-stops-when-its-condition-fails) — A `While` runs its body as long as its condition holds when tested, and not at all when it fails at the start.
@@ -522,21 +522,23 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for`](#spec-a-break-or-continue-in-the-init-of-a-for-of-an-inline-fn-acts-outside-that-for) — A `Break()` or a `Continue()` in the init of a `For` that an `Fn` called outside the program's body holds acts on the loop around the place the `Fn` runs. It is refused as a jump outside that `For` would be.
         - [`@spec a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again`](#spec-a-continue-in-an-inline-fn-a-while-condition-reads-tests-the-condition-again) — A `Continue()` in an `Fn` called outside the program's body, whose value only a `While` condition reads, tests that condition again. A `Continue()` among the statements of the condition does the same.
         - [`@exception a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused`](#exception-a-break-or-continue-in-an-inline-fn-read-in-a-deeper-loop-is-refused) — Every target refuses a `Break()` or a `Continue()` in an `Fn` called outside the program's body, when a read sits in a deeper loop. That is a loop inside the loop around the place the `Fn` runs.
-  - [`@spec a-number-takes-the-type-its-place-asks-for`](#spec-a-number-takes-the-type-its-place-asks-for) — A JavaScript number has no shader type of its own. Where a program gives it, it takes the type that place asks for: the type of the operand beside it, of the target of an `assign`, of a constructor's component, of the input of an `Fn` with a layout, and `int` for an index. A number that type cannot hold is refused, and so is a fraction for an integer type outside a constructor.
+  - [`@spec a-number-takes-the-type-its-place-asks-for`](#spec-a-number-takes-the-type-its-place-asks-for) — A JavaScript number has no shader type of its own. Where a program gives it, it takes the type that place asks for: the type of the operand beside it, of the target of an `assign`, of a constructor's component, of the input of an `Fn` with a layout, and `int` for an index. A fraction given for an integer type is truncated toward zero, as rmsl converts a float to an integer everywhere. A number the type cannot hold is refused.
     - [`@spec a-bare-number-takes-the-type-of-the-operand-beside-it`](#spec-a-bare-number-takes-the-type-of-the-operand-beside-it) — A JavaScript number given as an operand takes the type of the operand it meets: an integer type beside an integer, `float` beside a float. A number that type cannot hold is refused.
       - [`@spec a-bare-number-beside-an-integer-is-an-integer`](#spec-a-bare-number-beside-an-integer-is-an-integer) — A number beside an `int`, `uint` or integer vector compiles as a literal of that integer type.
       - [`@spec a-bare-number-beside-a-float-is-a-float`](#spec-a-bare-number-beside-a-float-is-a-float) — A number beside a `float` or float vector compiles as a float literal, with no conversion.
-      - [`@spec a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused) — A number that is not whole, beside an integer operand, is refused.
+      - [`@spec a-fraction-beside-an-integer-truncates`](#spec-a-fraction-beside-an-integer-truncates) — A number with a fraction beside an integer operand is truncated toward zero, so `i.add(2.9)` for an `int` `i` adds 2, and `i.add(-2.9)` adds -2.
       - [`@spec a-number-beyond-an-integer-types-range-is-refused-beside-it`](#spec-a-number-beyond-an-integer-types-range-is-refused-beside-it) — A number beside an `int` or `uint` operand that the type cannot hold is refused, with an error that names the type and its range.
       - [`@spec a-bare-number-shifted-is-an-int-whatever-the-amount`](#spec-a-bare-number-shifted-is-an-int-whatever-the-amount) — A bare number given as the value of a shift is an `int`. The type of the shift amount does not type it.
       - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
       - [`@spec assign-gives-a-bare-number-the-type-of-its-target`](#spec-assign-gives-a-bare-number-the-type-of-its-target) — A bare number given to `assign` takes the type of the node it is assigned to.
     - [`@spec a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal`](#spec-a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal) — An integer vector constructor given a number beside a node, as `ivec2(i, 0)`, compiles the number to a literal of its component type on each target: `0` on GLSL, `0i` on WGSL, `0` on JavaScript and WebAssembly. The program converts no number at run time.
     - [`@spec a-number-for-a-layout-fn-input-takes-the-input-type`](#spec-a-number-for-a-layout-fn-input-takes-the-input-type) — A number given for a scalar or vector input of an `Fn` with a layout takes the type of the input, so `next(3)` for an `int` input passes the `int` 3, and a number for a `vec3` input fills every component. A number for a `bool` or matrix input is refused.
-    - [`@spec a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused`](#spec-a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused) — A number with a fraction given for an `int` or `uint` input of an `Fn` with a layout is refused, and so is a number the input's type cannot hold. The error names the input and its type.
+    - [`@spec a-fraction-for-an-integer-input-truncates`](#spec-a-fraction-for-an-integer-input-truncates) — A number with a fraction given for an `int` or `uint` input of an `Fn` with a layout is truncated toward zero, so `next(2.9)` passes the `int` 2.
+    - [`@spec a-number-out-of-range-for-an-integer-input-is-refused`](#spec-a-number-out-of-range-for-an-integer-input-is-refused) — A number given for an `int` or `uint` input of an `Fn` with a layout that the input's type cannot hold is refused, a negative number for a `uint` input included. The error names the input and its type.
     - [`@spec a-number-index-is-an-int-literal`](#spec-a-number-index-is-an-int-literal) — A number given as an index, to `element` of a vector, a matrix, a uniform array or a storage buffer, compiles to an `int` literal on every target. The program converts no number at run time.
-    - [`@spec a-fraction-or-a-negative-number-as-an-index-is-refused`](#spec-a-fraction-or-a-negative-number-as-an-index-is-refused) — A number with a fraction, or a negative number, given as an index is refused where the index is given.
-    - [`@exception a-fraction-for-an-integer-is-refused-where-tsl-makes-it-whole`](#exception-a-fraction-for-an-integer-is-refused-where-tsl-makes-it-whole) — A fraction given where an integer is asked for is refused beside an integer operand, for an integer input of an `Fn` with a layout and as an index. TSL's `dev` branch truncates it toward zero in each of these places. Three.js 0.186.1 rounds it for an input or an index, and keeps it a `float` beside an operand.
+    - [`@spec a-fraction-index-truncates`](#spec-a-fraction-index-truncates) — A number with a fraction given as an index is truncated toward zero, so `element(1.5)` reads element 1, as a float node given as an index of a storage element does.
+    - [`@spec a-negative-index-is-refused`](#spec-a-negative-index-is-refused) — A negative number given as an index is refused where the index is given, a fraction above -1 included.
+    - [`@exception a-fraction-for-an-integer-truncates-where-tsl-r186-rounds`](#exception-a-fraction-for-an-integer-truncates-where-tsl-r186-rounds) — A fraction given for an integer is truncated toward zero beside an integer operand, for an integer input of an `Fn` with a layout, as an index and as a bound of an integer `Loop`. Three.js r186 rounds it for an input, an index or a bound, and keeps it a `float` beside an operand. Its `dev` branch, r187dev, truncates it in each place, as rmsl does.
     - [`@exception a-number-index-is-an-int-where-tsl-builds-a-uint`](#exception-a-number-index-is-an-int-where-tsl-builds-a-uint) — A number given as an index compiles to an `int` literal, where TSL builds it as a `uint`, `[ 2u ]`. Every index an array or a vector holds has the same value as either type.
     - [`@exception a-negative-index-is-refused-where-tsl-writes-zero`](#exception-a-negative-index-is-refused-where-tsl-writes-zero) — A negative number given as an index is refused where it is given. TSL builds it as a `uint`, which it writes as `0u` for a negative number, so `element(-1)` reads the first element.
     - [`@exception a-number-beyond-an-integer-range-beside-a-node-in-a-constructor-is-refused`](#exception-a-number-beyond-an-integer-range-beside-a-node-in-a-constructor-is-refused) — An integer vector constructor given a number its component type cannot hold beside a node, as `ivec2(i, 3e9)`, refuses it, as a constructor of numbers alone does. TSL builds the number as a `float` and converts it, `int( 3000000000.0 )`, which each GPU converts to an `int` in its own way.
@@ -3631,13 +3633,13 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 
 This follows because every `uint` is at least 0. Past 0 the index wraps to the largest `uint`, so the loop never ends. On a CPU target it hangs the thread.
 
-##### @exception loop-refuses-a-fraction-for-an-integer-bound
+##### @spec loop-truncates-a-fraction-for-an-integer-bound
 
-> For an `int` or `uint` index, `Loop` refuses a count, `start`, `end` or `update` that is a number with a fraction. A node of another type converts to the index's type, as `int(float(2.5))` truncates to 2.
+> For an `int` or `uint` index, `Loop` truncates a count, `start`, `end` or `update` that is a number with a fraction toward zero, as a node of another type converts to the index's type: `Loop(2.9, …)` runs twice.
 
-Derives from: [`spec-a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused), [`fact-tsl-r186-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-r186-rounds-a-number-it-builds-as-an-integer), [`fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer`](#fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer)
+Derives from: [`spec-a-number-takes-the-type-its-place-asks-for`](#spec-a-number-takes-the-type-its-place-asks-for), [`fact-tsl-r186-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-r186-rounds-a-number-it-builds-as-an-integer), [`fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer`](#fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer)
 
-This follows because TSL makes such a number whole, where rmsl refuses a fraction for an integer everywhere but in a constructor.
+This follows because a bound of an integer index is a place that asks for an integer. Three.js r186 rounds such a number, and r187dev truncates it, as rmsl does.
 
 ##### @exception loop-refuses-two-ranges-of-one-name
 
@@ -4433,11 +4435,13 @@ This follows because the jump would act on the outer loop, while the read in the
 
 ### @spec a-number-takes-the-type-its-place-asks-for
 
-> A JavaScript number has no shader type of its own. Where a program gives it, it takes the type that place asks for: the type of the operand beside it, of the target of an `assign`, of a constructor's component, of the input of an `Fn` with a layout, and `int` for an index. A number that type cannot hold is refused, and so is a fraction for an integer type outside a constructor.
+> A JavaScript number has no shader type of its own. Where a program gives it, it takes the type that place asks for: the type of the operand beside it, of the target of an `assign`, of a constructor's component, of the input of an `Fn` with a layout, and `int` for an index. A fraction given for an integer type is truncated toward zero, as rmsl converts a float to an integer everywhere. A number the type cannot hold is refused.
 
 Derives from: [`fact-tsl-r187dev-gives-a-number-the-type-of-the-node-beside-it`](#fact-tsl-r187dev-gives-a-number-the-type-of-the-node-beside-it), [`fact-tsl-r186-builds-a-number-beside-an-operand-as-a-float`](#fact-tsl-r186-builds-a-number-beside-an-operand-as-a-float), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
 
-This follows because WGSL converts no value implicitly, so a number compiles on every target only as a literal of the type its place takes. TSL gives a number the type of the node beside it on its `dev` branch, where three.js 0.186.1 made it a `float` that WGSL refuses beside an integer, and rmsl follows the newer behaviour.
+Derives from: [`spec-a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range), [`spec-an-integer-host-value-truncates-and-wraps`](#spec-an-integer-host-value-truncates-and-wraps)
+
+This follows because WGSL converts no value implicitly, so a number compiles on every target only as a literal of the type its place takes. A float node converted to an integer, and an integer the host gives, are truncated toward zero, so a number for an integer is too. TSL gives a number the type of the node beside it on its `dev` branch, where three.js 0.186.1 made it a `float` that WGSL refuses beside an integer, and rmsl follows the newer behaviour.
 
 #### @spec a-bare-number-takes-the-type-of-the-operand-beside-it
 
@@ -4455,9 +4459,9 @@ This follows because a number has no [shader type](#term-shader-type) of its own
 
 > A number beside a `float` or float vector compiles as a float literal, with no conversion.
 
-##### @spec a-fraction-beside-an-integer-is-refused
+##### @spec a-fraction-beside-an-integer-truncates
 
-> A number that is not whole, beside an integer operand, is refused.
+> A number with a fraction beside an integer operand is truncated toward zero, so `i.add(2.9)` for an `int` `i` adds 2, and `i.add(-2.9)` adds -2.
 
 ##### @spec a-number-beyond-an-integer-types-range-is-refused-beside-it
 
@@ -4495,9 +4499,13 @@ This follows because the number is a literal whether or not a node stands beside
 
 Derives from: [`fact-tsl-builds-a-number-for-a-layout-fn-input-as-its-type`](#fact-tsl-builds-a-number-for-a-layout-fn-input-as-its-type)
 
-#### @spec a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused
+#### @spec a-fraction-for-an-integer-input-truncates
 
-> A number with a fraction given for an `int` or `uint` input of an `Fn` with a layout is refused, and so is a number the input's type cannot hold. The error names the input and its type.
+> A number with a fraction given for an `int` or `uint` input of an `Fn` with a layout is truncated toward zero, so `next(2.9)` passes the `int` 2.
+
+#### @spec a-number-out-of-range-for-an-integer-input-is-refused
+
+> A number given for an `int` or `uint` input of an `Fn` with a layout that the input's type cannot hold is refused, a negative number for a `uint` input included. The error names the input and its type.
 
 #### @spec a-number-index-is-an-int-literal
 
@@ -4505,17 +4513,23 @@ Derives from: [`fact-tsl-builds-a-number-for-a-layout-fn-input-as-its-type`](#fa
 
 Derives from: [`fact-tsl-builds-an-index-as-a-uint`](#fact-tsl-builds-an-index-as-a-uint)
 
-#### @spec a-fraction-or-a-negative-number-as-an-index-is-refused
+#### @spec a-fraction-index-truncates
 
-> A number with a fraction, or a negative number, given as an index is refused where the index is given.
+> A number with a fraction given as an index is truncated toward zero, so `element(1.5)` reads element 1, as a float node given as an index of a storage element does.
 
-#### @exception a-fraction-for-an-integer-is-refused-where-tsl-makes-it-whole
+Derives from: [`spec-a-float-index-of-a-storage-element-drops-its-fraction`](#spec-a-float-index-of-a-storage-element-drops-its-fraction)
 
-> A fraction given where an integer is asked for is refused beside an integer operand, for an integer input of an `Fn` with a layout and as an index. TSL's `dev` branch truncates it toward zero in each of these places. Three.js 0.186.1 rounds it for an input or an index, and keeps it a `float` beside an operand.
+#### @spec a-negative-index-is-refused
 
-Derives from: [`spec-a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused), [`spec-a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused`](#spec-a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused), [`spec-a-fraction-or-a-negative-number-as-an-index-is-refused`](#spec-a-fraction-or-a-negative-number-as-an-index-is-refused), [`fact-tsl-r186-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-r186-rounds-a-number-it-builds-as-an-integer), [`fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer`](#fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer), [`fact-tsl-r186-builds-a-number-beside-an-operand-as-a-float`](#fact-tsl-r186-builds-a-number-beside-an-operand-as-a-float), [`fact-tsl-r187dev-gives-a-number-the-type-of-the-node-beside-it`](#fact-tsl-r187dev-gives-a-number-the-type-of-the-node-beside-it), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+> A negative number given as an index is refused where the index is given, a fraction above -1 included.
 
-A fraction where an integer goes is almost always a mistake, and the number TSL writes in its place hides it. TSL also changed what it writes between three.js 0.186.1 and its `dev` branch, so a TSL shader that gives such a fraction has no one meaning a port could keep. A constructor is a conversion the program asks for, so `int(2.9)` and `ivec2(i, 2.9)` truncate, as converting a float node does.
+#### @exception a-fraction-for-an-integer-truncates-where-tsl-r186-rounds
+
+> A fraction given for an integer is truncated toward zero beside an integer operand, for an integer input of an `Fn` with a layout, as an index and as a bound of an integer `Loop`. Three.js r186 rounds it for an input, an index or a bound, and keeps it a `float` beside an operand. Its `dev` branch, r187dev, truncates it in each place, as rmsl does.
+
+Derives from: [`spec-a-fraction-beside-an-integer-truncates`](#spec-a-fraction-beside-an-integer-truncates), [`spec-a-fraction-for-an-integer-input-truncates`](#spec-a-fraction-for-an-integer-input-truncates), [`spec-a-fraction-index-truncates`](#spec-a-fraction-index-truncates), [`fact-tsl-r186-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-r186-rounds-a-number-it-builds-as-an-integer), [`fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer`](#fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer), [`fact-tsl-r186-builds-a-number-beside-an-operand-as-a-float`](#fact-tsl-r186-builds-a-number-beside-an-operand-as-a-float), [`fact-tsl-r187dev-gives-a-number-the-type-of-the-node-beside-it`](#fact-tsl-r187dev-gives-a-number-the-type-of-the-node-beside-it)
+
+TSL changed what it does with such a fraction between r186 and r187dev, so a TSL shader that gives one has no one meaning a port could keep. rmsl truncates, as it converts every float to an integer, which is also what TSL does next.
 
 #### @exception a-number-index-is-an-int-where-tsl-builds-a-uint
 
@@ -4529,7 +4543,7 @@ An index rmsl builds from a node is an `int` or a `uint` as the node is, and `el
 
 > A negative number given as an index is refused where it is given. TSL builds it as a `uint`, which it writes as `0u` for a negative number, so `element(-1)` reads the first element.
 
-Derives from: [`spec-a-fraction-or-a-negative-number-as-an-index-is-refused`](#spec-a-fraction-or-a-negative-number-as-an-index-is-refused), [`fact-tsl-r186-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-r186-rounds-a-number-it-builds-as-an-integer), [`fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer`](#fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+Derives from: [`spec-a-negative-index-is-refused`](#spec-a-negative-index-is-refused), [`fact-tsl-r186-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-r186-rounds-a-number-it-builds-as-an-integer), [`fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer`](#fact-tsl-r187dev-truncates-a-number-it-builds-as-an-integer), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
 
 No element sits before the first, and the first element TSL reads in its place hides the mistake.
 
