@@ -1345,14 +1345,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // The argument is an index, so a plain number is always typed as an integer.
   // A matrix indexes to one of its columns; a vector to one of its components.
   element(i: any): any {
-    const index =
-      typeof i === "number"
-        ? node({
-            _t: "int",
-            type: "int",
-            value: i | 0,
-          })
-        : i;
+    const index = indexNode(i);
 
     if (this.type === "storage") {
       return node({
@@ -2434,22 +2427,52 @@ export function assertCallFits(call: BaseNode<ShaderType>): void {
   }
 }
 
-/** The value of `x` as the input `input` of a function, or throws if it has another type. */
+/**
+ * The value of `x` as the input `input` of a function, or throws if it has
+ * another type. A number takes the type of the input, and fills every
+ * component of a vector input.
+ */
 function fitArgument(
   name: string | undefined,
   input: { name: string; type: string },
   x: unknown,
 ): BaseNode<ShaderType> {
-  const value = wrapValue(x as any) as BaseNode<ShaderType>;
+  const value = typeof x === "number" ? numberArgument(name, input, x) : (wrapValue(x as any) as BaseNode<ShaderType>);
   if (!isNode(value) || value._t !== input.type) {
     const got = isNode(value) && value._t !== "void" ? `a ${value._t}` : "nothing";
     throw new NodeError(
       "argument-of-another-type",
       `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
-        `Convert it to a ${input.type}${typeof x === "number" ? `, as ${input.type}(${x}) does: a plain number is a float` : ""}.`,
+        `Convert it to a ${input.type}.`,
     );
   }
   return value;
+}
+
+/** The number `x` as the input `input` of a function: a literal of its type, or of its component type for a vector. */
+function numberArgument(
+  name: string | undefined,
+  input: { name: string; type: string },
+  x: number,
+): BaseNode<ShaderType> | undefined {
+  const scalar = componentKindOf(input.type);
+  if (scalar === "bool" || MATRIX_DIMENSIONS[input.type]) return wrapValue(x) as BaseNode<ShaderType>;
+  let component: BaseNode<ShaderType>;
+  if (scalar === "float") {
+    component = wrapValue(x) as BaseNode<ShaderType>;
+  } else {
+    const [low, high] = scalar === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
+    if (!Number.isInteger(x) || x < low || x > high) {
+      throw new NodeError(
+        "argument-of-another-type",
+        `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${x}, ` +
+          `which ${Number.isInteger(x) ? `is outside the range of ${scalar}, ${low} to ${high}` : "is not a whole number"}. ` +
+          `Give a whole number inside the range, or convert a float node with ${conversionTo(input.type, scalar)}.`,
+      );
+    }
+    component = node({ _t: scalar, type: scalar, value: x });
+  }
+  return input.type === scalar ? component : node({ _t: input.type, type: "construct", params: [component] });
 }
 
 /** The arguments of a call of a function with `layout`, in the order of its inputs, whether passed by position or as one object. */
@@ -3600,8 +3623,23 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
     node({
       _t: shaderType,
       type: "uniformArrayElement",
-      params: [target, wrapValue(index, "element") as BaseNode<ShaderType>],
+      params: [target, indexNode(index)],
     });
+}
+
+/**
+ * The node of the index `i`: a number as an `int` literal, refused when it has
+ * a fraction or is negative, and any other value as `element` takes it.
+ */
+function indexNode(i: unknown): BaseNode<ShaderType> {
+  if (typeof i !== "number") return wrapValue(i as any, "element") as BaseNode<ShaderType>;
+  if (!Number.isInteger(i)) {
+    throw new NodeError("index-not-whole", `element(${i}) takes an index that is a whole number, and ${i} is not.`);
+  }
+  if (i < 0) {
+    throw new NodeError("index-negative", `element(${i}) takes an index of 0 or more, and ${i} is negative.`);
+  }
+  return node({ _t: "int", type: "int", value: integerLiteral("int", i) });
 }
 
 /**
@@ -3767,7 +3805,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
     node({
       _t: shaderType,
       type: "storageElement",
-      params: [storageNode, wrapValue(index, "element") as BaseNode<ShaderType>],
+      params: [storageNode, indexNode(index)],
     }) as Var<T>;
   result.toReadOnly = () => {
     value.access = "read";

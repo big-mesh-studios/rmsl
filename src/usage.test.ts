@@ -2620,10 +2620,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       let items = uniformArray("vec4", 4);
       return items.element(2).add(items.element(0)).toVar();
     });
-    // A plain number is a float node, so the index is converted rather than
-    // emitted bare.
-    expect(compileGlsl(prog())).toMatch(/_rmsl_u\d+\[int\(2\.0\)\]/);
-    expect(compileWgsl(prog())).toMatch(/_rmsl_u\d+\[i32\(2f\)\]/);
+    expect(compileGlsl(prog())).toMatch(/_rmsl_u\d+\[2\]/);
+    expect(compileWgsl(prog())).toMatch(/_rmsl_u\d+\[2i\]/);
   });
 
   /**
@@ -2646,7 +2644,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       let prog = Fn(() => (uniformArray(type as any, 4).element(1) as any).toVar());
       let wgsl = compileWgsl(prog());
       expect(wgsl, type).toContain(stored);
-      expect(wgsl, type).toMatch(new RegExp(`\\[i32\\([^)]*\\)\\]${read.replace(".", "\\.")}`));
+      expect(wgsl, type).toMatch(new RegExp(`\\[1i\\]${read.replace(".", "\\.")}`));
       // GLSL has no such rule, so nothing is padded there.
       expect(compileGlsl(prog()), type).toMatch(/uniform \w+ _rmsl_u\d+\[4\];/);
     }

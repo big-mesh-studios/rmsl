@@ -712,14 +712,61 @@ describe("a mistake in a function with a layout is refused", () => {
   /**
    * @canon spec-a-call-with-an-argument-of-the-wrong-type-is-refused
    */
-  it("refuses a plain number for an int input, and says how to convert it", () => {
+  it("refuses a node of another type than its input, and says how to convert it", () => {
     const next = Fn(([n]: [Node<"int">]) => n.add(1)).setLayout({
       name: "next",
       type: "int",
       inputs: [{ name: "n", type: "int" }],
     }) as (...args: any[]) => any;
-    expect(() => next(3)).toThrowRmsl(NodeError, "argument-of-another-type");
+    expect(() => next(float(3))).toThrowRmsl(NodeError, "argument-of-another-type", /int/);
     expect(() => next(int(3))).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-number-for-a-layout-fn-input-takes-the-input-type
+   */
+  it("passes a number as the type of its input, on every target", () => {
+    const next = Fn(([n]: [Node<"int">]) => n.add(1)).setLayout({
+      name: "next",
+      type: "int",
+      inputs: [{ name: "n", type: "int" }],
+    }) as (...args: any[]) => any;
+    const scale = Fn(([v, k]: [Node<"vec3">, Node<"uint">]) => v.mul(k.toFloat())).setLayout({
+      name: "scale",
+      type: "vec3",
+      inputs: [
+        { name: "v", type: "vec3" },
+        { name: "k", type: "uint" },
+      ],
+    }) as (...args: any[]) => any;
+    const build = () => Fn(() => vec4(scale(2, 3), next(3).toFloat()))();
+    expect(compileGlsl.fragment(build())).toMatch(/next\(3\)/);
+    expect(compileWgsl.fragment(build())).toMatch(/next\(3i\)/);
+    expect(compileWgsl.fragment(build())).toMatch(/scale\(vec3<f32>\(2f\), 3u\)/);
+    expect(Array.from(evaluateRecording(build as any) as ArrayLike<number>)).toEqual([6, 6, 6, 4]);
+    const flag = Fn(([b]: [Node<"bool">]) => b.not()).setLayout({
+      name: "flag",
+      type: "bool",
+      inputs: [{ name: "b", type: "bool" }],
+    }) as (...args: any[]) => any;
+    expect(() => flag(1)).toThrowRmsl(NodeError, "argument-of-another-type", /"b".*bool/);
+  });
+
+  /**
+   * @canon spec-a-fraction-or-a-number-out-of-range-for-an-integer-input-is-refused
+   */
+  it("refuses a fraction or a number out of range for an integer input, naming the input", () => {
+    const pick = Fn(([n, m]: [Node<"int">, Node<"uint">]) => n.add(m.toInt())).setLayout({
+      name: "pick",
+      type: "int",
+      inputs: [
+        { name: "n", type: "int" },
+        { name: "m", type: "uint" },
+      ],
+    }) as (...args: any[]) => any;
+    expect(() => pick(2.5, 1)).toThrowRmsl(NodeError, "argument-of-another-type", /"n".*int.*2\.5/);
+    expect(() => pick(3e9, 1)).toThrowRmsl(NodeError, "argument-of-another-type", /"n".*int/);
+    expect(() => pick(1, -1)).toThrowRmsl(NodeError, "argument-of-another-type", /"m".*uint/);
   });
 
   /**

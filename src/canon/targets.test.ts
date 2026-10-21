@@ -2389,3 +2389,94 @@ describe("a number beside a node in an integer vector", () => {
     expect(compileGlsl(Fn(() => ivec2(i, 2.9).toVar())())).toMatch(/ivec2\(_rmsl_u\d+, 2\)/);
   });
 });
+
+describe("a number given as an index", () => {
+  /**
+   * @canon spec-a-number-index-is-an-int-literal
+   */
+  it("compiles to an int literal on every target", () => {
+    const values = uniformArray("float", 4);
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const v = vec3(x, x.add(1), x.add(2)).toVar("v");
+        return vec4(v.element(1), values.element(2), 0, 1);
+      })();
+    const at = uniform("float");
+    const glsl = compileGlsl(build(at));
+    expect(glsl).toMatch(/v\[1\]/);
+    expect(glsl).toMatch(/_rmsl_u\d+\[2\]/);
+    expect(glsl).not.toMatch(/int\(2\.0\)/);
+    const wgsl = compileWgsl(build(at));
+    expect(wgsl).toMatch(/v\[1i?\]/);
+    expect(wgsl).not.toMatch(/i32\(2f\)/);
+    const js = compileJSFn(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+    expect(js).not.toMatch(/Math\.trunc\(Math\.min\(Math\.max\(2,/);
+  });
+
+  /**
+   * @canon spec-a-fraction-or-a-negative-number-as-an-index-is-refused
+   */
+  it("refuses a fraction or a negative number where the index is given", () => {
+    const v = uniform("vec3");
+    const values = uniformArray("float", 4);
+    const buffer = instancedArray(4, "float");
+    expect(() => v.element(1.5)).toThrowRmsl(NodeError, "index-not-whole", /1\.5/);
+    expect(() => values.element(2.5)).toThrowRmsl(NodeError, "index-not-whole", /2\.5/);
+    expect(() => buffer.element(0.5)).toThrowRmsl(NodeError, "index-not-whole", /0\.5/);
+    expect(() => values.element(-1)).toThrowRmsl(NodeError, "index-negative", /-1/);
+  });
+});
+
+describe("where rmsl refuses a number TSL converts", () => {
+  /**
+   * @canon exception-a-fraction-for-an-integer-is-refused-where-tsl-makes-it-whole
+   */
+  it("refuses a fraction beside an integer, for an integer input and as an index, and truncates it in a constructor", () => {
+    const i = uniform("int");
+    const next = Fn(([n]: [Node<"int">]) => n.add(1)).setLayout({
+      name: "next",
+      type: "int",
+      inputs: [{ name: "n", type: "int" }],
+    }) as (...args: any[]) => any;
+    expect(() => i.add(2.9)).toThrowRmsl(NodeError, "literal-not-whole");
+    expect(() => next(2.9)).toThrowRmsl(NodeError, "argument-of-another-type");
+    expect(() => uniform("vec3").element(1.5)).toThrowRmsl(NodeError, "index-not-whole");
+    expect(compileGlsl(Fn(() => ivec2(i, 2.9).toVar())())).toMatch(/ivec2\(_rmsl_u\d+, 2\)/);
+  });
+
+  /**
+   * @canon exception-a-number-index-is-an-int-where-tsl-builds-a-uint
+   */
+  it("compiles a number index as an int, where TSL writes a uint", () => {
+    const values = uniformArray("float", 4);
+    const build = () => Fn(() => vec4(values.element(2), 0, 0, 1))();
+    expect(compileWgsl(build())).toMatch(/_rmsl_u\d+\[2i\]/);
+    expect(compileWgsl(build())).not.toMatch(/\[2u\]/);
+  });
+
+  /**
+   * @canon exception-a-negative-index-is-refused-where-tsl-writes-zero
+   */
+  it("refuses a negative index, where TSL reads the first element", () => {
+    expect(() => uniformArray("float", 4).element(-1)).toThrowRmsl(NodeError, "index-negative");
+    expect(() => instancedArray(4, "float").element(-2)).toThrowRmsl(NodeError, "index-negative");
+  });
+
+  /**
+   * @canon exception-a-number-beyond-an-integer-range-beside-a-node-in-a-constructor-is-refused
+   */
+  it("refuses a number out of range beside a node in a constructor, where TSL converts it", () => {
+    const i = uniform("int");
+    const u = uniform("uint");
+    expect(() => ivec2(i, 3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => uvec3(u, 1, 5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
+  });
+
+  /**
+   * @canon exception-a-number-beyond-an-integer-range-is-refused-where-tsl-changes-the-type
+   */
+  it("refuses a number beyond the range of an integer beside it, where TSL adds two floats", () => {
+    const i = uniform("int") as any;
+    expect(() => i.add(3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+  });
+});
