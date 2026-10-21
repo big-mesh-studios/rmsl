@@ -52,6 +52,7 @@ import {
   uniformArray,
   uv,
   uvec2,
+  uvec3,
   varying,
   vec2,
   vec3,
@@ -2349,5 +2350,42 @@ describe("a variable the update of a For makes", () => {
       })();
     // The body reads a and 10 + a; after the loop the variable holds 20 + a.
     expect(evaluateRecording(build, [1])).toBe(1 + 11 + 2100);
+  });
+});
+
+describe("a number beside a node in an integer vector", () => {
+  /**
+   * @canon spec-a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal
+   */
+  it("compiles the number to an integer literal on every target", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const a = ivec2(x.toInt(), 0).toVar("a");
+        const b = uvec2(x.toUint(), 7).toVar("b");
+        return vec4(a.x.toFloat(), a.y.toFloat(), b.y.toFloat(), 1);
+      })();
+    const at = uniform("float");
+    const glsl = compileGlsl(build(at));
+    expect(glsl).toContain("ivec2(int(");
+    expect(glsl).toMatch(/ivec2\(int\([^)]*\), 0\)/);
+    expect(glsl).toMatch(/uvec2\(uint\([^)]*\), 7u\)/);
+    const wgsl = compileWgsl(build(at));
+    expect(wgsl).toMatch(/vec2<i32>\(i32\([^)]*\), 0i\)/);
+    expect(wgsl).toMatch(/vec2<u32>\(u32\([^)]*\), 7u\)/);
+    const js = compileJSFn(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+    expect(js).not.toMatch(/Math\.trunc\(Math\.min\(Math\.max\((0|7),/);
+    expect(Array.from(evaluateRecording(build, [3]) as ArrayLike<number>)).toEqual([3, 0, 7, 1]);
+  });
+
+  /**
+   * @canon spec-a-number-outside-an-integer-type-is-refused-by-its-constructor
+   */
+  it("refuses a number outside the component type beside a node, and truncates a fraction", () => {
+    const i = uniform("int");
+    const u = uniform("uint");
+    expect(() => ivec2(i, 3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => uvec3(u, 1, 5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
+    expect(() => uvec2(u, -1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
+    expect(compileGlsl(Fn(() => ivec2(i, 2.9).toVar())())).toMatch(/ivec2\(_rmsl_u\d+, 2\)/);
   });
 });

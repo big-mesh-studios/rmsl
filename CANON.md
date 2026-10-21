@@ -451,6 +451,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-integer-or-boolean-column-converts-to-float`](#spec-an-integer-or-boolean-column-converts-to-float) — A matrix constructor given integer or boolean vectors, as its columns or as the one vector `mat2` splits, converts their components to float on every target. A boolean gives 1 or 0.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
+    - [`@spec a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal`](#spec-a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal) — An integer vector constructor given a number beside a node, as `ivec2(i, 0)`, compiles the number to a literal of its component type on each target: `0` on GLSL, `0i` on WGSL, `0` on JavaScript and WebAssembly. The program converts no number at run time.
     - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused. The refusal names the operation that received the array, so a large shader points at the call.
     - [`@spec a-returned-array-lists-roots`](#spec-a-returned-array-lists-roots) — An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
@@ -3969,6 +3970,14 @@ This follows because a vector constructor takes a node wherever it takes a numbe
 #### @spec a-literal-compiles-to-a-literal-of-its-type
 
 > `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
+
+#### @spec a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal
+
+> An integer vector constructor given a number beside a node, as `ivec2(i, 0)`, compiles the number to a literal of its component type on each target: `0` on GLSL, `0i` on WGSL, `0` on JavaScript and WebAssembly. The program converts no number at run time.
+
+Derives from: [`spec-a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type), [`spec-a-number-outside-an-integer-type-is-refused-by-its-constructor`](#spec-a-number-outside-an-integer-type-is-refused-by-its-constructor)
+
+This follows because the number is a literal whether or not a node stands beside it, and the constructor takes it as a component of its type. TSL writes it as a float converted to the component type, `int( 0.0 )`. The value is the same, so the text alone departs.
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 

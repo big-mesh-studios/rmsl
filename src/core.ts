@@ -2904,11 +2904,16 @@ export function makeIntVecConstructor<T extends ShaderType>(
     if (args.length <= width && args.every((a) => typeof a === "number")) {
       return node({ _t: t, type: t, value: args.map(toComponent) }) as Node<T>;
     }
+    // A number beside a node is a component of the vector's type, written as its literal.
     return node({
       _t: t,
       type: "construct",
       params: args.map((a: any) =>
-        isNode(a) ? (a as BaseNode<ShaderType>) : (wrapValue(a, t) as BaseNode<ShaderType>),
+        typeof a === "number"
+          ? (node({ _t: scalarType, type: scalarType, value: toComponent(a) }) as BaseNode<ShaderType>)
+          : isNode(a)
+            ? (a as BaseNode<ShaderType>)
+            : (wrapValue(a, t) as BaseNode<ShaderType>),
       ),
     }) as Node<T>;
   };
