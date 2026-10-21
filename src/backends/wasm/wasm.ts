@@ -52,6 +52,7 @@ import {
   COMPONENT_INDEX,
   resolveSwizzleTarget,
   inlineCalls,
+  splitStructs,
   LOOP_JUMP_OUTSIDE_A_LOOP_MESSAGE,
 } from "../shared";
 import { shareNodes } from "../share";
@@ -874,7 +875,7 @@ export function compileWasmModule(
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const resultNodes = numberClashingVariables(
-    shareNodes(origin, inlineCalls(prepareRoots(origin, options.stage, rawNodes, undefined, true))),
+    shareNodes(origin, splitStructs(inlineCalls(prepareRoots(origin, options.stage, rawNodes, undefined, true)))),
   );
   const root = resultNodes[resultNodes.length - 1];
 

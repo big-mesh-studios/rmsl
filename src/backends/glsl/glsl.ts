@@ -13,6 +13,9 @@ import {
   componentKindOf,
   assertSquareMatrix,
   assertConstantIndexInRange,
+  isStructType,
+  structsOf,
+  type StructType,
 } from "../../core";
 import {
   assertAssignable,
@@ -86,6 +89,7 @@ function glslLiteralPrec(literal: string): number {
 }
 
 export function glslType(brand: any): string {
+  if (isStructType(brand)) return brand;
   return typeToGLSL[brand as string] ?? "float";
 }
 
@@ -205,6 +209,20 @@ export function compileGLSLNode(
         body: params.flatMap((p: any) => p.body),
         expr: `${t}(${args})`,
       };
+    }
+
+    case "struct": {
+      let params = (node.params ?? []).map((p: any) => compileGLSLStage(p, ctx));
+      return {
+        decls: params.flatMap((p: any) => p.decls),
+        body: params.flatMap((p: any) => p.body),
+        expr: `${node._t}(${params.map((p: any) => p.expr).join(", ")})`,
+      };
+    }
+
+    case "member": {
+      let holder = compileGLSLStage(node.params![0], ctx);
+      return { decls: holder.decls, body: holder.body, expr: `${holder.expr}.${node.value}` };
     }
 
     case "var": {
@@ -888,6 +906,11 @@ export function compileGLSLNode(
   }
 }
 
+/** The GLSL declaration of a struct type. */
+function glslStructDeclaration(type: StructType): string {
+  return `struct ${type.name} {\n${type.members.map((m) => `  ${glslType(m.type)} ${m.name};`).join("\n")}\n};`;
+}
+
 /**
  * Declares the function of an `Fn` with a layout once, from its body compiled
  * in a context of its own, and gives the name it is called by.
@@ -896,7 +919,7 @@ function declareGlslFn(definition: FnDefinition, ctx: CompileCtx): string {
   return declareFn(ctx, definition, (name) => {
     const child = bodyContext(ctx);
     const root = numberClashingVariables(
-      shareNodes(ctx, prepareRoots(ctx, undefined, [definition.body as Node<ShaderType>], undefined, true)[0]!),
+      shareNodes(ctx, prepareRoots(ctx, undefined, [definition.body as Node<ShaderType>], undefined, true, true)[0]!),
     );
     const compiled = compileGLSLStage(root, child);
     ctx.nextId = child.nextId;
@@ -1141,6 +1164,7 @@ export function compileGLSLWithStage(
   }
   lines.push("");
 
+  for (const type of structsOf(nodes)) lines.push(glslStructDeclaration(type), "");
   ctx.uniforms.forEach((info) => lines.push(uniformDeclaration(info)));
   ctx.attributes.forEach((info) => {
     lines.push(`in ${info.type} ${info.slot};`);
@@ -1291,6 +1315,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   if (ctx.uniforms.size > 0) {
     code += "\n";
   }
+  for (const type of structsOf(result)) code += `${glslStructDeclaration(type)}\n\n`;
   for (const helper of ctx.glslHelpers?.values() ?? []) code += `${helper}\n\n`;
   for (const declaration of ctx.userFns?.declarations ?? []) code += `${declaration}\n\n`;
   code += `${returnType} ${options.name}(${paramStr}) {\n`;

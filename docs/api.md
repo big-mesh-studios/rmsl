@@ -558,6 +558,33 @@ GLSL and WGSL declare `shade` once and call it at each use. The CPU targets (JS,
 - The arguments must have the types of the inputs, and the body must return the layout's type. A number is a `float`.
 - The body sees its inputs, its own variables and the program's uniforms, textures and storage buffers. A variable of the caller is refused with its name; pass it in as an input and return the new value. The body may read an attribute, a varying and a built-in input such as `fragCoord()`, and assign a varying, on GLSL, JS and WASM, as it may in TSL. WGSL refuses those, because its entry point owns them: pass their values in as inputs. Every target refuses a body that uses a stage output, the position or the fragment depth.
 
+### Structs
+
+`struct(members, name)` makes a struct type, as TSL's `struct` does, and returns its constructor. A struct groups values under names, and is how a function with a layout returns several values:
+
+```ts
+const BVHNode = struct({ min: "vec3", max: "vec3", left: "int" }, "BVHNode");
+
+const getNode = Fn(([i]) => {
+  const a = textureLoad(bvhTexture, ivec2(i.mul(2), 0));
+  const b = textureLoad(bvhTexture, ivec2(i.mul(2).add(1), 0));
+  return BVHNode(a.xyz, b.xyz, a.w.toInt());
+}).setLayout({ name: "getNode", type: "BVHNode", inputs: [{ name: "i", type: "int" }] });
+
+const node = getNode(index);
+node.get("max"); // a vec3
+```
+
+- The constructor takes the members in order, `BVHNode(min, max, left)`, or as one object, `BVHNode({ min, max, left })`. A member it is not given is zero, so `BVHNode()` is all zeros. A number or an array is built as the member's type: `BVHNode(1, [0, 1, 2], 3)`. A node of another type is refused, and the error names the conversion.
+- `value.get(name)` reads a member. On a struct variable, `get(name).assign(x)` writes one member, and `assign(value)` writes them all.
+- A member's type is a scalar, a vector, a matrix or the name of a struct made before. A layout names a struct by its name, as its `type` or an input's `type`.
+- A member may take the name of a built-in function, such as `min` or `max`. A keyword or a reserved word of GLSL or WGSL, such as `type`, or a name with the prefix `gl_` or `_rmsl_` or two underscores in a row, is refused.
+- A struct with no name is named `StructType` and a number. A struct name is one GLSL and WGSL can declare: no keyword, reserved word or built-in, and none of the structs the WGSL target declares itself (`VertexInput`, `VertexOutput`, `FragmentOutput`). A variable or a function named like a struct gets a number appended.
+- `struct` given a name again, as a module the development server reloads gives it, makes the struct of that name again, and a layout names the new one. A program that holds a value of each is refused as it compiles.
+- GLSL and WGSL declare the struct. JS and WASM hold each member in a variable of its own.
+- A struct is no operand: `equal`, `add`, `select` and the other operations refuse one, since WGSL cannot compare two structs. Compare the members. A program cannot return a struct as its result: return a member.
+- A struct is no input: `uniform`, `attribute`, `varying` and the storage buffers refuse a struct type. Give each member an input of its own.
+
 ## I/O
 
 | Function                   | Returns               | Description                                                                                                                                                                                      |

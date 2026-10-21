@@ -534,12 +534,45 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-layout-fn-computes-the-same-on-every-target`](#spec-a-layout-fn-computes-the-same-on-every-target) — A program that calls an `Fn` with a layout computes the same value on every target.
     - [`@spec a-layout-fn-takes-its-inputs-as-an-array-and-by-name`](#spec-a-layout-fn-takes-its-inputs-as-an-array-and-by-name) — The body of an `Fn` with a layout receives its inputs as one value that destructures as an array, `([a, b])`, and as an object, `({ a, b })`. A call passes them by position or as one object keyed by input name.
     - [`@spec a-layout-fn-without-a-name-gets-one`](#spec-a-layout-fn-without-a-name-gets-one) — A layout that gives no `name` gets a generated name, and its function is declared under it.
-    - [`@spec a-taken-function-name-gets-a-number`](#spec-a-taken-function-name-gets-a-number) — A second `Fn` with a layout whose name a program already uses, or the function a compile wraps the program in, is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name. A variable named like a function with a layout is numbered instead, as a name is a hint the compiler may change. A function, an input or a variable named like a keyword or a built-in of GLSL or WGSL, with the prefix `gl_` or with two underscores in a row, is declared under a name they can declare, `float` as `float_`. Only a name given as it stands, as `uniformRaw` gives, is refused.
+    - [`@spec a-taken-function-name-gets-a-number`](#spec-a-taken-function-name-gets-a-number) — A second `Fn` with a layout whose name a program already uses, or the function a compile wraps the program in, is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name. A variable named like a function with a layout is numbered instead, as a name is a hint the compiler may change. A function, an input or a variable named like a keyword or a built-in of GLSL or WGSL, a word WGSL reserves, with the prefix `gl_` or with two underscores in a row, is declared under a name they can declare, `float` as `float_`. Only a name given as it stands, as `uniformRaw` gives, is refused.
     - [`@spec return-leaves-a-void-layout-fn`](#spec-return-leaves-a-void-layout-fn) — A `Return()` in an `Fn` with a layout of type `void` leaves that function and not its caller, on every target.
     - [`@spec a-layout-fn-may-call-a-layout-fn`](#spec-a-layout-fn-may-call-a-layout-fn) — The body of an `Fn` with a layout may call another one. The program declares the callee once and ahead of the function that calls it.
     - [`@spec a-layout-fn-reads-a-uniform`](#spec-a-layout-fn-reads-a-uniform) — The body of an `Fn` with a layout reads a uniform of the program on every target.
     - [`@spec a-layout-fn-writes-a-storage-element`](#spec-a-layout-fn-writes-a-storage-element) — The body of an `Fn` with a layout of type `void` writes an element of a storage buffer. Every target that has storage buffers compiles it.
     - [`@spec a-graph-with-a-layout-fn-survives-json`](#spec-a-graph-with-a-layout-fn-survives-json) — `serialize` and `deserialize` keep a call of an `Fn` with a layout, so the restored graph compiles to the same code on every target. The calls that shared one function share one again.
+  - [`@spec a-struct-groups-named-members-as-tsls-struct-does`](#spec-a-struct-groups-named-members-as-tsls-struct-does) — `struct(members, name)` makes a struct type from an object of member names and their types, as TSL's `struct` does. A program builds a value of it, reads it by member, holds it in a variable, writes it whole or by member, and passes it to and from an `Fn` with a layout. The program computes the same on every target.
+    - [`@spec a-struct-is-built-from-its-members-in-order`](#spec-a-struct-is-built-from-its-members-in-order) — `S(a, b, …)`, for a struct type `S`, gives its members the values `a`, `b` and on, in the order its members were given to `struct`.
+    - [`@spec a-struct-is-built-from-its-members-by-name`](#spec-a-struct-is-built-from-its-members-by-name) — `S({ a, b })` gives each member the value of its name in the object.
+    - [`@spec a-member-a-struct-is-not-given-is-zero`](#spec-a-member-a-struct-is-not-given-is-zero) — A member the constructor is not given is zero of its type, and `false` for a `bool`. `S()` gives zero to every member.
+    - [`@spec a-number-for-a-member-is-a-value-of-its-type`](#spec-a-number-for-a-member-is-a-value-of-its-type) — A number or an array of numbers given for a member is built as a value of the member's type, as the constructor of that type builds it.
+    - [`@spec a-member-may-take-the-name-of-a-built-in`](#spec-a-member-may-take-the-name-of-a-built-in) — A member may take the name of a built-in function of GLSL or WGSL, such as `min` or `max`. A member named like a keyword of either, a word WGSL reserves, such as `type`, or with the prefix `gl_` or `_rmsl_` or two underscores in a row, is refused as `struct` is called.
+    - [`@spec a-struct-name-is-one-a-target-can-declare`](#spec-a-struct-name-is-one-a-target-can-declare) — `struct` refuses a name that is a keyword, a reserved word or a built-in of GLSL or WGSL, that starts with `gl_` or `_rmsl_` or holds two underscores in a row, or that names a struct the WGSL target declares for itself, `VertexInput`, `VertexOutput`, `FragmentOutput` or `_RmslUniforms`.
+    - [`@spec a-name-a-struct-has-is-numbered-for-a-variable-or-a-function`](#spec-a-name-a-struct-has-is-numbered-for-a-variable-or-a-function) — A variable, or an `Fn` with a layout, named like a struct of the program is declared under the name and the next free number, as a name taken by another function is.
+    - [`@spec get-reads-a-member`](#spec-get-reads-a-member) — `value.get(name)` reads the member `name` of a struct value.
+    - [`@spec a-member-of-a-struct-variable-is-assigned`](#spec-a-member-of-a-struct-variable-is-assigned) — `value.get(name).assign(x)` on a struct variable writes that member and leaves the others as they were. A component of a vector member is written alike.
+    - [`@spec a-struct-variable-is-assigned-whole`](#spec-a-struct-variable-is-assigned-whole) — `value.assign(s)` on a struct variable writes every member from the struct value `s`. It reads `s` in full before it writes a member, so `v.assign(S(v.get('b'), v.get('a')))` swaps two members.
+    - [`@spec a-member-may-be-a-struct`](#spec-a-member-may-be-a-struct) — A member's type may be the name of another struct. `value.get('inner').get('a')` reads a member of that member, and an `assign` on it writes it.
+    - [`@spec a-layout-fn-returns-a-struct`](#spec-a-layout-fn-returns-a-struct) — An `Fn` with a layout whose `type` is the name of a struct returns a value of that struct.
+    - [`@spec a-layout-fn-takes-a-struct-input`](#spec-a-layout-fn-takes-a-struct-input) — An `Fn` with a layout whose input has the name of a struct as its `type` takes a value of that struct, and its body reads the members of the input.
+    - [`@spec a-struct-without-a-name-gets-one`](#spec-a-struct-without-a-name-gets-one) — `struct(members)` with no name gets a name of its own, `StructType` followed by a number, and the program declares it under that name.
+    - [`@spec a-gpu-target-declares-each-struct-once`](#spec-a-gpu-target-declares-each-struct-once) — GLSL and WGSL declare each struct a program uses once, under its name, ahead of every function that names it. A struct that a member names is declared ahead of the struct that holds it.
+    - [`@spec a-cpu-target-holds-each-member-in-a-variable-of-its-own`](#spec-a-cpu-target-holds-each-member-in-a-variable-of-its-own) — JavaScript and WebAssembly hold each member of a struct value in a variable of its own, and declare no struct.
+    - [`@spec the-types-follow-the-members-of-a-struct`](#spec-the-types-follow-the-members-of-a-struct) — The type of `struct(members)` takes each member's value by its type, and `get(name)` on its value is typed the node of that member's type. `get(name)` on a struct variable is typed a variable that `assign` writes. A member that is a struct, named by a string, is typed `any`.
+    - [`@spec a-struct-survives-json`](#spec-a-struct-survives-json) — `serialize` and `deserialize` keep a struct value, its type and the members a program reads, so the restored graph compiles to the same code on every target.
+      - [`@spec a-struct-keeps-its-type-through-json`](#spec-a-struct-keeps-its-type-through-json) — A graph `deserialize` rebuilds holds each struct of the serialized graph, with its members, and compiles to the code the graph compiled to, with names the compiler generates aside.
+      - [`@spec a-restored-struct-without-a-name-takes-a-name-of-its-own`](#spec-a-restored-struct-without-a-name-takes-a-name-of-its-own) — A struct that was given no name takes a new `StructType` name as `deserialize` rebuilds it, as a fresh `struct` would. A graph saved in one process loads in another that made structs of its own.
+      - [`@spec a-restored-struct-of-a-taken-name-with-other-members-is-refused`](#spec-a-restored-struct-of-a-taken-name-with-other-members-is-refused) — `deserialize` refuses a graph whose struct has a name a struct of other members already has, and the error names both.
+    - [`@spec a-struct-is-refused-where-another-type-is-asked`](#spec-a-struct-is-refused-where-another-type-is-asked) — A struct value is refused where the program asks for a value of another type, and a value of another type where it asks for a struct. Each refusal names the struct.
+      - [`@spec an-assignment-of-another-type-to-a-struct-is-refused`](#spec-an-assignment-of-another-type-to-a-struct-is-refused) — An `assign` of a value of another type to a struct variable is refused, and so is an `assign` of a struct value to a variable or an output of another type.
+      - [`@spec a-struct-is-no-result-of-a-program`](#spec-a-struct-is-no-result-of-a-program) — A program whose result is a struct value is refused on every target, with an error that asks for a member instead.
+      - [`@spec a-struct-is-no-input-of-a-program`](#spec-a-struct-is-no-input-of-a-program) — `uniform`, `uniformArray`, `attribute`, `varying`, `attributeArray`, `instancedArray` and `storage`, and their raw forms, refuse a struct type where they are made. Every target refuses an input of a struct type in a graph `deserialize` rebuilt.
+      - [`@spec an-argument-of-another-type-for-a-struct-input-is-refused`](#spec-an-argument-of-another-type-for-a-struct-input-is-refused) — A call of an `Fn` with a layout that passes a value of another type for a struct input is refused, as any argument of another type is.
+    - [`@exception a-member-is-built-from-an-array-and-by-name`](#exception-a-member-is-built-from-an-array-and-by-name) — A struct constructor builds an array of numbers given for a member as the member's type, and a number given in the object form, `S({ a: 1 })`, too. TSL gives zero to such a member.
+    - [`@exception get-refuses-a-member-the-struct-lacks`](#exception-get-refuses-a-member-the-struct-lacks) — `value.get(name)` for a name the struct has no member of is refused, and the error names the members it has. TSL reads such a member as 0.
+    - [`@exception a-member-value-of-another-type-is-refused`](#exception-a-member-value-of-another-type-is-refused) — A struct constructor given a node of another type than its member's is refused, and the error names the member, its type and the conversion. TSL converts the value to the member's type.
+    - [`@exception a-program-with-two-structs-of-one-name-is-refused`](#exception-a-program-with-two-structs-of-one-name-is-refused) — `struct` given a name a struct was made under before makes the struct of that name again, and takes its place: a layout names the struct last made under a name. A program that holds a value of each is refused as it compiles, on every target, and the error names both sets of members. TSL declares both structs under the one name, which neither GLSL nor WGSL compiles.
+    - [`@exception a-storage-buffer-of-structs-is-refused`](#exception-a-storage-buffer-of-structs-is-refused) — A storage buffer of a struct element type is refused where it is made, as every input of a struct type is. TSL takes a struct as the element type of a storage buffer.
+    - [`@exception a-struct-is-refused-as-an-operand`](#exception-a-struct-is-refused-as-an-operand) — A struct value given to an operation, such as `equal`, `add` or `select`, is refused, and the error names the struct. TSL writes `equal` of two structs as the `==` of the target, which GLSL compiles and WGSL refuses.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
@@ -1118,6 +1151,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-a-layout-makes-an-fn-a-function-of-its-own`](#fact-tsl-a-layout-makes-an-fn-a-function-of-its-own) — TSL's `Fn` given a layout, by `Fn(jsFunction, layout)` or `.setLayout(layout)`, builds its body once into a function of the layout's name, type and inputs. The shader declares that function once and calls it at each use. An `Fn` without a layout runs its body at each call. A `Return()` in the body writes `return` into that function.
 - [`@fact tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name`](#fact-tsl-passes-a-layout-fn-its-inputs-as-an-array-and-by-name) — The body of a TSL `Fn` with a layout receives its inputs as one value that destructures both as an array, `([a, b])`, and as an object, `({ a, b })`. The call passes them by position or as one object.
+- [`@fact tsl-struct-makes-a-type-of-named-members`](#fact-tsl-struct-makes-a-type-of-named-members) — TSL's `struct(members, name)` returns the constructor of a struct type whose members are the names and types of `members`, in their order. The constructor takes the members' values in order or as one object keyed by name, and builds each member it is not given as zero. `.get(name)` reads a member, and an `assign` on it writes it. A member's type may be the name of another struct. A layout of an `Fn` names a struct by its name as its `type` or an input's `type`, and fails given the constructor. A struct given no name is named `StructType` and a number.
+- [`@fact tsl-builds-an-array-or-a-named-number-for-a-member-as-zero`](#fact-tsl-builds-an-array-or-a-named-number-for-a-member-as-zero) — A TSL struct constructor builds a number given for a member in order as the member's type. It gives zero to a member given an array of numbers, and to a member given a number in the object form, `S({ a: 1 })`.
+- [`@fact tsl-takes-a-struct-as-the-element-type-of-a-storage-buffer`](#fact-tsl-takes-a-struct-as-the-element-type-of-a-storage-buffer) — TSL's `attributeArray(count, S)` and `instancedArray(count, S)`, for a struct `S`, give a storage buffer whose element is a value of `S`, read by member. The generated WGSL reads `buffer.value[i].a`.
+- [`@fact tsl-reads-a-member-a-struct-lacks-as-zero`](#fact-tsl-reads-a-member-a-struct-lacks-as-zero) — TSL's `.get(name)` for a name its struct has no member of logs a warning and builds the value 0.
+- [`@fact tsl-converts-a-value-to-the-type-of-its-member`](#fact-tsl-converts-a-value-to-the-type-of-its-member) — A TSL struct constructor converts a value of another type to the type of its member. A `float` given for a `vec3` member is built as `vec3(x)`, and an `int` given for a `float` member as a `float`.
+- [`@fact tsl-declares-two-structs-of-one-name`](#fact-tsl-declares-two-structs-of-one-name) — TSL declares two struct types given one name, with different members, both under that name. GLSL and WGSL refuse a shader that declares one struct twice.
+- [`@fact tsl-writes-a-comparison-of-structs-with-the-operator`](#fact-tsl-writes-a-comparison-of-structs-with-the-operator) — TSL's `equal` of two struct values writes the `==` of the target between them. TSL builds no shader for `select` of two structs, and writes `add` of a struct and a number as a conversion of the struct to `float`, which neither GLSL nor WGSL compiles.
+- [`@fact wgsl-compares-no-structs`](#fact-wgsl-compares-no-structs) — WGSL defines `==` and `!=` on scalars and vectors only. A comparison of two struct values does not compile. GLSL ES 3.00 defines `==` and `!=` on structs, comparing every member.
 - [`@fact tsl-numbers-a-function-whose-name-is-taken`](#fact-tsl-numbers-a-function-whose-name-is-taken) — TSL declares a second function under a name already taken with a number appended: two layouts named `dup` give `dup` and `dup_1`.
 - [`@fact tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it`](#fact-tsl-builds-a-variable-of-the-caller-into-the-layout-fn-that-reads-it) — A variable of the caller that the body of a TSL `Fn` with a layout reads is declared and set again inside the function TSL emits. The function does not read the variable of the caller.
 - [`@fact glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals`](#fact-glsl-and-wgsl-functions-see-only-their-parameters-and-the-globals) — A GLSL ES 3.00 or WGSL function names its parameters, its own locals and the globals of the module. It has no closure, so a variable that the calling function declared is out of its scope, and a shader that names one fails to compile.
@@ -4492,7 +4533,7 @@ This follows because a TSL body written for a layout must run unchanged.
 
 #### @spec a-taken-function-name-gets-a-number
 
-> A second `Fn` with a layout whose name a program already uses, or the function a compile wraps the program in, is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name. A variable named like a function with a layout is numbered instead, as a name is a hint the compiler may change. A function, an input or a variable named like a keyword or a built-in of GLSL or WGSL, with the prefix `gl_` or with two underscores in a row, is declared under a name they can declare, `float` as `float_`. Only a name given as it stands, as `uniformRaw` gives, is refused.
+> A second `Fn` with a layout whose name a program already uses, or the function a compile wraps the program in, is declared under the name, an underscore and the next free number, as `dup_1`. Its calls use that name. A variable named like a function with a layout is numbered instead, as a name is a hint the compiler may change. A function, an input or a variable named like a keyword or a built-in of GLSL or WGSL, a word WGSL reserves, with the prefix `gl_` or with two underscores in a row, is declared under a name they can declare, `float` as `float_`. Only a name given as it stands, as `uniformRaw` gives, is refused.
 
 Derives from: [`fact-tsl-numbers-a-function-whose-name-is-taken`](#fact-tsl-numbers-a-function-whose-name-is-taken)
 
@@ -4535,6 +4576,208 @@ This follows because a storage buffer is a global of the module, and a function 
 Derives from: [`spec-a-graph-survives-json`](#spec-a-graph-survives-json)
 
 This follows because the function is part of the graph, and the graph survives JSON.
+
+### @spec a-struct-groups-named-members-as-tsls-struct-does
+
+> `struct(members, name)` makes a struct type from an object of member names and their types, as TSL's `struct` does. A program builds a value of it, reads it by member, holds it in a variable, writes it whole or by member, and passes it to and from an `Fn` with a layout. The program computes the same on every target.
+
+Derives from: [`fact-tsl-struct-makes-a-type-of-named-members`](#fact-tsl-struct-makes-a-type-of-named-members), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a TSL shader that groups values in a struct must port by changing its import. A struct is also how a function declared by GLSL or WGSL returns several values.
+
+#### @spec a-struct-is-built-from-its-members-in-order
+
+> `S(a, b, …)`, for a struct type `S`, gives its members the values `a`, `b` and on, in the order its members were given to `struct`.
+
+#### @spec a-struct-is-built-from-its-members-by-name
+
+> `S({ a, b })` gives each member the value of its name in the object.
+
+#### @spec a-member-a-struct-is-not-given-is-zero
+
+> A member the constructor is not given is zero of its type, and `false` for a `bool`. `S()` gives zero to every member.
+
+#### @spec a-number-for-a-member-is-a-value-of-its-type
+
+> A number or an array of numbers given for a member is built as a value of the member's type, as the constructor of that type builds it.
+
+#### @spec a-member-may-take-the-name-of-a-built-in
+
+> A member may take the name of a built-in function of GLSL or WGSL, such as `min` or `max`. A member named like a keyword of either, a word WGSL reserves, such as `type`, or with the prefix `gl_` or `_rmsl_` or two underscores in a row, is refused as `struct` is called.
+
+Derives from: [`fact-tsl-struct-makes-a-type-of-named-members`](#fact-tsl-struct-makes-a-type-of-named-members)
+
+This follows because GLSL and WGSL name a member inside its struct, apart from their functions, and only a keyword or a reserved name cannot be declared there.
+
+#### @spec a-struct-name-is-one-a-target-can-declare
+
+> `struct` refuses a name that is a keyword, a reserved word or a built-in of GLSL or WGSL, that starts with `gl_` or `_rmsl_` or holds two underscores in a row, or that names a struct the WGSL target declares for itself, `VertexInput`, `VertexOutput`, `FragmentOutput` or `_RmslUniforms`.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a target declares the struct under its name, and a name it cannot declare, or declares twice, fails the shader on that target alone.
+
+#### @spec a-name-a-struct-has-is-numbered-for-a-variable-or-a-function
+
+> A variable, or an `Fn` with a layout, named like a struct of the program is declared under the name and the next free number, as a name taken by another function is.
+
+Derives from: [`spec-a-taken-function-name-gets-a-number`](#spec-a-taken-function-name-gets-a-number)
+
+This follows because a variable or a function of the name of a struct hides the type wherever it is in scope.
+
+#### @spec get-reads-a-member
+
+> `value.get(name)` reads the member `name` of a struct value.
+
+#### @spec a-member-of-a-struct-variable-is-assigned
+
+> `value.get(name).assign(x)` on a struct variable writes that member and leaves the others as they were. A component of a vector member is written alike.
+
+#### @spec a-struct-variable-is-assigned-whole
+
+> `value.assign(s)` on a struct variable writes every member from the struct value `s`. It reads `s` in full before it writes a member, so `v.assign(S(v.get('b'), v.get('a')))` swaps two members.
+
+#### @spec a-member-may-be-a-struct
+
+> A member's type may be the name of another struct. `value.get('inner').get('a')` reads a member of that member, and an `assign` on it writes it.
+
+#### @spec a-layout-fn-returns-a-struct
+
+> An `Fn` with a layout whose `type` is the name of a struct returns a value of that struct.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own)
+
+#### @spec a-layout-fn-takes-a-struct-input
+
+> An `Fn` with a layout whose input has the name of a struct as its `type` takes a value of that struct, and its body reads the members of the input.
+
+Derives from: [`spec-an-fn-with-a-layout-is-a-function-of-its-own`](#spec-an-fn-with-a-layout-is-a-function-of-its-own)
+
+#### @spec a-struct-without-a-name-gets-one
+
+> `struct(members)` with no name gets a name of its own, `StructType` followed by a number, and the program declares it under that name.
+
+#### @spec a-gpu-target-declares-each-struct-once
+
+> GLSL and WGSL declare each struct a program uses once, under its name, ahead of every function that names it. A struct that a member names is declared ahead of the struct that holds it.
+
+This follows because GLSL and WGSL name a type only after it is declared.
+
+#### @spec a-cpu-target-holds-each-member-in-a-variable-of-its-own
+
+> JavaScript and WebAssembly hold each member of a struct value in a variable of its own, and declare no struct.
+
+Derives from: [`spec-a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called`](#spec-a-cpu-target-runs-the-body-of-a-layout-fn-where-it-is-called)
+
+This follows because a CPU target runs the body of every `Fn` where it is called, so no struct value crosses a call, and a variable for each member is the value split into the variables it already compiles.
+
+#### @spec the-types-follow-the-members-of-a-struct
+
+> The type of `struct(members)` takes each member's value by its type, and `get(name)` on its value is typed the node of that member's type. `get(name)` on a struct variable is typed a variable that `assign` writes. A member that is a struct, named by a string, is typed `any`.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a member of the wrong type, or a name the struct lacks, is a mistake the types can express.
+
+#### @spec a-struct-survives-json
+
+> `serialize` and `deserialize` keep a struct value, its type and the members a program reads, so the restored graph compiles to the same code on every target.
+
+Derives from: [`spec-a-graph-survives-json`](#spec-a-graph-survives-json)
+
+This follows because a struct type is part of the graph, and the graph survives JSON.
+
+##### @spec a-struct-keeps-its-type-through-json
+
+> A graph `deserialize` rebuilds holds each struct of the serialized graph, with its members, and compiles to the code the graph compiled to, with names the compiler generates aside.
+
+##### @spec a-restored-struct-without-a-name-takes-a-name-of-its-own
+
+> A struct that was given no name takes a new `StructType` name as `deserialize` rebuilds it, as a fresh `struct` would. A graph saved in one process loads in another that made structs of its own.
+
+This follows because the number in `StructType` counts the structs of one process, as the number in a generated variable name does.
+
+##### @spec a-restored-struct-of-a-taken-name-with-other-members-is-refused
+
+> `deserialize` refuses a graph whose struct has a name a struct of other members already has, and the error names both.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because the graph would take the name from the structs of the program that loads it.
+
+#### @spec a-struct-is-refused-where-another-type-is-asked
+
+> A struct value is refused where the program asks for a value of another type, and a value of another type where it asks for a struct. Each refusal names the struct.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because no target can make such a program work, and a refusal at build time names the cause.
+
+##### @spec an-assignment-of-another-type-to-a-struct-is-refused
+
+> An `assign` of a value of another type to a struct variable is refused, and so is an `assign` of a struct value to a variable or an output of another type.
+
+##### @spec a-struct-is-no-result-of-a-program
+
+> A program whose result is a struct value is refused on every target, with an error that asks for a member instead.
+
+##### @spec a-struct-is-no-input-of-a-program
+
+> `uniform`, `uniformArray`, `attribute`, `varying`, `attributeArray`, `instancedArray` and `storage`, and their raw forms, refuse a struct type where they are made. Every target refuses an input of a struct type in a graph `deserialize` rebuilt.
+
+##### @spec an-argument-of-another-type-for-a-struct-input-is-refused
+
+> A call of an `Fn` with a layout that passes a value of another type for a struct input is refused, as any argument of another type is.
+
+Derives from: [`spec-a-call-must-fit-its-layout`](#spec-a-call-must-fit-its-layout)
+
+#### @exception a-member-is-built-from-an-array-and-by-name
+
+> A struct constructor builds an array of numbers given for a member as the member's type, and a number given in the object form, `S({ a: 1 })`, too. TSL gives zero to such a member.
+
+Derives from: [`spec-a-number-for-a-member-is-a-value-of-its-type`](#spec-a-number-for-a-member-is-a-value-of-its-type), [`fact-tsl-builds-an-array-or-a-named-number-for-a-member-as-zero`](#fact-tsl-builds-an-array-or-a-named-number-for-a-member-as-zero), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+The zero TSL gives in place of the value the program wrote hides a mistake. rmsl builds the value as the constructor of the member's type builds it.
+
+#### @exception get-refuses-a-member-the-struct-lacks
+
+> `value.get(name)` for a name the struct has no member of is refused, and the error names the members it has. TSL reads such a member as 0.
+
+Derives from: [`fact-tsl-reads-a-member-a-struct-lacks-as-zero`](#fact-tsl-reads-a-member-a-struct-lacks-as-zero), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+A misspelt member is a mistake, and the 0 TSL builds in its place hides it.
+
+#### @exception a-member-value-of-another-type-is-refused
+
+> A struct constructor given a node of another type than its member's is refused, and the error names the member, its type and the conversion. TSL converts the value to the member's type.
+
+Derives from: [`fact-tsl-converts-a-value-to-the-type-of-its-member`](#fact-tsl-converts-a-value-to-the-type-of-its-member), [`spec-operands-of-different-kinds-are-refused`](#spec-operands-of-different-kinds-are-refused), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+rmsl refuses a value of another type where TSL converts it, as it does for the operands of an operation, and the conversion the error names writes it out.
+
+#### @exception a-program-with-two-structs-of-one-name-is-refused
+
+> `struct` given a name a struct was made under before makes the struct of that name again, and takes its place: a layout names the struct last made under a name. A program that holds a value of each is refused as it compiles, on every target, and the error names both sets of members. TSL declares both structs under the one name, which neither GLSL nor WGSL compiles.
+
+Derives from: [`fact-tsl-declares-two-structs-of-one-name`](#fact-tsl-declares-two-structs-of-one-name), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+A module that runs again, as a development server reloads it, makes its structs again, so the name takes the new members. Only a program that would declare two structs of one name cannot work.
+
+#### @exception a-storage-buffer-of-structs-is-refused
+
+> A storage buffer of a struct element type is refused where it is made, as every input of a struct type is. TSL takes a struct as the element type of a storage buffer.
+
+Derives from: [`spec-a-struct-is-no-input-of-a-program`](#spec-a-struct-is-no-input-of-a-program), [`fact-tsl-takes-a-struct-as-the-element-type-of-a-storage-buffer`](#fact-tsl-takes-a-struct-as-the-element-type-of-a-storage-buffer)
+
+Issue #358 asks whether rmsl should take one, and how the host would lay out a buffer of structs on each target.
+
+#### @exception a-struct-is-refused-as-an-operand
+
+> A struct value given to an operation, such as `equal`, `add` or `select`, is refused, and the error names the struct. TSL writes `equal` of two structs as the `==` of the target, which GLSL compiles and WGSL refuses.
+
+Derives from: [`fact-tsl-writes-a-comparison-of-structs-with-the-operator`](#fact-tsl-writes-a-comparison-of-structs-with-the-operator), [`fact-wgsl-compares-no-structs`](#fact-wgsl-compares-no-structs), [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+GLSL compares two structs and WGSL does not, so rmsl refuses the comparison on every target. A program compares the members it means.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -8167,6 +8410,54 @@ This is how three.js's TSL behaves, read from its source (`ShaderNode`, `FnNode`
 > The body of a TSL `Fn` with a layout receives its inputs as one value that destructures both as an array, `([a, b])`, and as an object, `({ a, b })`. The call passes them by position or as one object.
 
 This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186).
+
+## @fact tsl-struct-makes-a-type-of-named-members
+
+> TSL's `struct(members, name)` returns the constructor of a struct type whose members are the names and types of `members`, in their order. The constructor takes the members' values in order or as one object keyed by name, and builds each member it is not given as zero. `.get(name)` reads a member, and an `assign` on it writes it. A member's type may be the name of another struct. A layout of an `Fn` names a struct by its name as its `type` or an input's `type`, and fails given the constructor. A struct given no name is named `StructType` and a number.
+
+This is how three.js's TSL behaves, checked by running its code generator for GLSL and WGSL (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact tsl-builds-an-array-or-a-named-number-for-a-member-as-zero
+
+> A TSL struct constructor builds a number given for a member in order as the member's type. It gives zero to a member given an array of numbers, and to a member given a number in the object form, `S({ a: 1 })`.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact tsl-takes-a-struct-as-the-element-type-of-a-storage-buffer
+
+> TSL's `attributeArray(count, S)` and `instancedArray(count, S)`, for a struct `S`, give a storage buffer whose element is a value of `S`, read by member. The generated WGSL reads `buffer.value[i].a`.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact tsl-reads-a-member-a-struct-lacks-as-zero
+
+> TSL's `.get(name)` for a name its struct has no member of logs a warning and builds the value 0.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact tsl-converts-a-value-to-the-type-of-its-member
+
+> A TSL struct constructor converts a value of another type to the type of its member. A `float` given for a `vec3` member is built as `vec3(x)`, and an `int` given for a `float` member as a `float`.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact tsl-declares-two-structs-of-one-name
+
+> TSL declares two struct types given one name, with different members, both under that name. GLSL and WGSL refuse a shader that declares one struct twice.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact tsl-writes-a-comparison-of-structs-with-the-operator
+
+> TSL's `equal` of two struct values writes the `==` of the target between them. TSL builds no shader for `select` of two structs, and writes `add` of a struct and a number as a conversion of the struct to `float`, which neither GLSL nor WGSL compiles.
+
+This is how three.js's TSL behaves, checked by running its code generator (three.js 0.186.1, and the `dev` branch of 2026-10-21).
+
+## @fact wgsl-compares-no-structs
+
+> WGSL defines `==` and `!=` on scalars and vectors only. A comparison of two struct values does not compile. GLSL ES 3.00 defines `==` and `!=` on structs, comparing every member.
+
+This is what the WGSL specification and the GLSL ES 3.00 specification state for their comparison operators.
 
 ## @fact tsl-numbers-a-function-whose-name-is-taken
 
