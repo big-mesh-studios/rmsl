@@ -14,6 +14,7 @@ import {
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import { WebGLRenderTarget } from "./WebGLRenderTarget";
+import type { RenderTargetTexture } from "../textures/RenderTargetTexture";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
@@ -68,6 +69,19 @@ interface GeometryBuffers {
   index: WebGLBuffer | null;
 }
 
+/**
+ * What a render target costs once it has been bound: its framebuffer, plus the colour and depth
+ * attachments. Keyed by the target and valid at the `width`/`height` recorded here, so a target
+ * resized by assignment is remade on its next bind.
+ */
+interface RenderTargetEntry {
+  framebuffer: WebGLFramebuffer;
+  color: WebGLTexture;
+  depth: WebGLRenderbuffer;
+  width: number;
+  height: number;
+}
+
 const WEBGL_RENDERER: BackendOrigin = { target: "glsl", caller: "WebGLRenderer" };
 
 /**
@@ -115,10 +129,7 @@ export class WebGLRenderer {
   /** The 1×1 black textures a sampler with no texture reads, one for each dimension and sample type. */
   private blankTextures = new Map<string, DataTexture>();
   /** The framebuffer, color texture, and depth renderbuffer behind each render target, at its bound size. */
-  private renderTargets = new Map<
-    WebGLRenderTarget,
-    { framebuffer: WebGLFramebuffer; color: WebGLTexture; depth: WebGLRenderbuffer; width: number; height: number }
-  >();
+  private renderTargets = new Map<WebGLRenderTarget, RenderTargetEntry>();
   private clearColor = new Color(0, 0, 0);
   private clearAlpha = 1;
   private animationCallback: ((time: number) => void) | null = null;
@@ -277,19 +288,28 @@ export class WebGLRenderer {
    * resizes it by reassigning `width`/`height` before the next render.
    */
   renderTargetFramebuffer(target: WebGLRenderTarget, gl = this.gl): WebGLFramebuffer {
+    return this.renderTargetEntry(target, gl).framebuffer;
+  }
+
+  /**
+   * The whole bundle behind a render target: its framebuffer, and the colour texture
+   * `target.texture` names. Created or remade at the target's current size on first use.
+   */
+  private renderTargetEntry(target: WebGLRenderTarget, gl = this.gl): RenderTargetEntry {
     const existing = this.renderTargets.get(target);
     if (existing !== undefined && existing.width === target.width && existing.height === target.height) {
-      return existing.framebuffer;
+      return existing;
     }
     if (existing !== undefined) {
       this.deleteRenderTarget(target, existing, gl);
     }
     this.state?.begin(TARGET_STATE);
     try {
-      return this.makeRenderTarget(target, gl);
+      this.makeRenderTarget(target, gl);
     } finally {
       this.state?.end();
     }
+    return this.renderTargets.get(target)!;
   }
 
   /** Makes the framebuffer, colour texture and depth buffer of `target` at its size. */
@@ -605,6 +625,16 @@ export class WebGLRenderer {
     const unit = this.nextTextureUnit();
     this.state?.keepUnit(unit);
     gl.activeTexture(gl.TEXTURE0 + unit);
+    // **A render target's colour attachment is drawn into, not uploaded**, so there is no
+    // image to send and nothing to compare versions against: bind the attachment the target
+    // already owns. Only for a plain 2D sampler, because a target is 2D and an integer sampler
+    // would be reading RGBA8 through the wrong view of it — which falls through to the upload
+    // path below and reads blank rather than drawing a wrong number.
+    if (!is3D && !integer && (texture as { isRenderTargetTexture?: boolean }).isRenderTargetTexture) {
+      const entry = this.renderTargetEntry((texture as RenderTargetTexture).target);
+      gl.bindTexture(target, entry.color);
+      return unit;
+    }
     let glTexture = this.textures.get(texture);
     const image = texture.image;
     // An image that has not loaded uploads at the first draw after it has, as three.js uploads it.
@@ -965,7 +995,7 @@ export class WebGLRenderer {
 
   private deleteRenderTarget(
     target: WebGLRenderTarget,
-    entry: { framebuffer: WebGLFramebuffer; color: WebGLTexture; depth: WebGLRenderbuffer },
+    entry: RenderTargetEntry,
     gl = this.gl,
   ): void {
     gl.deleteFramebuffer(entry.framebuffer);

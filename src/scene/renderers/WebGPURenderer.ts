@@ -12,6 +12,7 @@ import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
 import type { WebGLRenderTarget } from "./WebGLRenderTarget";
+import type { RenderTargetTexture } from "../textures/RenderTargetTexture";
 import type { Object3D } from "../core/Object3D";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
@@ -943,6 +944,12 @@ export class WebGPURenderer {
     const t = texture ?? this.blankTexture(samplerType);
     const integer = isIntegerSampler(samplerType);
     const dimension = samplerDimension(samplerType);
+    // **A render target's colour attachment is drawn into, not uploaded.** Its texture already
+    // exists and its size is the target's, so hand it back as-is; an integer sampler falls
+    // through and reads blank rather than viewing RGBA8 as a number.
+    if (dimension === "2d" && !integer && (t as { isRenderTargetTexture?: boolean }).isRenderTargetTexture) {
+      return this.renderTargetTextures((t as RenderTargetTexture).target).color;
+    }
     let gpu = this.textures.get(t);
     if (!gpu || this.uploadedVersions.get(t) !== t.version) {
       // An image that has not loaded uploads at the first draw after it has, as three.js uploads it.
@@ -1162,10 +1169,14 @@ export class WebGPURenderer {
     if (existing && existing.color.width === target.width && existing.color.height === target.height) return existing;
     existing?.color.destroy();
     existing?.depth.destroy();
+    // The colour attachment is about to be a different GPU texture, so every bind group that
+    // named the old one is dead — and `target.texture` is how a material names it.
+    if (existing) this.invalidateBindGroups(target.texture);
     const color = this.device.createTexture({
       size: [target.width, target.height],
       format: this.format,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING,
     });
     const depth = this.device.createTexture({
       size: [target.width, target.height],

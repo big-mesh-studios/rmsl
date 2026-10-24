@@ -396,6 +396,60 @@ globalThis.__rmslTargetAsyncRun = async () => {
 `;
 
 /**
+ * A material can draw from a surface another pass drew into: the target's
+ * colour attachment is a `Texture`, and the pass after it samples that texture
+ * onto the canvas. Resizing the target keeps the same `Texture` object, so a
+ * material that names it draws the new attachment rather than a destroyed one.
+ */
+const ENTRY_TARGET_SAMPLE = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, WebGLRenderTarget } from "./index";
+globalThis.__rmslTargetSampleRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas);
+  renderer.setClearColor(0x000000);
+
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+
+  // The scene drawn into the target: one red plane filling it.
+  const source = new Scene();
+  source.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ color: 0xff0000 })));
+
+  const target = new WebGLRenderTarget(16, 16);
+  renderer.render(source, camera, target);
+
+  // The scene drawn to the canvas: one plane showing the target's attachment.
+  const screen = new Scene();
+  screen.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ map: target.texture })));
+
+  const gl = renderer.gl;
+  const pixels = new Uint8Array(4);
+  renderer.render(screen, camera);
+  gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const sampledR = pixels[0];
+
+  // Resizing remakes the attachment; the material still names the same texture.
+  const before = target.texture;
+  target.width = 8;
+  target.height = 8;
+  renderer.render(source, camera, target);
+  renderer.render(screen, camera);
+  gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+  return {
+    sampledR,
+    resizedR: pixels[0],
+    sameTexture: before === target.texture,
+    error: gl.getError(),
+  };
+};
+`;
+
+/**
  * Two meshes share one uploaded geometry and draw adjacent slices of it via
  * their draw ranges: left half red, right half blue. A draw-range not honored
  * draws the whole geometry for each — the blue (drawn last) covers the red
@@ -929,6 +983,25 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
 
     expect(pixel.error).toBe(0);
     expect(pixel.targetR).toBeGreaterThan(150);
+  }, 60_000);
+  /**
+   * @canon spec-a-material-draws-the-texture-a-target-drew-into
+   */
+  it("draws from a render target's colour texture", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_TARGET_SAMPLE);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslTargetSampleRun();
+    }, code);
+
+    expect(pixel.error).toBe(0);
+    expect(pixel.sampledR).toBeGreaterThan(150);
+    // The same texture, redrawn at a new size, still samples the new attachment.
+    expect(pixel.sameTexture).toBe(true);
+    expect(pixel.resizedR).toBeGreaterThan(150);
   }, 60_000);
   /**
    * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
