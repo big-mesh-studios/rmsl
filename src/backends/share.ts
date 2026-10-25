@@ -24,7 +24,15 @@ const STATEMENTS = new Set([
  * a node that is already a name, and costs nothing to read again. An element
  * of a storage buffer is a load, or a fetch on GLSL, and is not among them.
  */
-const READ_WHERE_IT_IS = new Set(["seq", "var", "swizzle", "vectorElement", "matrixElement", "uniformArrayElement"]);
+const READ_WHERE_IT_IS = new Set([
+  "seq",
+  "var",
+  "swizzle",
+  "vectorElement",
+  "matrixElement",
+  "member",
+  "uniformArrayElement",
+]);
 
 /** The node types whose value a statement can change, so a stored copy of a node that reads them can go stale. */
 const MUTABLE_READS = new Set([

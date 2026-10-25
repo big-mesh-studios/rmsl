@@ -17,6 +17,9 @@ import {
   isIntegerType,
   assertSquareMatrix,
   assertConstantIndexInRange,
+  isStructType,
+  structsOf,
+  type StructType,
 } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
@@ -331,6 +334,7 @@ export function wgslUniformLayout(members: { slot: string; type: string; length?
 }
 
 export function wgslType(brand: any): string {
+  if (isStructType(brand)) return brand;
   return typeToWGSL[brand as string] ?? "f32";
 }
 
@@ -392,6 +396,11 @@ function wgslLiteralPrec(literal: string): number {
   return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
 }
 
+/** The WGSL declaration of a struct type. */
+function wgslStructDeclaration(type: StructType): string {
+  return `struct ${type.name} {\n${type.members.map((m) => `  ${m.name}: ${wgslType(m.type)},`).join("\n")}\n};`;
+}
+
 /**
  * Declares the function of an `Fn` with a layout once, from its body compiled
  * in a context of its own, and gives the name it is called by.
@@ -400,7 +409,7 @@ function declareWgslFn(definition: FnDefinition, ctx: CompileCtx): string {
   return declareFn(ctx, definition, (name) => {
     const child = bodyContext(ctx);
     const root = numberClashingVariables(
-      shareNodes(ctx, prepareRoots(ctx, undefined, [definition.body as Node<ShaderType>])[0]!),
+      shareNodes(ctx, prepareRoots(ctx, undefined, [definition.body as Node<ShaderType>], undefined, false, true)[0]!),
     );
     const compiled = compileWGSLStage(root, child);
     ctx.nextId = child.nextId;
@@ -546,6 +555,20 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         body: params.flatMap((p: any) => p.body),
         expr: `${t}(${args})`,
       };
+    }
+
+    case "struct": {
+      let params = (node.params ?? []).map((p: any) => compileWGSLStage(p, ctx));
+      return {
+        decls: params.flatMap((p: any) => p.decls),
+        body: params.flatMap((p: any) => p.body),
+        expr: `${node._t}(${params.map((p: any) => p.expr).join(", ")})`,
+      };
+    }
+
+    case "member": {
+      let holder = compileWGSLStage(node.params![0], ctx);
+      return { decls: holder.decls, body: holder.body, expr: `${holder.expr}.${node.value}` };
     }
 
     case "var": {
@@ -1751,6 +1774,7 @@ export function compileWGSLWithStage(
     lines.push("");
   }
 
+  for (const type of structsOf(nodes)) lines.push(wgslStructDeclaration(type), "");
   // Helpers standing in for GLSL builtins WGSL lacks. Sorted so identical
   // shaders produce identical source regardless of the order ops were reached.
   for (const helper of [...ctx.wgslHelpers].sort()) {
@@ -2199,6 +2223,7 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   // calls something that was never defined. Sorted so identical input gives
   // identical output regardless of the order ops were reached.
   let code = "";
+  for (const type of structsOf(result)) code += `${wgslStructDeclaration(type)}\n\n`;
   for (const helper of [...ctx.wgslHelpers].sort()) {
     code += `${WGSL_HELPERS[helper]}\n\n`;
   }

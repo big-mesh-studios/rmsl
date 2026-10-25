@@ -746,6 +746,27 @@ describe("a mistake in a function with a layout is refused", () => {
   /**
    * @canon spec-a-taken-function-name-gets-a-number
    */
+  it("declares a variable and a function named like a word WGSL reserves under a name WGSL can", () => {
+    const target = Fn(([x]: [Node<"float">]) => x.mul(2)).setLayout({
+      name: "target",
+      type: "float",
+      inputs: [{ name: "x", type: "float" }],
+    });
+    const build = () =>
+      Fn(() => {
+        const type = float(1).toVar("type");
+        return vec4(target(type), type, 0, 1);
+      })();
+    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
+      expect(code).toMatch(/\btarget_\(/);
+      expect(code).toMatch(/\btype_\b/);
+      expect(code).not.toMatch(/\btype\b|\btarget\(/);
+    }
+  });
+
+  /**
+   * @canon spec-a-taken-function-name-gets-a-number
+   */
   it("declares a function and its inputs under names GLSL and WGSL can, whatever the layout calls them", () => {
     const f = Fn(([a, b]: [Node<"float">, Node<"float">]) => a.mul(2).add(b)).setLayout({
       name: "float",

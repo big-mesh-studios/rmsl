@@ -1,5 +1,5 @@
 import { InternalError, NodeError, type Origin } from "./errors";
-import { isReservedName, safeName } from "./backends/reserved-names";
+import { isReservedName, KEYWORDS, safeName, WGSL_RESERVED_WORDS } from "./backends/reserved-names";
 
 import { withArticle } from "./article";
 export const __brand = Symbol();
@@ -1001,6 +1001,7 @@ export const NODE_TYPES: ReadonlySet<string> = new Set([
   "matVecMul",
   "matrixElement",
   "max",
+  "member",
   "min",
   "mix",
   "mod",
@@ -1031,6 +1032,7 @@ export const NODE_TYPES: ReadonlySet<string> = new Set([
   "step",
   "storage",
   "storageElement",
+  "struct",
   "sub",
   "swizzle",
   "tan",
@@ -1990,6 +1992,13 @@ export function operandRefusal(
   operandTypes: readonly (string | undefined)[],
 ): { code: string; message: string } | undefined {
   let name = OPERATION_NAMES[type] ?? type;
+  let struct_ = STRUCT_OPERAND_TYPES.has(type) ? undefined : operandTypes.find(isStructType);
+  if (struct_ !== undefined) {
+    return {
+      code: "struct-operand",
+      message: `${name}() cannot take the struct ${struct_}. Read the members it needs with get(name).`,
+    };
+  }
   let types = (type === "select" ? operandTypes.slice(1) : operandTypes).filter((t): t is string => t !== undefined);
   if (FLOAT_ONLY_OPS.has(type)) {
     let wrong = types.find((t) => !/^(float|vec[234])$/.test(t));
@@ -2283,8 +2292,8 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
  */
 export interface FnLayout {
   name?: string;
-  type: ShaderType;
-  inputs: readonly { name: string; type: ShaderType }[];
+  type: ShaderType | (string & {});
+  inputs: readonly { name: string; type: ShaderType | (string & {}) }[];
 }
 
 /**
@@ -2356,7 +2365,7 @@ function assertLayout(layout: unknown, strict = false): asserts layout is FnLayo
   if (strict && name !== undefined && isReservedName(name)) {
     fail(`has the name "${name}", which is a keyword or a built-in of GLSL or WGSL`);
   }
-  if (type !== "void" && !LAYOUT_VALUE_TYPES.has(type as string)) {
+  if (type !== "void" && !LAYOUT_VALUE_TYPES.has(type as string) && !isStructType(type)) {
     fail(`has the type ${JSON.stringify(type)}, which no function returns`);
   }
   if (!Array.isArray(inputs)) fail("has no inputs list");
@@ -2370,7 +2379,7 @@ function assertLayout(layout: unknown, strict = false): asserts layout is FnLayo
     if (strict && isReservedName(input.name)) {
       fail(`has the input "${input.name}", which is a keyword or a built-in of GLSL or WGSL`);
     }
-    if (!LAYOUT_VALUE_TYPES.has(input.type))
+    if (!LAYOUT_VALUE_TYPES.has(input.type) && !isStructType(input.type))
       fail(`has the input "${input.name}" of the type ${JSON.stringify(input.type)}, which no function takes`);
     if (seen.has(input.name)) fail(`has two inputs named "${input.name}"`);
     seen.add(input.name);
@@ -2452,12 +2461,18 @@ function fitArgument(
   return value;
 }
 
+/** The one object of arguments by name that `args` is, as a call or a constructor takes them, or `undefined` when they are given in order. */
+function keyedArguments(args: unknown[]): Record<string, unknown> | undefined {
+  const [first] = args;
+  const keyed =
+    args.length === 1 && typeof first === "object" && first !== null && !isNode(first) && !Array.isArray(first);
+  return keyed ? (first as Record<string, unknown>) : undefined;
+}
+
 /** The arguments of a call of a function with `layout`, in the order of its inputs, whether passed by position or as one object. */
 function callArguments(layout: FnLayout, args: unknown[]): unknown[] {
-  const keyed =
-    args.length === 1 && typeof args[0] === "object" && args[0] !== null && !isNode(args[0]) && !Array.isArray(args[0]);
-  if (keyed) {
-    const named = args[0] as Record<string, unknown>;
+  const named = keyedArguments(args);
+  if (named !== undefined) {
     const unknown_ = Object.keys(named).find((key) => !layout.inputs.some((input) => input.name === key));
     if (unknown_ !== undefined) {
       throw new NodeError("unknown-input", `${describeFn(layout.name)} has no input "${unknown_}".`);
@@ -3616,6 +3631,7 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
  *   bricks.element(3)            // or by a constant
  */
 export function uniformArray<T extends ShaderType>(shaderType: T, length: number): UniformArrayNode<T> {
+  refuseStructInput(shaderType, "uniformArray");
   if (!Number.isInteger(length) || length < 1) {
     throw new NodeError("uniform-array-length", `uniformArray length must be a positive integer, got ${length}`);
   }
@@ -3643,6 +3659,7 @@ export function uniformArray<T extends ShaderType>(shaderType: T, length: number
 }
 
 export function uniform<T extends ShaderType>(shaderType: T): UniformNode<T> {
+  refuseStructInput(shaderType, "uniform");
   let id = nextUniformId++;
   const result = node({
     _t: shaderType,
@@ -3742,6 +3759,7 @@ export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
  * is called.
  */
 export function storage<T extends ShaderType>(attribute: StorageBufferAttribute, shaderType: T): StorageNode<T> {
+  refuseStructInput(shaderType, "storage");
   assertStorageLayout(attribute, shaderType);
   if (attribute.elementType !== null && attribute.elementType !== shaderType) {
     throw new NodeError(
@@ -3818,6 +3836,7 @@ function storageArrayNode<T extends ShaderType>(
   countOrArray: number | Float32Array | Int32Array | Uint32Array,
   shaderType: T,
 ): StorageNode<T> {
+  refuseStructInput(shaderType, Attribute === StorageBufferAttribute ? "attributeArray" : "instancedArray");
   const attribute = new Attribute(countOrArray, componentsOf(shaderType), storageArrayClass(shaderType));
   return storage(attribute, shaderType);
 }
@@ -3879,6 +3898,7 @@ function assertRawName(name: string, fn: string): void {
 }
 
 export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): UniformNode<T> {
+  refuseStructInput(shaderType, "uniformRaw");
   assertRawName(name, "uniformRaw");
   let id = nextUniformId++;
   const result = node({
@@ -3902,6 +3922,7 @@ export function time(): UniformNode<"float"> {
 }
 
 export function attribute<T extends ShaderType>(shaderType: T): AttributeNode<T> {
+  refuseStructInput(shaderType, "attribute");
   let id = nextAttrId++;
   const result = node({
     _t: shaderType,
@@ -3913,6 +3934,7 @@ export function attribute<T extends ShaderType>(shaderType: T): AttributeNode<T>
 }
 
 export function attributeRaw<T extends ShaderType>(name: string, shaderType: T): AttributeNode<T> {
+  refuseStructInput(shaderType, "attributeRaw");
   assertRawName(name, "attributeRaw");
   let id = nextAttrId++;
   const result = node({
@@ -3925,6 +3947,7 @@ export function attributeRaw<T extends ShaderType>(name: string, shaderType: T):
 }
 
 export function varying<T extends ShaderType>(shaderType: T): VaryingNode<T> {
+  refuseStructInput(shaderType, "varying");
   let id = nextVaryingId++;
   const result = node({
     _t: shaderType,
@@ -3936,6 +3959,7 @@ export function varying<T extends ShaderType>(shaderType: T): VaryingNode<T> {
 }
 
 export function varyingRaw<T extends ShaderType>(name: string, shaderType: T): VaryingNode<T> {
+  refuseStructInput(shaderType, "varyingRaw");
   assertRawName(name, "varyingRaw");
   let id = nextVaryingId++;
   const result = node({
@@ -5070,7 +5094,7 @@ export function assertSquareMatrix(origin: Origin | undefined, operandType: stri
 const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
 
 /** The node types an assignment passes through on the way to the node it writes. */
-const ASSIGNMENT_PATH = new Set(["swizzle", "vectorElement", "matrixElement"]);
+const ASSIGNMENT_PATH = new Set(["swizzle", "vectorElement", "matrixElement", "member"]);
 
 /** What to call a node that can't be assigned, by its type, in the error refusing it. */
 const READ_ONLY_NAMES: Record<string, string> = {
@@ -5157,6 +5181,7 @@ export function assertAssignableNode(origin: Origin | undefined, target: any): v
  * so a graph `deserialize` rebuilt is refused alike.
  */
 export function assertNode(origin: Origin | undefined, node: any): void {
+  assertStructNode(origin, node);
   const textureRefused = textureRefusal(node.type, node.params?.[0]?._t);
   if (textureRefused) throw new NodeError(textureRefused.code, textureRefused.message, origin);
   const refusal = operandRefusal(node.type, node.params?.map((param: any) => param?._t) ?? []);
@@ -5225,4 +5250,380 @@ export function assertFnBodyNode(origin: Origin | undefined, definition: FnDefin
     n.params?.forEach(walk);
   };
   walk(definition.body);
+}
+
+// === Structs ===
+
+/** A struct type: the name it is declared under, and its members in the order `struct` was given them. */
+export interface StructType {
+  name: string;
+  members: readonly { name: string; type: string }[];
+}
+
+/** The members of a struct, as `struct` takes them: each name to a value type or the name of another struct. */
+export type StructMembers = Readonly<Record<string, ShaderType | (string & {})>>;
+
+/**
+ * A value of a struct of `M`. `get` reads a member. A member that is a struct
+ * is named by a string the types cannot follow, so it is typed `any`.
+ */
+export interface StructNode<M extends StructMembers = StructMembers> extends BaseNode<ShaderType> {
+  get<K extends keyof M & string>(name: K): M[K] extends ShaderType ? Node<M[K]> : any;
+  toVar(name?: string): StructVar<M>;
+  var(name?: string): StructVar<M>;
+}
+
+/** A struct variable of `M`, which `assign` writes whole, and each member of which `get(name).assign` writes. */
+export interface StructVar<M extends StructMembers = StructMembers> extends StructNode<M> {
+  get<K extends keyof M & string>(name: K): M[K] extends ShaderType ? Var<M[K]> : any;
+  assign(value: StructNode<M>): void;
+}
+
+/** What a member takes in a struct constructor: a node of its type, or numbers its constructor builds one from. */
+type MemberValue<T> = T extends ShaderType ? BaseNode<T> | number | boolean | readonly number[] : StructNode;
+
+/** The constructor `struct` returns: the members in order, or one object of them by name. */
+export interface StructConstructor<M extends StructMembers> {
+  (values: { readonly [K in keyof M]?: MemberValue<M[K]> }): StructNode<M>;
+  (...values: { [K in keyof M]: MemberValue<M[K]> }[keyof M][]): StructNode<M>;
+  /** The name the struct is declared under. */
+  readonly structName: string;
+}
+
+/** Every struct type by its name. A layout names a struct by its name, so a name means the struct last made under it. */
+const structTypes = new Map<string, StructType>();
+
+/** The number the next struct given no name takes. */
+let unnamedStructs = 0;
+
+/** The struct names the WGSL target declares for itself. */
+const TARGET_STRUCT_NAMES = new Set(["VertexInput", "VertexOutput", "FragmentOutput", "_RmslUniforms"]);
+
+/** The struct type named `type`, or `undefined` when `type` names none. */
+export function structTypeOf(type: string | undefined): StructType | undefined {
+  return type === undefined ? undefined : structTypes.get(type);
+}
+
+/** Whether `type` is the name of a struct. */
+export function isStructType(type: string | undefined): boolean {
+  return type !== undefined && structTypes.has(type);
+}
+
+/** Whether `name` is the name a struct given no name takes, `StructType` and a number. */
+export function isGeneratedStructName(name: string): boolean {
+  return /^StructType\d+$/.test(name);
+}
+
+/** A name for a struct given none, `StructType` and the next number no struct has. */
+export function claimStructName(): string {
+  let name: string;
+  do name = `StructType${unnamedStructs++}`;
+  while (structTypes.has(name));
+  return name;
+}
+
+/** The member types a struct takes: a value type or another struct. */
+function isMemberType(type: unknown): type is string {
+  return typeof type === "string" && (LAYOUT_VALUE_TYPES.has(type) || structTypes.has(type));
+}
+
+/** The members of `type` as text, `{ a: vec3, b: float }`, which two structs share when their members agree. */
+function describeMembers(type: StructType): string {
+  return `{ ${type.members.map((m) => `${m.name}: ${m.type}`).join(", ")} }`;
+}
+
+/**
+ * Records `type` under its name, in place of a struct made under that name
+ * before. A `strict` record, as `deserialize` makes, throws instead when the
+ * name holds a struct of other members.
+ */
+export function registerStructType(type: StructType, strict = false): void {
+  const held = structTypes.get(type.name);
+  if (strict && held !== undefined && describeMembers(held) !== describeMembers(type)) {
+    throw new NodeError(
+      "struct-name-taken",
+      `The struct "${type.name}" has the members ${describeMembers(held)}, and the graph gives it ${describeMembers(type)}. ` +
+        `Give one of the structs another name.`,
+    );
+  }
+  structTypes.set(type.name, type);
+}
+
+/**
+ * Throws unless `type` is a struct that can be declared: a name, and members
+ * that each have a name GLSL and WGSL can declare and a type of a value or of
+ * a struct declared before it.
+ */
+export function assertStructType(type: StructType): void {
+  const declarable = (n: unknown): n is string =>
+    typeof n === "string" &&
+    IDENTIFIER.test(n) &&
+    !n.startsWith(RESERVED_VAR_PREFIX) &&
+    !WGSL_RESERVED_WORDS.has(n) &&
+    !n.startsWith("gl_") &&
+    !n.includes("__");
+  const name = type?.name;
+  if (!declarable(name) || isReservedName(name) || TARGET_STRUCT_NAMES.has(name)) {
+    throw new NodeError(
+      "invalid-struct",
+      `A struct cannot have the name ${JSON.stringify(name)}: a name is an identifier that is no keyword, reserved word or built-in of GLSL or WGSL, ` +
+        `no struct the WGSL target declares (${[...TARGET_STRUCT_NAMES].join(", ")}), and does not start with "${RESERVED_VAR_PREFIX}" or "gl_" or hold "__".`,
+    );
+  }
+  if (!Array.isArray(type.members) || type.members.length === 0) {
+    throw new NodeError("invalid-struct", `The struct "${type.name}" has no members. Give it at least one.`);
+  }
+  for (const member of type.members) {
+    // A member is named inside its struct, so it may take the name of a built-in function.
+    if (!declarable(member?.name) || KEYWORDS.has(member.name)) {
+      throw new NodeError(
+        "invalid-struct",
+        `The struct "${type.name}" cannot have a member named ${JSON.stringify(member?.name)}: a name is an identifier that is no keyword or reserved word of GLSL or WGSL, ` +
+          `and does not start with "${RESERVED_VAR_PREFIX}" or "gl_" or hold "__".`,
+      );
+    }
+    if (!isMemberType(member.type) || member.type === type.name) {
+      throw new NodeError(
+        "invalid-struct",
+        `The member "${member.name}" of the struct "${type.name}" has the type ${JSON.stringify(member.type)}. ` +
+          `A member is a scalar, a vector, a matrix or a struct made before.`,
+      );
+    }
+  }
+}
+
+/**
+ * Makes a struct type of `members`, as TSL's `struct` does, and returns its
+ * constructor. The constructor takes the values of the members in order, or one
+ * object of them by name, and gives zero to each member it is not given. A
+ * struct given no `name` is named `StructType` and a number. A struct made
+ * again under a name takes the place of the one made before.
+ *
+ * ```ts
+ * const BVHNode = struct({ min: "vec3", max: "vec3", left: "int" }, "BVHNode");
+ * const node = BVHNode(vec3(0), vec3(1), int(2));
+ * node.get("max");
+ * ```
+ */
+export function struct<const M extends StructMembers>(members: M, name?: string): StructConstructor<M> {
+  if (members === null || typeof members !== "object" || Array.isArray(members)) {
+    throw new NodeError("invalid-struct", "struct() takes an object of member names and their types.");
+  }
+  const type: StructType = {
+    name: name ?? claimStructName(),
+    members: Object.entries(members).map(([memberName, memberType]) => ({ name: memberName, type: memberType })),
+  };
+  assertStructType(type);
+  registerStructType(type);
+  const construct = (...values: unknown[]) => buildStruct(type, values);
+  Object.defineProperty(construct, "structName", { value: type.name });
+  return construct as unknown as StructConstructor<M>;
+}
+
+/**
+ * The structs `roots` use, every struct a member names included, each after
+ * the structs its members name, for a target that declares a struct before the
+ * code that names it.
+ */
+export function structsOf(roots: unknown): StructType[] {
+  const structs: StructType[] = [];
+  const add = (type: StructType | undefined): void => {
+    if (type === undefined || structs.includes(type)) return;
+    for (const member of type.members) add(structTypes.get(member.type));
+    structs.push(type);
+  };
+  someNode(roots, (n) => add(structTypeOf(n._t)));
+  return structs;
+}
+
+/**
+ * A value of `type` from the arguments of its constructor: the members in
+ * order, or one object of them by name. The node holds the members it was
+ * built from, so a program that also holds a value of a struct made again
+ * under the name is refused.
+ */
+function buildStruct(type: StructType, args: unknown[]): StructNode {
+  const named = keyedArguments(args);
+  if (named !== undefined) {
+    const unknown_ = Object.keys(named).find((key) => !type.members.some((member) => member.name === key));
+    if (unknown_ !== undefined) {
+      throw new NodeError("unknown-member", memberRefusal(type, unknown_));
+    }
+  } else if (args.length > type.members.length) {
+    throw new NodeError(
+      "too-many-members",
+      `The struct "${type.name}" has ${type.members.length} member${type.members.length === 1 ? "" : "s"}, and its constructor is given ${args.length} values.`,
+    );
+  }
+  const given = named === undefined ? args : type.members.map((member) => named[member.name]);
+  return node({
+    _t: type.name,
+    type: "struct",
+    params: type.members.map((member, i) => memberValue(type, member, given[i])),
+    value: { name: type.name, members: type.members.map((m) => ({ name: m.name, type: m.type })) },
+  }) as unknown as StructNode;
+}
+
+/** The node a struct constructor gives `member` for `x`: zero for nothing, numbers built as its type, or a node of its type. */
+function memberValue(type: StructType, member: { name: string; type: string }, x: unknown): BaseNode<ShaderType> {
+  const memberType = member.type;
+  const memberStruct = structTypes.get(memberType);
+  const scalar = componentKindOf(memberType);
+  if (x === undefined) {
+    if (memberStruct) return buildStruct(memberStruct, []);
+    return memberValue(type, member, scalar === "bool" ? false : 0);
+  }
+  if (isNode(x)) {
+    if (x._t !== memberType) {
+      const kind = componentKind(memberType);
+      const fix = memberStruct
+        ? `Build a ${memberType} with its constructor.`
+        : x._t === scalar
+          ? `Convert it with ${memberType}(x).`
+          : kind && componentKind(x._t) && !MATRIX_DIMENSIONS[memberType]
+            ? `Convert it with ${conversionTo(memberType, kind)}.`
+            : `Build a ${memberType} with ${memberType}(...).`;
+      throw new NodeError(
+        "member-of-another-type",
+        `The member "${member.name}" of the struct "${type.name}" is ${withArticle(memberType)}, and the constructor is given ${withArticle(x._t)}. ${fix}`,
+      );
+    }
+    return x;
+  }
+  if (memberStruct) {
+    throw new NodeError(
+      "member-of-another-type",
+      `The member "${member.name}" of the struct "${type.name}" is the struct ${memberType}. Build it with its constructor.`,
+    );
+  }
+  const component = (v: unknown) => {
+    if (scalar === "bool" ? typeof v !== "boolean" : typeof v !== "number") {
+      throw new NodeError(
+        "member-of-another-type",
+        `The member "${member.name}" of the struct "${type.name}" is ${withArticle(memberType)}, made of ${scalar}s, and is given ${JSON.stringify(v)}.`,
+      );
+    }
+    return scalar === "bool" ? wrapValue(v as boolean) : (typedOperand(v, scalar) as BaseNode<ShaderType>);
+  };
+  const total = componentCountOf(memberType);
+  if (Array.isArray(x)) {
+    if (x.length !== total) {
+      throw new NodeError(
+        "member-of-another-type",
+        `The member "${member.name}" of the struct "${type.name}" is ${withArticle(memberType)} of ${total} components, and is given an array of ${x.length}.`,
+      );
+    }
+    if (x.length === 1) return component(x[0]) as BaseNode<ShaderType>;
+    return node({ _t: memberType, type: "construct", params: x.map(component) as BaseNode<ShaderType>[] });
+  }
+  const value = component(x) as BaseNode<ShaderType>;
+  if (memberType === scalar) return value;
+  return node({ _t: memberType, type: "construct", params: [value] });
+}
+
+/** The refusal of a member `name` that the struct `type` has no member of. */
+function memberRefusal(type: StructType, name: string): string {
+  return `The struct "${type.name}" has no member "${name}". Its members are ${type.members.map((m) => m.name).join(", ")}.`;
+}
+
+/** The member `name` of the struct named `holder`, or throws when `holder` is no struct or has no such member. */
+function memberOf(holder: string | undefined, name: string, origin?: Origin): { name: string; type: string } {
+  const type = structTypes.get(holder as string);
+  if (type === undefined) {
+    throw new NodeError(
+      "get-of-no-struct",
+      `get("${name}") reads a member of a struct, and this value is ${withArticle(String(holder))}.`,
+      origin,
+    );
+  }
+  const found = type.members.find((m) => m.name === name);
+  if (found === undefined) throw new NodeError("unknown-member", memberRefusal(type, name), origin);
+  return found;
+}
+
+Object.defineProperty(NodeImpl.prototype, "get", {
+  value(this: BaseNode<ShaderType>, name: string) {
+    return node({ _t: memberOf(this._t, name).type, type: "member", params: [this], value: name });
+  },
+});
+
+/** The node types that take a struct value as an operand: the statements that hold, write and pass one, and its member read. */
+const STRUCT_OPERAND_TYPES = new Set(["let", "assign", "member", "struct", "call", "seq"]);
+
+/**
+ * Throws when `node` uses a struct value where a value of another type is
+ * asked for, or reads a member the struct lacks: an assignment between a
+ * struct and another type, and a member or a struct that does not fit its type,
+ * as a graph that skipped the builders can hold. {@link operandRefusal} refuses
+ * a struct given to an operation.
+ */
+export function assertStructNode(origin: Origin | undefined, node: any): void {
+  const params: any[] = node.params ?? [];
+  if (INPUT_TYPES.has(node.type)) refuseStructInput(node._t, node.type, origin);
+  if (node.type === "assign" || node.type === "let") {
+    const [target, value] = params;
+    if ((isStructType(target?._t) || isStructType(value?._t)) && target?._t !== value?._t) {
+      throw new NodeError(
+        "struct-assign-of-another-type",
+        `${withArticle(value?._t)} cannot be assigned to ${withArticle(target?._t)}. A struct is assigned from a value of its own struct.`,
+        origin,
+      );
+    }
+  }
+  if (node.type === "member") {
+    const found = memberOf(params[0]?._t, node.value, origin);
+    if (found.type !== node._t) {
+      throw new NodeError(
+        "member-of-another-type",
+        `The member "${found.name}" of the struct "${params[0]._t}" is ${withArticle(found.type)}, not ${withArticle(node._t)}.`,
+        origin,
+      );
+    }
+  }
+  if (node.type === "struct") {
+    const type = structTypes.get(node._t);
+    if (type !== undefined && node.value && describeMembers(node.value) !== describeMembers(type)) {
+      throw new NodeError(
+        "struct-name-taken",
+        `A value of the struct "${node._t}" was built with the members ${describeMembers(node.value)}, and "${node._t}" was made again with ${describeMembers(type)}. ` +
+          `A program holds the struct of one name only: give one of the structs another name.`,
+        origin,
+      );
+    }
+    const fits =
+      type !== undefined &&
+      params.length === type.members.length &&
+      type.members.every((m, i) => params[i]?._t === m.type);
+    if (!fits) {
+      throw new NodeError(
+        "struct-does-not-fit",
+        `A value of the struct "${node._t}" does not fit its members.`,
+        origin,
+      );
+    }
+  }
+}
+
+/** The node types of a program's inputs, which hold a value the host gives and no struct. */
+const INPUT_TYPES = new Set(["uniform", "uniformArray", "attribute", "varying", "storage"]);
+
+/** Throws when `type` is a struct, which `fn` cannot make an input of. */
+function refuseStructInput(type: string, fn: string, origin?: Origin): void {
+  if (isStructType(type)) {
+    throw new NodeError(
+      "struct-input",
+      `${fn}() cannot be of the struct ${type}: a program's inputs hold scalars, vectors and matrices. Give each member an input of its own.`,
+      origin,
+    );
+  }
+}
+
+/** Throws when a program's result is a struct value, which no target hands to the host or a stage. */
+export function assertNoStructResult(root: any): void {
+  if (isStructType(root?._t)) {
+    throw new NodeError(
+      "struct-result",
+      `A program cannot give the struct ${root._t} as its result. Return a member of it with get(name).`,
+    );
+  }
 }

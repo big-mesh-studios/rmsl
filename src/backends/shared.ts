@@ -1,4 +1,12 @@
-import { ProgramError, UsageError, type BackendOrigin, type Origin, NodeError, TargetError } from "../errors";
+import {
+  ProgramError,
+  UsageError,
+  type BackendOrigin,
+  type Origin,
+  NodeError,
+  TargetError,
+  InternalError,
+} from "../errors";
 import { safeName } from "./reserved-names";
 import { withArticle } from "../article";
 import {
@@ -29,6 +37,10 @@ import {
   assertAssignableNode,
   assertNode,
   assertFnBodyNode,
+  assertNoStructResult,
+  isStructType,
+  structTypeOf,
+  type StructType,
 } from "../core";
 import { isInlineFn } from "./share";
 /**
@@ -492,7 +504,9 @@ export type FoundInRoots = {
  * converted, see {@link fragmentColour}. Any other stage, and a program with
  * no stage, refuses an `outputStruct`, which is a fragment stage's result.
  * `stageInputsInFns` is true for a target that holds a stage's inputs and
- * varyings as globals, where a function with a layout may reach them.
+ * varyings as globals, where a function with a layout may reach them. The root
+ * of a program gives no struct, which the host and a stage cannot take, and the
+ * body of a function, `fnBody`, may.
  */
 export function prepareRoots<T extends Node<ShaderType>>(
   origin: Origin,
@@ -500,7 +514,9 @@ export function prepareRoots<T extends Node<ShaderType>>(
   roots: readonly T[],
   found?: FoundInRoots,
   stageInputsInFns = false,
+  fnBody = false,
 ): T[] {
+  if (!fnBody) for (const root of roots) assertNoStructResult(root);
   const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(
     origin,
     roots,
@@ -916,9 +932,9 @@ export function assertOneDeclarationPerName(origin: Origin, roots: unknown): voi
  * two `Fn`s compiled as the roots of one program can each take `color`, and the
  * program would declare it twice. The first variable keeps its name and each
  * later one gets the next free number appended, as `toVar` does within one `Fn`.
- * A variable named like a function with a layout is numbered too, as a variable
- * of that name would hide the function where it is called, and a variable named
- * like a keyword or built-in is renamed, see {@link safeName}.
+ * A variable named like a function with a layout or a struct is numbered too, as
+ * a variable of that name would hide the function or the type where it is named,
+ * and a variable named like a keyword or built-in is renamed, see {@link safeName}.
  *
  * A variable is one node, so a renamed copy of it takes the place of every read.
  * The roots come back as copies where a variable was renamed, and the graph the
@@ -942,9 +958,9 @@ export function numberClashingVariables<T>(roots: T): T {
     // A function keeps the name it is declared and called by, so a variable of that name is renamed.
     variables.forEach((variable, i) => {
       let varName = name;
-      if (i > 0 || functions.has(name)) {
+      if (i > 0 || functions.has(name) || isStructType(name)) {
         let number = 1;
-        while (taken.has(`${name}${number}`)) number++;
+        while (taken.has(`${name}${number}`) || isStructType(`${name}${number}`)) number++;
         varName = `${name}${number}`;
         taken.add(varName);
       }
@@ -1023,8 +1039,9 @@ function assertFnReachesNoStageValue(definition: FnDefinition): void {
 
 /**
  * The name a function of a program is declared under, with `emit` called the
- * first time to write its lines. A name taken gets `_` and the next free number
- * appended, and a function without a name gets a generated one.
+ * first time to write its lines. A name taken, by a function or a struct, gets
+ * `_` and the next free number appended, and a function without a name gets a
+ * generated one.
  */
 export function declareFn(ctx: CompileCtx, definition: FnDefinition, emit: (name: string) => string): string {
   const fns: UserFns = (ctx.userFns ??= { names: new Map(), taken: new Set(), declarations: [] });
@@ -1032,9 +1049,9 @@ export function declareFn(ctx: CompileCtx, definition: FnDefinition, emit: (name
   if (known !== undefined) return known;
   const base = definition.name ?? `${RESERVED_NAME}fn`;
   let name: string = base;
-  if (definition.name === undefined || fns.taken.has(name)) {
+  if (definition.name === undefined || fns.taken.has(name) || isStructType(name)) {
     let number = 1;
-    while (fns.taken.has(`${base}_${number}`)) number++;
+    while (fns.taken.has(`${base}_${number}`) || isStructType(`${base}_${number}`)) number++;
     name = `${base}_${number}`;
   }
   fns.taken.add(name);
@@ -1141,6 +1158,148 @@ export function inlineCalls<T>(roots: T): T {
     if (n.type === "call") {
       const { statements, value } = expand(n);
       result = node({ _t: n._t, type: "seq", params: [...statements, value] });
+    } else if (n.type === "seq") {
+      const params = block(n.params ?? []);
+      const unchanged = params.length === n.params.length && params.every((p, i) => p === n.params[i]);
+      result = unchanged ? n : copyOf(n, params);
+    } else if (Array.isArray(n.params)) {
+      const params = n.params.map(lower);
+      result = params.every((p: any, i: number) => p === n.params[i]) ? n : copyOf(n, params);
+    }
+    lowered.set(n, result);
+    return result;
+  }
+
+  return lower(roots);
+}
+
+/** The path of member names to each member of `type` that is no struct, a member of a member struct by its path through it, in order. */
+function structLeaves(type: StructType): { path: string[]; type: string }[] {
+  return type.members.flatMap((member) => {
+    const inner = structTypeOf(member.type);
+    if (inner === undefined) return [{ path: [member.name], type: member.type }];
+    return structLeaves(inner).map((leaf) => ({ path: [member.name, ...leaf.path], type: leaf.type }));
+  });
+}
+
+/**
+ * The roots with each struct value that a `seq` gives held in a struct
+ * variable that the root sets first. A call outside every `Fn` gives such a
+ * `seq`, its statements ahead of its value, where a call inside one is held in
+ * a variable as it is made. The root becomes a `seq` of the statements, the
+ * variable and the root that reads it, so the statements run once, ahead of
+ * every read.
+ */
+function holdStructCalls<T>(roots: T): T {
+  let held = 0;
+  const holdIn = (root: any): any => {
+    const statements: any[] = [];
+    const replaced = new Map<any, any>();
+    someNode(root, (n) => {
+      if (n.type !== "seq" || !isStructType(n._t) || replaced.has(n)) return;
+      const variable = var_(`_rmsl_h${held++}`, n._t);
+      statements.push(...n.params.slice(0, -1), node({ _t: "void", type: "let", params: [variable, n.params.at(-1)] }));
+      replaced.set(n, variable);
+    });
+    if (replaced.size === 0) return root;
+    return node({ _t: root._t, type: "seq", params: [...statements, substituteNodes(root, replaced)] });
+  };
+  return (Array.isArray(roots) ? roots.map(holdIn) : holdIn(roots)) as T;
+}
+
+/**
+ * The roots with every struct value split into its members, for a target that
+ * declares no struct. A struct variable is a variable for each member, named
+ * after the variable and the member, a member read is the value of that member,
+ * and a `let` or an `assign` of a struct is one for each member. An `assign`
+ * from anything but another variable reads every member into a variable of its
+ * own before it writes one, so a value that reads the variable it writes sees
+ * it as it was. Runs after {@link inlineCalls}, so no struct crosses a call. A
+ * struct that a call outside every `Fn` gives is held in a variable first, see
+ * {@link holdStructCalls}. The graph the caller holds is left as it is.
+ */
+export function splitStructs<T>(roots: T): T {
+  if (!someNode(roots, (n) => isStructType(n._t))) return roots;
+  roots = holdStructCalls(roots);
+  let temporaries = 0;
+  const lowered = new Map<any, any>();
+  const split = new Map<any, any[]>();
+  const copyOf = (original: any, params: any[]) =>
+    Object.assign(Object.create(Object.getPrototypeOf(original)), original, { params });
+  const isStruct = (n: any) => structTypeOf(n?._t) !== undefined;
+
+  /** The members of the struct value `n` that are no struct, in the order of {@link structLeaves}. */
+  function members(n: any): any[] {
+    const known = split.get(n);
+    if (known !== undefined) return known;
+    const type = structTypeOf(n._t)!;
+    let result: any[];
+    if (n.type === "struct") {
+      result = n.params.flatMap((param: any) => (isStruct(param) ? members(param) : [lower(param)]));
+    } else if (n.type === "var") {
+      result = structLeaves(type).map((leaf) => var_(`${n.value.varName}_${leaf.path.join("_")}`, leaf.type));
+    } else if (n.type === "member") {
+      const holder = structTypeOf(n.params[0]._t)!;
+      const leaves = structLeaves(holder);
+      const first = leaves.findIndex((leaf) => leaf.path[0] === n.value);
+      const count = leaves.filter((leaf) => leaf.path[0] === n.value).length;
+      result = members(n.params[0]).slice(first, first + count);
+    } else {
+      throw new InternalError(
+        "struct-value-unsplit",
+        `a struct value held by ${withArticle(n.type)} node cannot be split`,
+      );
+    }
+    split.set(n, result);
+    return result;
+  }
+
+  /** The member `n.value` of the struct `n.params[0]`, when that member is no struct. */
+  const memberLeaf = (n: any) => {
+    const holder = structTypeOf(n.params[0]._t)!;
+    const at = structLeaves(holder).findIndex((leaf) => leaf.path.length === 1 && leaf.path[0] === n.value);
+    return members(n.params[0])[at];
+  };
+
+  /** The statements a `let` or an `assign` of a struct becomes. */
+  const statement = (n: any): any[] => {
+    const [target, value] = n.params;
+    if (value?.type === "seq") {
+      const before = block(value.params.slice(0, -1));
+      return [...before, ...statement(copyOf(n, [target, value.params.at(-1)]))];
+    }
+    const targets = members(target);
+    const values = members(value);
+    if (n.type === "let" || value.type === "var") {
+      return targets.map((t, i) => node({ _t: "void", type: n.type, params: [t, values[i]] }));
+    }
+    const held = values.map((v) => var_(`_rmsl_s${temporaries++}`, v._t));
+    return [
+      ...held.map((h, i) => node({ _t: "void", type: "let", params: [h, values[i]] })),
+      ...targets.map((t, i) => node({ _t: "void", type: "assign", params: [t, held[i]] })),
+    ];
+  };
+
+  /** A block's statements, with each `let` and `assign` of a struct split. */
+  const block = (statements: any[]): any[] =>
+    statements.flatMap((s) =>
+      (s?.type === "let" || s?.type === "assign") && isStruct(s.params[0]) ? statement(s) : [lower(s)],
+    );
+
+  function lower(n: any): any {
+    if (!n || typeof n !== "object") return n;
+    if (Array.isArray(n)) return n.map(lower);
+    const known = lowered.get(n);
+    if (known !== undefined) return known;
+    let result = n;
+    if (n.type === "member" && !isStruct(n)) {
+      const holder = n.params[0];
+      result =
+        holder.type === "seq"
+          ? lower(copyOf(holder, [...holder.params.slice(0, -1), copyOf(n, [holder.params.at(-1)])]))
+          : memberLeaf(n);
+    } else if ((n.type === "let" || n.type === "assign") && isStruct(n.params[0])) {
+      result = node({ _t: "void", type: "seq", params: statement(n) });
     } else if (n.type === "seq") {
       const params = block(n.params ?? []);
       const unchanged = params.length === n.params.length && params.every((p, i) => p === n.params[i]);

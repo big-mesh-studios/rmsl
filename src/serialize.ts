@@ -7,8 +7,13 @@ import {
   attachUniformArrayElement,
   assertNodeNames,
   claimVarName,
+  assertStructType,
   node,
   NODE_TYPES,
+  claimStructName,
+  isGeneratedStructName,
+  registerStructType,
+  structsOf,
   someNode,
   storage,
   StorageBufferAttribute,
@@ -18,6 +23,7 @@ import {
   type Node,
   type ShaderType,
   type StorageAccess,
+  type StructType,
 } from "./core";
 
 /**
@@ -28,6 +34,8 @@ import {
 export interface SerializedGraph {
   nodes: SerializedNode[];
   buffers: SerializedBuffer[];
+  /** The struct types the graph uses, each after the structs its members name. */
+  structs?: StructType[];
   /** The index of the root node, or of each root when an array of roots was serialized. */
   roots: number | number[];
 }
@@ -167,7 +175,12 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
   const roots = Array.isArray(resolved)
     ? resolved.map((r) => add(r as BaseNode<ShaderType>))
     : add(resolved as BaseNode<ShaderType>);
-  return { nodes, buffers, roots };
+
+  const structs = structsOf(resolved).map(({ name, members }) => ({
+    name,
+    members: members.map(({ name, type }) => ({ name, type })),
+  }));
+  return structs.length > 0 ? { nodes, buffers, structs, roots } : { nodes, buffers, roots };
 }
 
 /**
@@ -203,12 +216,46 @@ export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<Sha
     return new Attribute(ArrayClass.from(b.array.map((v) => decodeNumbers(v) as number)), b.itemSize);
   });
 
+  // A struct is recorded before the nodes that hold it, as `struct` records it before its values are built.
+  // A name rmsl gave a struct with none only means something in the process that built it, so the struct takes a new one.
+  const structNames = new Map<string, string>();
+  const typeOf = (type: string) => structNames.get(type) ?? type;
+  for (const struct of graph.structs ?? []) {
+    const name = isGeneratedStructName(struct.name) ? claimStructName() : struct.name;
+    structNames.set(struct.name, name);
+    const type = { name, members: struct.members.map((m) => ({ name: m.name, type: typeOf(m.type) })) };
+    assertStructType(type);
+    registerStructType(type, true);
+  }
+  const entries = structNames.size === 0 ? graph.nodes : graph.nodes.map((entry) => renameStructs(entry, typeOf));
+
   const nodes: Node<ShaderType>[] = [];
   const names = new Map<number, { id?: number; name: string }>();
-  for (const entry of graph.nodes) nodes.push(deserializeNode(entry, nodes, buffers, names, graph.nodes.length));
+  for (const entry of entries) nodes.push(deserializeNode(entry, nodes, buffers, names, entries.length));
 
   const root = (r: number) => nodes[indexInto(r, nodes.length, "root", "a node")]!;
   return Array.isArray(graph.roots) ? graph.roots.map(root) : root(graph.roots);
+}
+
+/** `entry` with each struct type it names given by `typeOf`: its own type, a variable's, a function's and a struct value's. */
+function renameStructs(entry: SerializedNode, typeOf: (type: string) => string): SerializedNode {
+  const value = entry.value as Record<string, any> | undefined;
+  let renamed: unknown = value;
+  if (entry.type === "var" && value) renamed = { ...value, varType: typeOf(value.varType) };
+  if (entry.type === "call" && value) {
+    renamed = {
+      ...value,
+      type: typeOf(value.type),
+      inputs: (value.inputs ?? []).map((input: any) => ({ ...input, type: typeOf(input.type) })),
+    };
+  }
+  if (entry.type === "struct" && value) {
+    renamed = {
+      name: typeOf(value.name),
+      members: (value.members ?? []).map((m: any) => ({ ...m, type: typeOf(m.type) })),
+    };
+  }
+  return { ...entry, _t: typeOf(entry._t), ...(renamed === undefined ? {} : { value: renamed }) };
 }
 
 /** `index`, when it names one of `length` items, or an error saying what `user` named instead. */

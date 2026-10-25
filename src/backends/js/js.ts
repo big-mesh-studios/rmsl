@@ -61,6 +61,7 @@ import {
   withoutSemicolon,
   wrapExpr,
   inlineCalls,
+  splitStructs,
 } from "../shared";
 import { matrixHelperSource } from "../matrix-formulas";
 import { shareNodes } from "../share";
@@ -2690,7 +2691,7 @@ function compileJSFnDetailed(
   // result can be any value.
   const found: FoundInRoots = {};
   const resultNodes = numberClashingVariables(
-    shareNodes(origin, inlineCalls(prepareRoots(origin, options.stage, rawNodes, found, true))),
+    shareNodes(origin, splitStructs(inlineCalls(prepareRoots(origin, options.stage, rawNodes, found, true)))),
   );
 
   const ctx: CompileCtx = {
