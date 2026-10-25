@@ -2305,12 +2305,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   /**
-   * A literal that is not a whole number cannot take an integer type.
-   *
-   * @canon spec-a-fraction-beside-an-integer-is-refused
+   * @canon spec-a-fraction-beside-an-integer-truncates
    */
-  it("refuses a fractional literal beside an integer operand", () => {
-    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrowRmsl(NodeError, "literal-not-whole");
+  it("truncates a fractional literal beside an integer operand toward zero", () => {
+    expect(compileWgsl(Fn(() => uniform("int").add(2.5).toVar())())).toMatch(/ \+ 2i;/);
+    expect(compileGlsl(Fn(() => uniform("int").sub(-2.5).toVar())())).toMatch(/ - -2;/);
   });
 
   /**
@@ -2620,10 +2619,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       let items = uniformArray("vec4", 4);
       return items.element(2).add(items.element(0)).toVar();
     });
-    // A plain number is a float node, so the index is converted rather than
-    // emitted bare.
-    expect(compileGlsl(prog())).toMatch(/_rmsl_u\d+\[int\(2\.0\)\]/);
-    expect(compileWgsl(prog())).toMatch(/_rmsl_u\d+\[i32\(2f\)\]/);
+    expect(compileGlsl(prog())).toMatch(/_rmsl_u\d+\[2\]/);
+    expect(compileWgsl(prog())).toMatch(/_rmsl_u\d+\[2i\]/);
   });
 
   /**
@@ -2646,7 +2643,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       let prog = Fn(() => (uniformArray(type as any, 4).element(1) as any).toVar());
       let wgsl = compileWgsl(prog());
       expect(wgsl, type).toContain(stored);
-      expect(wgsl, type).toMatch(new RegExp(`\\[i32\\([^)]*\\)\\]${read.replace(".", "\\.")}`));
+      expect(wgsl, type).toMatch(new RegExp(`\\[1i\\]${read.replace(".", "\\.")}`));
       // GLSL has no such rule, so nothing is padded there.
       expect(compileGlsl(prog()), type).toMatch(/uniform \w+ _rmsl_u\d+\[4\];/);
     }
@@ -2926,11 +2923,12 @@ describe("integer vectors", () => {
   });
 
   /**
-   * @canon spec-a-fraction-beside-an-integer-is-refused
+   * @canon spec-a-fraction-beside-an-integer-truncates
    */
-  it("rejects a non-whole number beside an integer vector", () => {
-    let prog = () => ivec2(1, 2).add(0.5).toVar();
-    expect(() => prog()).toThrowRmsl(NodeError, "literal-not-whole");
+  it("truncates a fraction beside an integer vector", () => {
+    let prog = Fn(() => (uniform("ivec2") as any).add(2.5).toVar());
+    expect(compileWgsl(prog())).toMatch(/ \+ 2i;/);
+    expect(compileWgsl(prog())).not.toContain("2.5");
   });
 
   /**

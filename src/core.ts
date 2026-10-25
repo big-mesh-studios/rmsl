@@ -1345,14 +1345,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // The argument is an index, so a plain number is always typed as an integer.
   // A matrix indexes to one of its columns; a vector to one of its components.
   element(i: any): any {
-    const index =
-      typeof i === "number"
-        ? node({
-            _t: "int",
-            type: "int",
-            value: i | 0,
-          })
-        : i;
+    const index = indexNode(i);
 
     if (this.type === "storage") {
       return node({
@@ -1838,13 +1831,6 @@ export function typedOperand(value: any, operandType: string, operation?: string
   let isIntegral = scalarType === "int" || scalarType === "uint";
   if (typeof value !== "number" || !isIntegral) {
     return wrapValue(value, operation) as BaseNode<ShaderType>;
-  }
-  if (!Number.isInteger(value)) {
-    throw new NodeError(
-      "literal-not-whole",
-      `${value} is not a whole number, but the operand beside it is an ` +
-        `${operandType}. Convert the operand to a float, or use a whole number.`,
-    );
   }
   if (scalarType === "uint" && value < 0) {
     throw new NodeError(
@@ -2434,22 +2420,52 @@ export function assertCallFits(call: BaseNode<ShaderType>): void {
   }
 }
 
-/** The value of `x` as the input `input` of a function, or throws if it has another type. */
+/**
+ * The value of `x` as the input `input` of a function, or throws if it has
+ * another type. A number takes the type of the input, and fills every
+ * component of a vector input.
+ */
 function fitArgument(
   name: string | undefined,
   input: { name: string; type: string },
   x: unknown,
 ): BaseNode<ShaderType> {
-  const value = wrapValue(x as any) as BaseNode<ShaderType>;
+  const value = typeof x === "number" ? numberArgument(name, input, x) : (wrapValue(x as any) as BaseNode<ShaderType>);
   if (!isNode(value) || value._t !== input.type) {
     const got = isNode(value) && value._t !== "void" ? `a ${value._t}` : "nothing";
     throw new NodeError(
       "argument-of-another-type",
       `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${got}. ` +
-        `Convert it to a ${input.type}${typeof x === "number" ? `, as ${input.type}(${x}) does: a plain number is a float` : ""}.`,
+        `Convert it to a ${input.type}.`,
     );
   }
   return value;
+}
+
+/** The number `x` as the input `input` of a function: a literal of its type, or of its component type for a vector, its fraction truncated. */
+function numberArgument(
+  name: string | undefined,
+  input: { name: string; type: string },
+  x: number,
+): BaseNode<ShaderType> | undefined {
+  const scalar = componentKindOf(input.type);
+  if (scalar === "bool" || MATRIX_DIMENSIONS[input.type]) return wrapValue(x) as BaseNode<ShaderType>;
+  let component: BaseNode<ShaderType>;
+  if (scalar === "float") {
+    component = wrapValue(x) as BaseNode<ShaderType>;
+  } else {
+    const [low, high] = scalar === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
+    const whole = Math.trunc(x);
+    if (!(whole >= low && whole <= high) || (scalar === "uint" && x < 0)) {
+      throw new NodeError(
+        "argument-of-another-type",
+        `The input "${input.name}" of ${describeFn(name)} is a ${input.type}, and the call passes ${x}, ` +
+          `which is outside the range of ${scalar}, ${low} to ${high}. Give a number inside the range.`,
+      );
+    }
+    component = node({ _t: scalar, type: scalar, value: whole });
+  }
+  return input.type === scalar ? component : node({ _t: input.type, type: "construct", params: [component] });
 }
 
 /** The arguments of a call of a function with `layout`, in the order of its inputs, whether passed by position or as one object. */
@@ -2904,11 +2920,16 @@ export function makeIntVecConstructor<T extends ShaderType>(
     if (args.length <= width && args.every((a) => typeof a === "number")) {
       return node({ _t: t, type: t, value: args.map(toComponent) }) as Node<T>;
     }
+    // A number beside a node is a component of the vector's type, written as its literal.
     return node({
       _t: t,
       type: "construct",
       params: args.map((a: any) =>
-        isNode(a) ? (a as BaseNode<ShaderType>) : (wrapValue(a, t) as BaseNode<ShaderType>),
+        typeof a === "number"
+          ? (node({ _t: scalarType, type: scalarType, value: toComponent(a) }) as BaseNode<ShaderType>)
+          : isNode(a)
+            ? (a as BaseNode<ShaderType>)
+            : (wrapValue(a, t) as BaseNode<ShaderType>),
       ),
     }) as Node<T>;
   };
@@ -3595,8 +3616,21 @@ export function attachUniformArrayElement<T extends ShaderType>(target: any, sha
     node({
       _t: shaderType,
       type: "uniformArrayElement",
-      params: [target, wrapValue(index, "element") as BaseNode<ShaderType>],
+      params: [target, indexNode(index)],
     });
+}
+
+/**
+ * The node of the index `i`: a number as an `int` literal, its fraction
+ * truncated and refused when it is negative, and any other value as
+ * `element` takes it.
+ */
+function indexNode(i: unknown): BaseNode<ShaderType> {
+  if (typeof i !== "number") return wrapValue(i as any, "element") as BaseNode<ShaderType>;
+  if (i < 0) {
+    throw new NodeError("index-negative", `element(${i}) takes an index of 0 or more, and ${i} is negative.`);
+  }
+  return node({ _t: "int", type: "int", value: integerLiteral("int", i) });
 }
 
 /**
@@ -3762,7 +3796,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
     node({
       _t: shaderType,
       type: "storageElement",
-      params: [storageNode, wrapValue(index, "element") as BaseNode<ShaderType>],
+      params: [storageNode, indexNode(index)],
     }) as Var<T>;
   result.toReadOnly = () => {
     value.access = "read";
@@ -4352,9 +4386,8 @@ function compare(index: Node<any>, condition: string, end: Node<any>): Node<"boo
 /** The start, end, condition and step of a `Loop` range, with what TSL fills in where the range gives none. */
 function loopBounds(range: IntLike | FloatLike | LoopRange) {
   if (!isLoopRange(range)) {
-    if (typeof range === "number") assertWholeBound(range, "int");
-    // A count is built as the index's type, as TSL builds it.
-    const end = isNode(range) && range._t !== "int" ? int(range as Node<"float">) : range;
+    // A count is built as the index's type, as TSL builds it, a fraction truncated.
+    const end = typeof range === "number" || range._t !== "int" ? int(range as Node<"float">) : range;
     return { start: int(0), end: end as Node<any>, condition: "<", step: int(1) as Node<any> };
   }
   const type = range.type ?? "int";
@@ -4369,7 +4402,6 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   }
   // Each bound is built as the index's type, as TSL builds it.
   const of = (value: number | Node<ShaderType>): Node<any> => {
-    if (typeof value === "number" && type !== "float") assertWholeBound(value, type);
     if (isNode(value) && value._t === type) return value;
     return type === "float" ? float(value as number) : type === "uint" ? uint(value as number) : int(value as number);
   };
@@ -4408,16 +4440,6 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
     );
   }
   return { start: of(start!), end: of(end ?? 0), condition, step };
-}
-
-/** Throws for a number with a fraction given as a bound of an integer `Loop` index, which TSL would round. */
-function assertWholeBound(value: number, type: string): void {
-  if (!Number.isInteger(value)) {
-    throw new NodeError(
-      "loop-bound-not-whole",
-      `Loop: ${value} is not a whole number, but the index is ${withArticle(type)}. Use a whole number, or a float node, which converts to the index's type`,
-    );
-  }
 }
 
 /**

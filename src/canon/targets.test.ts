@@ -52,6 +52,7 @@ import {
   uniformArray,
   uv,
   uvec2,
+  uvec3,
   varying,
   vec2,
   vec3,
@@ -806,25 +807,47 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * A float node converts to the index's type, and truncates.
+   * A float node converts to the index's type, and truncates, as a number does.
    *
-   * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
+   * @canon spec-loop-truncates-a-fraction-for-an-integer-bound
    */
-  it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
-    expect(buildLoop(() => Loop(2.5, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
-    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
-    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrowRmsl(
-      NodeError,
-      "loop-bound-not-whole",
-    );
-    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrowRmsl(NodeError, "loop-bound-not-whole");
-    const build = (a: Node<"float">) =>
+  it("truncates a fraction for an integer Loop bound, as it truncates a float node", () => {
+    const counting = (loop: (count: any) => void) => (a: Node<"float">) =>
       Fn(() => {
         const count = a.toVar();
-        Loop(float(2.5), () => count.addAssign(1));
+        loop(count);
         return count;
       })();
-    expect(evaluateRecording(build, [0])).toBe(2);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop(2.5, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(2);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop({ end: 2.5 }, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(2);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop({ start: 0.5, end: 3, type: "uint" }, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(3);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop({ end: 4, update: 1.5 }, () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(4);
+    expect(
+      evaluateRecording(
+        counting((c) => Loop(float(2.5), () => c.addAssign(1))),
+        [0],
+      ),
+    ).toBe(2);
   });
 
   /**
@@ -2349,5 +2372,147 @@ describe("a variable the update of a For makes", () => {
       })();
     // The body reads a and 10 + a; after the loop the variable holds 20 + a.
     expect(evaluateRecording(build, [1])).toBe(1 + 11 + 2100);
+  });
+});
+
+describe("a number beside a node in an integer vector", () => {
+  /**
+   * @canon spec-a-number-beside-a-node-in-an-integer-vector-compiles-to-an-integer-literal
+   */
+  it("compiles the number to an integer literal on every target", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const a = ivec2(x.toInt(), 0).toVar("a");
+        const b = uvec2(x.toUint(), 7).toVar("b");
+        return vec4(a.x.toFloat(), a.y.toFloat(), b.y.toFloat(), 1);
+      })();
+    const at = uniform("float");
+    const glsl = compileGlsl(build(at));
+    expect(glsl).toContain("ivec2(int(");
+    expect(glsl).toMatch(/ivec2\(int\([^)]*\), 0\)/);
+    expect(glsl).toMatch(/uvec2\(uint\([^)]*\), 7u\)/);
+    const wgsl = compileWgsl(build(at));
+    expect(wgsl).toMatch(/vec2<i32>\(i32\([^)]*\), 0i\)/);
+    expect(wgsl).toMatch(/vec2<u32>\(u32\([^)]*\), 7u\)/);
+    const js = compileJSFn(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+    expect(js).not.toMatch(/Math\.trunc\(Math\.min\(Math\.max\((0|7),/);
+    expect(Array.from(evaluateRecording(build, [3]) as ArrayLike<number>)).toEqual([3, 0, 7, 1]);
+  });
+
+  /**
+   * @canon spec-a-number-outside-an-integer-type-is-refused-by-its-constructor
+   */
+  it("refuses a number outside the component type beside a node, and truncates a fraction", () => {
+    const i = uniform("int");
+    const u = uniform("uint");
+    expect(() => ivec2(i, 3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => uvec3(u, 1, 5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
+    expect(() => uvec2(u, -1)).toThrowRmsl(NodeError, "literal-negative-for-unsigned");
+    expect(compileGlsl(Fn(() => ivec2(i, 2.9).toVar())())).toMatch(/ivec2\(_rmsl_u\d+, 2\)/);
+  });
+});
+
+describe("a number given as an index", () => {
+  /**
+   * @canon spec-a-number-index-is-an-int-literal
+   */
+  it("compiles to an int literal on every target", () => {
+    const values = uniformArray("float", 4);
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const v = vec3(x, x.add(1), x.add(2)).toVar("v");
+        return vec4(v.element(1), values.element(2), 0, 1);
+      })();
+    const at = uniform("float");
+    const glsl = compileGlsl(build(at));
+    expect(glsl).toMatch(/v\[1\]/);
+    expect(glsl).toMatch(/_rmsl_u\d+\[2\]/);
+    expect(glsl).not.toMatch(/int\(2\.0\)/);
+    const wgsl = compileWgsl(build(at));
+    expect(wgsl).toMatch(/v\[1i?\]/);
+    expect(wgsl).not.toMatch(/i32\(2f\)/);
+    const js = compileJSFn(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+    expect(js).not.toMatch(/Math\.trunc\(Math\.min\(Math\.max\(2,/);
+  });
+
+  /**
+   * @canon spec-a-fraction-index-truncates
+   */
+  it("truncates a fraction given as an index toward zero", () => {
+    const values = uniformArray("float", 4);
+    expect(compileGlsl(Fn(() => vec4(values.element(2.5), 0, 0, 1))())).toMatch(/_rmsl_u\d+\[2\]/);
+    expect(compileWgsl(Fn(() => vec4(values.element(2.5), 0, 0, 1))())).toMatch(/_rmsl_u\d+\[2i\]/);
+    expect(evaluateRecording((x) => vec3(x, x.add(1), x.add(2)).element(1.5), [5])).toBe(6);
+  });
+
+  /**
+   * @canon spec-a-negative-index-is-refused
+   */
+  it("refuses a negative number where the index is given", () => {
+    const v = uniform("vec3");
+    const values = uniformArray("float", 4);
+    const buffer = instancedArray(4, "float");
+    expect(() => v.element(-1)).toThrowRmsl(NodeError, "index-negative", /-1/);
+    expect(() => values.element(-1)).toThrowRmsl(NodeError, "index-negative", /-1/);
+    expect(() => buffer.element(-0.5)).toThrowRmsl(NodeError, "index-negative", /-0\.5/);
+  });
+});
+
+describe("where rmsl refuses a number TSL converts", () => {
+  /**
+   * @canon exception-a-fraction-for-an-integer-truncates-where-tsl-r186-rounds
+   */
+  it("truncates 2.9 to 2 beside an integer, for an integer input, as an index and in a constructor, where r186 rounds to 3", () => {
+    const next = Fn(([n]: [Node<"int">]) => n.add(1)).setLayout({
+      name: "next",
+      type: "int",
+      inputs: [{ name: "n", type: "int" }],
+    }) as (...args: any[]) => any;
+    const build = (x: Node<"float">) =>
+      Fn(() =>
+        vec4(
+          x.toInt().add(2.9).toFloat(),
+          next(2.9).toFloat(),
+          vec4(x, x.add(1), x.add(2), x.add(3)).element(2.9),
+          ivec2(x.toInt(), 2.9).y.toFloat(),
+        ),
+      )();
+    expect(Array.from(evaluateRecording(build, [0]) as ArrayLike<number>)).toEqual([2, 3, 2, 2]);
+  });
+
+  /**
+   * @canon exception-a-number-index-is-an-int-where-tsl-builds-a-uint
+   */
+  it("compiles a number index as an int, where TSL writes a uint", () => {
+    const values = uniformArray("float", 4);
+    const build = () => Fn(() => vec4(values.element(2), 0, 0, 1))();
+    expect(compileWgsl(build())).toMatch(/_rmsl_u\d+\[2i\]/);
+    expect(compileWgsl(build())).not.toMatch(/\[2u\]/);
+  });
+
+  /**
+   * @canon exception-a-negative-index-is-refused-where-tsl-writes-zero
+   */
+  it("refuses a negative index, where TSL reads the first element", () => {
+    expect(() => uniformArray("float", 4).element(-1)).toThrowRmsl(NodeError, "index-negative");
+    expect(() => instancedArray(4, "float").element(-2)).toThrowRmsl(NodeError, "index-negative");
+  });
+
+  /**
+   * @canon exception-a-number-beyond-an-integer-range-beside-a-node-in-a-constructor-is-refused
+   */
+  it("refuses a number out of range beside a node in a constructor, where TSL converts it", () => {
+    const i = uniform("int");
+    const u = uniform("uint");
+    expect(() => ivec2(i, 3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
+    expect(() => uvec3(u, 1, 5e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of uint/);
+  });
+
+  /**
+   * @canon exception-a-number-beyond-an-integer-range-is-refused-where-tsl-changes-the-type
+   */
+  it("refuses a number beyond the range of an integer beside it, where TSL adds two floats", () => {
+    const i = uniform("int") as any;
+    expect(() => i.add(3e9)).toThrowRmsl(NodeError, "literal-out-of-range", /outside the range of int/);
   });
 });
